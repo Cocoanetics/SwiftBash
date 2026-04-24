@@ -89,8 +89,9 @@ extension Shell {
             return try captureOutput(of: cmd)
         case .processSubstitution:
             throw BashInterpreterError.unimplemented("process substitution")
-        case .arithmeticSubstitution:
-            throw BashInterpreterError.unimplemented("arithmetic substitution evaluation")
+        case .arithmeticSubstitution(let expr):
+            let value = try evaluateArithmetic(expr)
+            return String(value)
         default:
             return ""
         }

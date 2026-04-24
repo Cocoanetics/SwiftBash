@@ -46,15 +46,25 @@ extension Shell {
         case .pipeline:
             throw BashInterpreterError.unimplemented("pipelines (not yet supported in the builtins-only skeleton)")
 
-        case .compound:
+        case .compound(let list, _):
+            // The builtins-only skeleton doesn't handle redirections on
+            // compounds yet; execute the inner list if there's exactly one
+            // arithmetic-command child. All other compounds are unimplemented.
+            if list.count == 1, case .arithmeticCommand(let expr) = list[0].kind {
+                return try runArithmeticCommand(expr)
+            }
             throw BashInterpreterError.unimplemented("compound commands")
 
         case .function:
             throw BashInterpreterError.unimplemented("function definitions")
 
-        case .arithmeticCommand,
-             .arithmeticSubstitution:
-            throw BashInterpreterError.unimplemented("arithmetic evaluation")
+        case .arithmeticCommand(let expr):
+            return try runArithmeticCommand(expr)
+
+        case .arithmeticSubstitution:
+            // Only meaningful inside a word — handled by Shell+Expansion.
+            throw BashInterpreterError.unimplemented(
+                "arithmetic substitution used outside a word")
 
         case .operator, .pipe, .reservedWord, .redirect,
              .word, .assignment, .parameter, .tilde, .heredoc,

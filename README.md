@@ -239,6 +239,13 @@ try shell.run("true && echo yes")          // → yes
   semantics, including expansion order).
 - **`$?`** reflects the previous command's exit status.
 - **`exit [N]`** unwinds the whole run.
+- **Arithmetic** — full `((…))` / `$((…))` support: 64-bit signed
+  integer math with wrap-on-overflow, every bash operator
+  (`+ - * / % ** << >> < > <= >= == != & ^ | && || ? : = ,` plus all
+  compound-assign forms and pre/post `++`/`--`), base literals
+  (`0x…`, `0…`, `N#…` up to base 64), short-circuit for `&& || ? :`,
+  and bash's recursive variable-as-expression resolution. Exit status
+  follows bash's inverted convention (`(( 0 ))` → 1, `(( 42 ))` → 0).
 
 ## What's not implemented yet
 
@@ -246,7 +253,6 @@ try shell.run("true && echo yes")          // → yes
   throws `commandNotFound`.
 - Pipelines (`|`, `|&`) and redirections.
 - Control flow: `if`, `while`, `until`, `for`, `case`.
-- Arithmetic evaluation inside `((…))` / `$((…))`.
 - Process substitution `<(…)`, `>(…)`, and here-strings `<<<`.
 - Globbing, word splitting (on `$IFS`), and `${var:-default}`-style
   parameter expansion operators.
@@ -294,10 +300,6 @@ Install the binary once with `swift build -c release` (output at
 
 A handful of bash features are intentionally out of scope for now:
 
-- Arithmetic **expressions** inside `((…))` / `$((…))` are captured as a
-  raw body string on the corresponding `arithmeticCommand` /
-  `arithmeticSubstitution` node — the math itself is not parsed into a
-  sub-AST.
 - Complex parameter expansions like `${parameter#word}` parse into a single
   `parameter` node carrying the literal body — no sub-parsing.
 - `[[ … ]]` test commands, `select`, `coproc`, and the `time` reserved word
@@ -354,9 +356,17 @@ Sources/BashInterpreter/
   Builtins/
     Builtin.swift                        Protocol
     EchoBuiltin.swift … ExitBuiltin.swift One file per built-in
+  Arithmetic/
+    ArithError.swift                     Arithmetic-specific errors
+    ArithToken.swift                     Lexer token enum
+    ArithLexer.swift                     Tokenises 0x / 0N / N#digits + operators
+    ArithExpr.swift                      AST for expressions
+    ArithParser.swift                    Pratt parser with full precedence table
+    Arithmetic.swift                     Public facade + evaluator
   Execution/
     Shell+Run.swift                      Top-level dispatch + lists
     Shell+Expansion.swift                $VAR / $(…) / ~ expansion
+    Shell+Arithmetic.swift               ((…)) / $((…)) → Arithmetic.evaluate
 ```
 
 ## License
