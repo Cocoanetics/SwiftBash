@@ -151,21 +151,54 @@ extension Shell {
 
         var last = ExitStatus.success
         loop: for item in items {
-            let value = try await expand(word: item)
-            environment[varName] = value
-            do {
-                last = try await execute(body)
-                lastExitStatus = last
-            } catch var signal as LoopControlSignal {
-                signal.remainingLevels -= 1
-                if signal.remainingLevels > 0 { throw signal }
-                switch signal.kind {
-                case .breakLoop:    break loop
-                case .continueLoop: continue loop
+            // `for x in $(seq 3)` must iterate three times — i.e., the
+            // expansion of a substitution in the `in` clause is
+            // word-split. Literal words pass through unchanged.
+            let expanded = try await expand(word: item)
+            let values = splitForLoopWord(expanded, originalWord: item)
+            for value in values {
+                environment[varName] = value
+                do {
+                    last = try await execute(body)
+                    lastExitStatus = last
+                } catch var signal as LoopControlSignal {
+                    signal.remainingLevels -= 1
+                    if signal.remainingLevels > 0 { throw signal }
+                    switch signal.kind {
+                    case .breakLoop:    break loop
+                    case .continueLoop: continue loop
+                    }
                 }
             }
         }
         return last
+    }
+
+    /// Approximate bash word splitting for the `for … in …` position.
+    /// Only words that contained a substitution are split — literal
+    /// words pass through unchanged. Splits on whitespace runs
+    /// (space, tab, newline), matching the default `IFS`.
+    private func splitForLoopWord(_ expanded: String,
+                                  originalWord: Node) -> [String] {
+        let hasSubstitution: Bool
+        switch originalWord.kind {
+        case .word(_, let parts), .assignment(_, let parts):
+            hasSubstitution = parts.contains { part in
+                switch part.kind {
+                case .parameter, .commandSubstitution,
+                     .arithmeticSubstitution, .tilde:
+                    return true
+                default:
+                    return false
+                }
+            }
+        default:
+            hasSubstitution = false
+        }
+        if !hasSubstitution { return [expanded] }
+        return expanded
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
     }
 
     // MARK: case

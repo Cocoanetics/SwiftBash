@@ -41,6 +41,8 @@ let package = Package(
             name: "swift-bash",
             dependencies: [
                 "BashSyntax",
+                "BashInterpreter",
+                "BashCommandKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/swift-bash"

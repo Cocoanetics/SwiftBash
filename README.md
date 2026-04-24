@@ -456,9 +456,40 @@ Options on `parse`:
 - `-s, --with-source` — render `s='…'` slices instead of `pos=(…,…)`.
 - `--first` — parse only the first top-level unit.
 
+### `swift-bash exec <script>`
+
+Run a bash script through the interpreter. The process's environment
+is forwarded to the shell, stdout/stderr stream live through, and the
+script's exit status becomes the CLI's exit code. All
+`registerStandardCommands()` commands (`date`, `seq`, `sleep`, `cat`,
+`head`, `grep`, `wc`, `env`, `whoami`, `hostname`, `basename`,
+`dirname`, `realpath`) plus the built-ins are pre-registered.
+
+Example — the same script runs identically on bash and swift-bash:
+
+```bash
+$ cat Examples/date-loop.sh
+#!/usr/bin/env bash
+# Print the current date every 5 seconds for one minute.
+for i in $(seq 12); do
+  date
+  sleep 5
+done
+
+$ /bin/bash Examples/date-loop.sh
+Fri Apr 24 21:52:31 CEST 2026
+Fri Apr 24 21:52:36 CEST 2026
+…
+
+$ swift-bash exec Examples/date-loop.sh
+Fri Apr 24 21:52:31 CEST 2026
+Fri Apr 24 21:52:36 CEST 2026
+…
+```
+
 Install the binary once with `swift build -c release` (output at
 `.build/release/swift-bash`), or run directly during development with
-`swift run swift-bash parse …`.
+`swift run swift-bash <subcommand> …`.
 
 ## Limitations
 
@@ -530,7 +561,11 @@ Sources/BashCommandKit/
 Sources/swift-bash/
   SwiftBashCLI.swift                     Root command (@main)
   ParseCommand.swift                     `swift-bash parse` subcommand
+  ExecCommand.swift                      `swift-bash exec` subcommand
   CLIError.swift                         LocalizedError wrapper for nice output
+
+Examples/
+  date-loop.sh                           Runs on bash *and* swift-bash exec
 
 Sources/BashInterpreter/
   API/

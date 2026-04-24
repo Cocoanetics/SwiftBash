@@ -52,11 +52,11 @@ final class ForTests: XCTestCase {
     }
 
     func testForCommandSubstitutionInList() async throws {
+        // Unquoted `$(…)` in the `in` clause is word-split like bash, so
+        // this iterates three times.
         let cap = CapturingShell()
-        // $(echo a b c) produces the string "a b c" — without word splitting,
-        // this currently iterates once (known limitation). Verify that.
         try await cap.shell.run("for x in $(echo a b c); do echo [$x]; done")
-        XCTAssertEqual(cap.stdout, "[a b c]\n")
+        XCTAssertEqual(cap.stdout, "[a]\n[b]\n[c]\n")
     }
 
     func testForWithoutInIsUnimplemented() async {
