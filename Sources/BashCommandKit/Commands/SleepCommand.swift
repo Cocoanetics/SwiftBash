@@ -25,7 +25,10 @@ public struct SleepCommand: ParsableBashCommand {
             return .failure
         }
         if seconds > 0 {
-            Thread.sleep(forTimeInterval: seconds)
+            // Cooperative sleep: doesn't pin a thread, responds to
+            // Task cancellation — so a downstream pipeline stage
+            // finishing early can actually unblock us.
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
         return .success
     }
