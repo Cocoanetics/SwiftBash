@@ -11,6 +11,7 @@ let package = Package(
     ],
     products: [
         .library(name: "BashSyntax", targets: ["BashSyntax"]),
+        .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
         .executable(name: "swift-bash", targets: ["swift-bash"]),
     ],
     dependencies: [
@@ -21,6 +22,11 @@ let package = Package(
         .target(
             name: "BashSyntax",
             path: "Sources/BashSyntax"
+        ),
+        .target(
+            name: "BashInterpreter",
+            dependencies: ["BashSyntax"],
+            path: "Sources/BashInterpreter"
         ),
         .executableTarget(
             name: "swift-bash",
@@ -34,6 +40,11 @@ let package = Package(
             name: "BashSyntaxTests",
             dependencies: ["BashSyntax"],
             path: "Tests/BashSyntaxTests"
+        ),
+        .testTarget(
+            name: "BashInterpreterTests",
+            dependencies: ["BashInterpreter"],
+            path: "Tests/BashInterpreterTests"
         ),
     ]
 )

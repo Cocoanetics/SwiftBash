@@ -5,8 +5,8 @@ Swift libraries for working with bash source.
 | Product                | Status     | What it does                                    |
 |------------------------|------------|-------------------------------------------------|
 | **`BashSyntax`**       | Available  | Parse bash into a typed AST; smart tokeniser.   |
+| **`BashInterpreter`**  | Skeleton   | Execute ASTs — built-ins only (no subprocess yet). |
 | **`swift-bash`** (CLI) | Available  | Command-line front-end for `BashSyntax`.        |
-| **`BashInterpreter`**  | Planned    | Execute parsed ASTs against a Swift-managed shell. |
 
 The rest of this README covers `BashSyntax`. Additional products will get
 their own sections as they land.
@@ -195,6 +195,65 @@ do {
 | `Tokenizer`, `Parser`       | Lower-level building blocks, for advanced use.      |
 | `BashSyntaxError`              | `parsing(message:source:position:)` / `unimplemented`. |
 
+---
+
+# BashInterpreter
+
+A minimal AST-walking interpreter sitting on top of `BashSyntax`. The
+current "skeleton" cut runs **built-ins only** — no subprocess spawning,
+no pipelines, no redirection plumbing yet — enough to exercise word
+expansion, environment management, and list execution end-to-end.
+
+```swift
+import BashInterpreter
+
+let shell = Shell()
+shell.environment["PATH"] = "/usr/bin:/bin"
+shell.environment["USER"] = "oliver"
+
+try shell.run("echo hello $USER")          // → hello oliver
+try shell.run("echo PATH is $PATH")        // → PATH is /usr/bin:/bin
+try shell.run("export GREETING=welcome")
+try shell.run("echo $GREETING")            // → welcome
+
+// Short-circuit lists work:
+try shell.run("false || echo fallback")    // → fallback
+try shell.run("true && echo yes")          // → yes
+```
+
+## What works
+
+- Simple command dispatch against a built-in registry.
+- **Built-ins**: `echo` (including `-n`, `--`), `true`, `false`, `:`,
+  `pwd`, `cd` (including `cd -`, `cd` with no arg), `export`, `unset`,
+  `exit`.
+- **Lists**: `;`, `\n`, `&&` and `||` (with short-circuit), `&`
+  (currently runs foreground).
+- **Variable expansion**: `$NAME`, `${NAME}`, `$?`, `$$`, concatenation
+  (`$A$B`), inside double quotes, suppressed inside single quotes.
+- **Command substitution**: `$(…)` and `` `…` `` — executed in the
+  current shell, stdout captured and trimmed.
+- **Tilde expansion**: bare `~` expands to `$HOME`.
+- **Assignments**: standalone `X=value` sets a variable; prefix
+  `X=value cmd` scopes the assignment to that command (matching bash
+  semantics, including expansion order).
+- **`$?`** reflects the previous command's exit status.
+- **`exit [N]`** unwinds the whole run.
+
+## What's not implemented yet
+
+- Subprocess execution — anything that isn't a registered built-in
+  throws `commandNotFound`.
+- Pipelines (`|`, `|&`) and redirections.
+- Control flow: `if`, `while`, `until`, `for`, `case`.
+- Arithmetic evaluation inside `((…))` / `$((…))`.
+- Process substitution `<(…)`, `>(…)`, and here-strings `<<<`.
+- Globbing, word splitting (on `$IFS`), and `${var:-default}`-style
+  parameter expansion operators.
+
+These are the natural next increments; the skeleton gives each of them
+a concrete place to land.
+
 ## CLI: `swift-bash`
 
 The package ships a command-line front-end built on
@@ -285,6 +344,19 @@ Sources/swift-bash/
   SwiftBashCLI.swift                     Root command (@main)
   ParseCommand.swift                     `swift-bash parse` subcommand
   CLIError.swift                         LocalizedError wrapper for nice output
+
+Sources/BashInterpreter/
+  API/
+    Shell.swift                          Main executor class
+    Environment.swift                    Variables + cwd
+    ExitStatus.swift                     0 = success, non-zero = failure
+    BashInterpreterError.swift           commandNotFound / unimplemented / io
+  Builtins/
+    Builtin.swift                        Protocol
+    EchoBuiltin.swift … ExitBuiltin.swift One file per built-in
+  Execution/
+    Shell+Run.swift                      Top-level dispatch + lists
+    Shell+Expansion.swift                $VAR / $(…) / ~ expansion
 ```
 
 ## License
