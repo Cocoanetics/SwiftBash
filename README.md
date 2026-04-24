@@ -6,6 +6,7 @@ Swift libraries for working with bash source.
 |------------------------|------------|-------------------------------------------------|
 | **`BashSyntax`**       | Available  | Parse bash into a typed AST; smart tokeniser.   |
 | **`BashInterpreter`**  | Skeleton   | Execute ASTs — built-ins only (no subprocess yet). |
+| **`BashCommandKit`**   | Available  | Register `ArgumentParser`-based commands on a shell. |
 | **`swift-bash`** (CLI) | Available  | Command-line front-end for `BashSyntax`.        |
 
 The rest of this README covers `BashSyntax`. Additional products will get
@@ -260,6 +261,47 @@ shell.register(name: "echo") { argv, shell in
 shell.unregister("sum")           // remove
 ```
 
+### Typed argument parsing via `BashCommandKit`
+
+If you'd rather not parse `argv` by hand, depend on the `BashCommandKit`
+product as well and conform to `ParsableBashCommand`:
+
+```swift
+import ArgumentParser
+import BashInterpreter
+import BashCommandKit
+
+struct Greet: ParsableBashCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "greet",
+        abstract: "Print a friendly hello."
+    )
+
+    @Argument(help: "Who to greet.") var name: String = "world"
+    @Flag(name: .shortAndLong)       var loud: Bool = false
+    @Option(name: .shortAndLong)     var count: Int = 1
+
+    mutating func execute(shell: Shell) throws -> ExitStatus {
+        let msg = loud ? "HELLO \(name.uppercased())" : "hello \(name)"
+        for _ in 0..<count { shell.stdout(msg + "\n") }
+        return .success
+    }
+}
+
+let shell = Shell()
+shell.register(Greet.self)
+
+try shell.run("greet --loud --count 2 oliver")
+// → HELLO OLIVER
+// → HELLO OLIVER
+
+try shell.run("greet --help")      // auto-generated usage, exit 0
+try shell.run("greet --nope")      // diagnostic on stderr, exit 64
+```
+
+`--help` / `--version` are handled automatically; invalid input produces
+a formatted error on stderr and a non-zero exit.
+
 ## What works
 
 - Simple command dispatch against a built-in registry.
@@ -402,6 +444,11 @@ Sources/BashSyntax/
   Parser/
     Parser.swift                         Recursive-descent parser
     WordExpander.swift                   $(…), <(…), ${…}, ~, backticks
+
+Sources/BashCommandKit/
+  ParsableBashCommand.swift              Protocol: ParsableCommand + execute(shell:)
+  ParsableCommandBridge.swift            Internal adapter to BashInterpreter.Command
+  Shell+ParsableCommand.swift            shell.register(MyCmd.self)
 
 Sources/swift-bash/
   SwiftBashCLI.swift                     Root command (@main)
