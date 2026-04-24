@@ -302,6 +302,21 @@ try shell.run("greet --nope")      // diagnostic on stderr, exit 64
 `--help` / `--version` are handled automatically; invalid input produces
 a formatted error on stderr and a non-zero exit.
 
+#### Shipped commands in `BashCommandKit`
+
+| Command | What it does |
+|---------|--------------|
+| `DateCommand` | `date` — prints the current time, with strftime formatting via `-f/--format` and `-u/--utc` for UTC |
+
+```swift
+shell.register(DateCommand.self)
+
+try shell.run("date")                         // → Sun Apr 24 14:30:45 PDT 2026
+try shell.run(#"date -f "%Y-%m-%d""#)         // → 2026-04-24
+try shell.run(#"date -u -f "%Y-%m-%dT%H:%M:%SZ""#)
+try shell.run("TODAY=$(date -f '%Y-%m-%d')")
+```
+
 ## What works
 
 - Simple command dispatch against a built-in registry.
@@ -446,9 +461,12 @@ Sources/BashSyntax/
     WordExpander.swift                   $(…), <(…), ${…}, ~, backticks
 
 Sources/BashCommandKit/
-  ParsableBashCommand.swift              Protocol: ParsableCommand + execute(shell:)
-  ParsableCommandBridge.swift            Internal adapter to BashInterpreter.Command
-  Shell+ParsableCommand.swift            shell.register(MyCmd.self)
+  API/
+    ParsableBashCommand.swift            Protocol: ParsableCommand + execute(shell:)
+    ParsableCommandBridge.swift          Internal adapter to BashInterpreter.Command
+    Shell+ParsableCommand.swift          shell.register(MyCmd.self)
+  Commands/
+    DateCommand.swift                    `date` with strftime formatting
 
 Sources/swift-bash/
   SwiftBashCLI.swift                     Root command (@main)
