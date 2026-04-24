@@ -66,15 +66,27 @@ extension Shell {
             throw BashInterpreterError.unimplemented("malformed while/until")
         }
 
+        loopDepth += 1
+        defer { loopDepth -= 1 }
+
         var last = ExitStatus.success
         var iterations = 0
         let maxIterations = 1_000_000 // guard against runaway loops
-        while true {
+        loop: while true {
             let condStatus = try execute(cond)
             let keepGoing = invert ? !condStatus.isSuccess : condStatus.isSuccess
             if !keepGoing { break }
-            last = try execute(body)
-            lastExitStatus = last
+            do {
+                last = try execute(body)
+                lastExitStatus = last
+            } catch var signal as LoopControlSignal {
+                signal.remainingLevels -= 1
+                if signal.remainingLevels > 0 { throw signal }
+                switch signal.kind {
+                case .breakLoop:    break loop
+                case .continueLoop: continue loop
+                }
+            }
             iterations += 1
             if iterations > maxIterations {
                 throw BashInterpreterError.io(
@@ -134,12 +146,24 @@ extension Shell {
             throw BashInterpreterError.unimplemented("for: missing body")
         }
 
+        loopDepth += 1
+        defer { loopDepth -= 1 }
+
         var last = ExitStatus.success
-        for item in items {
+        loop: for item in items {
             let value = try expand(word: item)
             environment[varName] = value
-            last = try execute(body)
-            lastExitStatus = last
+            do {
+                last = try execute(body)
+                lastExitStatus = last
+            } catch var signal as LoopControlSignal {
+                signal.remainingLevels -= 1
+                if signal.remainingLevels > 0 { throw signal }
+                switch signal.kind {
+                case .breakLoop:    break loop
+                case .continueLoop: continue loop
+                }
+            }
         }
         return last
     }
@@ -249,6 +273,14 @@ extension Shell {
             lastExitStatus = last
         }
         return last
+    }
+
+    /// Emit a bash-style warning when `break` / `continue` fires outside
+    /// any enclosing loop.
+    func warnStrayLoopControl(_ signal: LoopControlSignal) {
+        let name = signal.kind == .breakLoop ? "break" : "continue"
+        stderr("bash: \(name): only meaningful in a `for', `while', "
+             + "or `until' loop\n")
     }
 
     // MARK: helpers

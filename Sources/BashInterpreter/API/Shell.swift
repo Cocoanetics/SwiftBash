@@ -29,6 +29,12 @@ public final class Shell {
     /// Exit status of the most recently completed command.
     public internal(set) var lastExitStatus: ExitStatus = .success
 
+    /// Number of enclosing `while` / `until` / `for` loops currently on the
+    /// call stack. Used to decide whether a `LoopControlSignal` should be
+    /// propagated (in a loop) or treated as a stray `break`/`continue`
+    /// and turned into a bash-style warning.
+    var loopDepth: Int = 0
+
     public init(environment: Environment = Environment(),
                 stdout: @escaping (String) -> Void = Shell.defaultStdout,
                 stderr: @escaping (String) -> Void = Shell.defaultStderr,
@@ -67,6 +73,8 @@ public final class Shell {
             ExportBuiltin(),
             UnsetBuiltin(),
             ExitBuiltin(),
+            BreakBuiltin(),
+            ContinueBuiltin(),
         ]
         var dict: [String: Builtin] = [:]
         for b in all { dict[b.name] = b }

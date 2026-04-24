@@ -23,8 +23,16 @@ extension Shell {
         do {
             var last = ExitStatus.success
             for node in parts {
-                last = try execute(node)
-                lastExitStatus = last
+                do {
+                    last = try execute(node)
+                    lastExitStatus = last
+                } catch let signal as LoopControlSignal {
+                    // Stray break/continue at top level — warn and
+                    // continue with the next part.
+                    warnStrayLoopControl(signal)
+                    last = .success
+                    lastExitStatus = last
+                }
             }
             return last
         } catch let exit as ShellExit {
@@ -129,8 +137,16 @@ extension Shell {
                 i += 1
                 continue
             }
-            status = try execute(node)
-            lastExitStatus = status
+            do {
+                status = try execute(node)
+                lastExitStatus = status
+            } catch let signal as LoopControlSignal {
+                if loopDepth > 0 { throw signal }
+                // Stray break/continue in a list (e.g., `break; echo x`)
+                // not enclosed by a loop — warn and continue.
+                warnStrayLoopControl(signal)
+                status = .success
+            }
             i += 1
         }
 

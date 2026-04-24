@@ -17,6 +17,10 @@ public enum BashInterpreterError: Error, Equatable, Sendable, CustomStringConver
     /// A host OS failure (cd to a missing directory, etc.).
     case io(String)
 
+    /// A `${…}` parameter expansion failed — `${var:?msg}` on an unset
+    /// variable, or a malformed body.
+    case parameter(String)
+
     public var description: String {
         switch self {
         case .commandNotFound(let name):
@@ -26,6 +30,8 @@ public enum BashInterpreterError: Error, Equatable, Sendable, CustomStringConver
         case .unimplemented(let what):
             return "unimplemented: \(what)"
         case .io(let m):
+            return m
+        case .parameter(let m):
             return m
         }
     }

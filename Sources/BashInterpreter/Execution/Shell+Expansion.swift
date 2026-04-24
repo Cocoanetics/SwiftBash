@@ -78,7 +78,7 @@ extension Shell {
     private func resolve(part: Node) throws -> String {
         switch part.kind {
         case .parameter(let name):
-            return resolveParameter(name)
+            return try resolveParameter(name)
         case .tilde(let raw):
             if raw == "~" {
                 return environment["HOME"] ?? raw
@@ -97,30 +97,23 @@ extension Shell {
         }
     }
 
-    /// Resolve a parameter expression. Handles plain names (`HOME`),
-    /// special one-char parameters (`?`, `$`, `#`), and falls through to
-    /// an empty string for anything unknown or complex (`${var:-x}` etc.
-    /// is not yet evaluated — the full body is stored in the parameter).
-    private func resolveParameter(_ expr: String) -> String {
-        switch expr {
+    /// Resolve a `.parameter(body)` sub-node to its runtime string value.
+    ///
+    /// The body may be anything the parser captures between `${` and `}`,
+    /// or a bare `$name` whose body is just the name. Special single-char
+    /// parameters (`?`, `$`, `#`, `!`) are handled inline; everything
+    /// else goes through ``ParameterFormParser`` and
+    /// ``Shell/applyParameterForm(_:)``.
+    private func resolveParameter(_ body: String) throws -> String {
+        switch body {
         case "?": return "\(lastExitStatus.code)"
         case "$": return "\(getpid())"
+        case "!": return "0"
         case "#": return "0"
-        case "0": return "swift-bash"
         default: break
         }
-        // Plain variable reference.
-        if expr.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
-            return environment[expr] ?? ""
-        }
-        // `${…}` body of any shape — for the skeleton we only recognise
-        // a bare name; anything else is surfaced as empty, matching the
-        // conservative behaviour of expansion in a shell with `set -u` off.
-        let trimmed = expr.trimmingCharacters(in: .whitespaces)
-        if trimmed.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
-            return environment[trimmed] ?? ""
-        }
-        return ""
+        let form = try ParameterFormParser.parse(body)
+        return try applyParameterForm(form)
     }
 
     /// Run `node` in a scope that captures stdout into a string.

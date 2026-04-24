@@ -250,19 +250,34 @@ try shell.run("true && echo yes")          // → yes
   …; do … done`, `case … esac`. Pattern arms support `*`, `?`, `[…]`,
   `[!…]` globs and the `;;` / `;&` / `;;&` terminators. Groups
   `{ …; }` and subshells `( … )` both execute the body in order.
+- **`break` and `continue`** — with optional numeric level
+  (`break 2`, `continue 3`). Stray break/continue outside a loop
+  emits a bash-style warning and continues execution.
+- **Parameter-expansion operators** — full `${…}` operator set:
+  `${#var}` (length), `${var-default}`/`${var:-default}` (use default),
+  `${var=default}`/`${var:=default}` (assign default),
+  `${var?msg}`/`${var:?msg}` (error if unset),
+  `${var+alt}`/`${var:+alt}` (alternative value),
+  `${var#pat}`/`${var##pat}` and `${var%pat}`/`${var%%pat}`
+  (prefix/suffix trimming with globs),
+  `${var/pat/rep}`/`${var//pat/rep}` and `${var/#pat/rep}`/`${var/%pat/rep}`
+  (first/all/anchored replacement), and
+  `${var:offset[:length]}` (substrings with negative-index support).
 
 ## What's not implemented yet
 
 - Subprocess execution — anything that isn't a registered built-in
   throws `commandNotFound`.
 - Pipelines (`|`, `|&`) and redirections.
-- `break` / `continue` for early loop exit.
 - Subshell environment isolation — `( X=inner )` currently leaks `X`
   out because there's no subprocess boundary yet.
 - `for VAR; do … done` (implicit positional parameters).
 - Process substitution `<(…)`, `>(…)`, and here-strings `<<<`.
-- Globbing, word splitting (on `$IFS`), and `${var:-default}`-style
-  parameter expansion operators.
+- Filename globbing (`*.sh` expanding to matching files) and word
+  splitting on `$IFS`.
+- Command substitution and arithmetic inside the "word" of a
+  parameter operator (e.g. `${var:-$(date)}` or `${var:-$((1+2))}`);
+  simple `$name`/`${…}` interpolation works.
 
 These are the natural next increments; the skeleton gives each of them
 a concrete place to land.
@@ -362,7 +377,9 @@ Sources/BashInterpreter/
     BashInterpreterError.swift           commandNotFound / unimplemented / io
   Builtins/
     Builtin.swift                        Protocol
-    EchoBuiltin.swift … ExitBuiltin.swift One file per built-in
+    EchoBuiltin.swift … ContinueBuiltin.swift One file per built-in
+    (echo, true, false, :, pwd, cd, export, unset, exit,
+     break, continue)
   Arithmetic/
     ArithError.swift                     Arithmetic-specific errors
     ArithToken.swift                     Lexer token enum
@@ -375,6 +392,10 @@ Sources/BashInterpreter/
     Shell+Expansion.swift                $VAR / $(…) / ~ expansion
     Shell+Arithmetic.swift               ((…)) / $((…)) → Arithmetic.evaluate
     Shell+ControlFlow.swift              if / while / until / for / case / groups
+    Shell+ParameterExpansion.swift       ${var:-…} and the rest of the op set
+    LoopControlSignal.swift              Internal sentinel for break / continue
+    ParameterForm.swift                  Parsed representation of a ${…} body
+    ParameterFormParser.swift            Body text → ParameterForm
     GlobMatcher.swift                    fnmatch-style `*` `?` `[…]` matching
 ```
 
