@@ -23,6 +23,12 @@ public final class Shell {
     /// Writer for builtin stderr. Defaults to `FileHandle.standardError`.
     public var stderr: (String) -> Void
 
+    /// Standard input made available to commands. Empty by default; the
+    /// pipeline executor swaps this out per stage so each command in
+    /// `a | b | c` sees the previous stage's output. Tests can set it
+    /// directly to feed a single command.
+    public var stdin: String = ""
+
     /// Builtins keyed by command name.
     public var commands: [String: Command]
 

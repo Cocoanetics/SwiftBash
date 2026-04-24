@@ -13,6 +13,10 @@ extension Shell {
     /// - `env` — ``EnvCommand``
     /// - `whoami` — ``WhoamiCommand``
     /// - `hostname` — ``HostnameCommand``
+    /// - `cat` — ``CatCommand``
+    /// - `wc` — ``WcCommand``
+    /// - `head` — ``HeadCommand``
+    /// - `grep` — ``GrepCommand``
     ///
     /// Individual commands can still be registered à la carte via
     /// ``register(_:)-<…>``; this is just the convenient one-call form.
@@ -26,5 +30,9 @@ extension Shell {
         register(EnvCommand.self)
         register(WhoamiCommand.self)
         register(HostnameCommand.self)
+        register(CatCommand.self)
+        register(WcCommand.self)
+        register(HeadCommand.self)
+        register(GrepCommand.self)
     }
 }

@@ -315,6 +315,10 @@ a formatted error on stderr and a non-zero exit.
 | `env`      | Print the shell's environment (sorted) |
 | `whoami`   | Print the current user name |
 | `hostname` | Print the machine host name |
+| `cat`      | Pass stdin through (or read files) |
+| `wc`       | Count lines (`-l`), words (`-w`), bytes (`-c`) of stdin |
+| `head`     | First N lines of stdin (`-n N`, default 10) |
+| `grep`     | Filter stdin by substring, with `-v` invert and `-i` case-fold |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:
@@ -368,6 +372,11 @@ try shell.run("""
   …; do … done`, `case … esac`. Pattern arms support `*`, `?`, `[…]`,
   `[!…]` globs and the `;;` / `;&` / `;;&` terminators. Groups
   `{ …; }` and subshells `( … )` both execute the body in order.
+- **Pipelines** — `a | b | c` and `a |& b` (merge stderr). Each stage
+  runs sequentially; its stdout (and stderr for `|&`) is buffered and
+  fed to the next stage's `stdin`. Exit status is the final stage's.
+  `! a | b` inverts. True concurrent `pipe(2)` support comes with
+  subprocess execution.
 - **`break` and `continue`** — with optional numeric level
   (`break 2`, `continue 3`). Stray break/continue outside a loop
   emits a bash-style warning and continues execution.
@@ -386,7 +395,11 @@ try shell.run("""
 
 - Subprocess execution — anything that isn't a registered built-in
   throws `commandNotFound`.
-- Pipelines (`|`, `|&`) and redirections.
+- File / fd redirections (`> out`, `< in`, `<<<`, heredocs). Parser
+  accepts them; the interpreter throws on them.
+- *Truly concurrent* pipelines — our pipe stages are buffered and
+  sequential, so `yes | head` would buffer all of `yes` before
+  `head` runs.
 - Subshell environment isolation — `( X=inner )` currently leaks `X`
   out because there's no subprocess boundary yet.
 - `for VAR; do … done` (implicit positional parameters).
@@ -498,6 +511,10 @@ Sources/BashCommandKit/
     EnvCommand.swift                     `env` (sorted)
     WhoamiCommand.swift                  `whoami`
     HostnameCommand.swift                `hostname`
+    CatCommand.swift                     `cat` (stdin or files)
+    WcCommand.swift                      `wc -l / -w / -c`
+    HeadCommand.swift                    `head -n`
+    GrepCommand.swift                    `grep` substring, `-v` / `-i`
 
 Sources/swift-bash/
   SwiftBashCLI.swift                     Root command (@main)
@@ -529,6 +546,7 @@ Sources/BashInterpreter/
     Shell+Expansion.swift                $VAR / $(…) / ~ expansion
     Shell+Arithmetic.swift               ((…)) / $((…)) → Arithmetic.evaluate
     Shell+ControlFlow.swift              if / while / until / for / case / groups
+    Shell+Pipeline.swift                 Buffered sequential `|` / `|&` executor
     Shell+ParameterExpansion.swift       ${var:-…} and the rest of the op set
     LoopControlSignal.swift              Internal sentinel for break / continue
     ParameterForm.swift                  Parsed representation of a ${…} body

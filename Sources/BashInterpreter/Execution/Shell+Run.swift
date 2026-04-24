@@ -51,8 +51,8 @@ extension Shell {
         case .list(let parts):
             return try executeList(parts: parts)
 
-        case .pipeline:
-            throw BashInterpreterError.unimplemented("pipelines (not yet supported in the builtins-only skeleton)")
+        case .pipeline(let parts):
+            return try executePipeline(parts: parts)
 
         case .compound(let list, let redirects):
             if !redirects.isEmpty {
