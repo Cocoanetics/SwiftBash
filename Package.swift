@@ -11,11 +11,24 @@ let package = Package(
     ],
     products: [
         .library(name: "BashSyntax", targets: ["BashSyntax"]),
+        .executable(name: "swift-bash", targets: ["swift-bash"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser",
+                 from: "1.3.0"),
     ],
     targets: [
         .target(
             name: "BashSyntax",
             path: "Sources/BashSyntax"
+        ),
+        .executableTarget(
+            name: "swift-bash",
+            dependencies: [
+                "BashSyntax",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/swift-bash"
         ),
         .testTarget(
             name: "BashSyntaxTests",

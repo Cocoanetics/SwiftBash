@@ -2,10 +2,11 @@
 
 Swift libraries for working with bash source.
 
-| Product             | Status     | What it does                                    |
-|---------------------|------------|-------------------------------------------------|
-| **`BashSyntax`**    | Available  | Parse bash into a typed AST; smart tokeniser.   |
-| **`BashInterpreter`** | Planned  | Execute parsed ASTs against a Swift-managed shell. |
+| Product                | Status     | What it does                                    |
+|------------------------|------------|-------------------------------------------------|
+| **`BashSyntax`**       | Available  | Parse bash into a typed AST; smart tokeniser.   |
+| **`swift-bash`** (CLI) | Available  | Command-line front-end for `BashSyntax`.        |
+| **`BashInterpreter`**  | Planned    | Execute parsed ASTs against a Swift-managed shell. |
 
 The rest of this README covers `BashSyntax`. Additional products will get
 their own sections as they land.
@@ -194,6 +195,42 @@ do {
 | `Tokenizer`, `Parser`       | Lower-level building blocks, for advanced use.      |
 | `BashSyntaxError`              | `parsing(message:source:position:)` / `unimplemented`. |
 
+## CLI: `swift-bash`
+
+The package ships a command-line front-end built on
+[swift-argument-parser](https://github.com/apple/swift-argument-parser).
+
+```
+$ swift run swift-bash parse 'true && cat <(echo hi)'
+ListNode(pos=(0, 22), parts=[
+  CommandNode(pos=(0, 4), parts=[
+    WordNode(pos=(0, 4), word='true'),
+  ]),
+  OperatorNode(op='&&', pos=(5, 7)),
+  CommandNode(pos=(8, 22), parts=[
+    WordNode(pos=(8, 11), word='cat'),
+    WordNode(pos=(12, 22), word='<(echo hi)', parts=[
+      ProcesssubstitutionNode(command=
+        CommandNode(pos=(14, 21), parts=[
+          WordNode(pos=(14, 18), word='echo'),
+          WordNode(pos=(19, 21), word='hi'),
+        ]), pos=(12, 22)),
+    ]),
+  ]),
+])
+```
+
+Options on `parse`:
+
+- positional `<source>` — a bash command string.
+- `-f, --file <path>` — read the source from a file instead.
+- `-s, --with-source` — render `s='…'` slices instead of `pos=(…,…)`.
+- `--first` — parse only the first top-level unit.
+
+Install the binary once with `swift build -c release` (output at
+`.build/release/swift-bash`), or run directly during development with
+`swift run swift-bash parse …`.
+
 ## Limitations
 
 A handful of bash features are intentionally out of scope for now:
@@ -241,6 +278,11 @@ Sources/BashSyntax/
   Parser/
     Parser.swift                         Recursive-descent parser
     WordExpander.swift                   $(…), <(…), ${…}, ~, backticks
+
+Sources/swift-bash/
+  SwiftBashCLI.swift                     Root command (@main)
+  ParseCommand.swift                     `swift-bash parse` subcommand
+  CLIError.swift                         LocalizedError wrapper for nice output
 ```
 
 ## License
