@@ -306,15 +306,37 @@ a formatted error on stderr and a non-zero exit.
 
 | Command | What it does |
 |---------|--------------|
-| `DateCommand` | `date` — prints the current time, with strftime formatting via `-f/--format` and `-u/--utc` for UTC |
+| `date`     | Current date/time with `strftime` formatting (`-f`, `-u`) |
+| `basename` | File-name component of a path, with optional suffix stripping |
+| `dirname`  | Directory component of a path |
+| `realpath` | Canonicalise a path; `-m` allows missing components |
+| `seq`      | Print a number sequence (`-s SEP` separator) |
+| `sleep`    | Pause for fractional seconds |
+| `env`      | Print the shell's environment (sorted) |
+| `whoami`   | Print the current user name |
+| `hostname` | Print the machine host name |
+
+Register individually via `shell.register(DateCommand.self)`, or grab
+the full set at once:
 
 ```swift
-shell.register(DateCommand.self)
+let shell = Shell()
+shell.registerStandardCommands()
 
-try shell.run("date")                         // → Sun Apr 24 14:30:45 PDT 2026
-try shell.run(#"date -f "%Y-%m-%d""#)         // → 2026-04-24
-try shell.run(#"date -u -f "%Y-%m-%dT%H:%M:%SZ""#)
-try shell.run("TODAY=$(date -f '%Y-%m-%d')")
+try shell.run("""
+    FILE=/tmp/data/report.txt
+    NAME=$(basename $FILE .txt)   # report
+    DIR=$(dirname $FILE)          # /tmp/data
+    echo "name=$NAME"
+    echo "dir=$DIR"
+
+    for n in $(seq -s ' ' 1 3); do
+      echo "n=$n"
+    done
+
+    echo "today=$(date -f '%Y-%m-%d')"
+    echo "user=$(whoami) on $(hostname)"
+    """)
 ```
 
 ## What works
@@ -465,8 +487,17 @@ Sources/BashCommandKit/
     ParsableBashCommand.swift            Protocol: ParsableCommand + execute(shell:)
     ParsableCommandBridge.swift          Internal adapter to BashInterpreter.Command
     Shell+ParsableCommand.swift          shell.register(MyCmd.self)
+    Shell+StandardCommands.swift         shell.registerStandardCommands()
   Commands/
     DateCommand.swift                    `date` with strftime formatting
+    BasenameCommand.swift                `basename`
+    DirnameCommand.swift                 `dirname`
+    RealpathCommand.swift                `realpath` (-m for missing allowed)
+    SeqCommand.swift                     `seq` with -s SEP
+    SleepCommand.swift                   `sleep N[.M]`
+    EnvCommand.swift                     `env` (sorted)
+    WhoamiCommand.swift                  `whoami`
+    HostnameCommand.swift                `hostname`
 
 Sources/swift-bash/
   SwiftBashCLI.swift                     Root command (@main)
