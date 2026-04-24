@@ -1,42 +1,41 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class GroupSubshellTests: XCTestCase {
+@Suite struct GroupSubshellTests {
 
-    func testGroupRunsAllCommands() async throws {
+    @Test func groupRunsAllCommands() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("{ echo a; echo b; echo c; }")
-        XCTAssertEqual(cap.stdout, "a\nb\nc\n")
+        #expect(cap.stdout == "a\nb\nc\n")
     }
 
-    func testGroupExitStatusIsLast() async throws {
+    @Test func groupExitStatusIsLast() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("{ true; false; }")
-        XCTAssertEqual(status, .failure)
+        #expect(status == .failure)
     }
 
-    func testSubshellRunsCommands() async throws {
+    @Test func subshellRunsCommands() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("(echo a; echo b)")
-        XCTAssertEqual(cap.stdout, "a\nb\n")
+        #expect(cap.stdout == "a\nb\n")
     }
 
     /// In real bash, a subshell gets an environment copy — changes inside
     /// don't leak back. Without subprocess isolation this skeleton leaks.
     /// Test documents the current (incorrect) behaviour so it's obvious
     /// when we fix it later.
-    func testSubshellAssignmentCurrentlyLeaks() async throws {
+    @Test func subshellAssignmentCurrentlyLeaks() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("(X=inside); echo after=$X")
-        XCTAssertEqual(cap.stdout, "after=inside\n",
-            "Subshell isolation not yet implemented — this will change "
-            + "once subprocess support lands.")
+        #expect(cap.stdout == "after=inside\n",
+            "Subshell isolation not yet implemented — this will change once subprocess support lands.")
     }
 
-    func testGroupAssignmentVisible() async throws {
+    @Test func groupAssignmentVisible() async throws {
         // Groups DO share the shell's env (matching bash).
         let cap = CapturingShell()
         try await cap.shell.run("{ X=inside; }; echo $X")
-        XCTAssertEqual(cap.stdout, "inside\n")
+        #expect(cap.stdout == "inside\n")
     }
 }

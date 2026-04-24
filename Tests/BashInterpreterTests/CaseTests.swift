@@ -1,11 +1,11 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class CaseTests: XCTestCase {
+@Suite struct CaseTests {
 
     // MARK: Basic matching
 
-    func testLiteralMatch() async throws {
+    @Test func literalMatch() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case apple in
@@ -13,10 +13,10 @@ final class CaseTests: XCTestCase {
               carrot) echo veg;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "fruit\n")
+        #expect(cap.stdout == "fruit\n")
     }
 
-    func testFallsThroughToSecondArm() async throws {
+    @Test func fallsThroughToSecondArm() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case carrot in
@@ -24,10 +24,10 @@ final class CaseTests: XCTestCase {
               carrot) echo veg;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "veg\n")
+        #expect(cap.stdout == "veg\n")
     }
 
-    func testNoMatchProducesNoOutput() async throws {
+    @Test func noMatchProducesNoOutput() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case banana in
@@ -35,12 +35,12 @@ final class CaseTests: XCTestCase {
               carrot) echo two;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "")
+        #expect(cap.stdout == "")
     }
 
     // MARK: Glob patterns
 
-    func testStarMatchesAnything() async throws {
+    @Test func starMatchesAnything() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case hello in
@@ -48,10 +48,10 @@ final class CaseTests: XCTestCase {
               *) echo anything;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "anything\n")
+        #expect(cap.stdout == "anything\n")
     }
 
-    func testQuestionMatchesOneChar() async throws {
+    @Test func questionMatchesOneChar() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case ab in
@@ -59,10 +59,10 @@ final class CaseTests: XCTestCase {
               ??) echo two;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "two\n")
+        #expect(cap.stdout == "two\n")
     }
 
-    func testCharClassMatches() async throws {
+    @Test func charClassMatches() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case m in
@@ -71,10 +71,10 @@ final class CaseTests: XCTestCase {
               [q-z]) echo late;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "middle\n")
+        #expect(cap.stdout == "middle\n")
     }
 
-    func testMultipleAlternativesWithBar() async throws {
+    @Test func multipleAlternativesWithBar() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case green in
@@ -82,10 +82,10 @@ final class CaseTests: XCTestCase {
               green|blue|purple) echo cool;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "cool\n")
+        #expect(cap.stdout == "cool\n")
     }
 
-    func testSuffixGlob() async throws {
+    @Test func suffixGlob() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case script.sh in
@@ -93,12 +93,12 @@ final class CaseTests: XCTestCase {
               *.py) echo python;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "shell\n")
+        #expect(cap.stdout == "shell\n")
     }
 
     // MARK: Fall-through terminators
 
-    func testSemiAndFallsThrough() async throws {
+    @Test func semiAndFallsThrough() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case a in
@@ -107,10 +107,10 @@ final class CaseTests: XCTestCase {
               c) echo third;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "first\nsecond\n")
+        #expect(cap.stdout == "first\nsecond\n")
     }
 
-    func testSemiSemiAndContinuesTesting() async throws {
+    @Test func semiSemiAndContinuesTesting() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             case abc in
@@ -121,12 +121,12 @@ final class CaseTests: XCTestCase {
             """)
         // First arm matches (contains 'b'). `;;&` means "continue testing".
         // Second arm matches (starts with 'a'), runs, then `;;` stops.
-        XCTAssertEqual(cap.stdout, "has-b\nstarts-a\n")
+        #expect(cap.stdout == "has-b\nstarts-a\n")
     }
 
     // MARK: Variable subject
 
-    func testExpandsSubject() async throws {
+    @Test func expandsSubject() async throws {
         let cap = CapturingShell()
         cap.shell.environment["colour"] = "blue"
         try await cap.shell.run("""
@@ -136,34 +136,34 @@ final class CaseTests: XCTestCase {
               blue) echo cool;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "cool\n")
+        #expect(cap.stdout == "cool\n")
     }
 
     // MARK: Exit status
 
-    func testCaseExitStatusIsLastBody() async throws {
+    @Test func caseExitStatusIsLastBody() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("""
             case x in
               x) false;;
             esac
             """)
-        XCTAssertEqual(status, .failure)
+        #expect(status == .failure)
     }
 
-    func testCaseWithNoMatchExitsSuccess() async throws {
+    @Test func caseWithNoMatchExitsSuccess() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("""
             case z in
               a) false;;
             esac
             """)
-        XCTAssertEqual(status, .success)
+        #expect(status == .success)
     }
 
     // MARK: Empty body
 
-    func testArmWithNoBodyStillMatches() async throws {
+    @Test func armWithNoBodyStillMatches() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("""
             case x in
@@ -171,7 +171,7 @@ final class CaseTests: XCTestCase {
               *) echo default;;
             esac
             """)
-        XCTAssertEqual(cap.stdout, "")
-        XCTAssertEqual(status, .success)
+        #expect(cap.stdout == "")
+        #expect(status == .success)
     }
 }

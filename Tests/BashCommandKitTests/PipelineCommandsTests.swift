@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class PipelineCommandsTests: XCTestCase {
+@Suite struct PipelineCommandsTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -12,80 +13,80 @@ final class PipelineCommandsTests: XCTestCase {
 
     // MARK: cat
 
-    func testCatPassesStdinThrough() async throws {
+    @Test func catPassesStdinThrough() async throws {
         let cap = makeShell()
         cap.shell.stdin = .string("hello world\n")
         try await cap.shell.run("cat")
-        XCTAssertEqual(cap.stdout, "hello world\n")
+        #expect(cap.stdout == "hello world\n")
     }
 
-    func testCatInPipeline() async throws {
+    @Test func catInPipeline() async throws {
         let cap = makeShell()
         try await cap.shell.run("echo hello | cat")
-        XCTAssertEqual(cap.stdout, "hello\n")
+        #expect(cap.stdout == "hello\n")
     }
 
-    func testCatReadsFile() async throws {
+    @Test func catReadsFile() async throws {
         let tmp = NSTemporaryDirectory() + "cat-test-\(UUID()).txt"
         try "line1\nline2\n".write(toFile: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: tmp) }
 
         let cap = makeShell()
         try await cap.shell.run("cat \(tmp)")
-        XCTAssertEqual(cap.stdout, "line1\nline2\n")
+        #expect(cap.stdout == "line1\nline2\n")
     }
 
-    func testCatMissingFileFails() async throws {
+    @Test func catMissingFileFails() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("cat /definitely/not/a/file")
-        XCTAssertEqual(status, .failure)
-        XCTAssertFalse(cap.stderr.isEmpty)
+        #expect(status == .failure)
+        #expect(!cap.stderr.isEmpty)
     }
 
     // MARK: wc
 
-    func testWcDefaultAllCounts() async throws {
+    @Test func wcDefaultAllCounts() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"echo "hello world" | wc"#)
         // echo prints "hello world\n" → 1 line, 2 words, 12 bytes
-        XCTAssertEqual(cap.stdout, "1 2 12\n")
+        #expect(cap.stdout == "1 2 12\n")
     }
 
-    func testWcLinesOnly() async throws {
+    @Test func wcLinesOnly() async throws {
         let cap = makeShell()
         cap.shell.stdin = .string("a\nb\nc\n")
         try await cap.shell.run("wc -l")
-        XCTAssertEqual(cap.stdout, "3\n")
+        #expect(cap.stdout == "3\n")
     }
 
-    func testWcWordsOnly() async throws {
+    @Test func wcWordsOnly() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"echo "one two three four" | wc -w"#)
-        XCTAssertEqual(cap.stdout, "4\n")
+        #expect(cap.stdout == "4\n")
     }
 
-    func testWcBytesOnly() async throws {
+    @Test func wcBytesOnly() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"echo "abc" | wc -c"#)
         // "abc\n" is 4 bytes
-        XCTAssertEqual(cap.stdout, "4\n")
+        #expect(cap.stdout == "4\n")
     }
 
     // MARK: head
 
-    func testHeadDefault10Lines() async throws {
+    @Test func headDefault10Lines() async throws {
         let cap = makeShell()
         try await cap.shell.run("seq 20 | head")
-        XCTAssertEqual(cap.stdout, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
+        #expect(cap.stdout == "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
     }
 
-    func testHeadWithDashN() async throws {
+    @Test func headWithDashN() async throws {
         let cap = makeShell()
         try await cap.shell.run("seq 20 | head -n 3")
-        XCTAssertEqual(cap.stdout, "1\n2\n3\n")
+        #expect(cap.stdout == "1\n2\n3\n")
     }
 
-    func testHeadNoNewlineAtEndOfInput() async throws {
+    @Test func headNoNewlineAtEndOfInput() async throws {
         // The streaming `head` always emits newline-terminated lines; an
         // input that lacked a trailing newline still gets one appended.
         // Diverges slightly from `/usr/bin/head` but consistent with the
@@ -93,66 +94,66 @@ final class PipelineCommandsTests: XCTestCase {
         let cap = makeShell()
         cap.shell.stdin = .string("only")
         try await cap.shell.run("head -n 1")
-        XCTAssertEqual(cap.stdout, "only\n")
+        #expect(cap.stdout == "only\n")
     }
 
-    func testHeadZeroPrintsNothing() async throws {
+    @Test func headZeroPrintsNothing() async throws {
         let cap = makeShell()
         try await cap.shell.run("seq 10 | head -n 0")
-        XCTAssertEqual(cap.stdout, "")
+        #expect(cap.stdout == "")
     }
 
     // MARK: grep
 
-    func testGrepMatchesSubstring() async throws {
+    @Test func grepMatchesSubstring() async throws {
         let cap = makeShell()
         try await cap.shell.run("seq 20 | grep 1")
         // Matches 1, 10..19 — any line containing "1".
         let lines = cap.stdout.split(separator: "\n").map(String.init)
-        XCTAssertEqual(Set(lines),
-                       Set(["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]))
+        #expect(Set(lines) ==
+                Set(["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]))
     }
 
-    func testGrepNoMatchFailsWithNoOutput() async throws {
+    @Test func grepNoMatchFailsWithNoOutput() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("echo hello | grep nomatch")
-        XCTAssertEqual(status, .failure)
-        XCTAssertEqual(cap.stdout, "")
+        #expect(status == .failure)
+        #expect(cap.stdout == "")
     }
 
-    func testGrepInvertMatch() async throws {
+    @Test func grepInvertMatch() async throws {
         let cap = makeShell()
         cap.shell.stdin = .string("apple\nbanana\napricot\n")
         try await cap.shell.run("grep -v ap")
-        XCTAssertEqual(cap.stdout, "banana\n")
+        #expect(cap.stdout == "banana\n")
     }
 
-    func testGrepIgnoreCase() async throws {
+    @Test func grepIgnoreCase() async throws {
         let cap = makeShell()
         cap.shell.stdin = .string("Hello\nWorld\nHELLO\n")
         try await cap.shell.run("grep -i hello")
-        XCTAssertEqual(cap.stdout, "Hello\nHELLO\n")
+        #expect(cap.stdout == "Hello\nHELLO\n")
     }
 
     // MARK: Realistic pipelines
 
-    func testClassicPipeline() async throws {
+    @Test func classicPipeline() async throws {
         let cap = makeShell()
         try await cap.shell.run("seq 100 | grep 7 | wc -l")
         // Numbers 1..100 containing '7': 7,17,27,37,47,57,67,70..79 (but 77 only once),
         // 87,97 = 7, 17, 27, 37, 47, 57, 67, 70,71,72,73,74,75,76,77,78,79, 87, 97 → 19.
-        XCTAssertEqual(cap.stdout, "19\n")
+        #expect(cap.stdout == "19\n")
     }
 
-    func testPipelineExitStatusIsLast() async throws {
+    @Test func pipelineExitStatusIsLast() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("echo hi | grep nope")
-        XCTAssertEqual(status, .failure)
+        #expect(status == .failure)
     }
 
-    func testPipelineWithCommandSubstitution() async throws {
+    @Test func pipelineWithCommandSubstitution() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"N=$(seq 5 | wc -l); echo $N"#)
-        XCTAssertEqual(cap.stdout, "5\n")
+        #expect(cap.stdout == "5\n")
     }
 }

@@ -1,21 +1,21 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class StandardCommandsTests: XCTestCase {
+@Suite struct StandardCommandsTests {
 
-    func testRegisterAllInOneCall() async throws {
+    @Test func registerAllInOneCall() {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         for name in ["date", "basename", "dirname", "realpath",
                      "seq", "sleep", "env", "whoami", "hostname"]
         {
-            XCTAssertNotNil(cap.shell.commands[name],
+            #expect(cap.shell.commands[name] != nil,
                 "expected `\(name)` to be registered")
         }
     }
 
-    func testIntegrationExample() async throws {
+    @Test func integrationExample() async throws {
         // Mini script exercising a handful of the shipped commands end-to-end.
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
@@ -30,7 +30,6 @@ final class StandardCommandsTests: XCTestCase {
             echo "sum=$(seq -s , 5)"
             """)
 
-        XCTAssertEqual(cap.stdout,
-                       "name=report\ndir=/tmp/data\nsum=1,2,3,4,5\n")
+        #expect(cap.stdout == "name=report\ndir=/tmp/data\nsum=1,2,3,4,5\n")
     }
 }

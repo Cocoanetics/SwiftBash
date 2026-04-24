@@ -1,60 +1,62 @@
-import XCTest
+import Testing
 @testable import BashSyntax
 
-final class SmokeTests: XCTestCase {
+@Suite struct SmokeTests {
 
-    func testParseSimpleCommand() async throws {
+    @Test func parseSimpleCommand() throws {
         let parts = try BashSyntax.parse("echo hello")
-        XCTAssertEqual(parts.count, 1)
+        #expect(parts.count == 1)
         guard case .command(let children) = parts[0].kind else {
-            return XCTFail("expected CommandNode, got \(parts[0].kindName)")
+            Issue.record("expected CommandNode, got \(parts[0].kindName)")
+            return
         }
-        XCTAssertEqual(children.count, 2)
-        XCTAssertEqual(children.map(\.kindName), ["word", "word"])
-        if case .word(let w, _) = children[0].kind { XCTAssertEqual(w, "echo") }
-        if case .word(let w, _) = children[1].kind { XCTAssertEqual(w, "hello") }
+        #expect(children.count == 2)
+        #expect(children.map(\.kindName) == ["word", "word"])
+        if case .word(let w, _) = children[0].kind { #expect(w == "echo") }
+        if case .word(let w, _) = children[1].kind { #expect(w == "hello") }
     }
 
-    func testSplitHandlesProcessSubstitution() async throws {
+    @Test func splitHandlesProcessSubstitution() throws {
         let tokens = try BashSyntax.split(#"cat <(echo "a $(echo b)") | tee"#)
-        XCTAssertEqual(tokens, ["cat", #"<(echo "a $(echo b)")"#, "|", "tee"])
+        #expect(tokens == ["cat", #"<(echo "a $(echo b)")"#, "|", "tee"])
     }
 
-    func testSplitRemovesQuotesLikeShlex() async throws {
+    @Test func splitRemovesQuotesLikeShlex() throws {
         // `a b"c"'d'` should concatenate the adjacent quoted/unquoted parts.
         let tokens = try BashSyntax.split(#"a b"c"'d'"#)
-        XCTAssertEqual(tokens, ["a", "bcd"])
+        #expect(tokens == ["a", "bcd"])
     }
 
-    func testSplitPreservesSubstitutionsInWords() async throws {
+    @Test func splitPreservesSubstitutionsInWords() throws {
         // Substitutions inside words stay as single tokens, with quotes removed
-        // but `$(…)` / `\`…\`` preserved literally.
+        // but `$(…)` / `` `…` `` preserved literally.
         let tokens = try BashSyntax.split(#"a "b $(c)" $(d) '$(e)'"#)
-        XCTAssertEqual(tokens, ["a", "b $(c)", "$(d)", "$(e)"])
+        #expect(tokens == ["a", "b $(c)", "$(d)", "$(e)"])
     }
 
-    func testSplitEmitsNewlineToken() async throws {
+    @Test func splitEmitsNewlineToken() throws {
         let tokens = try BashSyntax.split("a b\n")
-        XCTAssertEqual(tokens, ["a", "b", "\n"])
+        #expect(tokens == ["a", "b", "\n"])
     }
 
-    func testTopLevelAndAnd() async throws {
+    @Test func topLevelAndAnd() throws {
         let node = try BashSyntax.parseSingle("true && cat <(echo $(echo foo))")
         guard case .list(let parts) = node.kind else {
-            return XCTFail("expected ListNode, got \(node.kindName)")
+            Issue.record("expected ListNode, got \(node.kindName)")
+            return
         }
-        XCTAssertEqual(parts.count, 3)
-        XCTAssertEqual(parts.map(\.kindName), ["command", "operator", "command"])
+        #expect(parts.count == 3)
+        #expect(parts.map(\.kindName) == ["command", "operator", "command"])
     }
 
-    func testDumpContainsExpectedFragments() async throws {
+    @Test func dumpContainsExpectedFragments() throws {
         let node = try BashSyntax.parseSingle("true && cat <(echo $(echo foo))")
         let dump = node.dump()
         // Spot-check key fragments to avoid whitespace brittleness.
-        XCTAssertTrue(dump.hasPrefix("ListNode("), dump)
-        XCTAssertTrue(dump.contains("OperatorNode(op='&&', pos=(5, 7))"), dump)
-        XCTAssertTrue(dump.contains("WordNode(pos=(0, 4), word='true')"), dump)
-        XCTAssertTrue(dump.contains("ProcesssubstitutionNode(command="), dump)
-        XCTAssertTrue(dump.contains("CommandsubstitutionNode(command="), dump)
+        #expect(dump.hasPrefix("ListNode("), "\(dump)")
+        #expect(dump.contains("OperatorNode(op='&&', pos=(5, 7))"), "\(dump)")
+        #expect(dump.contains("WordNode(pos=(0, 4), word='true')"), "\(dump)")
+        #expect(dump.contains("ProcesssubstitutionNode(command="), "\(dump)")
+        #expect(dump.contains("CommandsubstitutionNode(command="), "\(dump)")
     }
 }

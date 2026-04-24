@@ -1,98 +1,123 @@
-import XCTest
+import Testing
 @testable import BashSyntax
 
-final class ArithmeticTests: XCTestCase {
+@Suite struct ArithmeticTests {
 
     // MARK: Standalone `((…))`
 
-    func testArithCommandAtCommandPosition() async throws {
+    @Test func arithCommandAtCommandPosition() throws {
         let node = try BashSyntax.parseSingle("(( x = 1 + 2 ))")
         guard case .compound(let list, _) = node.kind,
               let first = list.first,
               case .arithmeticCommand(let expr) = first.kind
-        else { return XCTFail("expected compound(arithmeticCommand), got \(node.kindName)") }
-        XCTAssertEqual(expr, " x = 1 + 2 ")
+        else {
+            Issue.record("expected compound(arithmeticCommand), got \(node.kindName)")
+            return
+        }
+        #expect(expr == " x = 1 + 2 ")
     }
 
-    func testArithCommandTightNoSpaces() async throws {
+    @Test func arithCommandTightNoSpaces() throws {
         let node = try BashSyntax.parseSingle("((0))")
         guard case .compound(let list, _) = node.kind,
               case .arithmeticCommand(let expr) = list.first?.kind
-        else { return XCTFail() }
-        XCTAssertEqual(expr, "0")
+        else {
+            Issue.record("expected arithmeticCommand")
+            return
+        }
+        #expect(expr == "0")
     }
 
-    func testArithCommandWithNestedParens() async throws {
+    @Test func arithCommandWithNestedParens() throws {
         let node = try BashSyntax.parseSingle("(( (a + b) * c ))")
         guard case .compound(let list, _) = node.kind,
               case .arithmeticCommand(let expr) = list.first?.kind
-        else { return XCTFail() }
-        XCTAssertEqual(expr, " (a + b) * c ")
+        else {
+            Issue.record("expected arithmeticCommand")
+            return
+        }
+        #expect(expr == " (a + b) * c ")
     }
 
-    func testArithCommandInList() async throws {
+    @Test func arithCommandInList() throws {
         let node = try BashSyntax.parseSingle("true && ((x < 5))")
-        guard case .list(let parts) = node.kind else { return XCTFail() }
-        XCTAssertEqual(parts.count, 3)
-        XCTAssertEqual(parts.last?.kindName, "compound")
+        guard case .list(let parts) = node.kind else {
+            Issue.record("expected list")
+            return
+        }
+        #expect(parts.count == 3)
+        #expect(parts.last?.kindName == "compound")
         if case .compound(let list, _) = parts.last!.kind,
            case .arithmeticCommand(let expr) = list.first?.kind
         {
-            XCTAssertEqual(expr, "x < 5")
+            #expect(expr == "x < 5")
         } else {
-            XCTFail("expected arith command as last list part")
+            Issue.record("expected arith command as last list part")
         }
     }
 
-    func testArithCommandWithRedirection() async throws {
+    @Test func arithCommandWithRedirection() throws {
         let node = try BashSyntax.parseSingle("((x = 1)) > /tmp/out")
         guard case .compound(_, let redirects) = node.kind,
               let redir = redirects.first,
               case .redirect(_, let type, _, _) = redir.kind
-        else { return XCTFail("expected compound with redirect") }
-        XCTAssertEqual(type, ">")
+        else {
+            Issue.record("expected compound with redirect")
+            return
+        }
+        #expect(type == ">")
     }
 
     // MARK: `$((…))` substitution
 
-    func testArithSubstitutionInWord() async throws {
+    @Test func arithSubstitutionInWord() throws {
         let node = try BashSyntax.parseSingle("echo $((1 + 2 * 3))")
         guard case .command(let cparts) = node.kind,
               case .word(_, let wordParts) = cparts[1].kind,
               let first = wordParts.first,
               case .arithmeticSubstitution(let expr) = first.kind
-        else { return XCTFail("expected arithmeticSubstitution inside word") }
-        XCTAssertEqual(expr, "1 + 2 * 3")
+        else {
+            Issue.record("expected arithmeticSubstitution inside word")
+            return
+        }
+        #expect(expr == "1 + 2 * 3")
     }
 
-    func testArithSubstitutionRangeMapsToSource() async throws {
+    @Test func arithSubstitutionRangeMapsToSource() throws {
         let src = "echo $((1+2))"
         let node = try BashSyntax.parseSingle(src)
         guard case .command(let cparts) = node.kind,
               case .word(_, let wordParts) = cparts[1].kind,
               let arith = wordParts.first,
               case .arithmeticSubstitution = arith.kind
-        else { return XCTFail() }
-        XCTAssertEqual(arith.source(from: src), "$((1+2))")
+        else {
+            Issue.record("expected arithmeticSubstitution")
+            return
+        }
+        #expect(arith.source(from: src) == "$((1+2))")
     }
 
-    func testNestedArithmeticSubstitution() async throws {
+    @Test func nestedArithmeticSubstitution() throws {
         let node = try BashSyntax.parseSingle("echo $(( $((1)) + 2 ))")
         guard case .command(let cparts) = node.kind,
               case .word(_, let wordParts) = cparts[1].kind,
               case .arithmeticSubstitution(let expr) = wordParts.first?.kind
-        else { return XCTFail() }
-        XCTAssertEqual(expr, " $((1)) + 2 ")
+        else {
+            Issue.record("expected arithmeticSubstitution")
+            return
+        }
+        #expect(expr == " $((1)) + 2 ")
     }
 
     // MARK: Non-regressions
 
-    func testSubshellInsideSubshellStillWorks() async throws {
+    @Test func subshellInsideSubshellStillWorks() throws {
         // Space between the parens keeps it a nested subshell, not arithmetic.
         let node = try BashSyntax.parseSingle("( (true) )")
         // Outer compound containing reserved ( / inner compound / reserved )
         guard case .compound(let list, _) = node.kind else {
-            return XCTFail("expected compound, got \(node.kindName)")
+            Issue.record("expected compound, got \(node.kindName)")
+            return
         }
         // At least one of the inner items should itself be a compound (the
         // inner subshell) — not an arithmeticCommand.
@@ -100,26 +125,29 @@ final class ArithmeticTests: XCTestCase {
             if case .compound(_, _) = n.kind { return true }
             return false
         }
-        XCTAssertTrue(hasInnerSubshell, "inner subshell should remain a compound")
+        #expect(hasInnerSubshell, "inner subshell should remain a compound")
     }
 
-    func testBareSubshellStillWorks() async throws {
+    @Test func bareSubshellStillWorks() throws {
         let node = try BashSyntax.parseSingle("(true)")
-        guard case .compound(let list, _) = node.kind else { return XCTFail() }
-        XCTAssertTrue(list.contains { $0.kindName == "command" })
+        guard case .compound(let list, _) = node.kind else {
+            Issue.record("expected compound")
+            return
+        }
+        #expect(list.contains { $0.kindName == "command" })
     }
 
     // MARK: Errors
 
-    func testUnclosedArithCommandThrows() async {
-        XCTAssertThrowsError(try BashSyntax.parseSingle("(( 1 + 2")) { err in
-            XCTAssertTrue(err is BashSyntaxError)
+    @Test func unclosedArithCommandThrows() {
+        #expect(throws: BashSyntaxError.self) {
+            try BashSyntax.parseSingle("(( 1 + 2")
         }
     }
 
-    func testUnclosedArithSubstitutionThrows() async {
-        XCTAssertThrowsError(try BashSyntax.parseSingle("echo $((1+2")) { err in
-            XCTAssertTrue(err is BashSyntaxError)
+    @Test func unclosedArithSubstitutionThrows() {
+        #expect(throws: BashSyntaxError.self) {
+            try BashSyntax.parseSingle("echo $((1+2")
         }
     }
 }

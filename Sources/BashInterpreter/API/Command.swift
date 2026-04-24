@@ -10,7 +10,7 @@ import Foundation
 /// Use ``Shell/register(_:)`` to add a struct-based command, or
 /// ``Shell/register(name:_:)`` for a closure-backed one; see
 /// ``ClosureCommand`` for the short-cut type.
-public protocol Command {
+public protocol Command: Sendable {
     /// Name by which this command is invoked (e.g. `"echo"`).
     var name: String { get }
 

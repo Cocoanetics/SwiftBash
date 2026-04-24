@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
@@ -6,11 +6,11 @@ import Foundation
 /// Demonstrates the "long-running producer feeds a streaming consumer"
 /// pattern you'd want for live-tailing something in an app. Uses
 /// sub-second sleeps so the tests stay fast.
-final class SleepLoopPipelineTests: XCTestCase {
+@Suite struct SleepLoopPipelineTests {
 
     /// The literal pattern you'd write for "every 5 s, print the date,
     /// for a minute, piped to a tail-like consumer" — scaled down.
-    func testDateLoopPipedToCat() async throws {
+    @Test func dateLoopPipedToCat() async throws {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
 
@@ -23,14 +23,13 @@ final class SleepLoopPipelineTests: XCTestCase {
             """)
 
         let year = Calendar.current.component(.year, from: Date())
-        XCTAssertEqual(cap.stdout,
-                       "\(year)\n\(year)\n\(year)\n")
+        #expect(cap.stdout == "\(year)\n\(year)\n\(year)\n")
     }
 
     /// Same pattern, but the consumer is `head -n 2` — which should
     /// terminate the producer early via pipeline cancellation and
     /// propagate through the cooperative `sleep`.
-    func testHeadCancelsSleepingProducer() async throws {
+    @Test func headCancelsSleepingProducer() async throws {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
 
@@ -43,18 +42,17 @@ final class SleepLoopPipelineTests: XCTestCase {
             """)
         let elapsed = Date().timeIntervalSince(start)
 
-        XCTAssertEqual(cap.stdout, "tick-1\ntick-2\n")
+        #expect(cap.stdout == "tick-1\ntick-2\n")
         // If sleep were blocking we'd see roughly 10 × 0.1 s = 1 s.
         // Cooperative cancellation should finish well under 1 s.
-        XCTAssertLessThan(elapsed, 0.5,
-            "producer should be cancelled after head takes 2 lines; "
-            + "took \(elapsed)s")
+        #expect(elapsed < 0.5,
+            "producer should be cancelled after head takes 2 lines; took \(elapsed)s")
     }
 
     /// The consumer observes each produced line as it's produced —
     /// verifying that `sleep` between yields doesn't hold up the
     /// downstream stage.
-    func testConsumerReceivesLinesAsProduced() async throws {
+    @Test func consumerReceivesLinesAsProduced() async throws {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
 
@@ -68,22 +66,20 @@ final class SleepLoopPipelineTests: XCTestCase {
             return .success
         }
 
-        let start = Date()
         try await cap.shell.run("""
             for i in 1 2 3; do
               echo "tick-$i"
               sleep 0.1
             done | record
             """)
-        _ = start
 
         // Line 1 arrives almost immediately; line 2 at ~0.1 s; line 3 at ~0.2 s.
         let times = arrivals.timesFromStart
-        XCTAssertEqual(arrivals.count, 3)
-        XCTAssertLessThan(times[1] - times[0], 0.3,
+        #expect(arrivals.count == 3)
+        #expect(times[1] - times[0] < 0.3,
             "lines should interleave in real time (delta was \(times[1] - times[0])s)")
-        XCTAssertLessThan(times[2] - times[1], 0.3)
-        XCTAssertGreaterThan(times[1] - times[0], 0.05,
+        #expect(times[2] - times[1] < 0.3)
+        #expect(times[1] - times[0] > 0.05,
             "lines shouldn't all burst out at once")
     }
 }

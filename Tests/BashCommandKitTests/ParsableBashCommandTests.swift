@@ -1,59 +1,7 @@
-import XCTest
+import Testing
 import ArgumentParser
 @testable import BashInterpreter
 @testable import BashCommandKit
-
-/// Captures stdout/stderr written by a shell for assertion. Bytes are
-/// UTF-8 decoded into the `stdout` / `stderr` strings.
-final class CapturingShell {
-    let shell: Shell
-
-    private final class StringBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = ""
-        func append(_ data: Data) {
-            let s = String(decoding: data, as: UTF8.self)
-            lock.lock(); defer { lock.unlock() }
-            value.append(s)
-        }
-        func read() -> String {
-            lock.lock(); defer { lock.unlock() }
-            return value
-        }
-    }
-    private let _stdout = StringBox()
-    private let _stderr = StringBox()
-
-    var stdout: String { _stdout.read() }
-    var stderr: String { _stderr.read() }
-
-    init() {
-        let stdoutSink = OutputSink(onWrite: { [weak _stdout] data in
-            _stdout?.append(data)
-        })
-        let stderrSink = OutputSink(onWrite: { [weak _stderr] data in
-            _stderr?.append(data)
-        })
-        self.shell = Shell(stdout: stdoutSink, stderr: stderrSink)
-    }
-}
-
-/// Async-friendly variant of `XCTAssertThrowsError`.
-func XCTAssertThrowsErrorAsync<T>(
-    _ expression: @autoclosure () async throws -> T,
-    _ message: @autoclosure () -> String = "",
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ handler: (Error) -> Void = { _ in }
-) async {
-    do {
-        _ = try await expression()
-        XCTFail(message().isEmpty ? "expected an error" : message(),
-                file: file, line: line)
-    } catch {
-        handler(error)
-    }
-}
 
 // MARK: Test commands
 
@@ -114,129 +62,129 @@ private struct Nameless: ParsableBashCommand {
 
 // MARK: Tests
 
-final class ParsableBashCommandTests: XCTestCase {
+@Suite struct ParsableBashCommandTests {
 
     // MARK: Basic wiring
 
-    func testDefaultArgumentsRunExecute() async throws {
+    @Test func defaultArgumentsRunExecute() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("greet")
-        XCTAssertEqual(cap.stdout, "hello world\n")
+        #expect(cap.stdout == "hello world\n")
     }
 
-    func testPositionalArgumentIsPassedThrough() async throws {
+    @Test func positionalArgumentIsPassedThrough() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("greet oliver")
-        XCTAssertEqual(cap.stdout, "hello oliver\n")
+        #expect(cap.stdout == "hello oliver\n")
     }
 
-    func testLongFlag() async throws {
+    @Test func longFlag() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("greet --loud oliver")
-        XCTAssertEqual(cap.stdout, "HELLO OLIVER\n")
+        #expect(cap.stdout == "HELLO OLIVER\n")
     }
 
-    func testShortFlag() async throws {
+    @Test func shortFlag() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("greet -l oliver")
-        XCTAssertEqual(cap.stdout, "HELLO OLIVER\n")
+        #expect(cap.stdout == "HELLO OLIVER\n")
     }
 
-    func testTypedOption() async throws {
+    @Test func typedOption() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("greet --count 3 oliver")
-        XCTAssertEqual(cap.stdout, "hello oliver\nhello oliver\nhello oliver\n")
+        #expect(cap.stdout == "hello oliver\nhello oliver\nhello oliver\n")
     }
 
     // MARK: Registry plumbing
 
-    func testCommandNameFromConfiguration() async throws {
+    @Test func commandNameFromConfiguration() {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
-        XCTAssertNotNil(cap.shell.commands["greet"])
+        #expect(cap.shell.commands["greet"] != nil)
     }
 
-    func testFallbackNameFromSwiftType() async throws {
+    @Test func fallbackNameFromSwiftType() async throws {
         let cap = CapturingShell()
         cap.shell.register(Nameless.self)
-        XCTAssertNotNil(cap.shell.commands["nameless"])
+        #expect(cap.shell.commands["nameless"] != nil)
         try await cap.shell.run("nameless hi")
-        XCTAssertEqual(cap.stdout, "hi\n")
+        #expect(cap.stdout == "hi\n")
     }
 
     // MARK: Help / version
 
-    func testHelpFlagPrintsUsageAndExitsSuccess() async throws {
+    @Test func helpFlagPrintsUsageAndExitsSuccess() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         let status = try await cap.shell.run("greet --help")
-        XCTAssertEqual(status, .success)
+        #expect(status == .success)
         // The exact message formatting is ArgumentParser's concern; just
         // confirm it mentions the abstract and the flag names.
-        XCTAssertTrue(cap.stdout.contains("Print a friendly hello"), cap.stdout)
-        XCTAssertTrue(cap.stdout.contains("--loud"), cap.stdout)
-        XCTAssertTrue(cap.stdout.contains("--count"), cap.stdout)
+        #expect(cap.stdout.contains("Print a friendly hello"), "\(cap.stdout)")
+        #expect(cap.stdout.contains("--loud"), "\(cap.stdout)")
+        #expect(cap.stdout.contains("--count"), "\(cap.stdout)")
     }
 
     // MARK: Error paths
 
-    func testUnknownOptionExitsNonZeroAndWritesStderr() async throws {
+    @Test func unknownOptionExitsNonZeroAndWritesStderr() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         let status = try await cap.shell.run("greet --nope")
-        XCTAssertFalse(status.isSuccess, "exit should be non-zero")
-        XCTAssertTrue(cap.stderr.contains("--nope") || cap.stderr.contains("Usage"),
-                      "stderr should contain a usage diagnostic:\n\(cap.stderr)")
-        XCTAssertEqual(cap.stdout, "")
+        #expect(!status.isSuccess, "exit should be non-zero")
+        #expect(cap.stderr.contains("--nope") || cap.stderr.contains("Usage"),
+                "stderr should contain a usage diagnostic:\n\(cap.stderr)")
+        #expect(cap.stdout == "")
     }
 
-    func testMissingRequiredArgumentFailsGracefully() async throws {
+    @Test func missingRequiredArgumentFailsGracefully() async throws {
         let cap = CapturingShell()
         cap.shell.register(RequireNameCommand.self)
         let status = try await cap.shell.run("require")
-        XCTAssertFalse(status.isSuccess)
-        XCTAssertTrue(cap.stderr.contains("name") || cap.stderr.contains("missing"),
-                      cap.stderr)
+        #expect(!status.isSuccess)
+        #expect(cap.stderr.contains("name") || cap.stderr.contains("missing"),
+                "\(cap.stderr)")
     }
 
-    func testBadOptionValueFailsGracefully() async throws {
+    @Test func badOptionValueFailsGracefully() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         let status = try await cap.shell.run("greet --count notanumber oliver")
-        XCTAssertFalse(status.isSuccess)
+        #expect(!status.isSuccess)
     }
 
     // MARK: Repeated parsed arguments
 
-    func testArrayArgumentCollectsAll() async throws {
+    @Test func arrayArgumentCollectsAll() async throws {
         let cap = CapturingShell()
         cap.shell.register(SumCommand.self)
         try await cap.shell.run("sum 1 2 3 4 10")
-        XCTAssertEqual(cap.stdout, "20\n")
+        #expect(cap.stdout == "20\n")
     }
 
     // MARK: Integration with the interpreter
 
-    func testRegisteredParsableCommandInAndChain() async throws {
+    @Test func registeredParsableCommandInAndChain() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("greet alice && greet bob")
-        XCTAssertEqual(cap.stdout, "hello alice\nhello bob\n")
+        #expect(cap.stdout == "hello alice\nhello bob\n")
     }
 
-    func testRegisteredParsableCommandInForLoop() async throws {
+    @Test func registeredParsableCommandInForLoop() async throws {
         let cap = CapturingShell()
         cap.shell.register(GreetCommand.self)
         try await cap.shell.run("for who in alice bob charlie; do greet $who; done")
-        XCTAssertEqual(cap.stdout, "hello alice\nhello bob\nhello charlie\n")
+        #expect(cap.stdout == "hello alice\nhello bob\nhello charlie\n")
     }
 
-    func testParsableCommandCanMutateEnvironment() async throws {
+    @Test func parsableCommandCanMutateEnvironment() async throws {
         struct SetVar: ParsableBashCommand {
             static let configuration = CommandConfiguration(commandName: "setvar")
             @Argument var name: String
@@ -249,6 +197,6 @@ final class ParsableBashCommandTests: XCTestCase {
         let cap = CapturingShell()
         cap.shell.register(SetVar.self)
         try await cap.shell.run("setvar GREETING howdy")
-        XCTAssertEqual(cap.shell.environment["GREETING"], "howdy")
+        #expect(cap.shell.environment["GREETING"] == "howdy")
     }
 }

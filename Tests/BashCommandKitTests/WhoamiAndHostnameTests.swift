@@ -1,36 +1,36 @@
-import XCTest
+import Testing
 import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class WhoamiAndHostnameTests: XCTestCase {
+@Suite struct WhoamiAndHostnameTests {
 
     // MARK: whoami
 
-    func testWhoamiPrintsNonEmpty() async throws {
+    @Test func whoamiPrintsNonEmpty() async throws {
         let cap = CapturingShell()
         cap.shell.register(WhoamiCommand.self)
         try await cap.shell.run("whoami")
         let name = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertFalse(name.isEmpty)
-        XCTAssertEqual(name, ProcessInfo.processInfo.userName)
+        #expect(!name.isEmpty)
+        #expect(name == ProcessInfo.processInfo.userName)
     }
 
-    func testWhoamiUsableInCommandSubstitution() async throws {
+    @Test func whoamiUsableInCommandSubstitution() async throws {
         let cap = CapturingShell()
         cap.shell.register(WhoamiCommand.self)
         try await cap.shell.run(#"U=$(whoami); echo "hello $U""#)
-        XCTAssertTrue(cap.stdout.hasPrefix("hello "), cap.stdout)
+        #expect(cap.stdout.hasPrefix("hello "), "\(cap.stdout)")
     }
 
     // MARK: hostname
 
-    func testHostnamePrintsNonEmpty() async throws {
+    @Test func hostnamePrintsNonEmpty() async throws {
         let cap = CapturingShell()
         cap.shell.register(HostnameCommand.self)
         try await cap.shell.run("hostname")
         let host = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertFalse(host.isEmpty)
-        XCTAssertEqual(host, ProcessInfo.processInfo.hostName)
+        #expect(!host.isEmpty)
+        #expect(host == ProcessInfo.processInfo.hostName)
     }
 }

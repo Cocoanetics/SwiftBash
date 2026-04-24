@@ -1,48 +1,48 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class EchoTests: XCTestCase {
+@Suite struct EchoTests {
 
-    func testNoArgs() async throws {
+    @Test func noArgs() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo")
-        XCTAssertEqual(cap.stdout, "\n")
+        #expect(cap.stdout == "\n")
     }
 
-    func testSingleArg() async throws {
+    @Test func singleArg() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo hi")
-        XCTAssertEqual(cap.stdout, "hi\n")
+        #expect(cap.stdout == "hi\n")
     }
 
-    func testMultipleArgsJoinedWithSpace() async throws {
+    @Test func multipleArgsJoinedWithSpace() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo a b c")
-        XCTAssertEqual(cap.stdout, "a b c\n")
+        #expect(cap.stdout == "a b c\n")
     }
 
-    func testDashNSuppressesNewline() async throws {
+    @Test func dashNSuppressesNewline() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo -n hello")
-        XCTAssertEqual(cap.stdout, "hello")
+        #expect(cap.stdout == "hello")
     }
 
-    func testDoubleDashEndsOptions() async throws {
+    @Test func doubleDashEndsOptions() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo -- -n literal")
-        XCTAssertEqual(cap.stdout, "-n literal\n")
+        #expect(cap.stdout == "-n literal\n")
     }
 
-    func testQuotesAreStripped() async throws {
+    @Test func quotesAreStripped() async throws {
         let cap = CapturingShell()
         try await cap.shell.run(#"echo "hello world""#)
-        XCTAssertEqual(cap.stdout, "hello world\n")
+        #expect(cap.stdout == "hello world\n")
     }
 
-    func testSingleQuotesPreserveDollars() async throws {
+    @Test func singleQuotesPreserveDollars() async throws {
         let cap = CapturingShell()
         cap.shell.environment["X"] = "expanded"
         try await cap.shell.run("echo '$X'")
-        XCTAssertEqual(cap.stdout, "$X\n")
+        #expect(cap.stdout == "$X\n")
     }
 }

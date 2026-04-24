@@ -1,9 +1,9 @@
-import XCTest
+import Testing
 import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class SleepCommandTests: XCTestCase {
+@Suite struct SleepCommandTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -11,29 +11,29 @@ final class SleepCommandTests: XCTestCase {
         return cap
     }
 
-    func testSleepActuallyWaits() async throws {
+    @Test func sleepActuallyWaits() async throws {
         let cap = makeShell()
         let start = Date()
         try await cap.shell.run("sleep 0.05")   // 50 ms
         let elapsed = Date().timeIntervalSince(start)
-        XCTAssertGreaterThanOrEqual(elapsed, 0.04)
+        #expect(elapsed >= 0.04)
     }
 
-    func testZeroIsImmediateSuccess() async throws {
+    @Test func zeroIsImmediateSuccess() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("sleep 0")
-        XCTAssertEqual(status, .success)
+        #expect(status == .success)
     }
 
-    func testNegativeFails() async throws {
+    @Test func negativeFails() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("sleep -0.1")
-        XCTAssertFalse(status.isSuccess)
+        #expect(!status.isSuccess)
     }
 
-    func testNonNumericFails() async throws {
+    @Test func nonNumericFails() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("sleep abc")
-        XCTAssertFalse(status.isSuccess)
+        #expect(!status.isSuccess)
     }
 }

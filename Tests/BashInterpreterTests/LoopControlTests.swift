@@ -1,11 +1,11 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class LoopControlTests: XCTestCase {
+@Suite struct LoopControlTests {
 
     // MARK: break
 
-    func testBreakExitsWhile() async throws {
+    @Test func breakExitsWhile() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
         try await cap.shell.run("""
@@ -15,11 +15,11 @@ final class LoopControlTests: XCTestCase {
               (( i++ ))
             done
             """)
-        XCTAssertEqual(cap.stdout, "0\n1\n2\n")
-        XCTAssertEqual(cap.shell.environment["i"], "3")
+        #expect(cap.stdout == "0\n1\n2\n")
+        #expect(cap.shell.environment["i"] == "3")
     }
 
-    func testBreakExitsForArithCondition() async throws {
+    @Test func breakExitsForArithCondition() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "0"
         try await cap.shell.run("""
@@ -28,10 +28,10 @@ final class LoopControlTests: XCTestCase {
               echo $x
             done
             """)
-        XCTAssertEqual(cap.stdout, "1\n2\n")
+        #expect(cap.stdout == "1\n2\n")
     }
 
-    func testBreakTwoLevels() async throws {
+    @Test func breakTwoLevels() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             for a in 1 2 3; do
@@ -41,12 +41,12 @@ final class LoopControlTests: XCTestCase {
               done
             done
             """)
-        XCTAssertEqual(cap.stdout, "1.1\n1.2\n")
+        #expect(cap.stdout == "1.1\n1.2\n")
     }
 
     // MARK: continue
 
-    func testContinueSkipsIteration() async throws {
+    @Test func continueSkipsIteration() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             for x in 1 2 3 4 5; do
@@ -54,10 +54,10 @@ final class LoopControlTests: XCTestCase {
               echo $x
             done
             """)
-        XCTAssertEqual(cap.stdout, "1\n2\n4\n5\n")
+        #expect(cap.stdout == "1\n2\n4\n5\n")
     }
 
-    func testContinueInWhile() async throws {
+    @Test func continueInWhile() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
         try await cap.shell.run("""
@@ -67,10 +67,10 @@ final class LoopControlTests: XCTestCase {
               echo $i
             done
             """)
-        XCTAssertEqual(cap.stdout, "1\n2\n4\n5\n")
+        #expect(cap.stdout == "1\n2\n4\n5\n")
     }
 
-    func testContinueTwoLevels() async throws {
+    @Test func continueTwoLevels() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             for a in 1 2 3; do
@@ -82,37 +82,39 @@ final class LoopControlTests: XCTestCase {
             """)
         // Inner loop runs 1.1 1.2 1.3 for a=1, then for a=2 it immediately
         // continues the outer, skipping 2.*, then 3.1 3.2 3.3.
-        XCTAssertEqual(cap.stdout, "1.1\n1.2\n1.3\n3.1\n3.2\n3.3\n")
+        #expect(cap.stdout == "1.1\n1.2\n1.3\n3.1\n3.2\n3.3\n")
     }
 
     // MARK: Edge cases
 
-    func testBreakZeroIsAnError() async {
+    @Test func breakZeroIsAnError() async {
         let cap = CapturingShell()
-        await XCTAssertThrowsErrorAsync(try await cap.shell.run("""
-            for x in a; do break 0; done
-            """))
+        await #expect(throws: (any Error).self) {
+            try await cap.shell.run("""
+                for x in a; do break 0; done
+                """)
+        }
     }
 
-    func testStrayBreakWarnsAndContinues() async throws {
+    @Test func strayBreakWarnsAndContinues() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("break; echo after")
-        XCTAssertEqual(status, .success)
-        XCTAssertEqual(cap.stdout, "after\n")
-        XCTAssertTrue(cap.stderr.contains("only meaningful"), cap.stderr)
+        #expect(status == .success)
+        #expect(cap.stdout == "after\n")
+        #expect(cap.stderr.contains("only meaningful"), "\(cap.stderr)")
     }
 
-    func testStrayContinueWarns() async throws {
+    @Test func strayContinueWarns() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("continue")
-        XCTAssertTrue(cap.stderr.contains("only meaningful"), cap.stderr)
+        #expect(cap.stderr.contains("only meaningful"), "\(cap.stderr)")
     }
 
     // MARK: Exit status
 
-    func testBreakReturnsSuccess() async throws {
+    @Test func breakReturnsSuccess() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("for x in 1; do break; done")
-        XCTAssertEqual(status, .success)
+        #expect(status == .success)
     }
 }

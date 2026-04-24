@@ -1,47 +1,47 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class ListExecutionTests: XCTestCase {
+@Suite struct ListExecutionTests {
 
-    func testSemicolonRunsBoth() async throws {
+    @Test func semicolonRunsBoth() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo a; echo b")
-        XCTAssertEqual(cap.stdout, "a\nb\n")
+        #expect(cap.stdout == "a\nb\n")
     }
 
-    func testAndAndShortCircuitsOnFailure() async throws {
+    @Test func andAndShortCircuitsOnFailure() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("false && echo nope")
-        XCTAssertEqual(cap.stdout, "")
+        #expect(cap.stdout == "")
     }
 
-    func testAndAndContinuesOnSuccess() async throws {
+    @Test func andAndContinuesOnSuccess() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("true && echo yes")
-        XCTAssertEqual(cap.stdout, "yes\n")
+        #expect(cap.stdout == "yes\n")
     }
 
-    func testOrOrShortCircuitsOnSuccess() async throws {
+    @Test func orOrShortCircuitsOnSuccess() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("true || echo nope")
-        XCTAssertEqual(cap.stdout, "")
+        #expect(cap.stdout == "")
     }
 
-    func testOrOrFiresOnFailure() async throws {
+    @Test func orOrFiresOnFailure() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("false || echo fallback")
-        XCTAssertEqual(cap.stdout, "fallback\n")
+        #expect(cap.stdout == "fallback\n")
     }
 
-    func testMultipleLinesRunInOrder() async throws {
+    @Test func multipleLinesRunInOrder() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo one\necho two\necho three")
-        XCTAssertEqual(cap.stdout, "one\ntwo\nthree\n")
+        #expect(cap.stdout == "one\ntwo\nthree\n")
     }
 
-    func testExitStatusPropagates() async throws {
+    @Test func exitStatusPropagates() async throws {
         let cap = CapturingShell()
         let status = try await cap.shell.run("true; false")
-        XCTAssertEqual(status, .failure)
+        #expect(status == .failure)
     }
 }

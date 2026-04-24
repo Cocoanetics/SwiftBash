@@ -1,8 +1,8 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class BasenameCommandTests: XCTestCase {
+@Suite struct BasenameCommandTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -10,58 +10,58 @@ final class BasenameCommandTests: XCTestCase {
         return cap
     }
 
-    func testBasicFileName() async throws {
+    @Test func basicFileName() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename /tmp/foo.txt")
-        XCTAssertEqual(cap.stdout, "foo.txt\n")
+        #expect(cap.stdout == "foo.txt\n")
     }
 
-    func testNoSlashesReturnsInput() async throws {
+    @Test func noSlashesReturnsInput() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename foo.txt")
-        XCTAssertEqual(cap.stdout, "foo.txt\n")
+        #expect(cap.stdout == "foo.txt\n")
     }
 
-    func testTrailingSlash() async throws {
+    @Test func trailingSlash() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename /tmp/")
-        XCTAssertEqual(cap.stdout, "tmp\n")
+        #expect(cap.stdout == "tmp\n")
     }
 
-    func testRootSlash() async throws {
+    @Test func rootSlash() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename /")
-        XCTAssertEqual(cap.stdout, "/\n")
+        #expect(cap.stdout == "/\n")
     }
 
-    func testStripsSuffix() async throws {
+    @Test func stripsSuffix() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename /tmp/foo.txt .txt")
-        XCTAssertEqual(cap.stdout, "foo\n")
+        #expect(cap.stdout == "foo\n")
     }
 
-    func testSuffixMismatchLeavesNameIntact() async throws {
+    @Test func suffixMismatchLeavesNameIntact() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename /tmp/foo.txt .md")
-        XCTAssertEqual(cap.stdout, "foo.txt\n")
+        #expect(cap.stdout == "foo.txt\n")
     }
 
-    func testSuffixEqualToResultIsNotStripped() async throws {
+    @Test func suffixEqualToResultIsNotStripped() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename .txt .txt")
-        XCTAssertEqual(cap.stdout, ".txt\n")
+        #expect(cap.stdout == ".txt\n")
     }
 
-    func testDeepPath() async throws {
+    @Test func deepPath() async throws {
         let cap = makeShell()
         try await cap.shell.run("basename /a/b/c/d/e")
-        XCTAssertEqual(cap.stdout, "e\n")
+        #expect(cap.stdout == "e\n")
     }
 
-    func testMissingPathFails() async throws {
+    @Test func missingPathFails() async throws {
         let cap = makeShell()
         let status = try await cap.shell.run("basename")
-        XCTAssertFalse(status.isSuccess)
-        XCTAssertFalse(cap.stderr.isEmpty)
+        #expect(!status.isSuccess)
+        #expect(!cap.stderr.isEmpty)
     }
 }

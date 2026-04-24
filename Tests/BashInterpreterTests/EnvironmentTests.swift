@@ -1,34 +1,34 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class EnvironmentTests: XCTestCase {
+@Suite struct EnvironmentTests {
 
-    func testInitWithDictionary() async {
+    @Test func initWithDictionary() {
         let env = Environment(variables: ["FOO": "bar", "BAZ": "qux"])
-        XCTAssertEqual(env["FOO"], "bar")
-        XCTAssertEqual(env["BAZ"], "qux")
+        #expect(env["FOO"] == "bar")
+        #expect(env["BAZ"] == "qux")
     }
 
-    func testSubscriptAssignment() async {
+    @Test func subscriptAssignment() {
         var env = Environment()
         env["X"] = "y"
-        XCTAssertEqual(env["X"], "y")
+        #expect(env["X"] == "y")
         env["X"] = nil
-        XCTAssertNil(env["X"])
+        #expect(env["X"] == nil)
     }
 
-    func testCurrentLoadsFromProcess() async {
+    @Test func currentLoadsFromProcess() {
         let env = Environment.current()
         // PATH is essentially always present on macOS/Linux.
-        XCTAssertNotNil(env["PATH"])
-        XCTAssertFalse(env.workingDirectory.isEmpty)
+        #expect(env["PATH"] != nil)
+        #expect(!env.workingDirectory.isEmpty)
     }
 
-    func testShellReadsEnvironmentDictionary() async throws {
+    @Test func shellReadsEnvironmentDictionary() async throws {
         let cap = CapturingShell(environment:
             Environment(variables: ["PATH": "/usr/bin:/bin",
                                     "USER": "oliver"]))
         try await cap.shell.run("echo $USER $PATH")
-        XCTAssertEqual(cap.stdout, "oliver /usr/bin:/bin\n")
+        #expect(cap.stdout == "oliver /usr/bin:/bin\n")
     }
 }

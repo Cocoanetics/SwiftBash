@@ -1,7 +1,7 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class GlobMatcherTests: XCTestCase {
+@Suite struct GlobMatcherTests {
 
     private func m(_ pat: String, _ s: String) -> Bool {
         GlobMatcher.match(pattern: pat, string: s)
@@ -9,60 +9,60 @@ final class GlobMatcherTests: XCTestCase {
 
     // MARK: Literals
 
-    func testLiteralMatch()   { XCTAssertTrue(m("abc", "abc")) }
-    func testLiteralMismatch() async { XCTAssertFalse(m("abc", "abd")) }
-    func testEmptyPatternMatchesEmpty()   { XCTAssertTrue(m("", "")) }
-    func testEmptyPatternRejectsNonEmpty() async { XCTAssertFalse(m("", "a")) }
+    @Test func literalMatch()               { #expect(m("abc", "abc")) }
+    @Test func literalMismatch()            { #expect(!m("abc", "abd")) }
+    @Test func emptyPatternMatchesEmpty()   { #expect(m("", "")) }
+    @Test func emptyPatternRejectsNonEmpty() { #expect(!m("", "a")) }
 
     // MARK: Star
 
-    func testStarMatchesEmpty()      { XCTAssertTrue(m("*", "")) }
-    func testStarMatchesAnyString()  { XCTAssertTrue(m("*", "anything")) }
-    func testStarPrefix()            { XCTAssertTrue(m("*.txt", "note.txt")) }
-    func testStarPrefixMismatch()    { XCTAssertFalse(m("*.txt", "note.md")) }
-    func testStarSuffix()            { XCTAssertTrue(m("log*", "logger")) }
-    func testStarMiddle()            { XCTAssertTrue(m("a*c", "abbbc")) }
-    func testStarDoubleMatches()     { XCTAssertTrue(m("a**b", "axxxb")) } // `**` collapses
+    @Test func starMatchesEmpty()     { #expect(m("*", "")) }
+    @Test func starMatchesAnyString() { #expect(m("*", "anything")) }
+    @Test func starPrefix()           { #expect(m("*.txt", "note.txt")) }
+    @Test func starPrefixMismatch()   { #expect(!m("*.txt", "note.md")) }
+    @Test func starSuffix()           { #expect(m("log*", "logger")) }
+    @Test func starMiddle()           { #expect(m("a*c", "abbbc")) }
+    @Test func starDoubleMatches()    { #expect(m("a**b", "axxxb")) } // `**` collapses
 
     // MARK: Question mark
 
-    func testQuestionMatchesOneChar()   { XCTAssertTrue(m("?", "a")) }
-    func testQuestionRejectsEmpty()     { XCTAssertFalse(m("?", "")) }
-    func testQuestionRejectsTwoChars()  { XCTAssertFalse(m("?", "ab")) }
-    func testQuestionInContext()        { XCTAssertTrue(m("h?llo", "hello")) }
+    @Test func questionMatchesOneChar()  { #expect(m("?", "a")) }
+    @Test func questionRejectsEmpty()    { #expect(!m("?", "")) }
+    @Test func questionRejectsTwoChars() { #expect(!m("?", "ab")) }
+    @Test func questionInContext()       { #expect(m("h?llo", "hello")) }
 
     // MARK: Character class
 
-    func testCharClassMatches()         { XCTAssertTrue(m("[abc]", "b")) }
-    func testCharClassRejects()         { XCTAssertFalse(m("[abc]", "d")) }
-    func testCharClassRange()           { XCTAssertTrue(m("[a-z]", "m")) }
-    func testCharClassRangeRejects()    { XCTAssertFalse(m("[a-z]", "M")) }
-    func testCharClassNegation()        { XCTAssertTrue(m("[!abc]", "d")) }
-    func testCharClassNegationRejects() async { XCTAssertFalse(m("[!abc]", "b")) }
-    func testCharClassCaretNegation()   { XCTAssertTrue(m("[^0-9]", "a")) }
-    func testCharClassCombined()        { XCTAssertTrue(m("[A-Za-z0-9]", "z")) }
+    @Test func charClassMatches()         { #expect(m("[abc]", "b")) }
+    @Test func charClassRejects()         { #expect(!m("[abc]", "d")) }
+    @Test func charClassRange()           { #expect(m("[a-z]", "m")) }
+    @Test func charClassRangeRejects()    { #expect(!m("[a-z]", "M")) }
+    @Test func charClassNegation()        { #expect(m("[!abc]", "d")) }
+    @Test func charClassNegationRejects() { #expect(!m("[!abc]", "b")) }
+    @Test func charClassCaretNegation()   { #expect(m("[^0-9]", "a")) }
+    @Test func charClassCombined()        { #expect(m("[A-Za-z0-9]", "z")) }
 
     // MARK: Escape
 
-    func testEscapedStar() async { XCTAssertTrue(m("\\*", "*")) }
-    func testEscapedStarRejectsOther() async { XCTAssertFalse(m("\\*", "a")) }
-    func testEscapedQuestion() async { XCTAssertTrue(m("\\?", "?")) }
+    @Test func escapedStar()             { #expect(m("\\*", "*")) }
+    @Test func escapedStarRejectsOther() { #expect(!m("\\*", "a")) }
+    @Test func escapedQuestion()         { #expect(m("\\?", "?")) }
 
     // MARK: Combinations
 
-    func testMixed() async {
-        XCTAssertTrue(m("*.[ch]", "file.c"))
-        XCTAssertTrue(m("*.[ch]", "file.h"))
-        XCTAssertFalse(m("*.[ch]", "file.txt"))
+    @Test func mixed() {
+        #expect(m("*.[ch]", "file.c"))
+        #expect(m("*.[ch]", "file.h"))
+        #expect(!m("*.[ch]", "file.txt"))
     }
 
-    func testPathLikePattern() async {
-        XCTAssertTrue(m("/usr/*/bin", "/usr/local/bin"))
-        XCTAssertFalse(m("/usr/*/bin", "/usr/local/sbin"))
+    @Test func pathLikePattern() {
+        #expect(m("/usr/*/bin", "/usr/local/bin"))
+        #expect(!m("/usr/*/bin", "/usr/local/sbin"))
     }
 
     // MARK: Unmatched bracket → pattern treated as literal-ish; should not match
-    func testUnmatchedBracketIsRejected() async {
-        XCTAssertFalse(m("[abc", "a"))
+    @Test func unmatchedBracketIsRejected() {
+        #expect(!m("[abc", "a"))
     }
 }

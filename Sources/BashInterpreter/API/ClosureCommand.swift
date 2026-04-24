@@ -17,10 +17,10 @@ import Foundation
 /// or register the same body under multiple names.
 public struct ClosureCommand: Command {
     public let name: String
-    private let body: ([String], Shell) async throws -> ExitStatus
+    private let body: @Sendable ([String], Shell) async throws -> ExitStatus
 
     public init(name: String,
-                body: @escaping ([String], Shell) async throws -> ExitStatus) {
+                body: @Sendable @escaping ([String], Shell) async throws -> ExitStatus) {
         self.name = name
         self.body = body
     }

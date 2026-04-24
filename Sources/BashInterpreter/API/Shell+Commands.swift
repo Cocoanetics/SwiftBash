@@ -32,7 +32,7 @@ extension Shell {
     /// ```
     public func register(
         name: String,
-        _ body: @escaping ([String], Shell) async throws -> ExitStatus
+        _ body: @Sendable @escaping ([String], Shell) async throws -> ExitStatus
     ) {
         commands[name] = ClosureCommand(name: name, body: body)
     }

@@ -1,34 +1,34 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class ForTests: XCTestCase {
+@Suite struct ForTests {
 
-    func testForLiteralList() async throws {
+    @Test func forLiteralList() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("for x in a b c; do echo $x; done")
-        XCTAssertEqual(cap.stdout, "a\nb\nc\n")
+        #expect(cap.stdout == "a\nb\nc\n")
     }
 
-    func testForEmptyListRunsNothing() async throws {
+    @Test func forEmptyListRunsNothing() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("for x in; do echo $x; done")
-        XCTAssertEqual(cap.stdout, "")
+        #expect(cap.stdout == "")
     }
 
-    func testForLeavesVariableAtLastValue() async throws {
+    @Test func forLeavesVariableAtLastValue() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("for x in a b c; do :; done")
-        XCTAssertEqual(cap.shell.environment["x"], "c")
+        #expect(cap.shell.environment["x"] == "c")
     }
 
-    func testForWithVariableExpansion() async throws {
+    @Test func forWithVariableExpansion() async throws {
         let cap = CapturingShell()
         cap.shell.environment["item"] = "widget"
         try await cap.shell.run("for x in one $item; do echo $x; done")
-        XCTAssertEqual(cap.stdout, "one\nwidget\n")
+        #expect(cap.stdout == "one\nwidget\n")
     }
 
-    func testForExecutesBodyInOrder() async throws {
+    @Test func forExecutesBodyInOrder() async throws {
         let cap = CapturingShell()
         cap.shell.environment["total"] = "0"
         try await cap.shell.run("""
@@ -36,10 +36,10 @@ final class ForTests: XCTestCase {
               (( total = total + n ))
             done
             """)
-        XCTAssertEqual(cap.shell.environment["total"], "10")
+        #expect(cap.shell.environment["total"] == "10")
     }
 
-    func testNestedFor() async throws {
+    @Test func nestedFor() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("""
             for a in x y; do
@@ -48,21 +48,22 @@ final class ForTests: XCTestCase {
               done
             done
             """)
-        XCTAssertEqual(cap.stdout, "x1\nx2\ny1\ny2\n")
+        #expect(cap.stdout == "x1\nx2\ny1\ny2\n")
     }
 
-    func testForCommandSubstitutionInList() async throws {
+    @Test func forCommandSubstitutionInList() async throws {
         // Unquoted `$(…)` in the `in` clause is word-split like bash, so
         // this iterates three times.
         let cap = CapturingShell()
         try await cap.shell.run("for x in $(echo a b c); do echo [$x]; done")
-        XCTAssertEqual(cap.stdout, "[a]\n[b]\n[c]\n")
+        #expect(cap.stdout == "[a]\n[b]\n[c]\n")
     }
 
-    func testForWithoutInIsUnimplemented() async {
+    @Test func forWithoutInIsUnimplemented() async {
         let cap = CapturingShell()
-        await XCTAssertThrowsErrorAsync(try await cap.shell.run("for x; do echo $x; done")) { err in
-            XCTAssertTrue(err is BashInterpreterError, "got \(err)")
+        let err = await #expect(throws: BashInterpreterError.self) {
+            try await cap.shell.run("for x; do echo $x; done")
         }
+        #expect(err != nil, "expected BashInterpreterError")
     }
 }

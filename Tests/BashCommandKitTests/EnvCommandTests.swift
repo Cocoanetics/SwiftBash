@@ -1,8 +1,8 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class EnvCommandTests: XCTestCase {
+@Suite struct EnvCommandTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -10,27 +10,27 @@ final class EnvCommandTests: XCTestCase {
         return cap
     }
 
-    func testEmptyEnvPrintsNothing() async throws {
+    @Test func emptyEnvPrintsNothing() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [:]
         try await cap.shell.run("env")
-        XCTAssertEqual(cap.stdout, "")
+        #expect(cap.stdout == "")
     }
 
-    func testPrintsAllSortedByName() async throws {
+    @Test func printsAllSortedByName() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [
             "ZEBRA": "z", "ALPHA": "a", "BRAVO": "b"
         ]
         try await cap.shell.run("env")
-        XCTAssertEqual(cap.stdout, "ALPHA=a\nBRAVO=b\nZEBRA=z\n")
+        #expect(cap.stdout == "ALPHA=a\nBRAVO=b\nZEBRA=z\n")
     }
 
-    func testReflectsExportedVariables() async throws {
+    @Test func reflectsExportedVariables() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [:]
         try await cap.shell.run("export FOO=bar")
         try await cap.shell.run("env")
-        XCTAssertEqual(cap.stdout, "FOO=bar\n")
+        #expect(cap.stdout == "FOO=bar\n")
     }
 }

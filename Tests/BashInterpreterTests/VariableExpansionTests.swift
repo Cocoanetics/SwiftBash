@@ -1,79 +1,79 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 
-final class VariableExpansionTests: XCTestCase {
+@Suite struct VariableExpansionTests {
 
-    func testEchoPath() async throws {
+    @Test func echoPath() async throws {
         let cap = CapturingShell()
         cap.shell.environment["PATH"] = "/usr/bin:/bin"
         try await cap.shell.run("echo $PATH")
-        XCTAssertEqual(cap.stdout, "/usr/bin:/bin\n")
+        #expect(cap.stdout == "/usr/bin:/bin\n")
     }
 
-    func testEchoUndefinedVariableYieldsEmpty() async throws {
+    @Test func echoUndefinedVariableYieldsEmpty() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo $NOPE")
-        XCTAssertEqual(cap.stdout, "\n")
+        #expect(cap.stdout == "\n")
     }
 
-    func testBracedExpansion() async throws {
+    @Test func bracedExpansion() async throws {
         let cap = CapturingShell()
         cap.shell.environment["NAME"] = "oliver"
         try await cap.shell.run("echo ${NAME}")
-        XCTAssertEqual(cap.stdout, "oliver\n")
+        #expect(cap.stdout == "oliver\n")
     }
 
-    func testExpansionInsideDoubleQuotes() async throws {
+    @Test func expansionInsideDoubleQuotes() async throws {
         let cap = CapturingShell()
         cap.shell.environment["WHO"] = "world"
         try await cap.shell.run(#"echo "hello $WHO""#)
-        XCTAssertEqual(cap.stdout, "hello world\n")
+        #expect(cap.stdout == "hello world\n")
     }
 
-    func testNoExpansionInsideSingleQuotes() async throws {
+    @Test func noExpansionInsideSingleQuotes() async throws {
         let cap = CapturingShell()
         cap.shell.environment["WHO"] = "world"
         try await cap.shell.run("echo 'hello $WHO'")
-        XCTAssertEqual(cap.stdout, "hello $WHO\n")
+        #expect(cap.stdout == "hello $WHO\n")
     }
 
-    func testCommandSubstitution() async throws {
+    @Test func commandSubstitution() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo $(echo inner)")
-        XCTAssertEqual(cap.stdout, "inner\n")
+        #expect(cap.stdout == "inner\n")
     }
 
-    func testNestedCommandSubstitution() async throws {
+    @Test func nestedCommandSubstitution() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo $(echo $(echo deep))")
-        XCTAssertEqual(cap.stdout, "deep\n")
+        #expect(cap.stdout == "deep\n")
     }
 
-    func testCommandSubstitutionInsideString() async throws {
+    @Test func commandSubstitutionInsideString() async throws {
         let cap = CapturingShell()
         cap.shell.environment["NAME"] = "oliver"
         try await cap.shell.run(#"echo "hi $(echo $NAME)""#)
-        XCTAssertEqual(cap.stdout, "hi oliver\n")
+        #expect(cap.stdout == "hi oliver\n")
     }
 
-    func testTildeExpandsToHome() async throws {
+    @Test func tildeExpandsToHome() async throws {
         let cap = CapturingShell()
         cap.shell.environment["HOME"] = "/Users/oliver"
         try await cap.shell.run("echo ~/docs")
-        XCTAssertEqual(cap.stdout, "/Users/oliver/docs\n")
+        #expect(cap.stdout == "/Users/oliver/docs\n")
     }
 
-    func testDollarQuestionIsLastExitStatus() async throws {
+    @Test func dollarQuestionIsLastExitStatus() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("false; echo $?")
-        XCTAssertEqual(cap.stdout, "1\n")
+        #expect(cap.stdout == "1\n")
     }
 
-    func testAdjacentVarsConcatenate() async throws {
+    @Test func adjacentVarsConcatenate() async throws {
         let cap = CapturingShell()
         cap.shell.environment["A"] = "foo"
         cap.shell.environment["B"] = "bar"
         try await cap.shell.run("echo $A$B")
-        XCTAssertEqual(cap.stdout, "foobar\n")
+        #expect(cap.stdout == "foobar\n")
     }
 }

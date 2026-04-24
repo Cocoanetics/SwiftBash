@@ -1,10 +1,10 @@
-import XCTest
+import Testing
 @testable import BashSyntax
 
 /// Tests that lock down the exact format produced by `dump()`.
-final class DumpTests: XCTestCase {
+@Suite struct DumpTests {
 
-    func testNestedSubstitutionsDumpExactly() async throws {
+    @Test func nestedSubstitutionsDumpExactly() throws {
         let node = try BashSyntax.parseSingle("true && cat <(echo $(echo foo))")
         let expected = """
         ListNode(pos=(0, 31), parts=[
@@ -30,10 +30,10 @@ final class DumpTests: XCTestCase {
           ]),
         ])
         """
-        XCTAssertEqual(node.dump(), expected)
+        #expect(node.dump() == expected)
     }
 
-    func testSimplePipelineDump() async throws {
+    @Test func simplePipelineDump() throws {
         let node = try BashSyntax.parseSingle("cat | wc")
         let expected = """
         PipelineNode(pos=(0, 8), parts=[
@@ -46,10 +46,10 @@ final class DumpTests: XCTestCase {
           ]),
         ])
         """
-        XCTAssertEqual(node.dump(), expected)
+        #expect(node.dump() == expected)
     }
 
-    func testSourceDump() async throws {
+    @Test func sourceDump() throws {
         let src = "echo hi"
         let node = try BashSyntax.parseSingle(src)
         let expected = """
@@ -58,6 +58,6 @@ final class DumpTests: XCTestCase {
           WordNode(s='hi', word='hi'),
         ])
         """
-        XCTAssertEqual(node.dump(source: src), expected)
+        #expect(node.dump(source: src) == expected)
     }
 }

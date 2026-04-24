@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import Foundation
 @testable import BashInterpreter
 
@@ -6,19 +6,19 @@ import Foundation
 ///  1. `Shell.runCapturing` — convenience, drains the whole output.
 ///  2. Replacing `shell.stdout` with your own `OutputSink` and
 ///     iterating `bytes` / `lines` concurrently with the run.
-final class StdoutStreamTests: XCTestCase {
+@Suite struct StdoutStreamTests {
 
     // MARK: runCapturing convenience
 
-    func testRunCapturingReturnsStdout() async throws {
+    @Test func runCapturingReturnsStdout() async throws {
         let shell = Shell(stdout: .discard, stderr: .discard)
         let result = try await shell.runCapturing("echo hello; echo world")
-        XCTAssertEqual(result.stdout, "hello\nworld\n")
-        XCTAssertEqual(result.stderr, "")
-        XCTAssertEqual(result.exitStatus, .success)
+        #expect(result.stdout == "hello\nworld\n")
+        #expect(result.stderr == "")
+        #expect(result.exitStatus == .success)
     }
 
-    func testRunCapturingSplitsStderr() async throws {
+    @Test func runCapturingSplitsStderr() async throws {
         let shell = Shell(stdout: .discard, stderr: .discard)
         shell.register(name: "noisy") { _, shell in
             shell.stdout("out\n")
@@ -26,27 +26,27 @@ final class StdoutStreamTests: XCTestCase {
             return .success
         }
         let result = try await shell.runCapturing("noisy")
-        XCTAssertEqual(result.stdout, "out\n")
-        XCTAssertEqual(result.stderr, "err\n")
+        #expect(result.stdout == "out\n")
+        #expect(result.stderr == "err\n")
     }
 
-    func testRunCapturingRestoresShellStdioOnException() async throws {
+    @Test func runCapturingRestoresShellStdioOnException() async throws {
         let shell = Shell(stdout: .discard, stderr: .discard)
         let originalStdout = shell.stdout
         _ = try? await shell.runCapturing("nosuchcommand")
-        XCTAssertTrue(shell.stdout === originalStdout,
+        #expect(shell.stdout === originalStdout,
             "stdout should be restored even when run throws")
     }
 
-    func testCapturingExitStatus() async throws {
+    @Test func capturingExitStatus() async throws {
         let shell = Shell(stdout: .discard, stderr: .discard)
         let result = try await shell.runCapturing("true; false")
-        XCTAssertEqual(result.exitStatus, .failure)
+        #expect(result.exitStatus == .failure)
     }
 
     // MARK: Live streaming — iterate stdout while the shell runs
 
-    func testStreamingStdoutDeliversLinesLive() async throws {
+    @Test func streamingStdoutDeliversLinesLive() async throws {
         let shell = Shell(stderr: .discard)
         let sink = OutputSink()
         shell.stdout = sink
@@ -80,16 +80,16 @@ final class StdoutStreamTests: XCTestCase {
         sink.finish()
 
         let lines = await arrivals
-        XCTAssertEqual(lines.map(\.0), ["first", "second", "third"])
+        #expect(lines.map(\.0) == ["first", "second", "third"])
         // First line appears immediately; later ones at least 70 ms apart.
-        XCTAssertLessThan(lines[0].1, 0.05)
-        XCTAssertGreaterThan(lines[1].1, 0.07)
-        XCTAssertGreaterThan(lines[2].1, 0.14)
+        #expect(lines[0].1 < 0.05)
+        #expect(lines[1].1 > 0.07)
+        #expect(lines[2].1 > 0.14)
     }
 
     // MARK: Multiple consumers of the same sink? (shouldn't — stream is single-consumer)
 
-    func testBytesAndOnWriteFireSynchronously() async throws {
+    @Test func bytesAndOnWriteFireSynchronously() async throws {
         // `onWrite` is synchronous; the stream is also fed. Both paths
         // see every write, which is what lets the test CapturingShell
         // give synchronous access to the collected string while still
@@ -103,17 +103,16 @@ final class StdoutStreamTests: XCTestCase {
 
         // onWrite observed the data synchronously:
         let synchronouslySeen = seen.reduce(Data(), +)
-        XCTAssertEqual(String(decoding: synchronouslySeen, as: UTF8.self),
-                       "hi\n")
+        #expect(String(decoding: synchronouslySeen, as: UTF8.self) == "hi\n")
 
         // And the async stream has the same data:
         let drained = await sink.readAllString()
-        XCTAssertEqual(drained, "hi\n")
+        #expect(drained == "hi\n")
     }
 
     // MARK: stdin stream feeds into stdout stream — end-to-end
 
-    func testEndToEndBinaryPassThrough() async throws {
+    @Test func endToEndBinaryPassThrough() async throws {
         // Bytes pushed into stdin, pulled from stdout — full stream
         // round trip, binary-safe.
         let shell = Shell()
@@ -134,6 +133,6 @@ final class StdoutStreamTests: XCTestCase {
         try await shell.run("tee")
         outSink.finish()
         let received = await outSink.readAllData()
-        XCTAssertEqual(received, payload)
+        #expect(received == payload)
     }
 }

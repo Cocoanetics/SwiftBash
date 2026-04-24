@@ -1,42 +1,46 @@
-import XCTest
+import Testing
 @testable import BashSyntax
 
-final class ErrorTests: XCTestCase {
+@Suite struct ErrorTests {
 
-    func testUnterminatedDoubleQuoteThrows() async {
-        XCTAssertThrowsError(try BashSyntax.parse(#"echo "unterminated"#)) { err in
-            guard let e = err as? BashSyntaxError,
-                  case .parsing(let msg, _, _) = e
-            else { return XCTFail("expected parsing error") }
-            XCTAssertTrue(msg.contains("unexpected EOF"), msg)
+    @Test func unterminatedDoubleQuoteThrows() {
+        let err = #expect(throws: BashSyntaxError.self) {
+            try BashSyntax.parse(#"echo "unterminated"#)
+        }
+        guard case .parsing(let msg, _, _) = err else {
+            Issue.record("expected parsing error, got \(String(describing: err))")
+            return
+        }
+        #expect(msg.contains("unexpected EOF"), "\(msg)")
+    }
+
+    @Test func unterminatedCommandSubstitutionThrows() {
+        let err = #expect(throws: BashSyntaxError.self) {
+            try BashSyntax.parse("echo $(true")
+        }
+        guard case .parsing(let msg, _, _) = err else {
+            Issue.record("expected parsing error, got \(String(describing: err))")
+            return
+        }
+        #expect(msg.contains("unexpected EOF"), "\(msg)")
+    }
+
+    @Test func unbalancedBraceThrows() {
+        #expect(throws: BashSyntaxError.self) {
+            try BashSyntax.parse("{ echo;")
         }
     }
 
-    func testUnterminatedCommandSubstitutionThrows() async {
-        XCTAssertThrowsError(try BashSyntax.parse("echo $(true")) { err in
-            guard let e = err as? BashSyntaxError,
-                  case .parsing(let msg, _, _) = e
-            else { return XCTFail("expected parsing error") }
-            XCTAssertTrue(msg.contains("unexpected EOF"), msg)
+    @Test func errorCarriesPosition() {
+        let err = #expect(throws: BashSyntaxError.self) {
+            try BashSyntax.parse("if true; then")
         }
-    }
-
-    func testUnbalancedBraceThrows() async {
-        XCTAssertThrowsError(try BashSyntax.parse("{ echo;")) { err in
-            XCTAssertTrue(err is BashSyntaxError)
+        guard let err else {
+            Issue.record("expected BashSyntaxError")
+            return
         }
-    }
-
-    func testErrorCarriesPosition() async {
-        do {
-            _ = try BashSyntax.parse("if true; then")
-            XCTFail("expected throw")
-        } catch let err as BashSyntaxError {
-            XCTAssertNotNil(err.position)
-            XCTAssertNotNil(err.source)
-            XCTAssertEqual(err.source, "if true; then")
-        } catch {
-            XCTFail("expected BashSyntaxError")
-        }
+        #expect(err.position != nil)
+        #expect(err.source != nil)
+        #expect(err.source == "if true; then")
     }
 }

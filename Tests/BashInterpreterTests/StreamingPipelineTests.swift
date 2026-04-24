@@ -1,11 +1,13 @@
-import XCTest
+import Testing
 import Foundation
 @testable import BashInterpreter
 
 /// The point of the async rewrite: pipelines where stages overlap in time,
 /// and where a downstream consumer's termination unblocks the upstream
 /// producer — the `yes | head` pattern — without OS-level `pipe(2)`.
-final class StreamingPipelineTests: XCTestCase {
+@Suite struct StreamingPipelineTests {
+
+    private struct PipelineTimeout: Error {}
 
     // MARK: Producers used by these tests
 
@@ -28,7 +30,7 @@ final class StreamingPipelineTests: XCTestCase {
 
     // MARK: yes | head finishes
 
-    func testFiniteHeadTerminatesInfiniteUpstream() async throws {
+    @Test func finiteHeadTerminatesInfiniteUpstream() async throws {
         let cap = CapturingShell()
         registerInfiniteProducer(on: cap.shell, name: "yes", chunk: "y\n")
 
@@ -50,18 +52,18 @@ final class StreamingPipelineTests: XCTestCase {
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: 2_000_000_000) // 2 s
-                throw XCTSkip("pipeline didn't terminate in 2s")
+                throw PipelineTimeout()
             }
             try await group.next()
             group.cancelAll()
         }
 
-        XCTAssertEqual(cap.stdout, "y\ny\ny\n")
+        #expect(cap.stdout == "y\ny\ny\n")
     }
 
     // MARK: Stages overlap in time
 
-    func testStagesRunConcurrently() async throws {
+    @Test func stagesRunConcurrently() async throws {
         // Producer records when it started yielding; consumer records
         // when it started consuming. For a sequential pipeline, the
         // consumer can't start until the producer finishes — so the
@@ -94,17 +96,19 @@ final class StreamingPipelineTests: XCTestCase {
 
         guard let pStart = producerStart.value,
               let cStart = consumerStart.value
-        else { return XCTFail("timing not recorded") }
+        else {
+            Issue.record("timing not recorded")
+            return
+        }
 
         let delta = cStart.timeIntervalSince(pStart)
-        XCTAssertLessThan(delta, 0.1,
-            "consumer should start while the producer is still running "
-            + "(delta was \(delta)s)")
+        #expect(delta < 0.1,
+            "consumer should start while the producer is still running (delta was \(delta)s)")
     }
 
     // MARK: Binary safety
 
-    func testBinaryBytesPassThroughUnchanged() async throws {
+    @Test func binaryBytesPassThroughUnchanged() async throws {
         let cap = CapturingShell()
 
         // Raw bytes including high-bit and NUL — would be mangled by a
@@ -115,19 +119,19 @@ final class StreamingPipelineTests: XCTestCase {
             shell.stdout(payload)
             return .success
         }
-        var received = Data()
+        let received = AtomicData()
         cap.shell.register(name: "collect") { _, shell in
-            received = await shell.stdin.readAllData()
+            received.value = await shell.stdin.readAllData()
             return .success
         }
 
         try await cap.shell.run("emit | collect")
-        XCTAssertEqual(received, payload)
+        #expect(received.value == payload)
     }
 
     // MARK: Subshell isolation
 
-    func testPipelineStageMutationsDoNotLeak() async throws {
+    @Test func pipelineStageMutationsDoNotLeak() async throws {
         // Variables assigned inside a pipeline stage should NOT
         // propagate back to the outer shell (matching bash).
         let cap = CapturingShell()
@@ -138,13 +142,13 @@ final class StreamingPipelineTests: XCTestCase {
             return .success
         }
         try await cap.shell.run("true | stage")
-        XCTAssertEqual(cap.shell.environment["X"], "outer",
-                       "pipeline stage env mutations must stay subshell-local")
+        #expect(cap.shell.environment["X"] == "outer",
+                "pipeline stage env mutations must stay subshell-local")
     }
 
     // MARK: Back-pressure
 
-    func testConsumerCanThrottleProducer() async throws {
+    @Test func consumerCanThrottleProducer() async throws {
         // With yielding producer + slow consumer, only a bounded amount
         // of data lives at once. This doesn't prove strict back-pressure
         // (AsyncStream default buffering policy is unbounded) but shows
@@ -163,7 +167,7 @@ final class StreamingPipelineTests: XCTestCase {
             return .success
         }
         try await cap.shell.run("burst | sum")
-        XCTAssertEqual(cap.stdout, "5050\n")
+        #expect(cap.stdout == "5050\n")
     }
 }
 
@@ -181,5 +185,14 @@ private final class AtomicDate: @unchecked Sendable {
     func setNow() {
         lock.lock(); defer { lock.unlock() }
         _value = Date()
+    }
+}
+
+private final class AtomicData: @unchecked Sendable {
+    private var _value: Data = Data()
+    private let lock = NSLock()
+    var value: Data {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
     }
 }

@@ -1,8 +1,8 @@
-import XCTest
+import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-final class DirnameCommandTests: XCTestCase {
+@Suite struct DirnameCommandTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -10,51 +10,51 @@ final class DirnameCommandTests: XCTestCase {
         return cap
     }
 
-    func testSimplePath() async throws {
+    @Test func simplePath() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname /tmp/foo.txt")
-        XCTAssertEqual(cap.stdout, "/tmp\n")
+        #expect(cap.stdout == "/tmp\n")
     }
 
-    func testNoSlashReturnsDot() async throws {
+    @Test func noSlashReturnsDot() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname foo.txt")
-        XCTAssertEqual(cap.stdout, ".\n")
+        #expect(cap.stdout == ".\n")
     }
 
-    func testRelativePath() async throws {
+    @Test func relativePath() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname foo/bar")
-        XCTAssertEqual(cap.stdout, "foo\n")
+        #expect(cap.stdout == "foo\n")
     }
 
-    func testTrailingSlashReturnsParent() async throws {
+    @Test func trailingSlashReturnsParent() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname /tmp/")
-        XCTAssertEqual(cap.stdout, "/\n")
+        #expect(cap.stdout == "/\n")
     }
 
-    func testRootPath() async throws {
+    @Test func rootPath() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname /foo")
-        XCTAssertEqual(cap.stdout, "/\n")
+        #expect(cap.stdout == "/\n")
     }
 
-    func testRootSlashItself() async throws {
+    @Test func rootSlashItself() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname /")
-        XCTAssertEqual(cap.stdout, "/\n")
+        #expect(cap.stdout == "/\n")
     }
 
-    func testDeepPath() async throws {
+    @Test func deepPath() async throws {
         let cap = makeShell()
         try await cap.shell.run("dirname /a/b/c/d/e")
-        XCTAssertEqual(cap.stdout, "/a/b/c/d\n")
+        #expect(cap.stdout == "/a/b/c/d\n")
     }
 
-    func testEmptyStringReturnsDot() async throws {
+    @Test func emptyStringReturnsDot() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"dirname """#)
-        XCTAssertEqual(cap.stdout, ".\n")
+        #expect(cap.stdout == ".\n")
     }
 }
