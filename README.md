@@ -246,13 +246,20 @@ try shell.run("true && echo yes")          // → yes
   (`0x…`, `0…`, `N#…` up to base 64), short-circuit for `&& || ? :`,
   and bash's recursive variable-as-expression resolution. Exit status
   follows bash's inverted convention (`(( 0 ))` → 1, `(( 42 ))` → 0).
+- **Control flow** — `if/elif/else/fi`, `while`, `until`, `for VAR in
+  …; do … done`, `case … esac`. Pattern arms support `*`, `?`, `[…]`,
+  `[!…]` globs and the `;;` / `;&` / `;;&` terminators. Groups
+  `{ …; }` and subshells `( … )` both execute the body in order.
 
 ## What's not implemented yet
 
 - Subprocess execution — anything that isn't a registered built-in
   throws `commandNotFound`.
 - Pipelines (`|`, `|&`) and redirections.
-- Control flow: `if`, `while`, `until`, `for`, `case`.
+- `break` / `continue` for early loop exit.
+- Subshell environment isolation — `( X=inner )` currently leaks `X`
+  out because there's no subprocess boundary yet.
+- `for VAR; do … done` (implicit positional parameters).
 - Process substitution `<(…)`, `>(…)`, and here-strings `<<<`.
 - Globbing, word splitting (on `$IFS`), and `${var:-default}`-style
   parameter expansion operators.
@@ -367,6 +374,8 @@ Sources/BashInterpreter/
     Shell+Run.swift                      Top-level dispatch + lists
     Shell+Expansion.swift                $VAR / $(…) / ~ expansion
     Shell+Arithmetic.swift               ((…)) / $((…)) → Arithmetic.evaluate
+    Shell+ControlFlow.swift              if / while / until / for / case / groups
+    GlobMatcher.swift                    fnmatch-style `*` `?` `[…]` matching
 ```
 
 ## License

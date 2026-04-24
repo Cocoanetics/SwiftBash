@@ -46,14 +46,33 @@ extension Shell {
         case .pipeline:
             throw BashInterpreterError.unimplemented("pipelines (not yet supported in the builtins-only skeleton)")
 
-        case .compound(let list, _):
-            // The builtins-only skeleton doesn't handle redirections on
-            // compounds yet; execute the inner list if there's exactly one
-            // arithmetic-command child. All other compounds are unimplemented.
-            if list.count == 1, case .arithmeticCommand(let expr) = list[0].kind {
-                return try runArithmeticCommand(expr)
+        case .compound(let list, let redirects):
+            if !redirects.isEmpty {
+                throw BashInterpreterError.unimplemented(
+                    "redirections on compound commands")
             }
-            throw BashInterpreterError.unimplemented("compound commands")
+            if list.count == 1 {
+                switch list[0].kind {
+                case .arithmeticCommand(let expr):
+                    return try runArithmeticCommand(expr)
+                case .ifCommand(let parts):
+                    return try executeIf(parts: parts)
+                case .whileCommand(let parts):
+                    return try executeWhileLike(parts: parts, invert: false)
+                case .untilCommand(let parts):
+                    return try executeWhileLike(parts: parts, invert: true)
+                case .forCommand(let parts):
+                    return try executeFor(parts: parts)
+                case .caseCommand(let parts):
+                    return try executeCase(parts: parts)
+                default:
+                    break
+                }
+            }
+            // `{ … ; }` and `( … )` both arrive here with the body wrapped
+            // between two reservedWord nodes. We execute non-reservedWord
+            // members in order; subshells don't get env isolation yet.
+            return try executeGroup(list: list)
 
         case .function:
             throw BashInterpreterError.unimplemented("function definitions")
