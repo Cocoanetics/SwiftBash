@@ -5,9 +5,9 @@ final class CaseTests: XCTestCase {
 
     // MARK: Basic matching
 
-    func testLiteralMatch() throws {
+    func testLiteralMatch() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case apple in
               apple) echo fruit;;
               carrot) echo veg;;
@@ -16,9 +16,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "fruit\n")
     }
 
-    func testFallsThroughToSecondArm() throws {
+    func testFallsThroughToSecondArm() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case carrot in
               apple) echo fruit;;
               carrot) echo veg;;
@@ -27,9 +27,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "veg\n")
     }
 
-    func testNoMatchProducesNoOutput() throws {
+    func testNoMatchProducesNoOutput() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case banana in
               apple) echo one;;
               carrot) echo two;;
@@ -40,9 +40,9 @@ final class CaseTests: XCTestCase {
 
     // MARK: Glob patterns
 
-    func testStarMatchesAnything() throws {
+    func testStarMatchesAnything() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case hello in
               hi) echo short;;
               *) echo anything;;
@@ -51,9 +51,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "anything\n")
     }
 
-    func testQuestionMatchesOneChar() throws {
+    func testQuestionMatchesOneChar() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case ab in
               ?) echo one;;
               ??) echo two;;
@@ -62,9 +62,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "two\n")
     }
 
-    func testCharClassMatches() throws {
+    func testCharClassMatches() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case m in
               [a-f]) echo early;;
               [g-p]) echo middle;;
@@ -74,9 +74,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "middle\n")
     }
 
-    func testMultipleAlternativesWithBar() throws {
+    func testMultipleAlternativesWithBar() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case green in
               red|orange|yellow) echo warm;;
               green|blue|purple) echo cool;;
@@ -85,9 +85,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "cool\n")
     }
 
-    func testSuffixGlob() throws {
+    func testSuffixGlob() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case script.sh in
               *.sh) echo shell;;
               *.py) echo python;;
@@ -98,9 +98,9 @@ final class CaseTests: XCTestCase {
 
     // MARK: Fall-through terminators
 
-    func testSemiAndFallsThrough() throws {
+    func testSemiAndFallsThrough() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case a in
               a) echo first ;&
               b) echo second;;
@@ -110,9 +110,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "first\nsecond\n")
     }
 
-    func testSemiSemiAndContinuesTesting() throws {
+    func testSemiSemiAndContinuesTesting() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case abc in
               *b*) echo has-b ;;&
               a*) echo starts-a ;;
@@ -126,10 +126,10 @@ final class CaseTests: XCTestCase {
 
     // MARK: Variable subject
 
-    func testExpandsSubject() throws {
+    func testExpandsSubject() async throws {
         let cap = CapturingShell()
         cap.shell.environment["colour"] = "blue"
-        try cap.shell.run("""
+        try await cap.shell.run("""
             case $colour in
               red) echo stop;;
               green) echo go;;
@@ -141,9 +141,9 @@ final class CaseTests: XCTestCase {
 
     // MARK: Exit status
 
-    func testCaseExitStatusIsLastBody() throws {
+    func testCaseExitStatusIsLastBody() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("""
+        let status = try await cap.shell.run("""
             case x in
               x) false;;
             esac
@@ -151,9 +151,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(status, .failure)
     }
 
-    func testCaseWithNoMatchExitsSuccess() throws {
+    func testCaseWithNoMatchExitsSuccess() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("""
+        let status = try await cap.shell.run("""
             case z in
               a) false;;
             esac
@@ -163,9 +163,9 @@ final class CaseTests: XCTestCase {
 
     // MARK: Empty body
 
-    func testArmWithNoBodyStillMatches() throws {
+    func testArmWithNoBodyStillMatches() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("""
+        let status = try await cap.shell.run("""
             case x in
               x) ;;
               *) echo default;;

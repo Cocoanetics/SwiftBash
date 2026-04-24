@@ -50,5 +50,5 @@ public protocol ParsableBashCommand: ParsableCommand {
     ///
     /// Mutating so assignments to `@Option var …` inside the body behave
     /// as expected.
-    mutating func execute(shell: Shell) throws -> ExitStatus
+    mutating func execute(shell: Shell) async throws -> ExitStatus
 }

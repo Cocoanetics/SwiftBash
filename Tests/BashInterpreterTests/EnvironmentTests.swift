@@ -3,13 +3,13 @@ import XCTest
 
 final class EnvironmentTests: XCTestCase {
 
-    func testInitWithDictionary() {
+    func testInitWithDictionary() async {
         let env = Environment(variables: ["FOO": "bar", "BAZ": "qux"])
         XCTAssertEqual(env["FOO"], "bar")
         XCTAssertEqual(env["BAZ"], "qux")
     }
 
-    func testSubscriptAssignment() {
+    func testSubscriptAssignment() async {
         var env = Environment()
         env["X"] = "y"
         XCTAssertEqual(env["X"], "y")
@@ -17,18 +17,18 @@ final class EnvironmentTests: XCTestCase {
         XCTAssertNil(env["X"])
     }
 
-    func testCurrentLoadsFromProcess() {
+    func testCurrentLoadsFromProcess() async {
         let env = Environment.current()
         // PATH is essentially always present on macOS/Linux.
         XCTAssertNotNil(env["PATH"])
         XCTAssertFalse(env.workingDirectory.isEmpty)
     }
 
-    func testShellReadsEnvironmentDictionary() throws {
+    func testShellReadsEnvironmentDictionary() async throws {
         let cap = CapturingShell(environment:
             Environment(variables: ["PATH": "/usr/bin:/bin",
                                     "USER": "oliver"]))
-        try cap.shell.run("echo $USER $PATH")
+        try await cap.shell.run("echo $USER $PATH")
         XCTAssertEqual(cap.stdout, "oliver /usr/bin:/bin\n")
     }
 }

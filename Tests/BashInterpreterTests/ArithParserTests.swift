@@ -21,46 +21,46 @@ final class ArithParserTests: XCTestCase {
 
     // MARK: Leaves
 
-    func testIntLiteral() {
+    func testIntLiteral() async {
         XCTAssertEqual(parse("42"), .int(42))
     }
 
-    func testVariable() {
+    func testVariable() async {
         XCTAssertEqual(parse("x"), .variable("x"))
     }
 
     // MARK: Unary prefix
 
-    func testUnaryMinus() {
+    func testUnaryMinus() async {
         XCTAssertEqual(parse("-1"), .unary(.minus, .int(1)))
     }
 
-    func testUnaryNot() {
+    func testUnaryNot() async {
         XCTAssertEqual(parse("!x"), .unary(.logicalNot, .variable("x")))
     }
 
-    func testBitwiseNot() {
+    func testBitwiseNot() async {
         XCTAssertEqual(parse("~x"), .unary(.bitwiseNot, .variable("x")))
     }
 
-    func testPrefixIncrement() {
+    func testPrefixIncrement() async {
         XCTAssertEqual(parse("++x"), .prefix(.inc, name: "x"))
         XCTAssertEqual(parse("--x"), .prefix(.dec, name: "x"))
     }
 
-    func testPostfixIncrement() {
+    func testPostfixIncrement() async {
         XCTAssertEqual(parse("x++"), .postfix(.inc, name: "x"))
         XCTAssertEqual(parse("x--"), .postfix(.dec, name: "x"))
     }
 
-    func testPrefixOnNonVariableThrows() {
+    func testPrefixOnNonVariableThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse("++5"))
         XCTAssertThrowsError(try Arithmetic.parse("5++"))
     }
 
     // MARK: Binary precedence
 
-    func testMulBindsTighterThanAdd() {
+    func testMulBindsTighterThanAdd() async {
         // 1 + 2 * 3 → 1 + (2 * 3)
         XCTAssertEqual(
             parse("1 + 2 * 3"),
@@ -68,7 +68,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testLeftAssociativityOfAddition() {
+    func testLeftAssociativityOfAddition() async {
         // 1 + 2 + 3 → (1 + 2) + 3
         XCTAssertEqual(
             parse("1 + 2 + 3"),
@@ -76,7 +76,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testRightAssociativityOfPow() {
+    func testRightAssociativityOfPow() async {
         // 2 ** 3 ** 2 → 2 ** (3 ** 2)
         XCTAssertEqual(
             parse("2 ** 3 ** 2"),
@@ -84,7 +84,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testUnaryBindsLooserThanPow() {
+    func testUnaryBindsLooserThanPow() async {
         // Bash: -2 ** 2 is -(2**2) = -4.
         XCTAssertEqual(
             parse("-2 ** 2"),
@@ -92,7 +92,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testUnaryBindsTighterThanAdd() {
+    func testUnaryBindsTighterThanAdd() async {
         // -2 + 3 → (-2) + 3
         XCTAssertEqual(
             parse("-2 + 3"),
@@ -100,7 +100,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testComparisonAboveLogical() {
+    func testComparisonAboveLogical() async {
         // a < b && c < d → (a < b) && (c < d)
         XCTAssertEqual(
             parse("a < b && c < d"),
@@ -110,7 +110,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testParensOverrideDefaultPrecedence() {
+    func testParensOverrideDefaultPrecedence() async {
         // (1 + 2) * 3 → multiplication of a sum.
         XCTAssertEqual(
             parse("(1 + 2) * 3"),
@@ -120,7 +120,7 @@ final class ArithParserTests: XCTestCase {
 
     // MARK: Ternary
 
-    func testTernaryIsRightAssociative() {
+    func testTernaryIsRightAssociative() async {
         // a ? b : c ? d : e  →  a ? b : (c ? d : e)
         XCTAssertEqual(
             parse("a ? b : c ? d : e"),
@@ -132,13 +132,13 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testMissingColonThrows() {
+    func testMissingColonThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse("a ? b"))
     }
 
     // MARK: Assignment
 
-    func testAssignmentIsRightAssociative() {
+    func testAssignmentIsRightAssociative() async {
         // a = b = 5 → a = (b = 5)
         XCTAssertEqual(
             parse("a = b = 5"),
@@ -147,7 +147,7 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testCompoundAssignmentsMapToPairedBinary() {
+    func testCompoundAssignmentsMapToPairedBinary() async {
         XCTAssertEqual(
             parse("x += 1"),
             .assign(name: "x", op: .addSet, rhs: .int(1))
@@ -158,32 +158,32 @@ final class ArithParserTests: XCTestCase {
         )
     }
 
-    func testAssignmentToNonVariableThrows() {
+    func testAssignmentToNonVariableThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse("(a + b) = 5"))
     }
 
     // MARK: Comma (sequence)
 
-    func testCommaSequenceFlattens() {
+    func testCommaSequenceFlattens() async {
         XCTAssertEqual(parse("1, 2, 3"),
                        .sequence([.int(1), .int(2), .int(3)]))
     }
 
     // MARK: Error cases
 
-    func testEmptyExpressionThrows() {
+    func testEmptyExpressionThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse(""))
     }
 
-    func testUnbalancedParenThrows() {
+    func testUnbalancedParenThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse("(1 + 2"))
     }
 
-    func testDanglingOperatorThrows() {
+    func testDanglingOperatorThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse("1 +"))
     }
 
-    func testTrailingJunkThrows() {
+    func testTrailingJunkThrows() async {
         XCTAssertThrowsError(try Arithmetic.parse("1 2"))
     }
 }

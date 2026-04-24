@@ -10,7 +10,7 @@ public struct EchoCommand: Command {
 
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
         var newline = true
 

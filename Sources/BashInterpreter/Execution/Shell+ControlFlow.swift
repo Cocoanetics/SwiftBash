@@ -12,7 +12,7 @@ extension Shell {
     ///
     /// The exit status of the selected branch's body is returned. If no
     /// branch runs, the exit status is `.success` (matching bash).
-    func executeIf(parts: [Node]) throws -> ExitStatus {
+    func executeIf(parts: [Node]) async throws -> ExitStatus {
         var i = 0
         while i < parts.count {
             guard case .reservedWord(let word) = parts[i].kind else {
@@ -24,10 +24,10 @@ extension Shell {
                 guard i + 3 < parts.count else { return .success }
                 let cond = parts[i + 1]
                 let body = parts[i + 3]
-                let condStatus = try execute(cond)
+                let condStatus = try await execute(cond)
                 lastExitStatus = condStatus
                 if condStatus.isSuccess {
-                    let result = try execute(body)
+                    let result = try await execute(body)
                     lastExitStatus = result
                     return result
                 }
@@ -35,7 +35,7 @@ extension Shell {
 
             case "else":
                 guard i + 1 < parts.count else { return .success }
-                let result = try execute(parts[i + 1])
+                let result = try await execute(parts[i + 1])
                 lastExitStatus = result
                 return result
 
@@ -54,7 +54,7 @@ extension Shell {
     /// `while cond; do body; done` or `until cond; do body; done`.
     /// - Parameter invert: When `true`, the loop runs *until* `cond` succeeds
     ///   (i.e., continues while it fails). Used for `until`.
-    func executeWhileLike(parts: [Node], invert: Bool) throws -> ExitStatus {
+    func executeWhileLike(parts: [Node], invert: Bool) async throws -> ExitStatus {
         // Expected: [ kw, cond, "do", body, "done" ]
         // Find cond (first non-reserved after the keyword) and body
         // (first non-reserved after "do") so we're tolerant of trailing
@@ -73,11 +73,11 @@ extension Shell {
         var iterations = 0
         let maxIterations = 1_000_000 // guard against runaway loops
         loop: while true {
-            let condStatus = try execute(cond)
+            let condStatus = try await execute(cond)
             let keepGoing = invert ? !condStatus.isSuccess : condStatus.isSuccess
             if !keepGoing { break }
             do {
-                last = try execute(body)
+                last = try await execute(body)
                 lastExitStatus = last
             } catch var signal as LoopControlSignal {
                 signal.remainingLevels -= 1
@@ -105,7 +105,7 @@ extension Shell {
     ///
     /// The `in` clause is required in this skeleton; implicit iteration
     /// over positional parameters (`for x; do …`) throws `unimplemented`.
-    func executeFor(parts: [Node]) throws -> ExitStatus {
+    func executeFor(parts: [Node]) async throws -> ExitStatus {
         guard parts.count >= 2,
               case .word(let varName, _) = parts[1].kind
         else {
@@ -151,10 +151,10 @@ extension Shell {
 
         var last = ExitStatus.success
         loop: for item in items {
-            let value = try expand(word: item)
+            let value = try await expand(word: item)
             environment[varName] = value
             do {
-                last = try execute(body)
+                last = try await execute(body)
                 lastExitStatus = last
             } catch var signal as LoopControlSignal {
                 signal.remainingLevels -= 1
@@ -182,10 +182,10 @@ extension Shell {
     /// - `;;`  → stop after running the body (default, and the vast majority).
     /// - `;&`  → fall through to the *next* arm's body unconditionally.
     /// - `;;&` → continue testing subsequent patterns.
-    func executeCase(parts: [Node]) throws -> ExitStatus {
+    func executeCase(parts: [Node]) async throws -> ExitStatus {
         // Expected: [ "case", <subject>, "in", arm, term, arm, term, …, "esac" ]
         guard parts.count >= 4 else { return .success }
-        let subjectValue = try expand(word: parts[1])
+        let subjectValue = try await expand(word: parts[1])
 
         // Collect (arm, terminator) pairs.
         var arms: [(Node, String)] = []
@@ -215,7 +215,7 @@ extension Shell {
             if forceFallThrough {
                 matched = true
             } else {
-                matched = try armMatches(subjectValue, armParts: armParts)
+                matched = try await armMatches(subjectValue, armParts: armParts)
             }
             if !matched { continue }
 
@@ -225,7 +225,7 @@ extension Shell {
                 switch node.kind {
                 case .reservedWord, .pattern: continue
                 default:
-                    last = try execute(node)
+                    last = try await execute(node)
                     lastExitStatus = last
                 }
             }
@@ -246,12 +246,12 @@ extension Shell {
     }
 
     /// Evaluates whether any of an arm's patterns match `subject`.
-    private func armMatches(_ subject: String, armParts: [Node]) throws -> Bool {
+    private func armMatches(_ subject: String, armParts: [Node]) async throws -> Bool {
         for node in armParts {
             guard case .pattern(let patterns) = node.kind else { continue }
             for sub in patterns {
                 if case .reservedWord = sub.kind { continue }
-                let expanded = try expand(word: sub)
+                let expanded = try await expand(word: sub)
                 if GlobMatcher.match(pattern: expanded, string: subject) {
                     return true
                 }
@@ -265,11 +265,11 @@ extension Shell {
     /// Execute `{ … ; }` or `( … )` — run each non-reservedWord child in
     /// order. Subshells don't get env isolation in this skeleton (no
     /// subprocess model yet); callers should be aware mutations leak out.
-    func executeGroup(list: [Node]) throws -> ExitStatus {
+    func executeGroup(list: [Node]) async throws -> ExitStatus {
         var last = ExitStatus.success
         for node in list {
             if case .reservedWord = node.kind { continue }
-            last = try execute(node)
+            last = try await execute(node)
             lastExitStatus = last
         }
         return last

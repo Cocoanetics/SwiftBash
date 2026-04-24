@@ -5,7 +5,7 @@ public struct UnsetCommand: Command {
     public let name = "unset"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         for name in argv.dropFirst() {
             shell.environment.variables.removeValue(forKey: name)
         }

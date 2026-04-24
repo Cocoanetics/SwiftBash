@@ -10,57 +10,57 @@ final class BasenameCommandTests: XCTestCase {
         return cap
     }
 
-    func testBasicFileName() throws {
+    func testBasicFileName() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename /tmp/foo.txt")
+        try await cap.shell.run("basename /tmp/foo.txt")
         XCTAssertEqual(cap.stdout, "foo.txt\n")
     }
 
-    func testNoSlashesReturnsInput() throws {
+    func testNoSlashesReturnsInput() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename foo.txt")
+        try await cap.shell.run("basename foo.txt")
         XCTAssertEqual(cap.stdout, "foo.txt\n")
     }
 
-    func testTrailingSlash() throws {
+    func testTrailingSlash() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename /tmp/")
+        try await cap.shell.run("basename /tmp/")
         XCTAssertEqual(cap.stdout, "tmp\n")
     }
 
-    func testRootSlash() throws {
+    func testRootSlash() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename /")
+        try await cap.shell.run("basename /")
         XCTAssertEqual(cap.stdout, "/\n")
     }
 
-    func testStripsSuffix() throws {
+    func testStripsSuffix() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename /tmp/foo.txt .txt")
+        try await cap.shell.run("basename /tmp/foo.txt .txt")
         XCTAssertEqual(cap.stdout, "foo\n")
     }
 
-    func testSuffixMismatchLeavesNameIntact() throws {
+    func testSuffixMismatchLeavesNameIntact() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename /tmp/foo.txt .md")
+        try await cap.shell.run("basename /tmp/foo.txt .md")
         XCTAssertEqual(cap.stdout, "foo.txt\n")
     }
 
-    func testSuffixEqualToResultIsNotStripped() throws {
+    func testSuffixEqualToResultIsNotStripped() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename .txt .txt")
+        try await cap.shell.run("basename .txt .txt")
         XCTAssertEqual(cap.stdout, ".txt\n")
     }
 
-    func testDeepPath() throws {
+    func testDeepPath() async throws {
         let cap = makeShell()
-        try cap.shell.run("basename /a/b/c/d/e")
+        try await cap.shell.run("basename /a/b/c/d/e")
         XCTAssertEqual(cap.stdout, "e\n")
     }
 
-    func testMissingPathFails() throws {
+    func testMissingPathFails() async throws {
         let cap = makeShell()
-        let status = try cap.shell.run("basename")
+        let status = try await cap.shell.run("basename")
         XCTAssertFalse(status.isSuccess)
         XCTAssertFalse(cap.stderr.isEmpty)
     }

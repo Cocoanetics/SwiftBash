@@ -3,21 +3,21 @@ import XCTest
 
 final class GroupSubshellTests: XCTestCase {
 
-    func testGroupRunsAllCommands() throws {
+    func testGroupRunsAllCommands() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("{ echo a; echo b; echo c; }")
+        try await cap.shell.run("{ echo a; echo b; echo c; }")
         XCTAssertEqual(cap.stdout, "a\nb\nc\n")
     }
 
-    func testGroupExitStatusIsLast() throws {
+    func testGroupExitStatusIsLast() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("{ true; false; }")
+        let status = try await cap.shell.run("{ true; false; }")
         XCTAssertEqual(status, .failure)
     }
 
-    func testSubshellRunsCommands() throws {
+    func testSubshellRunsCommands() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("(echo a; echo b)")
+        try await cap.shell.run("(echo a; echo b)")
         XCTAssertEqual(cap.stdout, "a\nb\n")
     }
 
@@ -25,18 +25,18 @@ final class GroupSubshellTests: XCTestCase {
     /// don't leak back. Without subprocess isolation this skeleton leaks.
     /// Test documents the current (incorrect) behaviour so it's obvious
     /// when we fix it later.
-    func testSubshellAssignmentCurrentlyLeaks() throws {
+    func testSubshellAssignmentCurrentlyLeaks() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("(X=inside); echo after=$X")
+        try await cap.shell.run("(X=inside); echo after=$X")
         XCTAssertEqual(cap.stdout, "after=inside\n",
             "Subshell isolation not yet implemented — this will change "
             + "once subprocess support lands.")
     }
 
-    func testGroupAssignmentVisible() throws {
+    func testGroupAssignmentVisible() async throws {
         // Groups DO share the shell's env (matching bash).
         let cap = CapturingShell()
-        try cap.shell.run("{ X=inside; }; echo $X")
+        try await cap.shell.run("{ X=inside; }; echo $X")
         XCTAssertEqual(cap.stdout, "inside\n")
     }
 }

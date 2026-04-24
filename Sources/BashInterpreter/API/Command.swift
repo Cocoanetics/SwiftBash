@@ -20,5 +20,10 @@ public protocol Command {
     /// - Parameter shell: The invoking shell; commands read and mutate
     ///   its `environment` and write to `stdout` / `stderr`.
     /// - Returns: The exit status to record as `$?`.
-    func run(_ argv: [String], shell: Shell) throws -> ExitStatus
+    ///
+    /// The signature is `async` so commands can `await shell.stdin.lines`
+    /// or similar streaming APIs. Commands that don't await anything can
+    /// still implement the method without any awaits inside — the
+    /// `async` keyword is free if unused.
+    func run(_ argv: [String], shell: Shell) async throws -> ExitStatus
 }

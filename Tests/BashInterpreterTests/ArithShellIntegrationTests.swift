@@ -6,129 +6,131 @@ final class ArithShellIntegrationTests: XCTestCase {
 
     // MARK: $((…)) in word expansion
 
-    func testEchoArithmeticLiteral() throws {
+    func testEchoArithmeticLiteral() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo $((1 + 2))")
+        try await cap.shell.run("echo $((1 + 2))")
         XCTAssertEqual(cap.stdout, "3\n")
     }
 
-    func testEchoArithmeticWithPrecedence() throws {
+    func testEchoArithmeticWithPrecedence() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo $((1 + 2 * 3))")
+        try await cap.shell.run("echo $((1 + 2 * 3))")
         XCTAssertEqual(cap.stdout, "7\n")
     }
 
-    func testEchoArithmeticWithVariable() throws {
+    func testEchoArithmeticWithVariable() async throws {
         let cap = CapturingShell()
         cap.shell.environment["X"] = "10"
-        try cap.shell.run("echo $((X * 2))")
+        try await cap.shell.run("echo $((X * 2))")
         XCTAssertEqual(cap.stdout, "20\n")
     }
 
-    func testEchoArithmeticWithUnsetVariableIsZero() throws {
+    func testEchoArithmeticWithUnsetVariableIsZero() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo $((UNDEFINED + 1))")
+        try await cap.shell.run("echo $((UNDEFINED + 1))")
         XCTAssertEqual(cap.stdout, "1\n")
     }
 
-    func testEchoArithmeticInsideDoubleQuotes() throws {
+    func testEchoArithmeticInsideDoubleQuotes() async throws {
         let cap = CapturingShell()
-        try cap.shell.run(#"echo "result=$((2 + 3)) done""#)
+        try await cap.shell.run(#"echo "result=$((2 + 3)) done""#)
         XCTAssertEqual(cap.stdout, "result=5 done\n")
     }
 
-    func testArithmeticExpressionWithHexAndOctal() throws {
+    func testArithmeticExpressionWithHexAndOctal() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo $((0xff + 010))")
+        try await cap.shell.run("echo $((0xff + 010))")
         XCTAssertEqual(cap.stdout, "263\n")
     }
 
     // MARK: ((…)) as a command
 
-    func testArithCommandSuccessOnNonZero() throws {
+    func testArithCommandSuccessOnNonZero() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("(( 1 + 1 ))")
+        let status = try await cap.shell.run("(( 1 + 1 ))")
         XCTAssertEqual(status, .success)
     }
 
-    func testArithCommandFailureOnZero() throws {
+    func testArithCommandFailureOnZero() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("(( 0 ))")
+        let status = try await cap.shell.run("(( 0 ))")
         XCTAssertEqual(status, .failure)
     }
 
-    func testArithCommandAssignment() throws {
+    func testArithCommandAssignment() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("(( x = 5 + 3 ))")
+        try await cap.shell.run("(( x = 5 + 3 ))")
         XCTAssertEqual(cap.shell.environment["x"], "8")
     }
 
-    func testArithCommandIncrement() throws {
+    func testArithCommandIncrement() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "5"
-        try cap.shell.run("(( i++ ))")
+        try await cap.shell.run("(( i++ ))")
         XCTAssertEqual(cap.shell.environment["i"], "6")
     }
 
-    func testArithCommandWithComparison() throws {
+    func testArithCommandWithComparison() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "10"
-        XCTAssertEqual(try cap.shell.run("(( n > 5 ))"), .success)
-        XCTAssertEqual(try cap.shell.run("(( n < 5 ))"), .failure)
+        let a = try await cap.shell.run("(( n > 5 ))")
+        XCTAssertEqual(a, .success)
+        let b = try await cap.shell.run("(( n < 5 ))")
+        XCTAssertEqual(b, .failure)
     }
 
-    func testArithCommandInAndChain() throws {
+    func testArithCommandInAndChain() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "7"
-        try cap.shell.run("(( n > 5 )) && echo big")
+        try await cap.shell.run("(( n > 5 )) && echo big")
         XCTAssertEqual(cap.stdout, "big\n")
     }
 
-    func testArithCommandInOrChain() throws {
+    func testArithCommandInOrChain() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "3"
-        try cap.shell.run("(( n > 5 )) || echo small")
+        try await cap.shell.run("(( n > 5 )) || echo small")
         XCTAssertEqual(cap.stdout, "small\n")
     }
 
     // MARK: Dollar-question after arithmetic
 
-    func testExitStatusOfArithCommand() throws {
+    func testExitStatusOfArithCommand() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("(( 0 ))")
+        try await cap.shell.run("(( 0 ))")
         XCTAssertEqual(cap.shell.lastExitStatus, .failure)
-        try cap.shell.run("(( 42 ))")
+        try await cap.shell.run("(( 42 ))")
         XCTAssertEqual(cap.shell.lastExitStatus, .success)
     }
 
     // MARK: Combining arithmetic substitution with other features
 
-    func testArithSubWithCommandSubstitution() throws {
+    func testArithSubWithCommandSubstitution() async throws {
         let cap = CapturingShell()
         cap.shell.environment["X"] = "4"
-        try cap.shell.run(#"echo $(echo $((X * X)))"#)
+        try await cap.shell.run(#"echo $(echo $((X * X)))"#)
         XCTAssertEqual(cap.stdout, "16\n")
     }
 
-    func testArithSubExportAndReuse() throws {
+    func testArithSubExportAndReuse() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("export N=10")
-        try cap.shell.run("echo $((N + N))")
+        try await cap.shell.run("export N=10")
+        try await cap.shell.run("echo $((N + N))")
         XCTAssertEqual(cap.stdout, "20\n")
     }
 
     // MARK: Error propagation
 
-    func testDivisionByZeroPropagatesAsError() {
+    func testDivisionByZeroPropagatesAsError() async {
         let cap = CapturingShell()
-        XCTAssertThrowsError(try cap.shell.run("echo $((1/0))")) { err in
+        await XCTAssertThrowsErrorAsync(try await cap.shell.run("echo $((1/0))")) { err in
             XCTAssertTrue(err is ArithError || err is BashInterpreterError,
                           "got \(err)")
         }
     }
 
-    func testSyntaxErrorInArithmetic() {
+    func testSyntaxErrorInArithmetic() async {
         let cap = CapturingShell()
-        XCTAssertThrowsError(try cap.shell.run("echo $((1 +))"))
+        await XCTAssertThrowsErrorAsync(try await cap.shell.run("echo $((1 +))"))
     }
 }

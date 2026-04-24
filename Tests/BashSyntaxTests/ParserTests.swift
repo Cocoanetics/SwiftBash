@@ -17,7 +17,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Simple commands / pipelines / lists
 
-    func testPipeline() {
+    func testPipeline() async {
         let node = parse("cat file | grep foo | wc -l")
         guard case .pipeline(let parts) = node.kind else {
             return XCTFail("expected pipeline, got \(node.kindName)")
@@ -26,7 +26,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(kinds, ["command", "pipe", "command", "pipe", "command"])
     }
 
-    func testPipelineBarAnd() {
+    func testPipelineBarAnd() async {
         let node = parse("a |& b")
         guard case .pipeline(let parts) = node.kind else {
             return XCTFail()
@@ -34,7 +34,7 @@ final class ParserTests: XCTestCase {
         if case .pipe(let p) = parts[1].kind { XCTAssertEqual(p, "|&") }
     }
 
-    func testBang() {
+    func testBang() async {
         let node = parse("! false")
         guard case .pipeline(let parts) = node.kind else {
             return XCTFail("expected pipeline with bang, got \(node.kindName)")
@@ -42,7 +42,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(parts.first?.kindName, "reservedword")
     }
 
-    func testSemicolonListSplitsCommands() {
+    func testSemicolonListSplitsCommands() async {
         let node = parse("a; b; c")
         guard case .list(let parts) = node.kind else {
             return XCTFail("expected list")
@@ -51,7 +51,7 @@ final class ParserTests: XCTestCase {
                        ["command", "operator", "command", "operator", "command"])
     }
 
-    func testAndOrChaining() {
+    func testAndOrChaining() async {
         let node = parse("a && b || c")
         guard case .list(let parts) = node.kind else {
             return XCTFail()
@@ -60,7 +60,7 @@ final class ParserTests: XCTestCase {
                        ["command", "operator", "command", "operator", "command"])
     }
 
-    func testBackgroundedCommand() {
+    func testBackgroundedCommand() async {
         let node = parse("sleep 10 &")
         guard case .list(let parts) = node.kind else {
             return XCTFail("expected list, got \(node.kindName)")
@@ -73,7 +73,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Assignments
 
-    func testAssignment() {
+    func testAssignment() async {
         let node = parse("FOO=bar echo $FOO")
         guard case .command(let parts) = node.kind else {
             return XCTFail()
@@ -84,7 +84,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testMultipleAssignments() {
+    func testMultipleAssignments() async {
         let node = parse("A=1 B=2 C=3")
         guard case .command(let parts) = node.kind else {
             return XCTFail()
@@ -95,13 +95,13 @@ final class ParserTests: XCTestCase {
 
     // MARK: Redirections
 
-    func testSimpleRedirect() {
+    func testSimpleRedirect() async {
         let node = parse("cat > out")
         guard case .command(let parts) = node.kind else { return XCTFail() }
         XCTAssertEqual(parts.last?.kindName, "redirect")
     }
 
-    func testRedirectWithFD() {
+    func testRedirectWithFD() async {
         let node = parse("cmd 2> err")
         guard case .command(let parts) = node.kind,
               let redir = parts.last,
@@ -111,7 +111,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(type, ">")
     }
 
-    func testDuplicateFDRedirect() {
+    func testDuplicateFDRedirect() async {
         let node = parse("cmd 2>&1")
         guard case .command(let parts) = node.kind,
               let redir = parts.last,
@@ -120,7 +120,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(type, ">&")
     }
 
-    func testAppendRedirect() {
+    func testAppendRedirect() async {
         let node = parse("echo hi >> log")
         guard case .command(let parts) = node.kind,
               let redir = parts.last,
@@ -131,14 +131,14 @@ final class ParserTests: XCTestCase {
 
     // MARK: Compound commands
 
-    func testSubshell() {
+    func testSubshell() async {
         let node = parse("(cd /tmp && ls)")
         guard case .compound = node.kind else {
             return XCTFail("expected compound, got \(node.kindName)")
         }
     }
 
-    func testGroup() {
+    func testGroup() async {
         let node = parse("{ a; b; }")
         guard case .compound(let list, _) = node.kind else {
             return XCTFail("expected compound")
@@ -147,7 +147,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(list.last?.kindName, "reservedword")
     }
 
-    func testIf() {
+    func testIf() async {
         let node = parse("if true; then echo yes; else echo no; fi")
         guard case .compound(let list, _) = node.kind,
               let ifNode = list.first,
@@ -157,7 +157,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testWhile() {
+    func testWhile() async {
         let node = parse("while true; do echo hi; done")
         guard case .compound(let list, _) = node.kind,
               let inner = list.first,
@@ -165,14 +165,14 @@ final class ParserTests: XCTestCase {
         else { return XCTFail() }
     }
 
-    func testUntil() {
+    func testUntil() async {
         let node = parse("until false; do echo hi; done")
         guard case .compound(let list, _) = node.kind,
               case .untilCommand = list.first?.kind
         else { return XCTFail() }
     }
 
-    func testForIn() {
+    func testForIn() async {
         let node = parse("for x in a b c; do echo $x; done")
         guard case .compound(let list, _) = node.kind,
               case .forCommand(let parts) = list.first?.kind
@@ -182,7 +182,7 @@ final class ParserTests: XCTestCase {
         XCTAssertTrue(kinds.contains("word"))
     }
 
-    func testCase() {
+    func testCase() async {
         let node = parse("case $x in a) echo a ;; b) echo b ;; esac")
         guard case .compound(let list, _) = node.kind,
               case .caseCommand = list.first?.kind
@@ -191,7 +191,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Function definitions
 
-    func testFunctionBareName() {
+    func testFunctionBareName() async {
         let node = parse("hello() { echo world; }")
         guard case .function(let name, _, _) = node.kind else {
             return XCTFail("expected function, got \(node.kindName)")
@@ -199,7 +199,7 @@ final class ParserTests: XCTestCase {
         if case .word(let w, _) = name.kind { XCTAssertEqual(w, "hello") }
     }
 
-    func testFunctionKeyword() {
+    func testFunctionKeyword() async {
         let node = parse("function hello { echo world; }")
         guard case .function(let name, _, _) = node.kind else {
             return XCTFail("expected function, got \(node.kindName)")
@@ -209,7 +209,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Substitutions inside words
 
-    func testCommandSubstitutionExpands() {
+    func testCommandSubstitutionExpands() async {
         let node = parse("echo $(date +%s)")
         guard case .command(let parts) = node.kind else { return XCTFail() }
         if case .word(_, let wordParts) = parts[1].kind {
@@ -220,7 +220,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testProcessSubstitutionExpands() {
+    func testProcessSubstitutionExpands() async {
         let node = parse("diff <(a) <(b)")
         guard case .command(let parts) = node.kind else { return XCTFail() }
         if case .word(_, let wordParts) = parts[1].kind {
@@ -230,7 +230,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testVariableReference() {
+    func testVariableReference() async {
         let node = parse("echo $HOME")
         guard case .command(let parts) = node.kind else { return XCTFail() }
         if case .word(_, let wordParts) = parts[1].kind {
@@ -243,7 +243,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testParameterExpansion() {
+    func testParameterExpansion() async {
         let node = parse("echo ${foo:-bar}")
         guard case .command(let parts) = node.kind else { return XCTFail() }
         if case .word(_, let wordParts) = parts[1].kind {
@@ -255,7 +255,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testTildeExpansion() {
+    func testTildeExpansion() async {
         let node = parse("ls ~/bin")
         guard case .command(let parts) = node.kind else { return XCTFail() }
         if case .word(_, let wordParts) = parts[1].kind {
@@ -266,7 +266,7 @@ final class ParserTests: XCTestCase {
         } else { XCTFail() }
     }
 
-    func testNestedSubstitutions() {
+    func testNestedSubstitutions() async {
         let node = parse("echo $(echo $(echo inner))")
         guard case .command(let parts) = node.kind,
               case .word(_, let wordParts) = parts[1].kind,
@@ -283,7 +283,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Parse returns multiple top-level parts
 
-    func testMultipleTopLevel() throws {
+    func testMultipleTopLevel() async throws {
         let parts = try BashSyntax.parse("a\nb\nc")
         XCTAssertEqual(parts.count, 3)
         XCTAssertTrue(parts.allSatisfy { $0.kindName == "command" })
@@ -291,7 +291,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Position tracking
 
-    func testRangesAreAccurate() throws {
+    func testRangesAreAccurate() async throws {
         let src = "echo hello"
         let node = try BashSyntax.parseSingle(src)
         XCTAssertEqual(node.range, 0..<10)
@@ -302,7 +302,7 @@ final class ParserTests: XCTestCase {
         }
     }
 
-    func testSubstitutionRangeMappedToOriginalSource() throws {
+    func testSubstitutionRangeMappedToOriginalSource() async throws {
         let src = "echo $(date)"
         let node = try BashSyntax.parseSingle(src)
         guard case .command(let parts) = node.kind,
@@ -315,7 +315,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: convertPositions dump
 
-    func testDumpWithSource() throws {
+    func testDumpWithSource() async throws {
         let src = "echo hi"
         let node = try BashSyntax.parseSingle(src)
         let out = node.dump(source: src)
@@ -327,7 +327,7 @@ final class ParserTests: XCTestCase {
 
     // MARK: Visitor
 
-    func testVisitorCountsCommands() throws {
+    func testVisitorCountsCommands() async throws {
         struct Counter: NodeVisitor {
             var commandCount = 0
             mutating func visitCommand(_ node: Node, parts: [Node]) -> Bool {

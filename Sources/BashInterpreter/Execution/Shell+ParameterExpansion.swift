@@ -9,7 +9,7 @@ extension Shell {
     /// `$var` or `${var}` references, which are re-expanded via a simple
     /// inner pass. Command substitutions and arithmetic inside parameter
     /// bodies are NOT yet supported.
-    func applyParameterForm(_ form: ParameterForm) throws -> String {
+    func applyParameterForm(_ form: ParameterForm) async throws -> String {
         switch form {
         case .plain(let name):
             return lookup(name)
@@ -20,14 +20,14 @@ extension Shell {
         case .defaultValue(let name, let checkEmpty, let value):
             let raw = environment[name]
             if isMissing(raw, checkEmpty: checkEmpty) {
-                return try recursivelyExpand(value)
+                return try await recursivelyExpand(value)
             }
             return raw ?? ""
 
         case .assignDefault(let name, let checkEmpty, let value):
             let raw = environment[name]
             if isMissing(raw, checkEmpty: checkEmpty) {
-                let expanded = try recursivelyExpand(value)
+                let expanded = try await recursivelyExpand(value)
                 environment[name] = expanded
                 return expanded
             }
@@ -38,7 +38,7 @@ extension Shell {
             if isMissing(raw, checkEmpty: checkEmpty) {
                 let msg = message.isEmpty
                     ? "parameter null or not set"
-                    : try recursivelyExpand(message)
+                    : try await recursivelyExpand(message)
                 throw BashInterpreterError.parameter("\(name): \(msg)")
             }
             return raw ?? ""
@@ -48,7 +48,7 @@ extension Shell {
             if isMissing(raw, checkEmpty: checkEmpty) {
                 return ""
             }
-            return try recursivelyExpand(value)
+            return try await recursivelyExpand(value)
 
         case .removePrefix(let name, let pattern, let longest):
             return stripPrefix(lookup(name),
@@ -61,7 +61,7 @@ extension Shell {
                                longest: longest)
 
         case .replace(let name, let pattern, let replacement, let all, let anchor):
-            let expandedRepl = try recursivelyExpand(replacement)
+            let expandedRepl = try await recursivelyExpand(replacement)
             return replace(in: lookup(name),
                            pattern: pattern,
                            replacement: expandedRepl,
@@ -99,7 +99,7 @@ extension Shell {
     /// Lightweight expander used for the "word" inside parameter
     /// operators (e.g. the `$FOO` in `${BAR:-$FOO}`). Supports `$name`
     /// and `${body}` only — no command substitution or arithmetic.
-    private func recursivelyExpand(_ s: String) throws -> String {
+    private func recursivelyExpand(_ s: String) async throws -> String {
         let chars = Array(s)
         var out = ""
         var i = 0
@@ -121,7 +121,7 @@ extension Shell {
                     }
                     if j < chars.count { j += 1 } // consume `}`
                     let form = (try? ParameterFormParser.parse(body)) ?? .plain(body)
-                    out.append(try applyParameterForm(form))
+                    out.append(try await applyParameterForm(form))
                     i = j
                     continue
                 }

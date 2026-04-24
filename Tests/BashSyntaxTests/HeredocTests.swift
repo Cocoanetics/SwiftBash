@@ -3,7 +3,7 @@ import XCTest
 
 final class HeredocTests: XCTestCase {
 
-    func testHeredocRedirectParses() throws {
+    func testHeredocRedirectParses() async throws {
         let src = "cat <<EOF\nhello\nEOF\n"
         let parts = try BashSyntax.parse(src)
         XCTAssertEqual(parts.count, 1)
@@ -17,7 +17,7 @@ final class HeredocTests: XCTestCase {
         }
     }
 
-    func testHeredocBodyIsAttached() throws {
+    func testHeredocBodyIsAttached() async throws {
         let src = "cat <<EOF\nhello\nworld\nEOF\n"
         let parts = try BashSyntax.parse(src)
         guard case .command(let children) = parts[0].kind,
@@ -29,7 +29,7 @@ final class HeredocTests: XCTestCase {
         XCTAssertEqual(body, "hello\nworld\n")
     }
 
-    func testHeredocThenAnotherCommand() throws {
+    func testHeredocThenAnotherCommand() async throws {
         let src = "cat <<A\nbody\nA\necho done\n"
         let parts = try BashSyntax.parse(src)
         XCTAssertEqual(parts.count, 2)

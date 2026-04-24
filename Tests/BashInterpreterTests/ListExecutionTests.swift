@@ -3,45 +3,45 @@ import XCTest
 
 final class ListExecutionTests: XCTestCase {
 
-    func testSemicolonRunsBoth() throws {
+    func testSemicolonRunsBoth() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo a; echo b")
+        try await cap.shell.run("echo a; echo b")
         XCTAssertEqual(cap.stdout, "a\nb\n")
     }
 
-    func testAndAndShortCircuitsOnFailure() throws {
+    func testAndAndShortCircuitsOnFailure() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("false && echo nope")
+        try await cap.shell.run("false && echo nope")
         XCTAssertEqual(cap.stdout, "")
     }
 
-    func testAndAndContinuesOnSuccess() throws {
+    func testAndAndContinuesOnSuccess() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("true && echo yes")
+        try await cap.shell.run("true && echo yes")
         XCTAssertEqual(cap.stdout, "yes\n")
     }
 
-    func testOrOrShortCircuitsOnSuccess() throws {
+    func testOrOrShortCircuitsOnSuccess() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("true || echo nope")
+        try await cap.shell.run("true || echo nope")
         XCTAssertEqual(cap.stdout, "")
     }
 
-    func testOrOrFiresOnFailure() throws {
+    func testOrOrFiresOnFailure() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("false || echo fallback")
+        try await cap.shell.run("false || echo fallback")
         XCTAssertEqual(cap.stdout, "fallback\n")
     }
 
-    func testMultipleLinesRunInOrder() throws {
+    func testMultipleLinesRunInOrder() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo one\necho two\necho three")
+        try await cap.shell.run("echo one\necho two\necho three")
         XCTAssertEqual(cap.stdout, "one\ntwo\nthree\n")
     }
 
-    func testExitStatusPropagates() throws {
+    func testExitStatusPropagates() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("true; false")
+        let status = try await cap.shell.run("true; false")
         XCTAssertEqual(status, .failure)
     }
 }

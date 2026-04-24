@@ -4,7 +4,7 @@ import XCTest
 /// Tests that lock down the exact format produced by `dump()`.
 final class DumpTests: XCTestCase {
 
-    func testNestedSubstitutionsDumpExactly() throws {
+    func testNestedSubstitutionsDumpExactly() async throws {
         let node = try BashSyntax.parseSingle("true && cat <(echo $(echo foo))")
         let expected = """
         ListNode(pos=(0, 31), parts=[
@@ -33,7 +33,7 @@ final class DumpTests: XCTestCase {
         XCTAssertEqual(node.dump(), expected)
     }
 
-    func testSimplePipelineDump() throws {
+    func testSimplePipelineDump() async throws {
         let node = try BashSyntax.parseSingle("cat | wc")
         let expected = """
         PipelineNode(pos=(0, 8), parts=[
@@ -49,7 +49,7 @@ final class DumpTests: XCTestCase {
         XCTAssertEqual(node.dump(), expected)
     }
 
-    func testSourceDump() throws {
+    func testSourceDump() async throws {
         let src = "echo hi"
         let node = try BashSyntax.parseSingle(src)
         let expected = """

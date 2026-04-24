@@ -25,30 +25,21 @@ public struct GrepCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) throws -> ExitStatus {
-        if shell.stdin.isEmpty { return .failure }
-
+    public mutating func execute(shell: Shell) async throws -> ExitStatus {
         let needle = ignoreCase ? pattern.lowercased() : pattern
-        var lines = shell.stdin.split(separator: "\n",
-                                      omittingEmptySubsequences: false)
-        // Input ending with `\n` leaves a bogus trailing empty element.
-        if shell.stdin.hasSuffix("\n"), lines.last?.isEmpty == true {
-            lines.removeLast()
-        }
-
-        var out = ""
         var matched = false
-        for line in lines {
-            let haystack = ignoreCase ? line.lowercased() : String(line)
+
+        // Stream line-by-line so we can match and print as data arrives
+        // — essential for `tail -f | grep` style live pipelines.
+        for await line in shell.stdin.lines {
+            let haystack = ignoreCase ? line.lowercased() : line
             let contains = haystack.contains(needle)
             let keep = invert ? !contains : contains
             if keep {
-                out.append(contentsOf: line)
-                out.append("\n")
+                shell.stdout(line + "\n")
                 matched = true
             }
         }
-        shell.stdout(out)
         return matched ? .success : .failure
     }
 }

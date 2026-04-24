@@ -9,7 +9,7 @@ public struct CdCommand: Command {
     public let name = "cd"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         let args = argv.dropFirst()
         let target: String
         if let requested = args.first, !requested.isEmpty {

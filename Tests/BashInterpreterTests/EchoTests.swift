@@ -3,46 +3,46 @@ import XCTest
 
 final class EchoTests: XCTestCase {
 
-    func testNoArgs() throws {
+    func testNoArgs() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo")
+        try await cap.shell.run("echo")
         XCTAssertEqual(cap.stdout, "\n")
     }
 
-    func testSingleArg() throws {
+    func testSingleArg() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo hi")
+        try await cap.shell.run("echo hi")
         XCTAssertEqual(cap.stdout, "hi\n")
     }
 
-    func testMultipleArgsJoinedWithSpace() throws {
+    func testMultipleArgsJoinedWithSpace() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo a b c")
+        try await cap.shell.run("echo a b c")
         XCTAssertEqual(cap.stdout, "a b c\n")
     }
 
-    func testDashNSuppressesNewline() throws {
+    func testDashNSuppressesNewline() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo -n hello")
+        try await cap.shell.run("echo -n hello")
         XCTAssertEqual(cap.stdout, "hello")
     }
 
-    func testDoubleDashEndsOptions() throws {
+    func testDoubleDashEndsOptions() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("echo -- -n literal")
+        try await cap.shell.run("echo -- -n literal")
         XCTAssertEqual(cap.stdout, "-n literal\n")
     }
 
-    func testQuotesAreStripped() throws {
+    func testQuotesAreStripped() async throws {
         let cap = CapturingShell()
-        try cap.shell.run(#"echo "hello world""#)
+        try await cap.shell.run(#"echo "hello world""#)
         XCTAssertEqual(cap.stdout, "hello world\n")
     }
 
-    func testSingleQuotesPreserveDollars() throws {
+    func testSingleQuotesPreserveDollars() async throws {
         let cap = CapturingShell()
         cap.shell.environment["X"] = "expanded"
-        try cap.shell.run("echo '$X'")
+        try await cap.shell.run("echo '$X'")
         XCTAssertEqual(cap.stdout, "$X\n")
     }
 }

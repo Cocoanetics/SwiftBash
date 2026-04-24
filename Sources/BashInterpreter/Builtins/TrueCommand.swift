@@ -4,7 +4,7 @@ import Foundation
 public struct TrueCommand: Command {
     public let name = "true"
     public init() {}
-    public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         .success
     }
 }

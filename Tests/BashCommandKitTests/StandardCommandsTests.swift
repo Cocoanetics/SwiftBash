@@ -4,7 +4,7 @@ import XCTest
 
 final class StandardCommandsTests: XCTestCase {
 
-    func testRegisterAllInOneCall() throws {
+    func testRegisterAllInOneCall() async throws {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         for name in ["date", "basename", "dirname", "realpath",
@@ -15,13 +15,13 @@ final class StandardCommandsTests: XCTestCase {
         }
     }
 
-    func testIntegrationExample() throws {
+    func testIntegrationExample() async throws {
         // Mini script exercising a handful of the shipped commands end-to-end.
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment["HOME"] = "/Users/oliver"
 
-        try cap.shell.run("""
+        try await cap.shell.run("""
             FILE=/tmp/data/report.txt
             NAME=$(basename $FILE .txt)
             DIR=$(dirname $FILE)

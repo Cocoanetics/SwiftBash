@@ -10,7 +10,7 @@ extension Shell {
     /// substitution sub-node (`$VAR`, `${…}`, `$(…)`, `` `…` ``, `~`).
     /// Sub-nodes are matched by their absolute source range — the AST
     /// already tells us exactly where each substitution occurs.
-    func expand(word node: Node) throws -> String {
+    func expand(word node: Node) async throws -> String {
         let parts: [Node]
         switch node.kind {
         case .word(_, let p), .assignment(_, let p):
@@ -24,40 +24,32 @@ extension Shell {
         let hi = min(chars.count, node.range.upperBound)
         guard lo < hi else { return "" }
 
-        // Parts sorted by where they start in the source; we walk left-to-right
-        // and splice as we hit each one.
         var queue = parts.sorted { $0.range.lowerBound < $1.range.lowerBound }
-
         var result = ""
         var i = lo
 
         while i < hi {
             if let head = queue.first, i == head.range.lowerBound {
-                result.append(try resolve(part: head))
+                result.append(try await resolve(part: head))
                 i = min(hi, head.range.upperBound)
                 queue.removeFirst()
                 continue
             }
             let c = chars[i]
 
-            // Single quote: copy contents verbatim (no expansion inside).
             if c == "'" {
                 i += 1
                 while i < hi, chars[i] != "'" {
                     result.append(chars[i])
                     i += 1
                 }
-                if i < hi { i += 1 } // consume closing quote
+                if i < hi { i += 1 }
                 continue
             }
-
-            // Double quote: strip the quote chars; expansion continues normally.
             if c == "\"" {
                 i += 1
                 continue
             }
-
-            // Backslash: escape next char (include it literally).
             if c == "\\" {
                 i += 1
                 if i < hi {
@@ -70,23 +62,19 @@ extension Shell {
             result.append(c)
             i += 1
         }
-
         return result
     }
 
     /// Resolve a single substitution sub-node to its string value.
-    private func resolve(part: Node) throws -> String {
+    private func resolve(part: Node) async throws -> String {
         switch part.kind {
         case .parameter(let name):
-            return try resolveParameter(name)
+            return try await resolveParameter(name)
         case .tilde(let raw):
-            if raw == "~" {
-                return environment["HOME"] ?? raw
-            }
-            // ~user forms are not implemented; leave literal.
+            if raw == "~" { return environment["HOME"] ?? raw }
             return raw
         case .commandSubstitution(let cmd):
-            return try captureOutput(of: cmd)
+            return try await captureOutput(of: cmd)
         case .processSubstitution:
             throw BashInterpreterError.unimplemented("process substitution")
         case .arithmeticSubstitution(let expr):
@@ -98,13 +86,7 @@ extension Shell {
     }
 
     /// Resolve a `.parameter(body)` sub-node to its runtime string value.
-    ///
-    /// The body may be anything the parser captures between `${` and `}`,
-    /// or a bare `$name` whose body is just the name. Special single-char
-    /// parameters (`?`, `$`, `#`, `!`) are handled inline; everything
-    /// else goes through ``ParameterFormParser`` and
-    /// ``Shell/applyParameterForm(_:)``.
-    private func resolveParameter(_ body: String) throws -> String {
+    func resolveParameter(_ body: String) async throws -> String {
         switch body {
         case "?": return "\(lastExitStatus.code)"
         case "$": return "\(getpid())"
@@ -113,19 +95,22 @@ extension Shell {
         default: break
         }
         let form = try ParameterFormParser.parse(body)
-        return try applyParameterForm(form)
+        return try await applyParameterForm(form)
     }
 
     /// Run `node` in a scope that captures stdout into a string.
     /// Trailing newlines are trimmed — matching bash's `$(…)` semantics.
-    private func captureOutput(of node: Node) throws -> String {
-        var buffer = ""
+    private func captureOutput(of node: Node) async throws -> String {
+        // Route stdout of this subtree into a byte buffer, then decode
+        // to UTF-8 and strip trailing newlines.
+        var captured = Data()
         let savedStdout = stdout
-        stdout = { buffer.append($0) }
+        stdout = { captured.append($0) }
         defer { stdout = savedStdout }
 
-        _ = try execute(node)
-        while buffer.hasSuffix("\n") { buffer.removeLast() }
-        return buffer
+        _ = try await execute(node)
+        var text = String(decoding: captured, as: UTF8.self)
+        while text.hasSuffix("\n") { text.removeLast() }
+        return text
     }
 }

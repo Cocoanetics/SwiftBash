@@ -11,69 +11,75 @@ final class PipelineTests: XCTestCase {
     private func makeShellWithUpper() -> CapturingShell {
         let cap = CapturingShell()
         cap.shell.register(name: "upper") { _, shell in
-            shell.stdout(shell.stdin.uppercased())
+            let input = await shell.stdin.readAllString()
+            shell.stdout(input.uppercased())
             return .success
         }
         return cap
     }
 
-    func testTwoStagePipelinePassesStdout() throws {
+    func testTwoStagePipelinePassesStdout() async throws {
         let cap = makeShellWithUpper()
-        try cap.shell.run("echo hello | upper")
+        try await cap.shell.run("echo hello | upper")
         XCTAssertEqual(cap.stdout, "HELLO\n")
     }
 
-    func testThreeStagePipeline() throws {
+    func testThreeStagePipeline() async throws {
         let cap = makeShellWithUpper()
         cap.shell.register(name: "twice") { _, shell in
-            shell.stdout(shell.stdin + shell.stdin)
+            let input = await shell.stdin.readAllString()
+            shell.stdout(input + input)
             return .success
         }
-        try cap.shell.run("echo hi | upper | twice")
+        try await cap.shell.run("echo hi | upper | twice")
         XCTAssertEqual(cap.stdout, "HI\nHI\n")
     }
 
-    func testFirstStageStdinIsInitialShellStdin() throws {
+    func testFirstStageStdinIsInitialShellStdin() async throws {
         let cap = makeShellWithUpper()
-        cap.shell.stdin = "start\n"
-        // `cat`-like closure that echoes its stdin.
+        cap.shell.stdin = .string("start\n")
         cap.shell.register(name: "readin") { _, shell in
-            shell.stdout(shell.stdin)
+            let input = await shell.stdin.readAllString()
+            shell.stdout(input)
             return .success
         }
-        try cap.shell.run("readin | upper")
+        try await cap.shell.run("readin | upper")
         XCTAssertEqual(cap.stdout, "START\n")
     }
 
-    func testExitStatusIsFromLastStage() throws {
+    func testExitStatusIsFromLastStage() async throws {
         let cap = makeShellWithUpper()
-        let status = try cap.shell.run("true | false")
+        let status = try await cap.shell.run("true | false")
         XCTAssertEqual(status, .failure)
     }
 
-    func testBangInvertsPipelineStatus() throws {
+    func testBangInvertsPipelineStatus() async throws {
         let cap = makeShellWithUpper()
-        XCTAssertEqual(try cap.shell.run("! true | false"), .success)
-        XCTAssertEqual(try cap.shell.run("! true | true"),  .failure)
+        do { let _s = try await cap.shell.run("! true | false"); XCTAssertEqual(_s, .success) }
+        do { let _s = try await cap.shell.run("! true | true"); XCTAssertEqual(_s, .failure) }
     }
 
-    func testDollarQuestionAfterPipeline() throws {
+    func testDollarQuestionAfterPipeline() async throws {
         let cap = makeShellWithUpper()
-        try cap.shell.run("true | false; echo $?")
+        try await cap.shell.run("true | false; echo $?")
         XCTAssertEqual(cap.stdout, "1\n")
     }
 
-    func testStdinAfterPipelineRestored() throws {
+    func testStdinAfterPipelineRestored() async throws {
         let cap = makeShellWithUpper()
-        cap.shell.stdin = "keep"
-        try cap.shell.run("echo hi | upper")
-        XCTAssertEqual(cap.shell.stdin, "keep",
+        let keep = InputSource.string("keep")
+        cap.shell.stdin = keep
+        try await cap.shell.run("echo hi | upper")
+        // The outer shell's stdin reference should be exactly what we set
+        // before the pipeline — the executor restores it afterwards.
+        let leftover = await cap.shell.stdin.readAllString()
+        XCTAssertEqual(leftover, "keep",
                        "pipeline should not leak its stdin changes")
     }
 
-    func testPipelineInsideIfCondition() throws {
+    func testPipelineInsideIfCondition() async throws {
         let cap = makeShellWithUpper()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             if echo hi | upper; then
               echo ok
             fi
@@ -81,7 +87,7 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "HI\nok\n")
     }
 
-    func testPipeAnd_MergesStderr() throws {
+    func testPipeAnd_MergesStderr() async throws {
         let cap = CapturingShell()
         // Producer writes to both stdout and stderr.
         cap.shell.register(name: "noisy") { _, shell in
@@ -91,17 +97,17 @@ final class PipelineTests: XCTestCase {
         }
         // Consumer records what it received via stdin.
         cap.shell.register(name: "collect") { _, shell in
-            shell.stdout("[\(shell.stdin)]")
+            let input = await shell.stdin.readAllString()
+            shell.stdout("[\(input)]")
             return .success
         }
-        try cap.shell.run("noisy |& collect")
+        try await cap.shell.run("noisy |& collect")
         // stderr is merged into collect's stdin, so its stdin should
-        // contain both "out\n" and "err\n" (order depends on insertion
-        // order by the producer).
+        // contain both "out\n" and "err\n".
         XCTAssertEqual(cap.stdout, "[out\nerr\n]")
     }
 
-    func testPipeWithoutAmpPassesStderrThrough() throws {
+    func testPipeWithoutAmpPassesStderrThrough() async throws {
         let cap = CapturingShell()
         cap.shell.register(name: "noisy") { _, shell in
             shell.stdout("out\n")
@@ -109,10 +115,11 @@ final class PipelineTests: XCTestCase {
             return .success
         }
         cap.shell.register(name: "collect") { _, shell in
-            shell.stdout("[\(shell.stdin)]")
+            let input = await shell.stdin.readAllString()
+            shell.stdout("[\(input)]")
             return .success
         }
-        try cap.shell.run("noisy | collect")
+        try await cap.shell.run("noisy | collect")
         // stderr flows around the pipe to the real stderr.
         XCTAssertEqual(cap.stdout, "[out\n]")
         XCTAssertEqual(cap.stderr, "err\n")

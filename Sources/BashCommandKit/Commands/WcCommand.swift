@@ -23,13 +23,14 @@ public struct WcCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) throws -> ExitStatus {
-        let input = shell.stdin
+    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+        let data  = await shell.stdin.readAllData()
+        let input = String(decoding: data, as: UTF8.self)
         let showAll = !lines && !words && !bytes
 
         let lineCount  = input.filter { $0 == "\n" }.count
         let wordCount  = input.split(whereSeparator: { $0.isWhitespace }).count
-        let byteCount  = input.utf8.count
+        let byteCount  = data.count
 
         var pieces: [String] = []
         if lines || showAll { pieces.append("\(lineCount)") }

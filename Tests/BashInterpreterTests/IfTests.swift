@@ -3,27 +3,27 @@ import XCTest
 
 final class IfTests: XCTestCase {
 
-    func testIfTrueRunsBody() throws {
+    func testIfTrueRunsBody() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("if true; then echo yes; fi")
+        try await cap.shell.run("if true; then echo yes; fi")
         XCTAssertEqual(cap.stdout, "yes\n")
     }
 
-    func testIfFalseSkipsBody() throws {
+    func testIfFalseSkipsBody() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("if false; then echo nope; fi")
+        try await cap.shell.run("if false; then echo nope; fi")
         XCTAssertEqual(cap.stdout, "")
     }
 
-    func testIfElse() throws {
+    func testIfElse() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("if false; then echo yes; else echo no; fi")
+        try await cap.shell.run("if false; then echo yes; else echo no; fi")
         XCTAssertEqual(cap.stdout, "no\n")
     }
 
-    func testElifFirstBranchHits() throws {
+    func testElifFirstBranchHits() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             if true; then echo one
             elif true; then echo two
             else echo three
@@ -32,9 +32,9 @@ final class IfTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "one\n")
     }
 
-    func testElifSecondBranchHits() throws {
+    func testElifSecondBranchHits() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             if false; then echo one
             elif true; then echo two
             else echo three
@@ -43,9 +43,9 @@ final class IfTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "two\n")
     }
 
-    func testElseFallsThrough() throws {
+    func testElseFallsThrough() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             if false; then echo one
             elif false; then echo two
             else echo three
@@ -54,29 +54,29 @@ final class IfTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "three\n")
     }
 
-    func testIfWithArithmeticCondition() throws {
+    func testIfWithArithmeticCondition() async throws {
         let cap = CapturingShell()
         cap.shell.environment["x"] = "10"
-        try cap.shell.run("if (( x > 5 )); then echo big; else echo small; fi")
+        try await cap.shell.run("if (( x > 5 )); then echo big; else echo small; fi")
         XCTAssertEqual(cap.stdout, "big\n")
     }
 
-    func testIfExitStatusIsLastRunCommand() throws {
+    func testIfExitStatusIsLastRunCommand() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("if true; then false; fi")
+        let status = try await cap.shell.run("if true; then false; fi")
         XCTAssertEqual(status, .failure)
     }
 
-    func testIfNoMatchReturnsSuccess() throws {
+    func testIfNoMatchReturnsSuccess() async throws {
         // No else clause and condition is false → exit 0 per bash.
         let cap = CapturingShell()
-        let status = try cap.shell.run("if false; then echo nope; fi")
+        let status = try await cap.shell.run("if false; then echo nope; fi")
         XCTAssertEqual(status, .success)
     }
 
-    func testIfInsideIf() throws {
+    func testIfInsideIf() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             if true; then
               if false; then echo inner-yes
               else echo inner-no

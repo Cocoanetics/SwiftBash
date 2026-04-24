@@ -5,7 +5,7 @@ final class ArithmeticTests: XCTestCase {
 
     // MARK: Standalone `((…))`
 
-    func testArithCommandAtCommandPosition() throws {
+    func testArithCommandAtCommandPosition() async throws {
         let node = try BashSyntax.parseSingle("(( x = 1 + 2 ))")
         guard case .compound(let list, _) = node.kind,
               let first = list.first,
@@ -14,7 +14,7 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertEqual(expr, " x = 1 + 2 ")
     }
 
-    func testArithCommandTightNoSpaces() throws {
+    func testArithCommandTightNoSpaces() async throws {
         let node = try BashSyntax.parseSingle("((0))")
         guard case .compound(let list, _) = node.kind,
               case .arithmeticCommand(let expr) = list.first?.kind
@@ -22,7 +22,7 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertEqual(expr, "0")
     }
 
-    func testArithCommandWithNestedParens() throws {
+    func testArithCommandWithNestedParens() async throws {
         let node = try BashSyntax.parseSingle("(( (a + b) * c ))")
         guard case .compound(let list, _) = node.kind,
               case .arithmeticCommand(let expr) = list.first?.kind
@@ -30,7 +30,7 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertEqual(expr, " (a + b) * c ")
     }
 
-    func testArithCommandInList() throws {
+    func testArithCommandInList() async throws {
         let node = try BashSyntax.parseSingle("true && ((x < 5))")
         guard case .list(let parts) = node.kind else { return XCTFail() }
         XCTAssertEqual(parts.count, 3)
@@ -44,7 +44,7 @@ final class ArithmeticTests: XCTestCase {
         }
     }
 
-    func testArithCommandWithRedirection() throws {
+    func testArithCommandWithRedirection() async throws {
         let node = try BashSyntax.parseSingle("((x = 1)) > /tmp/out")
         guard case .compound(_, let redirects) = node.kind,
               let redir = redirects.first,
@@ -55,7 +55,7 @@ final class ArithmeticTests: XCTestCase {
 
     // MARK: `$((…))` substitution
 
-    func testArithSubstitutionInWord() throws {
+    func testArithSubstitutionInWord() async throws {
         let node = try BashSyntax.parseSingle("echo $((1 + 2 * 3))")
         guard case .command(let cparts) = node.kind,
               case .word(_, let wordParts) = cparts[1].kind,
@@ -65,7 +65,7 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertEqual(expr, "1 + 2 * 3")
     }
 
-    func testArithSubstitutionRangeMapsToSource() throws {
+    func testArithSubstitutionRangeMapsToSource() async throws {
         let src = "echo $((1+2))"
         let node = try BashSyntax.parseSingle(src)
         guard case .command(let cparts) = node.kind,
@@ -76,7 +76,7 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertEqual(arith.source(from: src), "$((1+2))")
     }
 
-    func testNestedArithmeticSubstitution() throws {
+    func testNestedArithmeticSubstitution() async throws {
         let node = try BashSyntax.parseSingle("echo $(( $((1)) + 2 ))")
         guard case .command(let cparts) = node.kind,
               case .word(_, let wordParts) = cparts[1].kind,
@@ -87,7 +87,7 @@ final class ArithmeticTests: XCTestCase {
 
     // MARK: Non-regressions
 
-    func testSubshellInsideSubshellStillWorks() throws {
+    func testSubshellInsideSubshellStillWorks() async throws {
         // Space between the parens keeps it a nested subshell, not arithmetic.
         let node = try BashSyntax.parseSingle("( (true) )")
         // Outer compound containing reserved ( / inner compound / reserved )
@@ -103,7 +103,7 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertTrue(hasInnerSubshell, "inner subshell should remain a compound")
     }
 
-    func testBareSubshellStillWorks() throws {
+    func testBareSubshellStillWorks() async throws {
         let node = try BashSyntax.parseSingle("(true)")
         guard case .compound(let list, _) = node.kind else { return XCTFail() }
         XCTAssertTrue(list.contains { $0.kindName == "command" })
@@ -111,13 +111,13 @@ final class ArithmeticTests: XCTestCase {
 
     // MARK: Errors
 
-    func testUnclosedArithCommandThrows() {
+    func testUnclosedArithCommandThrows() async {
         XCTAssertThrowsError(try BashSyntax.parseSingle("(( 1 + 2")) { err in
             XCTAssertTrue(err is BashSyntaxError)
         }
     }
 
-    func testUnclosedArithSubstitutionThrows() {
+    func testUnclosedArithSubstitutionThrows() async {
         XCTAssertThrowsError(try BashSyntax.parseSingle("echo $((1+2")) { err in
             XCTAssertTrue(err is BashSyntaxError)
         }

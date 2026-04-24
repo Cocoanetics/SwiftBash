@@ -5,10 +5,10 @@ final class LoopControlTests: XCTestCase {
 
     // MARK: break
 
-    func testBreakExitsWhile() throws {
+    func testBreakExitsWhile() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
-        try cap.shell.run("""
+        try await cap.shell.run("""
             while (( i < 10 )); do
               if (( i == 3 )); then break; fi
               echo $i
@@ -19,10 +19,10 @@ final class LoopControlTests: XCTestCase {
         XCTAssertEqual(cap.shell.environment["i"], "3")
     }
 
-    func testBreakExitsForArithCondition() throws {
+    func testBreakExitsForArithCondition() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "0"
-        try cap.shell.run("""
+        try await cap.shell.run("""
             for x in 1 2 3 4 5; do
               (( x == 3 )) && break
               echo $x
@@ -31,9 +31,9 @@ final class LoopControlTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "1\n2\n")
     }
 
-    func testBreakTwoLevels() throws {
+    func testBreakTwoLevels() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             for a in 1 2 3; do
               for b in 1 2 3; do
                 echo $a.$b
@@ -46,9 +46,9 @@ final class LoopControlTests: XCTestCase {
 
     // MARK: continue
 
-    func testContinueSkipsIteration() throws {
+    func testContinueSkipsIteration() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             for x in 1 2 3 4 5; do
               (( x == 3 )) && continue
               echo $x
@@ -57,10 +57,10 @@ final class LoopControlTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "1\n2\n4\n5\n")
     }
 
-    func testContinueInWhile() throws {
+    func testContinueInWhile() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
-        try cap.shell.run("""
+        try await cap.shell.run("""
             while (( i < 5 )); do
               (( i++ ))
               (( i == 3 )) && continue
@@ -70,9 +70,9 @@ final class LoopControlTests: XCTestCase {
         XCTAssertEqual(cap.stdout, "1\n2\n4\n5\n")
     }
 
-    func testContinueTwoLevels() throws {
+    func testContinueTwoLevels() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("""
+        try await cap.shell.run("""
             for a in 1 2 3; do
               for b in 1 2 3; do
                 (( a == 2 && b == 1 )) && continue 2
@@ -87,32 +87,32 @@ final class LoopControlTests: XCTestCase {
 
     // MARK: Edge cases
 
-    func testBreakZeroIsAnError() {
+    func testBreakZeroIsAnError() async {
         let cap = CapturingShell()
-        XCTAssertThrowsError(try cap.shell.run("""
+        await XCTAssertThrowsErrorAsync(try await cap.shell.run("""
             for x in a; do break 0; done
             """))
     }
 
-    func testStrayBreakWarnsAndContinues() throws {
+    func testStrayBreakWarnsAndContinues() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("break; echo after")
+        let status = try await cap.shell.run("break; echo after")
         XCTAssertEqual(status, .success)
         XCTAssertEqual(cap.stdout, "after\n")
         XCTAssertTrue(cap.stderr.contains("only meaningful"), cap.stderr)
     }
 
-    func testStrayContinueWarns() throws {
+    func testStrayContinueWarns() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("continue")
+        try await cap.shell.run("continue")
         XCTAssertTrue(cap.stderr.contains("only meaningful"), cap.stderr)
     }
 
     // MARK: Exit status
 
-    func testBreakReturnsSuccess() throws {
+    func testBreakReturnsSuccess() async throws {
         let cap = CapturingShell()
-        let status = try cap.shell.run("for x in 1; do break; done")
+        let status = try await cap.shell.run("for x in 1; do break; done")
         XCTAssertEqual(status, .success)
     }
 }

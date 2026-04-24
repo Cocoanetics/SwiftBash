@@ -4,7 +4,7 @@ import Foundation
 public struct FalseCommand: Command {
     public let name = "false"
     public init() {}
-    public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         .failure
     }
 }

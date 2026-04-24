@@ -22,7 +22,7 @@ public struct RealpathCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) throws -> ExitStatus {
+    public mutating func execute(shell: Shell) async throws -> ExitStatus {
         let expanded = expandTilde(path, home: shell.environment["HOME"])
         let base = expanded.hasPrefix("/")
             ? expanded

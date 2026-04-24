@@ -14,16 +14,16 @@ final class DateCommandTests: XCTestCase {
 
     // MARK: Default behaviour
 
-    func testDefaultProducesNonEmptyOutput() throws {
+    func testDefaultProducesNonEmptyOutput() async throws {
         let cap = makeShell()
-        try cap.shell.run("date")
+        try await cap.shell.run("date")
         XCTAssertFalse(cap.stdout.isEmpty)
         XCTAssertTrue(cap.stdout.hasSuffix("\n"), "should end with newline")
     }
 
-    func testDefaultFormatIncludesYear() throws {
+    func testDefaultFormatIncludesYear() async throws {
         let cap = makeShell()
-        try cap.shell.run("date")
+        try await cap.shell.run("date")
         let year = Calendar.current.component(.year, from: Date())
         XCTAssertTrue(cap.stdout.contains("\(year)"),
                       "default format should contain the current year:\n\(cap.stdout)")
@@ -31,31 +31,31 @@ final class DateCommandTests: XCTestCase {
 
     // MARK: Literal format pass-through
 
-    func testLiteralFormatStringPassesThrough() throws {
+    func testLiteralFormatStringPassesThrough() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date --format hello"#)
+        try await cap.shell.run(#"date --format hello"#)
         XCTAssertEqual(cap.stdout, "hello\n")
     }
 
-    func testFormatWithPercentPercentIsLiteralPercent() throws {
+    func testFormatWithPercentPercentIsLiteralPercent() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -f "100%%""#)
+        try await cap.shell.run(#"date -f "100%%""#)
         XCTAssertEqual(cap.stdout, "100%\n")
     }
 
     // MARK: Specifiers
 
-    func testYearSpecifier() throws {
+    func testYearSpecifier() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -f "%Y""#)
+        try await cap.shell.run(#"date -f "%Y""#)
         let year = Calendar.current.component(.year, from: Date())
         XCTAssertEqual(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
                        "\(year)")
     }
 
-    func testIsoDateSpecifier() throws {
+    func testIsoDateSpecifier() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -f "%Y-%m-%d""#)
+        try await cap.shell.run(#"date -f "%Y-%m-%d""#)
         let trimmed = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: "-")
         XCTAssertEqual(parts.count, 3)
@@ -64,9 +64,9 @@ final class DateCommandTests: XCTestCase {
         XCTAssertEqual(parts[2].count, 2, "day is 2 digits")
     }
 
-    func testTimeSpecifierMatchesHHmmSS() throws {
+    func testTimeSpecifierMatchesHHmmSS() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -f "%H:%M:%S""#)
+        try await cap.shell.run(#"date -f "%H:%M:%S""#)
         let trimmed = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let regex = try NSRegularExpression(pattern: "^\\d{2}:\\d{2}:\\d{2}$")
         let matches = regex.numberOfMatches(
@@ -75,10 +75,10 @@ final class DateCommandTests: XCTestCase {
         XCTAssertEqual(matches, 1, "expected HH:MM:SS, got \(trimmed)")
     }
 
-    func testUnixTimestampSpecifier() throws {
+    func testUnixTimestampSpecifier() async throws {
         let cap = makeShell()
         let before = Int(Date().timeIntervalSince1970)
-        try cap.shell.run(#"date -f "%s""#)
+        try await cap.shell.run(#"date -f "%s""#)
         let after = Int(Date().timeIntervalSince1970)
         let output = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let printed = Int(output) else {
@@ -90,9 +90,9 @@ final class DateCommandTests: XCTestCase {
 
     // MARK: --utc
 
-    func testUtcFlagUsesGmtTimezone() throws {
+    func testUtcFlagUsesGmtTimezone() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -u -f "%Z""#)
+        try await cap.shell.run(#"date -u -f "%Z""#)
         // strftime's %Z for UTC is typically "UTC" or "GMT" depending
         // on libc; either is acceptable.
         let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -100,38 +100,38 @@ final class DateCommandTests: XCTestCase {
                       "got timezone `\(tz)`")
     }
 
-    func testUtcAndLocalCanDifferInHours() throws {
+    func testUtcAndLocalCanDifferInHours() async throws {
         // This is only a meaningful test when the testing machine is not
         // on UTC. If it is, both values will be equal — just assert the
         // command ran.
         let cap1 = makeShell()
-        try cap1.shell.run(#"date -f "%H""#)
+        try await cap1.shell.run(#"date -f "%H""#)
         let cap2 = makeShell()
-        try cap2.shell.run(#"date -u -f "%H""#)
+        try await cap2.shell.run(#"date -u -f "%H""#)
         XCTAssertFalse(cap1.stdout.isEmpty)
         XCTAssertFalse(cap2.stdout.isEmpty)
     }
 
     // MARK: Short flags
 
-    func testShortFormatFlag() throws {
+    func testShortFormatFlag() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -f "hi""#)
+        try await cap.shell.run(#"date -f "hi""#)
         XCTAssertEqual(cap.stdout, "hi\n")
     }
 
-    func testShortUtcFlag() throws {
+    func testShortUtcFlag() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"date -u -f "%Z""#)
+        try await cap.shell.run(#"date -u -f "%Z""#)
         let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertTrue(tz == "UTC" || tz == "GMT", "got `\(tz)`")
     }
 
     // MARK: Interaction with the shell
 
-    func testDateInCommandSubstitution() throws {
+    func testDateInCommandSubstitution() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"TODAY=$(date -f "%Y-%m-%d"); echo $TODAY"#)
+        try await cap.shell.run(#"TODAY=$(date -f "%Y-%m-%d"); echo $TODAY"#)
         let value = cap.shell.environment["TODAY"] ?? ""
         let regex = try NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}$")
         let range = NSRange(value.startIndex..., in: value)
@@ -139,9 +139,9 @@ final class DateCommandTests: XCTestCase {
                        "expected ISO date in $TODAY, got `\(value)`")
     }
 
-    func testHelpFlag() throws {
+    func testHelpFlag() async throws {
         let cap = makeShell()
-        try cap.shell.run("date --help")
+        try await cap.shell.run("date --help")
         XCTAssertTrue(cap.stdout.contains("Print the current date"),
                       "help should include the abstract:\n\(cap.stdout)")
         XCTAssertTrue(cap.stdout.contains("--format"), cap.stdout)

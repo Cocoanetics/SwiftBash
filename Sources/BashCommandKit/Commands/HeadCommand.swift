@@ -14,18 +14,17 @@ public struct HeadCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) throws -> ExitStatus {
+    public mutating func execute(shell: Shell) async throws -> ExitStatus {
         if n <= 0 { return .success }
-        var out = ""
-        var lineCount = 0
-        for ch in shell.stdin {
-            out.append(ch)
-            if ch == "\n" {
-                lineCount += 1
-                if lineCount >= n { break }
-            }
+        // Stream lines as they arrive so that `head` can trigger the
+        // upstream's cancellation as soon as it has enough — in a
+        // streaming pipeline this is how `yes | head` terminates.
+        var emitted = 0
+        for await line in shell.stdin.lines {
+            shell.stdout(line + "\n")
+            emitted += 1
+            if emitted >= n { break }
         }
-        shell.stdout(out)
         return .success
     }
 }

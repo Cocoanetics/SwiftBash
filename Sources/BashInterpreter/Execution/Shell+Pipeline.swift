@@ -7,19 +7,17 @@ extension Shell {
     /// `.pipe("|" | "|&")` separators, with an optional leading
     /// `.reservedWord("!")` that inverts the final exit status.
     ///
-    /// Pipelines are executed **sequentially with buffered stdio** in
-    /// this skeleton — stage N runs to completion, its stdout (and
-    /// stderr, for `|&`) are captured into a String, and stage N+1 then
-    /// runs with that String as its `stdin`. True concurrent
-    /// `pipe(2)`-backed pipelines come with subprocess support.
+    /// Each stage runs in its own `Task` inside a `TaskGroup`, wired
+    /// together by `AsyncStream<Data>` channels. Stage N writes chunks
+    /// as it produces them; stage N+1 awaits the stream — so infinite
+    /// producers like `tail -f` interleave with consumers like
+    /// `grep` without buffering. Environment mutations inside a stage
+    /// are local: each stage runs on a *subshell* cloned from the
+    /// outer shell's env.
     ///
-    /// Consequences vs. bash:
-    /// - Early termination of the reader (`yes | head`) doesn't stop
-    ///   the writer; the writer runs fully before `head` sees anything.
-    /// - Variables assigned inside a pipeline stage DO persist in the
-    ///   shell (real bash runs each stage in its own subshell).
-    /// - Exit status is the final stage's — bash-default `pipefail` off.
-    func executePipeline(parts: [Node]) throws -> ExitStatus {
+    /// Exit status is the final stage's (bash default; `pipefail` off).
+    /// `!` inverts it.
+    func executePipeline(parts: [Node]) async throws -> ExitStatus {
         var i = 0
         var invert = false
         if !parts.isEmpty,
@@ -29,7 +27,6 @@ extension Shell {
             i = 1
         }
 
-        // Separate command stages from the `|` / `|&` operators between them.
         var stages: [Node] = []
         var pipeOps: [String] = []
         while i < parts.count {
@@ -44,49 +41,105 @@ extension Shell {
 
         guard !stages.isEmpty else { return .success }
 
-        let savedStdin = stdin
-        let savedStdout = stdout
-        let savedStderr = stderr
-        defer {
-            stdin = savedStdin
-            stdout = savedStdout
-            stderr = savedStderr
+        // Build the inter-stage channels. For N stages, we need N-1.
+        var channels: [(AsyncStream<Data>,
+                        AsyncStream<Data>.Continuation)] = []
+        for _ in 0..<max(0, stages.count - 1) {
+            channels.append(AsyncStream<Data>.makeStream())
         }
 
-        var currentInput = savedStdin
-        var lastStatus = ExitStatus.success
+        // Snapshot for stages; stage 0 inherits the outer shell's stdin.
+        let outerStdin = stdin
+        let outerStdout = stdout
+        let outerStderr = stderr
+        let envSnapshot = environment
+        let commandRegistry = commands
+        let sourceSnapshot = currentSource
 
-        for (index, stage) in stages.enumerated() {
-            let isLast = (index == stages.count - 1)
-            stdin = currentInput
+        let status = try await withThrowingTaskGroup(
+            of: (Int, ExitStatus).self
+        ) { group in
+            for (index, stage) in stages.enumerated() {
+                let isLast = (index == stages.count - 1)
+                let isFirst = (index == 0)
+                let incomingChannel = isFirst ? nil : channels[index - 1].0
+                let outgoingCont = isLast ? nil : channels[index].1
+                let mergeStderrIntoOutgoing = !isLast && pipeOps[index] == "|&"
 
-            if isLast {
-                // The last stage writes directly to the shell's real
-                // stdio — no capture.
-                stdout = savedStdout
-                stderr = savedStderr
-                lastStatus = try execute(stage)
-            } else {
-                var buffer = ""
-                stdout = { buffer.append($0) }
+                group.addTask {
+                    // Build a subshell for this stage: separate env so
+                    // mutations don't leak or race; shared command
+                    // registry; per-stage stdio wired to the channels.
+                    let sub = Shell(
+                        environment: envSnapshot,
+                        stdout: Shell.defaultStdout, // overridden below
+                        stderr: Shell.defaultStderr,
+                        commands: commandRegistry
+                    )
+                    sub.currentSource = sourceSnapshot
 
-                // `|&` on the operator AFTER this stage merges its stderr
-                // into the next stage's stdin.
-                let mergeStderr = pipeOps[index] == "|&"
-                if mergeStderr {
-                    stderr = { buffer.append($0) }
-                } else {
-                    stderr = savedStderr
+                    // stdin: inherit outer for stage 0, otherwise await
+                    // the upstream channel.
+                    if let incoming = incomingChannel {
+                        sub.stdin = InputSource(bytes: incoming)
+                    } else {
+                        sub.stdin = outerStdin
+                    }
+
+                    // stdout: either the final shell's sink, or the
+                    // channel to the next stage.
+                    if let cont = outgoingCont {
+                        sub.stdout = { cont.yield($0) }
+                    } else {
+                        sub.stdout = outerStdout
+                    }
+
+                    // stderr: in `|&` we merge into the next stage; in
+                    // plain `|` we pass straight through.
+                    if mergeStderrIntoOutgoing, let cont = outgoingCont {
+                        sub.stderr = { cont.yield($0) }
+                    } else {
+                        sub.stderr = outerStderr
+                    }
+
+                    do {
+                        let result = try await sub.execute(stage)
+                        // Close the outgoing channel so the downstream
+                        // stage's iterator finishes.
+                        outgoingCont?.finish()
+                        return (index, result)
+                    } catch {
+                        outgoingCont?.finish()
+                        throw error
+                    }
                 }
-
-                lastStatus = try execute(stage)
-                currentInput = buffer
             }
+
+            // Wait for stages to complete. When the final stage finishes,
+            // cancel any still-running upstreams — that's how a fast
+            // consumer like `head` terminates an infinite producer like
+            // `tail -f`.
+            var finalStatus = ExitStatus.success
+            while true {
+                do {
+                    guard let (index, result) = try await group.next() else {
+                        break
+                    }
+                    if index == stages.count - 1 {
+                        finalStatus = result
+                        group.cancelAll()
+                    }
+                } catch is CancellationError {
+                    // Expected for any upstream stage after cancelAll; keep draining.
+                    continue
+                }
+            }
+            return finalStatus
         }
 
         lastExitStatus = invert
-            ? (lastStatus.isSuccess ? .failure : .success)
-            : lastStatus
+            ? (status.isSuccess ? .failure : .success)
+            : status
         return lastExitStatus
     }
 }

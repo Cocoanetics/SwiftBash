@@ -10,27 +10,27 @@ final class EnvCommandTests: XCTestCase {
         return cap
     }
 
-    func testEmptyEnvPrintsNothing() throws {
+    func testEmptyEnvPrintsNothing() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [:]
-        try cap.shell.run("env")
+        try await cap.shell.run("env")
         XCTAssertEqual(cap.stdout, "")
     }
 
-    func testPrintsAllSortedByName() throws {
+    func testPrintsAllSortedByName() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [
             "ZEBRA": "z", "ALPHA": "a", "BRAVO": "b"
         ]
-        try cap.shell.run("env")
+        try await cap.shell.run("env")
         XCTAssertEqual(cap.stdout, "ALPHA=a\nBRAVO=b\nZEBRA=z\n")
     }
 
-    func testReflectsExportedVariables() throws {
+    func testReflectsExportedVariables() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [:]
-        try cap.shell.run("export FOO=bar")
-        try cap.shell.run("env")
+        try await cap.shell.run("export FOO=bar")
+        try await cap.shell.run("env")
         XCTAssertEqual(cap.stdout, "FOO=bar\n")
     }
 }

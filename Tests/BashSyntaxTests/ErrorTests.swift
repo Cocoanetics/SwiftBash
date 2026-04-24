@@ -3,7 +3,7 @@ import XCTest
 
 final class ErrorTests: XCTestCase {
 
-    func testUnterminatedDoubleQuoteThrows() {
+    func testUnterminatedDoubleQuoteThrows() async {
         XCTAssertThrowsError(try BashSyntax.parse(#"echo "unterminated"#)) { err in
             guard let e = err as? BashSyntaxError,
                   case .parsing(let msg, _, _) = e
@@ -12,7 +12,7 @@ final class ErrorTests: XCTestCase {
         }
     }
 
-    func testUnterminatedCommandSubstitutionThrows() {
+    func testUnterminatedCommandSubstitutionThrows() async {
         XCTAssertThrowsError(try BashSyntax.parse("echo $(true")) { err in
             guard let e = err as? BashSyntaxError,
                   case .parsing(let msg, _, _) = e
@@ -21,13 +21,13 @@ final class ErrorTests: XCTestCase {
         }
     }
 
-    func testUnbalancedBraceThrows() {
+    func testUnbalancedBraceThrows() async {
         XCTAssertThrowsError(try BashSyntax.parse("{ echo;")) { err in
             XCTAssertTrue(err is BashSyntaxError)
         }
     }
 
-    func testErrorCarriesPosition() {
+    func testErrorCarriesPosition() async {
         do {
             _ = try BashSyntax.parse("if true; then")
             XCTFail("expected throw")

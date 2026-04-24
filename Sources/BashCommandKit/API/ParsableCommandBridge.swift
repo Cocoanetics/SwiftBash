@@ -8,12 +8,12 @@ import BashInterpreter
 struct ParsableCommandBridge<Parsed: ParsableBashCommand>: Command {
     let name: String
 
-    func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         // ArgumentParser expects argv without the command name.
         let args = Array(argv.dropFirst())
         do {
             var parsed = try Parsed.parse(args)
-            return try parsed.execute(shell: shell)
+            return try await parsed.execute(shell: shell)
         } catch {
             // ArgumentParser uses the error type to convey both real
             // usage errors *and* clean non-error exits like `--help`. We

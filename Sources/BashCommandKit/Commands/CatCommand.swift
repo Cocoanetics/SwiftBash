@@ -15,20 +15,25 @@ public struct CatCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) throws -> ExitStatus {
+    public mutating func execute(shell: Shell) async throws -> ExitStatus {
         if files.isEmpty {
-            shell.stdout(shell.stdin)
+            // Stream chunks through as they arrive — binary-safe.
+            for await chunk in shell.stdin.bytes {
+                shell.stdout(chunk)
+            }
             return .success
         }
         var hadError = false
         for path in files {
             if path == "-" {
-                shell.stdout(shell.stdin)
+                for await chunk in shell.stdin.bytes {
+                    shell.stdout(chunk)
+                }
                 continue
             }
             do {
-                let contents = try String(contentsOfFile: path, encoding: .utf8)
-                shell.stdout(contents)
+                let data = try Data(contentsOf: URL(fileURLWithPath: path))
+                shell.stdout(data)
             } catch {
                 shell.stderr("cat: \(path): \(error.localizedDescription)\n")
                 hadError = true

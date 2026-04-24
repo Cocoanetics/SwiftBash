@@ -3,65 +3,65 @@ import XCTest
 
 final class SplitTests: XCTestCase {
 
-    func testBasicSplit() throws {
+    func testBasicSplit() async throws {
         XCTAssertEqual(try BashSyntax.split("a b c"), ["a", "b", "c"])
     }
 
-    func testOperatorsAreEmittedLiterally() throws {
+    func testOperatorsAreEmittedLiterally() async throws {
         XCTAssertEqual(try BashSyntax.split("ls | grep foo && echo"),
                        ["ls", "|", "grep", "foo", "&&", "echo"])
     }
 
-    func testSingleQuotesRemoved() throws {
+    func testSingleQuotesRemoved() async throws {
         XCTAssertEqual(try BashSyntax.split("echo 'hello world'"),
                        ["echo", "hello world"])
     }
 
-    func testDoubleQuotesRemoved() throws {
+    func testDoubleQuotesRemoved() async throws {
         XCTAssertEqual(try BashSyntax.split(#"echo "hello world""#),
                        ["echo", "hello world"])
     }
 
-    func testAdjacentQuotedAndUnquotedConcatenate() throws {
+    func testAdjacentQuotedAndUnquotedConcatenate() async throws {
         XCTAssertEqual(try BashSyntax.split(#"foo"bar"'baz'"#), [#"foobarbaz"#])
     }
 
-    func testCommandSubstitutionPreserved() throws {
+    func testCommandSubstitutionPreserved() async throws {
         XCTAssertEqual(try BashSyntax.split(#"echo $(date +%s)"#),
                        ["echo", "$(date +%s)"])
     }
 
-    func testBackticksPreserved() throws {
+    func testBackticksPreserved() async throws {
         XCTAssertEqual(try BashSyntax.split("echo `date +%s`"),
                        ["echo", "`date +%s`"])
     }
 
-    func testProcessSubstitutionPreserved() throws {
+    func testProcessSubstitutionPreserved() async throws {
         XCTAssertEqual(try BashSyntax.split("diff <(a) <(b)"),
                        ["diff", "<(a)", "<(b)"])
     }
 
-    func testNestedCommandSubstitution() throws {
+    func testNestedCommandSubstitution() async throws {
         XCTAssertEqual(try BashSyntax.split("echo $(echo $(echo deep))"),
                        ["echo", "$(echo $(echo deep))"])
     }
 
-    func testSubstitutionInsideDoubleQuotes() throws {
+    func testSubstitutionInsideDoubleQuotes() async throws {
         XCTAssertEqual(try BashSyntax.split(#"echo "a $(b) c""#),
                        ["echo", "a $(b) c"])
     }
 
-    func testSubstitutionInsideSingleQuotesIsLiteral() throws {
+    func testSubstitutionInsideSingleQuotesIsLiteral() async throws {
         XCTAssertEqual(try BashSyntax.split(#"echo 'a $(b) c'"#),
                        ["echo", "a $(b) c"])
     }
 
-    func testRedirectOperators() throws {
+    func testRedirectOperators() async throws {
         XCTAssertEqual(try BashSyntax.split("cat > out 2>&1"),
                        ["cat", ">", "out", "2", ">&", "1"])
     }
 
-    func testAmpersandBackgroundedCommand() throws {
+    func testAmpersandBackgroundedCommand() async throws {
         XCTAssertEqual(try BashSyntax.split("sleep 10 &"), ["sleep", "10", "&"])
     }
 }

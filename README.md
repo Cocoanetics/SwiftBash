@@ -1,6 +1,10 @@
 # SwiftBash
 
-Swift libraries for working with bash source.
+Swift libraries for working with bash source. Pure-Swift, no
+`Process`/`fork`/`exec`, works inside a sandboxed iOS app. Every
+command is a registered `Command`; pipelines run concurrently on
+Swift's cooperative executor with byte-level `AsyncStream<Data>`
+channels.
 
 | Product                | Status     | What it does                                    |
 |------------------------|------------|-------------------------------------------------|
@@ -212,15 +216,19 @@ let shell = Shell()
 shell.environment["PATH"] = "/usr/bin:/bin"
 shell.environment["USER"] = "oliver"
 
-try shell.run("echo hello $USER")          // → hello oliver
-try shell.run("echo PATH is $PATH")        // → PATH is /usr/bin:/bin
-try shell.run("export GREETING=welcome")
-try shell.run("echo $GREETING")            // → welcome
+try await shell.run("echo hello $USER")    // → hello oliver
+try await shell.run("echo PATH is $PATH")  // → PATH is /usr/bin:/bin
+try await shell.run("export GREETING=welcome")
+try await shell.run("echo $GREETING")      // → welcome
 
-// Short-circuit lists work:
-try shell.run("false || echo fallback")    // → fallback
-try shell.run("true && echo yes")          // → yes
+// Short-circuit lists:
+try await shell.run("false || echo fallback")  // → fallback
+try await shell.run("true && echo yes")        // → yes
 ```
+
+The interpreter is **fully async** — every `run` is awaited. Pipeline
+stages execute concurrently via Swift `Task`s, so streaming pipelines
+(`tail -f file | grep error | head -n 5`) work without buffering.
 
 ## Extending the shell with custom commands
 
@@ -372,11 +380,17 @@ try shell.run("""
   …; do … done`, `case … esac`. Pattern arms support `*`, `?`, `[…]`,
   `[!…]` globs and the `;;` / `;&` / `;;&` terminators. Groups
   `{ …; }` and subshells `( … )` both execute the body in order.
-- **Pipelines** — `a | b | c` and `a |& b` (merge stderr). Each stage
-  runs sequentially; its stdout (and stderr for `|&`) is buffered and
-  fed to the next stage's `stdin`. Exit status is the final stage's.
-  `! a | b` inverts. True concurrent `pipe(2)` support comes with
-  subprocess execution.
+- **Streaming concurrent pipelines** — `a | b | c` and `a |& b` (merge
+  stderr). Each stage runs in its own `Task` inside a `TaskGroup`,
+  connected by `AsyncStream<Data>` channels. Upstream writes and
+  downstream reads interleave in time, so patterns like
+  `tail -f log | grep ERROR | head -n 5` work without OS processes:
+  when `head` has 5 matches, its task exits, the group cancels
+  upstream, and `tail -f` sees `Task.isCancelled` and stops. Pipes
+  carry raw `Data`, so binary content round-trips unchanged. Each
+  stage runs on a subshell clone of the outer environment — bash-style
+  subshell isolation: `( X=inside )` doesn't leak. Exit status is the
+  final stage's; `! pipeline` inverts.
 - **`break` and `continue`** — with optional numeric level
   (`break 2`, `continue 3`). Stray break/continue outside a loop
   emits a bash-style warning and continues execution.
@@ -393,13 +407,10 @@ try shell.run("""
 
 ## What's not implemented yet
 
-- Subprocess execution — anything that isn't a registered built-in
-  throws `commandNotFound`.
+- Subprocess execution. Target is iOS; every command runs in-process
+  as a registered `Command` (we never call `Process` / `fork` / `exec`).
 - File / fd redirections (`> out`, `< in`, `<<<`, heredocs). Parser
   accepts them; the interpreter throws on them.
-- *Truly concurrent* pipelines — our pipe stages are buffered and
-  sequential, so `yes | head` would buffer all of `yes` before
-  `head` runs.
 - Subshell environment isolation — `( X=inner )` currently leaks `X`
   out because there's no subprocess boundary yet.
 - `for VAR; do … done` (implicit positional parameters).
@@ -528,7 +539,8 @@ Sources/BashInterpreter/
     Environment.swift                    Variables + cwd
     ExitStatus.swift                     0 = success, non-zero = failure
     BashInterpreterError.swift           commandNotFound / parameter / io
-    Command.swift                        Extension protocol
+    InputSource.swift                    AsyncStream<Data>-backed stdin
+    Command.swift                        Extension protocol (async)
     ClosureCommand.swift                 Closure-backed Command helper
   Builtins/
     EchoCommand.swift … ContinueCommand.swift   One file per shipped command

@@ -10,9 +10,9 @@ final class GlobMatcherTests: XCTestCase {
     // MARK: Literals
 
     func testLiteralMatch()   { XCTAssertTrue(m("abc", "abc")) }
-    func testLiteralMismatch() { XCTAssertFalse(m("abc", "abd")) }
+    func testLiteralMismatch() async { XCTAssertFalse(m("abc", "abd")) }
     func testEmptyPatternMatchesEmpty()   { XCTAssertTrue(m("", "")) }
-    func testEmptyPatternRejectsNonEmpty() { XCTAssertFalse(m("", "a")) }
+    func testEmptyPatternRejectsNonEmpty() async { XCTAssertFalse(m("", "a")) }
 
     // MARK: Star
 
@@ -38,31 +38,31 @@ final class GlobMatcherTests: XCTestCase {
     func testCharClassRange()           { XCTAssertTrue(m("[a-z]", "m")) }
     func testCharClassRangeRejects()    { XCTAssertFalse(m("[a-z]", "M")) }
     func testCharClassNegation()        { XCTAssertTrue(m("[!abc]", "d")) }
-    func testCharClassNegationRejects() { XCTAssertFalse(m("[!abc]", "b")) }
+    func testCharClassNegationRejects() async { XCTAssertFalse(m("[!abc]", "b")) }
     func testCharClassCaretNegation()   { XCTAssertTrue(m("[^0-9]", "a")) }
     func testCharClassCombined()        { XCTAssertTrue(m("[A-Za-z0-9]", "z")) }
 
     // MARK: Escape
 
-    func testEscapedStar() { XCTAssertTrue(m("\\*", "*")) }
-    func testEscapedStarRejectsOther() { XCTAssertFalse(m("\\*", "a")) }
-    func testEscapedQuestion() { XCTAssertTrue(m("\\?", "?")) }
+    func testEscapedStar() async { XCTAssertTrue(m("\\*", "*")) }
+    func testEscapedStarRejectsOther() async { XCTAssertFalse(m("\\*", "a")) }
+    func testEscapedQuestion() async { XCTAssertTrue(m("\\?", "?")) }
 
     // MARK: Combinations
 
-    func testMixed() {
+    func testMixed() async {
         XCTAssertTrue(m("*.[ch]", "file.c"))
         XCTAssertTrue(m("*.[ch]", "file.h"))
         XCTAssertFalse(m("*.[ch]", "file.txt"))
     }
 
-    func testPathLikePattern() {
+    func testPathLikePattern() async {
         XCTAssertTrue(m("/usr/*/bin", "/usr/local/bin"))
         XCTAssertFalse(m("/usr/*/bin", "/usr/local/sbin"))
     }
 
     // MARK: Unmatched bracket → pattern treated as literal-ish; should not match
-    func testUnmatchedBracketIsRejected() {
+    func testUnmatchedBracketIsRejected() async {
         XCTAssertFalse(m("[abc", "a"))
     }
 }

@@ -8,14 +8,14 @@ extension Shell {
     /// Parse and execute a bash source string. Returns the exit status of
     /// the last command run (or `.success` if the input was empty).
     @discardableResult
-    public func run(_ source: String) throws -> ExitStatus {
+    public func run(_ source: String) async throws -> ExitStatus {
         let parts = try BashSyntax.parse(source)
-        return try run(parts, source: source)
+        return try await run(parts, source: source)
     }
 
     /// Execute an array of pre-parsed top-level nodes against `source`.
     @discardableResult
-    public func run(_ parts: [Node], source: String) throws -> ExitStatus {
+    public func run(_ parts: [Node], source: String) async throws -> ExitStatus {
         let saved = currentSource
         currentSource = source
         defer { currentSource = saved }
@@ -24,7 +24,7 @@ extension Shell {
             var last = ExitStatus.success
             for node in parts {
                 do {
-                    last = try execute(node)
+                    last = try await execute(node)
                     lastExitStatus = last
                 } catch let signal as LoopControlSignal {
                     // Stray break/continue at top level — warn and
@@ -43,16 +43,16 @@ extension Shell {
 
     // MARK: AST dispatch
 
-    func execute(_ node: Node) throws -> ExitStatus {
+    func execute(_ node: Node) async throws -> ExitStatus {
         switch node.kind {
         case .command(let parts):
-            return try executeSimpleCommand(parts: parts)
+            return try await executeSimpleCommand(parts: parts)
 
         case .list(let parts):
-            return try executeList(parts: parts)
+            return try await executeList(parts: parts)
 
         case .pipeline(let parts):
-            return try executePipeline(parts: parts)
+            return try await executePipeline(parts: parts)
 
         case .compound(let list, let redirects):
             if !redirects.isEmpty {
@@ -64,23 +64,20 @@ extension Shell {
                 case .arithmeticCommand(let expr):
                     return try runArithmeticCommand(expr)
                 case .ifCommand(let parts):
-                    return try executeIf(parts: parts)
+                    return try await executeIf(parts: parts)
                 case .whileCommand(let parts):
-                    return try executeWhileLike(parts: parts, invert: false)
+                    return try await executeWhileLike(parts: parts, invert: false)
                 case .untilCommand(let parts):
-                    return try executeWhileLike(parts: parts, invert: true)
+                    return try await executeWhileLike(parts: parts, invert: true)
                 case .forCommand(let parts):
-                    return try executeFor(parts: parts)
+                    return try await executeFor(parts: parts)
                 case .caseCommand(let parts):
-                    return try executeCase(parts: parts)
+                    return try await executeCase(parts: parts)
                 default:
                     break
                 }
             }
-            // `{ … ; }` and `( … )` both arrive here with the body wrapped
-            // between two reservedWord nodes. We execute non-reservedWord
-            // members in order; subshells don't get env isolation yet.
-            return try executeGroup(list: list)
+            return try await executeGroup(list: list)
 
         case .function:
             throw BashInterpreterError.unimplemented("function definitions")
@@ -89,7 +86,6 @@ extension Shell {
             return try runArithmeticCommand(expr)
 
         case .arithmeticSubstitution:
-            // Only meaningful inside a word — handled by Shell+Expansion.
             throw BashInterpreterError.unimplemented(
                 "arithmetic substitution used outside a word")
 
@@ -107,7 +103,7 @@ extension Shell {
 
     /// Execute a `list` node — a sequence of commands separated by `&&`,
     /// `||`, `;` or `\n`. Honours short-circuit for `&&`/`||`.
-    private func executeList(parts: [Node]) throws -> ExitStatus {
+    func executeList(parts: [Node]) async throws -> ExitStatus {
         var status = ExitStatus.success
         var i = 0
 
@@ -117,7 +113,6 @@ extension Shell {
                 switch op {
                 case "&&":
                     if !status.isSuccess {
-                        // Skip the next operand; resume at the operator *after* it.
                         i = skipRhsOfShortCircuit(parts: parts, from: i + 1)
                         continue
                     }
@@ -126,10 +121,7 @@ extension Shell {
                         i = skipRhsOfShortCircuit(parts: parts, from: i + 1)
                         continue
                     }
-                case ";", "\n":
-                    break // simple separator; keep going
-                case "&":
-                    // Background: in the skeleton we run it in the foreground.
+                case ";", "\n", "&":
                     break
                 default:
                     break
@@ -138,12 +130,10 @@ extension Shell {
                 continue
             }
             do {
-                status = try execute(node)
+                status = try await execute(node)
                 lastExitStatus = status
             } catch let signal as LoopControlSignal {
                 if loopDepth > 0 { throw signal }
-                // Stray break/continue in a list (e.g., `break; echo x`)
-                // not enclosed by a loop — warn and continue.
                 warnStrayLoopControl(signal)
                 status = .success
             }
@@ -153,10 +143,6 @@ extension Shell {
         return status
     }
 
-    /// Given a list `parts` starting at a command node at index `from`,
-    /// advance past that command's sub-tree. Since a list's children are
-    /// already flat (command, op, command, op, …), this is simply
-    /// "skip the command node".
     private func skipRhsOfShortCircuit(parts: [Node], from: Int) -> Int {
         guard from < parts.count else { return parts.count }
         return from + 1
@@ -165,10 +151,9 @@ extension Shell {
     // MARK: Simple commands
 
     /// Execute a `command` node — a sequence of assignments, words and
-    /// redirections. In this skeleton we ignore redirections (throw) and
-    /// dispatch only to registered built-ins.
-    private func executeSimpleCommand(parts: [Node]) throws -> ExitStatus {
-        // Partition into assignments, argv, and redirects.
+    /// redirections. Redirections still throw `.unimplemented`; dispatch
+    /// falls through to the registered command registry.
+    private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
         var assignments: [(String, String)] = []
         var argv: [String] = []
         var hasRedirect = false
@@ -176,14 +161,14 @@ extension Shell {
         for part in parts {
             switch part.kind {
             case .assignment:
-                let expanded = try expand(word: part)
+                let expanded = try await expand(word: part)
                 if let eq = expanded.firstIndex(of: "=") {
                     let name = String(expanded[..<eq])
                     let value = String(expanded[expanded.index(after: eq)...])
                     assignments.append((name, value))
                 }
             case .word:
-                argv.append(try expand(word: part))
+                argv.append(try await expand(word: part))
             case .redirect:
                 hasRedirect = true
             default:
@@ -193,10 +178,9 @@ extension Shell {
 
         if hasRedirect {
             throw BashInterpreterError.unimplemented(
-                "redirection (builtins-only skeleton has no fd plumbing yet)")
+                "redirection (no fd plumbing yet)")
         }
 
-        // Standalone assignment: `X=1` with no argv.
         if argv.isEmpty {
             for (name, value) in assignments {
                 environment[name] = value
@@ -204,18 +188,15 @@ extension Shell {
             return .success
         }
 
-        // Assignments prefixed to a command are scoped to that command only.
         let restore = applyScopedAssignments(assignments)
         defer { restore() }
 
         guard let command = commands[argv[0]] else {
             throw BashInterpreterError.commandNotFound(argv[0])
         }
-        return try command.run(argv, shell: self)
+        return try await command.run(argv, shell: self)
     }
 
-    /// Install `assignments` into the current environment, returning a
-    /// closure that restores the prior values.
     private func applyScopedAssignments(_ assignments: [(String, String)]) -> () -> Void {
         guard !assignments.isEmpty else { return {} }
         var priors: [(String, String?)] = []

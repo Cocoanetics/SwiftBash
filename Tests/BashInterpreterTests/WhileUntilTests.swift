@@ -5,24 +5,24 @@ final class WhileUntilTests: XCTestCase {
 
     // MARK: while
 
-    func testWhileFalseNeverRuns() throws {
+    func testWhileFalseNeverRuns() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("while false; do echo nope; done")
+        try await cap.shell.run("while false; do echo nope; done")
         XCTAssertEqual(cap.stdout, "")
     }
 
-    func testWhileArithmeticCounter() throws {
+    func testWhileArithmeticCounter() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
-        try cap.shell.run("while (( i < 3 )); do echo $i; (( i++ )); done")
+        try await cap.shell.run("while (( i < 3 )); do echo $i; (( i++ )); done")
         XCTAssertEqual(cap.stdout, "0\n1\n2\n")
         XCTAssertEqual(cap.shell.environment["i"], "3")
     }
 
-    func testWhileExitStatusIsLastBody() throws {
+    func testWhileExitStatusIsLastBody() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
-        let status = try cap.shell.run(
+        let status = try await cap.shell.run(
             "while (( i < 1 )); do (( i++ )); false; done"
         )
         XCTAssertEqual(status, .failure)
@@ -30,26 +30,26 @@ final class WhileUntilTests: XCTestCase {
 
     // MARK: until
 
-    func testUntilRunsUntilConditionSucceeds() throws {
+    func testUntilRunsUntilConditionSucceeds() async throws {
         let cap = CapturingShell()
         cap.shell.environment["i"] = "0"
-        try cap.shell.run("until (( i >= 3 )); do echo $i; (( i++ )); done")
+        try await cap.shell.run("until (( i >= 3 )); do echo $i; (( i++ )); done")
         XCTAssertEqual(cap.stdout, "0\n1\n2\n")
     }
 
-    func testUntilTrueNeverRuns() throws {
+    func testUntilTrueNeverRuns() async throws {
         let cap = CapturingShell()
-        try cap.shell.run("until true; do echo nope; done")
+        try await cap.shell.run("until true; do echo nope; done")
         XCTAssertEqual(cap.stdout, "")
     }
 
     // MARK: Variable accumulation
 
-    func testLoopAccumulatesInEnv() throws {
+    func testLoopAccumulatesInEnv() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "0"
         cap.shell.environment["sum"] = "0"
-        try cap.shell.run("""
+        try await cap.shell.run("""
             while (( n < 4 )); do
               (( sum = sum + n ))
               (( n++ ))

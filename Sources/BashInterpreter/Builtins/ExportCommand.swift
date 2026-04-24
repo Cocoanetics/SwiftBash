@@ -10,7 +10,7 @@ public struct ExportCommand: Command {
     public let name = "export"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         let args = argv.dropFirst()
         if args.isEmpty {
             // Print every variable as `declare -x NAME="value"`.

@@ -20,13 +20,13 @@ final class ArithLexerTests: XCTestCase {
 
     // MARK: Numeric literals
 
-    func testDecimal() {
+    func testDecimal() async {
         XCTAssertEqual(lex("0"), [.int(0)])
         XCTAssertEqual(lex("42"), [.int(42)])
         XCTAssertEqual(lex("1234567890"), [.int(1234567890)])
     }
 
-    func testHexadecimal() {
+    func testHexadecimal() async {
         XCTAssertEqual(lex("0x0"), [.int(0)])
         XCTAssertEqual(lex("0x7f"), [.int(127)])
         XCTAssertEqual(lex("0X7F"), [.int(127)])
@@ -34,14 +34,14 @@ final class ArithLexerTests: XCTestCase {
         XCTAssertEqual(lex("0xdeadbeef"), [.int(3735928559)])
     }
 
-    func testOctal() {
+    func testOctal() async {
         XCTAssertEqual(lex("010"), [.int(8)])
         XCTAssertEqual(lex("0777"), [.int(511)])
         // Octal with a non-octal digit is an error.
         XCTAssertThrowsError(try ArithLexer.tokenize("0123456789"))
     }
 
-    func testBaseHashN() {
+    func testBaseHashN() async {
         XCTAssertEqual(lex("2#1010"), [.int(10)])
         XCTAssertEqual(lex("16#ff"), [.int(255)])
         XCTAssertEqual(lex("16#FF"), [.int(255)])
@@ -50,12 +50,12 @@ final class ArithLexerTests: XCTestCase {
         XCTAssertThrowsError(try ArithLexer.tokenize("2#2"))
     }
 
-    func testBaseOutOfRange() {
+    func testBaseOutOfRange() async {
         XCTAssertThrowsError(try ArithLexer.tokenize("1#0"))
         XCTAssertThrowsError(try ArithLexer.tokenize("65#0"))
     }
 
-    func testBase64LettersCoverAllDigits() throws {
+    func testBase64LettersCoverAllDigits() async throws {
         // In base-64: 10→'a', 35→'z', 36→'A', 61→'Z', 62→'@', 63→'_'.
         XCTAssertEqual(lex("64#a"),  [.int(10)])
         XCTAssertEqual(lex("64#z"),  [.int(35)])
@@ -67,14 +67,14 @@ final class ArithLexerTests: XCTestCase {
 
     // MARK: Identifiers and variable references
 
-    func testIdentifiers() {
+    func testIdentifiers() async {
         XCTAssertEqual(lex("x"), [.ident("x")])
         XCTAssertEqual(lex("foo_bar"), [.ident("foo_bar")])
         XCTAssertEqual(lex("_private"), [.ident("_private")])
         XCTAssertEqual(lex("x1 x2"), [.ident("x1"), .ident("x2")])
     }
 
-    func testDollarNameAlsoWorks() {
+    func testDollarNameAlsoWorks() async {
         // Inside $((…)) bash allows $name; the lexer strips the $.
         XCTAssertEqual(lex("$x"), [.ident("x")])
         XCTAssertEqual(lex("$foo + 1"), [.ident("foo"), .plus, .int(1)])
@@ -82,7 +82,7 @@ final class ArithLexerTests: XCTestCase {
 
     // MARK: Single-char operators
 
-    func testArithmeticOps() {
+    func testArithmeticOps() async {
         XCTAssertEqual(lex("1+2"),  [.int(1), .plus,  .int(2)])
         XCTAssertEqual(lex("1-2"),  [.int(1), .minus, .int(2)])
         XCTAssertEqual(lex("1*2"),  [.int(1), .star,  .int(2)])
@@ -91,7 +91,7 @@ final class ArithLexerTests: XCTestCase {
         XCTAssertEqual(lex("2**3"), [.int(2), .starStar, .int(3)])
     }
 
-    func testComparison() {
+    func testComparison() async {
         XCTAssertEqual(lex("1<2"),  [.int(1), .lt, .int(2)])
         XCTAssertEqual(lex("1<=2"), [.int(1), .le, .int(2)])
         XCTAssertEqual(lex("1>=2"), [.int(1), .ge, .int(2)])
@@ -99,7 +99,7 @@ final class ArithLexerTests: XCTestCase {
         XCTAssertEqual(lex("1!=2"), [.int(1), .neq, .int(2)])
     }
 
-    func testLogicalAndBitwise() {
+    func testLogicalAndBitwise() async {
         XCTAssertEqual(lex("a&&b"), [.ident("a"), .ampAmp, .ident("b")])
         XCTAssertEqual(lex("a||b"), [.ident("a"), .barBar, .ident("b")])
         XCTAssertEqual(lex("!a"),   [.bang, .ident("a")])
@@ -113,7 +113,7 @@ final class ArithLexerTests: XCTestCase {
 
     // MARK: Assignments and inc/dec
 
-    func testAssignmentOperators() {
+    func testAssignmentOperators() async {
         XCTAssertEqual(lex("x=1"),   [.ident("x"), .assign, .int(1)])
         XCTAssertEqual(lex("x+=1"),  [.ident("x"), .plusAssign, .int(1)])
         XCTAssertEqual(lex("x-=1"),  [.ident("x"), .minusAssign, .int(1)])
@@ -128,7 +128,7 @@ final class ArithLexerTests: XCTestCase {
         XCTAssertEqual(lex("x|=1"),  [.ident("x"), .barAssign, .int(1)])
     }
 
-    func testIncrementDecrement() {
+    func testIncrementDecrement() async {
         XCTAssertEqual(lex("x++"), [.ident("x"), .plusPlus])
         XCTAssertEqual(lex("x--"), [.ident("x"), .minusMinus])
         XCTAssertEqual(lex("++x"), [.plusPlus, .ident("x")])
@@ -137,7 +137,7 @@ final class ArithLexerTests: XCTestCase {
 
     // MARK: Grouping, ternary, comma
 
-    func testPunctuation() {
+    func testPunctuation() async {
         XCTAssertEqual(lex("(1)"), [.lParen, .int(1), .rParen])
         XCTAssertEqual(lex("a ? b : c"),
                        [.ident("a"), .question, .ident("b"), .colon, .ident("c")])
@@ -146,14 +146,14 @@ final class ArithLexerTests: XCTestCase {
 
     // MARK: Whitespace
 
-    func testIgnoresWhitespace() {
+    func testIgnoresWhitespace() async {
         XCTAssertEqual(lex("  1  +  2  "), [.int(1), .plus, .int(2)])
         XCTAssertEqual(lex("\t1\n+\t2\n"),  [.int(1), .plus, .int(2)])
     }
 
     // MARK: Errors
 
-    func testUnexpectedCharacter() {
+    func testUnexpectedCharacter() async {
         XCTAssertThrowsError(try ArithLexer.tokenize("1 @ 2")) { err in
             XCTAssertTrue(err is ArithError, "\(err)")
         }

@@ -11,29 +11,29 @@ final class SleepCommandTests: XCTestCase {
         return cap
     }
 
-    func testSleepActuallyWaits() throws {
+    func testSleepActuallyWaits() async throws {
         let cap = makeShell()
         let start = Date()
-        try cap.shell.run("sleep 0.05")   // 50 ms
+        try await cap.shell.run("sleep 0.05")   // 50 ms
         let elapsed = Date().timeIntervalSince(start)
         XCTAssertGreaterThanOrEqual(elapsed, 0.04)
     }
 
-    func testZeroIsImmediateSuccess() throws {
+    func testZeroIsImmediateSuccess() async throws {
         let cap = makeShell()
-        let status = try cap.shell.run("sleep 0")
+        let status = try await cap.shell.run("sleep 0")
         XCTAssertEqual(status, .success)
     }
 
-    func testNegativeFails() throws {
+    func testNegativeFails() async throws {
         let cap = makeShell()
-        let status = try cap.shell.run("sleep -0.1")
+        let status = try await cap.shell.run("sleep -0.1")
         XCTAssertFalse(status.isSuccess)
     }
 
-    func testNonNumericFails() throws {
+    func testNonNumericFails() async throws {
         let cap = makeShell()
-        let status = try cap.shell.run("sleep abc")
+        let status = try await cap.shell.run("sleep abc")
         XCTAssertFalse(status.isSuccess)
     }
 }

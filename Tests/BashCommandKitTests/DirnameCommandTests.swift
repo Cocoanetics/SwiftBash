@@ -10,51 +10,51 @@ final class DirnameCommandTests: XCTestCase {
         return cap
     }
 
-    func testSimplePath() throws {
+    func testSimplePath() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname /tmp/foo.txt")
+        try await cap.shell.run("dirname /tmp/foo.txt")
         XCTAssertEqual(cap.stdout, "/tmp\n")
     }
 
-    func testNoSlashReturnsDot() throws {
+    func testNoSlashReturnsDot() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname foo.txt")
+        try await cap.shell.run("dirname foo.txt")
         XCTAssertEqual(cap.stdout, ".\n")
     }
 
-    func testRelativePath() throws {
+    func testRelativePath() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname foo/bar")
+        try await cap.shell.run("dirname foo/bar")
         XCTAssertEqual(cap.stdout, "foo\n")
     }
 
-    func testTrailingSlashReturnsParent() throws {
+    func testTrailingSlashReturnsParent() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname /tmp/")
+        try await cap.shell.run("dirname /tmp/")
         XCTAssertEqual(cap.stdout, "/\n")
     }
 
-    func testRootPath() throws {
+    func testRootPath() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname /foo")
+        try await cap.shell.run("dirname /foo")
         XCTAssertEqual(cap.stdout, "/\n")
     }
 
-    func testRootSlashItself() throws {
+    func testRootSlashItself() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname /")
+        try await cap.shell.run("dirname /")
         XCTAssertEqual(cap.stdout, "/\n")
     }
 
-    func testDeepPath() throws {
+    func testDeepPath() async throws {
         let cap = makeShell()
-        try cap.shell.run("dirname /a/b/c/d/e")
+        try await cap.shell.run("dirname /a/b/c/d/e")
         XCTAssertEqual(cap.stdout, "/a/b/c/d\n")
     }
 
-    func testEmptyStringReturnsDot() throws {
+    func testEmptyStringReturnsDot() async throws {
         let cap = makeShell()
-        try cap.shell.run(#"dirname """#)
+        try await cap.shell.run(#"dirname """#)
         XCTAssertEqual(cap.stdout, ".\n")
     }
 }

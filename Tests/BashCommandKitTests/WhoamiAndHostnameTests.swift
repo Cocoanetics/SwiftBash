@@ -7,28 +7,28 @@ final class WhoamiAndHostnameTests: XCTestCase {
 
     // MARK: whoami
 
-    func testWhoamiPrintsNonEmpty() throws {
+    func testWhoamiPrintsNonEmpty() async throws {
         let cap = CapturingShell()
         cap.shell.register(WhoamiCommand.self)
-        try cap.shell.run("whoami")
+        try await cap.shell.run("whoami")
         let name = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertFalse(name.isEmpty)
         XCTAssertEqual(name, ProcessInfo.processInfo.userName)
     }
 
-    func testWhoamiUsableInCommandSubstitution() throws {
+    func testWhoamiUsableInCommandSubstitution() async throws {
         let cap = CapturingShell()
         cap.shell.register(WhoamiCommand.self)
-        try cap.shell.run(#"U=$(whoami); echo "hello $U""#)
+        try await cap.shell.run(#"U=$(whoami); echo "hello $U""#)
         XCTAssertTrue(cap.stdout.hasPrefix("hello "), cap.stdout)
     }
 
     // MARK: hostname
 
-    func testHostnamePrintsNonEmpty() throws {
+    func testHostnamePrintsNonEmpty() async throws {
         let cap = CapturingShell()
         cap.shell.register(HostnameCommand.self)
-        try cap.shell.run("hostname")
+        try await cap.shell.run("hostname")
         let host = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertFalse(host.isEmpty)
         XCTAssertEqual(host, ProcessInfo.processInfo.hostName)

@@ -10,64 +10,64 @@ final class SeqCommandTests: XCTestCase {
         return cap
     }
 
-    func testOneArg() throws {
+    func testOneArg() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq 3")
+        try await cap.shell.run("seq 3")
         XCTAssertEqual(cap.stdout, "1\n2\n3\n")
     }
 
-    func testTwoArgs() throws {
+    func testTwoArgs() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq 2 5")
+        try await cap.shell.run("seq 2 5")
         XCTAssertEqual(cap.stdout, "2\n3\n4\n5\n")
     }
 
-    func testThreeArgsIncrement() throws {
+    func testThreeArgsIncrement() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq 1 2 9")
+        try await cap.shell.run("seq 1 2 9")
         XCTAssertEqual(cap.stdout, "1\n3\n5\n7\n9\n")
     }
 
-    func testDescending() throws {
+    func testDescending() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq 5 -1 1")
+        try await cap.shell.run("seq 5 -1 1")
         XCTAssertEqual(cap.stdout, "5\n4\n3\n2\n1\n")
     }
 
-    func testCustomSeparator() throws {
+    func testCustomSeparator() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq -s , 4")
+        try await cap.shell.run("seq -s , 4")
         XCTAssertEqual(cap.stdout, "1,2,3,4\n")
     }
 
-    func testEmptySequenceIfRangeInverted() throws {
+    func testEmptySequenceIfRangeInverted() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq 5 1")   // first > last with default step 1
+        try await cap.shell.run("seq 5 1")   // first > last with default step 1
         XCTAssertEqual(cap.stdout, "\n", "empty list plus trailing newline")
     }
 
-    func testZeroIncrementFails() throws {
+    func testZeroIncrementFails() async throws {
         let cap = makeShell()
-        let status = try cap.shell.run("seq 1 0 10")
+        let status = try await cap.shell.run("seq 1 0 10")
         XCTAssertFalse(status.isSuccess)
         XCTAssertTrue(cap.stderr.contains("zero"), cap.stderr)
     }
 
-    func testFloatIncrement() throws {
+    func testFloatIncrement() async throws {
         let cap = makeShell()
-        try cap.shell.run("seq 1 0.5 2")
+        try await cap.shell.run("seq 1 0.5 2")
         XCTAssertEqual(cap.stdout, "1\n1.5\n2\n")
     }
 
-    func testTooManyArgsFails() throws {
+    func testTooManyArgsFails() async throws {
         let cap = makeShell()
-        let status = try cap.shell.run("seq 1 2 3 4")
+        let status = try await cap.shell.run("seq 1 2 3 4")
         XCTAssertFalse(status.isSuccess)
     }
 
-    func testCommandSubstitution() throws {
+    func testCommandSubstitution() async throws {
         let cap = makeShell()
-        try cap.shell.run("out=$(seq -s , 3); echo $out")
+        try await cap.shell.run("out=$(seq -s , 3); echo $out")
         XCTAssertEqual(cap.stdout, "1,2,3\n")
     }
 }
