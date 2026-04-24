@@ -101,15 +101,14 @@ extension Shell {
     /// Run `node` in a scope that captures stdout into a string.
     /// Trailing newlines are trimmed — matching bash's `$(…)` semantics.
     private func captureOutput(of node: Node) async throws -> String {
-        // Route stdout of this subtree into a byte buffer, then decode
-        // to UTF-8 and strip trailing newlines.
-        var captured = Data()
+        let sink = OutputSink()
         let savedStdout = stdout
-        stdout = { captured.append($0) }
+        stdout = sink
         defer { stdout = savedStdout }
 
         _ = try await execute(node)
-        var text = String(decoding: captured, as: UTF8.self)
+        sink.finish()
+        var text = await sink.readAllString()
         while text.hasSuffix("\n") { text.removeLast() }
         return text
     }

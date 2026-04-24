@@ -42,8 +42,8 @@ struct ExecCommand: AsyncParsableCommand {
 
         let shell = Shell(environment: .current())
         shell.registerStandardCommands()
-        shell.stdout = { data in FileHandle.standardOutput.write(data) }
-        shell.stderr = { data in FileHandle.standardError.write(data) }
+        // Shell defaults already forward to FileHandle.standardOutput /
+        // .standardError — no additional wiring needed.
 
         let status: ExitStatus
         do {

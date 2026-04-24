@@ -24,11 +24,13 @@ public final class Shell: @unchecked Sendable {
     /// The shell's mutable environment (variables + cwd).
     public var environment: Environment
 
-    /// Byte-oriented stdout sink. Defaults to `FileHandle.standardOutput`.
-    public var stdout: (Data) -> Void
+    /// Byte-oriented stdout. Defaults to forwarding to fd 1. Replace
+    /// with `OutputSink()` to capture, or iterate `stdout.bytes` /
+    /// `stdout.lines` to consume live.
+    public var stdout: OutputSink
 
-    /// Byte-oriented stderr sink. Defaults to `FileHandle.standardError`.
-    public var stderr: (Data) -> Void
+    /// Byte-oriented stderr. Defaults to forwarding to fd 2.
+    public var stderr: OutputSink
 
     /// Standard input made available to commands. Empty by default;
     /// the pipeline executor swaps this out per stage. Tests can set
@@ -46,24 +48,14 @@ public final class Shell: @unchecked Sendable {
     var loopDepth: Int = 0
 
     public init(environment: Environment = Environment(),
-                stdout: @escaping (Data) -> Void = Shell.defaultStdout,
-                stderr: @escaping (Data) -> Void = Shell.defaultStderr,
+                stdout: OutputSink? = nil,
+                stderr: OutputSink? = nil,
                 commands: [String: Command] = Shell.defaultCommands())
     {
         self.environment = environment
-        self.stdout = stdout
-        self.stderr = stderr
+        self.stdout = stdout ?? .forwarding(to: FileHandle.standardOutput)
+        self.stderr = stderr ?? .forwarding(to: FileHandle.standardError)
         self.commands = commands
-    }
-
-    // MARK: Default sinks
-
-    public static let defaultStdout: (Data) -> Void = { data in
-        FileHandle.standardOutput.write(data)
-    }
-
-    public static let defaultStderr: (Data) -> Void = { data in
-        FileHandle.standardError.write(data)
     }
 
     // MARK: Default registry
@@ -95,28 +87,17 @@ public final class Shell: @unchecked Sendable {
 
     /// A fresh `Shell` suitable for running as a pipeline stage or a
     /// subshell `( … )`. Environment is copied (mutations stay local);
-    /// the command registry and stdio sinks are carried over. The
-    /// caller typically overrides `stdin` / `stdout` to wire it into a
-    /// stream channel.
+    /// the command registry is carried over. The caller typically
+    /// assigns fresh `stdin` / `stdout` sinks to wire it into a stream
+    /// channel; by default a subshell inherits the outer stdio.
     func makeSubshell() -> Shell {
-        Shell(environment: environment,
-              stdout: stdout,
-              stderr: stderr,
-              commands: commands)
+        let sub = Shell(environment: environment,
+                        stdout: stdout,
+                        stderr: stderr,
+                        commands: commands)
+        return sub
     }
 }
 
-// MARK: - String convenience
-
-/// Encode a `String` as UTF-8 and ship it through the byte sink.
-/// Commands that only deal with text can keep writing Strings
-/// unchanged.
-extension Shell {
-    public func stdout(_ text: String) {
-        stdout(Data(text.utf8))
-    }
-
-    public func stderr(_ text: String) {
-        stderr(Data(text.utf8))
-    }
-}
+// String-based callers keep working because `OutputSink` provides
+// `callAsFunction(_ text: String)` — no changes needed in commands.

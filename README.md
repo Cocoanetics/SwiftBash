@@ -230,6 +230,38 @@ The interpreter is **fully async** — every `run` is awaited. Pipeline
 stages execute concurrently via Swift `Task`s, so streaming pipelines
 (`tail -f file | grep error | head -n 5`) work without buffering.
 
+### Streams in, streams out
+
+`stdin`, `stdout`, and `stderr` are all `AsyncStream<Data>`-backed
+(``InputSource`` and ``OutputSink``). Commands write via the terse
+`shell.stdout("hi\n")` syntax (`callAsFunction` on `OutputSink`);
+callers decide how the output gets consumed:
+
+```swift
+// 1. Convenience: drain everything into strings.
+let result = try await shell.runCapturing("echo hi")
+print(result.stdout)       // "hi\n"
+print(result.exitStatus)   // ExitStatus(0)
+
+// 2. Live: iterate the stream while the script runs.
+let sink = OutputSink()
+shell.stdout = sink
+Task {
+    for await line in sink.lines {
+        updateUI(with: line)   // renders per line, not per batch
+    }
+}
+try await shell.run("tail-f-like-script")
+sink.finish()
+
+// 3. Default: `shell.stdout` forwards to fd 1 synchronously; every
+//    write reaches the terminal or downstream pipe immediately.
+```
+
+`OutputSink` also exposes `.bytes` for raw-byte streaming (binary-safe)
+and an `onWrite` hook so callers can accumulate synchronously while
+the async stream stays available for live consumers.
+
 ## Extending the shell with custom commands
 
 Every command — built-in or user-added — conforms to the ``Command``
@@ -575,6 +607,9 @@ Sources/BashInterpreter/
     ExitStatus.swift                     0 = success, non-zero = failure
     BashInterpreterError.swift           commandNotFound / parameter / io
     InputSource.swift                    AsyncStream<Data>-backed stdin
+    OutputSink.swift                     AsyncStream<Data>-backed stdout/stderr
+    CapturedRun.swift                    Result of `runCapturing`
+    Shell+Capture.swift                  `runCapturing` convenience
     Command.swift                        Extension protocol (async)
     ClosureCommand.swift                 Closure-backed Command helper
   Builtins/
