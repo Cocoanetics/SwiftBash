@@ -5,7 +5,7 @@ import Foundation
 /// Prints its arguments separated by a single space. By default appends
 /// a trailing newline; `-n` suppresses it. `--` ends option parsing so
 /// subsequent tokens starting with `-` are treated as data.
-public struct EchoBuiltin: Builtin {
+public struct EchoCommand: Command {
     public let name = "echo"
 
     public init() {}

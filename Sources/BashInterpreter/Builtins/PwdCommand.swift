@@ -1,7 +1,7 @@
 import Foundation
 
 /// `pwd` — prints the shell's working directory.
-public struct PwdBuiltin: Builtin {
+public struct PwdCommand: Command {
     public let name = "pwd"
     public init() {}
     public func run(_ argv: [String], shell: Shell) throws -> ExitStatus {

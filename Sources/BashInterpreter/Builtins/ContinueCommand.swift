@@ -4,7 +4,7 @@ import Foundation
 /// `for`, `while`, or `until` loop.
 ///
 /// With `N`, unwind `N-1` enclosing loops, then continue at the N-th.
-public struct ContinueBuiltin: Builtin {
+public struct ContinueCommand: Command {
     public let name = "continue"
     public init() {}
 

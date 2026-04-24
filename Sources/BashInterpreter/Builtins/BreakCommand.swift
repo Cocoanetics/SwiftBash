@@ -10,7 +10,7 @@ import Foundation
 /// are currently running — it throws a ``LoopControlSignal`` that the
 /// nearest loop handler catches. Outside any loop, the top-level
 /// ``Shell/run(_:)`` catches it and prints a bash-style warning.
-public struct BreakBuiltin: Builtin {
+public struct BreakCommand: Command {
     public let name = "break"
     public init() {}
 

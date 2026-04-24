@@ -208,10 +208,10 @@ extension Shell {
         let restore = applyScopedAssignments(assignments)
         defer { restore() }
 
-        guard let builtin = builtins[argv[0]] else {
+        guard let command = commands[argv[0]] else {
             throw BashInterpreterError.commandNotFound(argv[0])
         }
-        return try builtin.run(argv, shell: self)
+        return try command.run(argv, shell: self)
     }
 
     /// Install `assignments` into the current environment, returning a

@@ -5,7 +5,7 @@ import Foundation
 /// With no argument, goes to `$HOME`. With `-`, goes to `$OLDPWD`.
 /// Updates `$PWD` and `$OLDPWD` to reflect the change. Only affects
 /// the shell's virtual cwd — does not `chdir` the host process.
-public struct CdBuiltin: Builtin {
+public struct CdCommand: Command {
     public let name = "cd"
     public init() {}
 

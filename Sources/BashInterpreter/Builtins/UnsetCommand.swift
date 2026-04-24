@@ -1,7 +1,7 @@
 import Foundation
 
 /// `unset NAME...` — removes each named variable from the shell's env.
-public struct UnsetBuiltin: Builtin {
+public struct UnsetCommand: Command {
     public let name = "unset"
     public init() {}
 

@@ -221,6 +221,45 @@ try shell.run("false || echo fallback")    // → fallback
 try shell.run("true && echo yes")          // → yes
 ```
 
+## Extending the shell with custom commands
+
+Every command — built-in or user-added — conforms to the ``Command``
+protocol (`name` + `run(argv:, shell:)`). Register new ones with
+`Shell.register`:
+
+```swift
+let shell = Shell()
+
+// Struct-based:
+struct SumCommand: Command {
+    let name = "sum"
+    func run(_ argv: [String], shell: Shell) throws -> ExitStatus {
+        let total = argv.dropFirst().compactMap(Int.init).reduce(0, +)
+        shell.stdout("\(total)\n")
+        return .success
+    }
+}
+shell.register(SumCommand())
+
+// Closure-based (no type needed):
+shell.register(name: "greet") { argv, shell in
+    let who = argv.dropFirst().first ?? "world"
+    shell.stdout("hello \(who)\n")
+    return .success
+}
+
+try shell.run("sum 1 2 3 4")      // → 10
+try shell.run("greet oliver")     // → hello oliver
+
+// Override a bundled command:
+shell.register(name: "echo") { argv, shell in
+    shell.stdout(argv.dropFirst().joined(separator: " ").uppercased() + "\n")
+    return .success
+}
+
+shell.unregister("sum")           // remove
+```
+
 ## What works
 
 - Simple command dispatch against a built-in registry.
@@ -372,12 +411,14 @@ Sources/swift-bash/
 Sources/BashInterpreter/
   API/
     Shell.swift                          Main executor class
+    Shell+Commands.swift                 register / unregister extensions
     Environment.swift                    Variables + cwd
     ExitStatus.swift                     0 = success, non-zero = failure
-    BashInterpreterError.swift           commandNotFound / unimplemented / io
+    BashInterpreterError.swift           commandNotFound / parameter / io
+    Command.swift                        Extension protocol
+    ClosureCommand.swift                 Closure-backed Command helper
   Builtins/
-    Builtin.swift                        Protocol
-    EchoBuiltin.swift … ContinueBuiltin.swift One file per built-in
+    EchoCommand.swift … ContinueCommand.swift   One file per shipped command
     (echo, true, false, :, pwd, cd, export, unset, exit,
      break, continue)
   Arithmetic/

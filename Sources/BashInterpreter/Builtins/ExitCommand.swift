@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Internally this throws ``ShellExit`` to unwind the interpreter; the
 /// top-level `Shell.run` catches it and returns the carried status.
-public struct ExitBuiltin: Builtin {
+public struct ExitCommand: Command {
     public let name = "exit"
     public init() {}
 

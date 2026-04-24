@@ -24,7 +24,7 @@ public final class Shell {
     public var stderr: (String) -> Void
 
     /// Builtins keyed by command name.
-    public var builtins: [String: Builtin]
+    public var commands: [String: Command]
 
     /// Exit status of the most recently completed command.
     public internal(set) var lastExitStatus: ExitStatus = .success
@@ -38,12 +38,12 @@ public final class Shell {
     public init(environment: Environment = Environment(),
                 stdout: @escaping (String) -> Void = Shell.defaultStdout,
                 stderr: @escaping (String) -> Void = Shell.defaultStderr,
-                builtins: [String: Builtin] = Shell.defaultBuiltins())
+                commands: [String: Command] = Shell.defaultCommands())
     {
         self.environment = environment
         self.stdout = stdout
         self.stderr = stderr
-        self.builtins = builtins
+        self.commands = commands
     }
 
     // MARK: Default sinks
@@ -62,21 +62,21 @@ public final class Shell {
 
     // MARK: Default registry
 
-    public static func defaultBuiltins() -> [String: Builtin] {
-        let all: [Builtin] = [
-            EchoBuiltin(),
-            TrueBuiltin(),
-            FalseBuiltin(),
-            ColonBuiltin(),
-            PwdBuiltin(),
-            CdBuiltin(),
-            ExportBuiltin(),
-            UnsetBuiltin(),
-            ExitBuiltin(),
-            BreakBuiltin(),
-            ContinueBuiltin(),
+    public static func defaultCommands() -> [String: Command] {
+        let all: [Command] = [
+            EchoCommand(),
+            TrueCommand(),
+            FalseCommand(),
+            ColonCommand(),
+            PwdCommand(),
+            CdCommand(),
+            ExportCommand(),
+            UnsetCommand(),
+            ExitCommand(),
+            BreakCommand(),
+            ContinueCommand(),
         ]
-        var dict: [String: Builtin] = [:]
+        var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }
         return dict
     }

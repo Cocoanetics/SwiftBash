@@ -6,7 +6,7 @@ import Foundation
 /// variable as eligible for inheritance by child processes; since this
 /// skeleton doesn't spawn children, the mark is implicit — every
 /// variable in `Environment.variables` is conceptually "exported".
-public struct ExportBuiltin: Builtin {
+public struct ExportCommand: Command {
     public let name = "export"
     public init() {}
 
