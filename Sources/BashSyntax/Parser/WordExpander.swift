@@ -54,13 +54,18 @@ struct WordExpander {
 
                 // $(...)
                 if next == "(" {
-                    // Nested `$((` is arithmetic — take it literally.
+                    // `$((…))` arithmetic substitution — emit a node carrying
+                    // the raw expression body (without the outer parens).
                     if i + 2 < chars.count, chars[i + 2] == "(" {
-                        // skip arith by copying it verbatim
-                        let (arithBody, afterIdx) = try extractBalanced(
-                            chars: chars, from: i + 2, open: "(", close: ")")
-                        output.append(String(chars[i..<afterIdx]))
-                        _ = arithBody
+                        let opStart = i                         // `$`
+                        let bodyStart = i + 3                   // first body char
+                        let (body, afterIdx) = try extractArithmeticBody(
+                            chars: chars, from: bodyStart)
+                        let node = Node(
+                            kind: .arithmeticSubstitution(body),
+                            range: (origin + opStart)..<(origin + afterIdx))
+                        parts.append(node)
+                        output.append(String(chars[opStart..<afterIdx]))
                         i = afterIdx
                         continue
                     }
@@ -267,6 +272,55 @@ struct WordExpander {
         }
         throw BashSyntaxError.parsing(
             message: "unmatched backtick",
+            source: "", position: i)
+    }
+
+    /// Extract the body of a `$((…))` arithmetic substitution starting one
+    /// position past the opening `((`. Nested `()` balance normally; quoted
+    /// strings are skipped as opaque units. Returns the body text (without
+    /// the closing `))`) and the index one past the closing `))`.
+    private func extractArithmeticBody(chars: [Character], from start: Int)
+        throws -> (String, Int)
+    {
+        var depth = 0
+        var i = start
+        var body = ""
+
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\\", i + 1 < chars.count {
+                body.append(c); body.append(chars[i + 1]); i += 2; continue
+            }
+            if c == "'" || c == "\"" {
+                body.append(c); i += 1
+                while i < chars.count, chars[i] != c {
+                    if chars[i] == "\\", i + 1 < chars.count {
+                        body.append(chars[i]); body.append(chars[i + 1]); i += 2
+                        continue
+                    }
+                    body.append(chars[i]); i += 1
+                }
+                if i < chars.count { body.append(chars[i]); i += 1 }
+                continue
+            }
+            if c == "(" {
+                depth += 1; body.append(c); i += 1; continue
+            }
+            if c == ")" {
+                if depth == 0 {
+                    if i + 1 < chars.count, chars[i + 1] == ")" {
+                        return (body, i + 2)
+                    }
+                    throw BashSyntaxError.parsing(
+                        message: "expected `))` to close arithmetic",
+                        source: "", position: i)
+                }
+                depth -= 1; body.append(c); i += 1; continue
+            }
+            body.append(c); i += 1
+        }
+        throw BashSyntaxError.parsing(
+            message: "unclosed `((`",
             source: "", position: i)
     }
 }

@@ -235,8 +235,10 @@ Install the binary once with `swift build -c release` (output at
 
 A handful of bash features are intentionally out of scope for now:
 
-- Arithmetic expressions `$((…))` are preserved as word text but not given
-  substructure.
+- Arithmetic **expressions** inside `((…))` / `$((…))` are captured as a
+  raw body string on the corresponding `arithmeticCommand` /
+  `arithmeticSubstitution` node — the math itself is not parsed into a
+  sub-AST.
 - Complex parameter expansions like `${parameter#word}` parse into a single
   `parameter` node carrying the literal body — no sub-parsing.
 - `[[ … ]]` test commands, `select`, `coproc`, and the `time` reserved word

@@ -27,6 +27,8 @@ extension Node {
         case .caseCommand: return "case"
         case .pattern: return "pattern"
         case .function: return "function"
+        case .arithmeticCommand: return "arithmeticcommand"
+        case .arithmeticSubstitution: return "arithmeticsubstitution"
         case .unimplemented: return "unimplemented"
         }
     }
@@ -60,7 +62,8 @@ extension Node {
             return [command]
         case .function(_, _, let parts):
             return parts
-        case .pipe, .operator, .reservedWord, .parameter, .tilde, .heredoc:
+        case .pipe, .operator, .reservedWord, .parameter, .tilde, .heredoc,
+             .arithmeticCommand, .arithmeticSubstitution:
             return []
         }
     }

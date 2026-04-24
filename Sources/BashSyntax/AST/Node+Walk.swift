@@ -74,6 +74,10 @@ extension Node {
         case .function(let name, let body, let parts):
             descend = visitor.visitFunction(self, name: name, body: body, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }
+        case .arithmeticCommand(let expr):
+            visitor.visitArithmeticCommand(self, expression: expr)
+        case .arithmeticSubstitution(let expr):
+            visitor.visitArithmeticSubstitution(self, expression: expr)
         case .unimplemented(let parts):
             descend = visitor.visitUnimplemented(self, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }

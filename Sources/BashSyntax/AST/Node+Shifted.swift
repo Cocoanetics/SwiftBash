@@ -54,6 +54,10 @@ extension Node {
             newKind = .function(name: name.shifted(by: offset),
                                 body: body.shifted(by: offset),
                                 parts: shift(parts))
+        case .arithmeticCommand(let e):
+            newKind = .arithmeticCommand(e)
+        case .arithmeticSubstitution(let e):
+            newKind = .arithmeticSubstitution(e)
         case .unimplemented(let p):
             newKind = .unimplemented(parts: shift(p))
         }

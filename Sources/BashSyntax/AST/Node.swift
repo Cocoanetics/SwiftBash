@@ -41,6 +41,15 @@ public struct Node: Hashable, Sendable {
         case caseCommand(parts: [Node])
         case pattern(parts: [Node])
         case function(name: Node, body: Node, parts: [Node])
+
+        /// A standalone `((expression))` arithmetic command. The expression
+        /// body is stored verbatim; no sub-AST is produced for the math.
+        case arithmeticCommand(String)
+
+        /// A `$((expression))` arithmetic substitution occurring inside a
+        /// word. The expression body is stored verbatim.
+        case arithmeticSubstitution(String)
+
         case unimplemented(parts: [Node])
     }
 }

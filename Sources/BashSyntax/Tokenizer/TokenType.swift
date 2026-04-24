@@ -63,5 +63,9 @@ public enum TokenType: Hashable, Sendable {
     case newline
     case dash             // - (only in redirect contexts)
 
+    /// A standalone `((expression))` arithmetic command at command position.
+    /// The token's `value` carries the raw expression body (no outer parens).
+    case arithCommand
+
     case eof
 }

@@ -235,7 +235,8 @@ public final class Parser {
              .ifKw, .whileKw, .untilKw, .forKw, .caseKw,
              .functionKw, .bang, .less, .greater, .lessLess, .lessLessMinus,
              .lessLessLess, .lessAnd, .greaterAnd, .lessGreater, .greaterBar,
-             .greaterGreater, .andGreater, .andGreaterGreater:
+             .greaterGreater, .andGreater, .andGreaterGreater,
+             .arithCommand:
             return true
         default:
             return false
@@ -344,9 +345,28 @@ public final class Parser {
             return try parseGroup()
         case .functionKw:
             return try parseFunctionDefKeyword()
+        case .arithCommand:
+            return try parseArithmeticCommand()
         default:
             return try parseSimpleOrFunctionDef()
         }
+    }
+
+    private func parseArithmeticCommand() throws -> Node {
+        let tok = try next() // arithCommand token, value = expression body
+        let arithNode = Node(
+            kind: .arithmeticCommand(tok.value),
+            range: tok.range)
+
+        var redirects: [Node] = []
+        while isRedirectStart(peek()) {
+            redirects.append(try parseRedirection())
+        }
+        let endUpper = redirects.last?.range.upperBound ?? arithNode.range.upperBound
+        let span = arithNode.range.lowerBound..<endUpper
+        return Node(
+            kind: .compound(list: [arithNode], redirects: redirects),
+            range: span)
     }
 
     // Function def can start with `name ()` — detect by looking ahead 2 tokens.

@@ -32,5 +32,7 @@ public protocol NodeVisitor {
     mutating func visitCase(_ node: Node, parts: [Node]) -> Bool
     mutating func visitPattern(_ node: Node, parts: [Node]) -> Bool
     mutating func visitFunction(_ node: Node, name: Node, body: Node, parts: [Node]) -> Bool
+    mutating func visitArithmeticCommand(_ node: Node, expression: String)
+    mutating func visitArithmeticSubstitution(_ node: Node, expression: String)
     mutating func visitUnimplemented(_ node: Node, parts: [Node]) -> Bool
 }

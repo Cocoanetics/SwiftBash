@@ -209,6 +209,13 @@ struct Dumper {
                 posField,
                 Field(name: "parts", value: .nodeList(parts)),
             ]
+
+        case .arithmeticCommand(let expr),
+             .arithmeticSubstitution(let expr):
+            return [
+                Field(name: "expression", value: .scalar(stringRepr(expr))),
+                posField,
+            ]
         }
     }
 

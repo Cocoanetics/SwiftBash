@@ -153,6 +153,16 @@ public final class Tokenizer {
         let c = getc()!
         let p = peek()
 
+        // `((` at a command-acceptable position starts an arithmetic command.
+        // (A subshell-inside-subshell needs whitespace between the parens:
+        // `( (…) )` — so `((` with no blank unambiguously opens arithmetic.)
+        if c == "(", p == "(", reservedWordAcceptable() {
+            _ = getc() // consume the second `(`
+            let body = try readArithmeticBody(startPos: start)
+            return Token(type: .arithCommand, value: body,
+                         range: start..<index)
+        }
+
         // Double-character
         if let p, p == c {
             if c == "<" {
@@ -728,6 +738,66 @@ public final class Tokenizer {
         }
 
         return out
+    }
+
+    // MARK: Arithmetic body
+
+    /// Read the body inside an `((…))` or `$((…))` up to (and consuming) the
+    /// closing `))`. Nested parens balance normally; quoted strings and
+    /// backtick substitutions are skipped as opaque units. Returns the body
+    /// text *without* the closing `))`.
+    private func readArithmeticBody(startPos: Int) throws -> String {
+        var body = ""
+        var depth = 0
+
+        while true {
+            guard let c = getc(removeQuotedNewline: true) else {
+                throw BashSyntaxError.parsing(
+                    message: "unclosed `((`",
+                    source: source, position: startPos)
+            }
+
+            if c == "\\" {
+                body.append(c)
+                if let next = getc(removeQuotedNewline: false) {
+                    body.append(next)
+                }
+                continue
+            }
+
+            if SyntaxClass.isQuoteChar(c) {
+                body.append(c)
+                delimiters.append(c)
+                let inner = try parseMatchedPair(doubleQuote: c, open: c, close: c,
+                                                 parsingCommand: c == "`")
+                delimiters.removeLast()
+                body.append(inner) // includes closing quote
+                continue
+            }
+
+            if c == "(" {
+                depth += 1
+                body.append(c)
+                continue
+            }
+
+            if c == ")" {
+                if depth == 0 {
+                    if peek() == ")" {
+                        _ = getc()
+                        return body
+                    }
+                    throw BashSyntaxError.parsing(
+                        message: "expected `))` to close arithmetic",
+                        source: source, position: index)
+                }
+                depth -= 1
+                body.append(c)
+                continue
+            }
+
+            body.append(c)
+        }
     }
 
     // MARK: Reserved-word / assignment heuristics
