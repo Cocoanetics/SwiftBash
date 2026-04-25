@@ -95,6 +95,11 @@ public final class Shell: @unchecked Sendable {
     /// own type while running.
     var runningTraps: Set<String> = []
 
+    /// Cursor-within-current-argument used by ``getopts`` to track
+    /// `-abc`-style bundled short options between calls. Reset to 1
+    /// (just past the leading `-`) whenever `getopts` advances OPTIND.
+    var getoptsCharIndex: Int = 1
+
     /// Depth of enclosing `while`/`until`/`for` loops on the call stack.
     /// See `LoopControlSignal` for why this matters.
     var loopDepth: Int = 0
@@ -163,6 +168,7 @@ public final class Shell: @unchecked Sendable {
             ReadCommand(),
             PrintfCommand(),
             TrapCommand(),
+            GetoptsCommand(),
         ]
         var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }
