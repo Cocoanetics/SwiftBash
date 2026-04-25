@@ -119,6 +119,8 @@ public final class Shell: @unchecked Sendable {
             LocalCommand(),
             SourceCommand(name: "source"),
             SourceCommand(name: "."),
+            DeclareCommand(name: "declare"),
+            DeclareCommand(name: "typeset"),
         ]
         var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }

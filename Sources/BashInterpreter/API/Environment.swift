@@ -16,14 +16,20 @@ public struct Environment: Hashable, Sendable {
     /// `arr[5]=x` on a fresh name leaves indices 0–4 unset rather
     /// than padding with empty strings. `${arr[@]}` skips gaps.
     public var arrays: [String: BashArray]
+    /// Associative arrays (bash `declare -A`) — name → (key → value).
+    /// A name in this dict masks both `arrays` and `variables` for
+    /// subscripted reads.
+    public var associativeArrays: [String: [String: String]]
     public var workingDirectory: String
 
     public init(variables: [String: String] = [:],
                 arrays: [String: BashArray] = [:],
+                associativeArrays: [String: [String: String]] = [:],
                 workingDirectory: String = FileManager.default.currentDirectoryPath)
     {
         self.variables = variables
         self.arrays = arrays
+        self.associativeArrays = associativeArrays
         self.workingDirectory = workingDirectory
     }
 

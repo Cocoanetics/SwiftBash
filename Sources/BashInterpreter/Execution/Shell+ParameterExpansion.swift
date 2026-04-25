@@ -20,6 +20,9 @@ extension Shell {
             if let (arrName, sub) = parseSubscriptedName(name),
                sub == "@" || sub == "*"
             {
+                if let assoc = environment.associativeArrays[arrName] {
+                    return String(assoc.count)
+                }
                 return String(environment.arrays[arrName]?.count ?? 0)
             }
             return String(lookup(name).count)
@@ -94,14 +97,19 @@ extension Shell {
             return substring(of: lookup(name), offset: offset, length: length)
 
         case .indices(let name):
-            // `${!arr[@]}` / `${!arr[*]}` — sorted list of set indices.
-            // The parser only feeds us names ending with `[@]` or `[*]`.
-            if let (arrName, _) = parseSubscriptedName(name),
-               let array = environment.arrays[arrName]
-            {
-                return array.sortedIndices
-                    .map(String.init)
-                    .joined(separator: " ")
+            // `${!arr[@]}` / `${!arr[*]}` — for indexed arrays, the
+            // sorted list of *set* indices. For associative arrays,
+            // the list of keys (order is dictionary-order, not
+            // strictly sorted, since bash makes no guarantee here).
+            if let (arrName, _) = parseSubscriptedName(name) {
+                if let assoc = environment.associativeArrays[arrName] {
+                    return assoc.keys.joined(separator: " ")
+                }
+                if let array = environment.arrays[arrName] {
+                    return array.sortedIndices
+                        .map(String.init)
+                        .joined(separator: " ")
+                }
             }
             return ""
         }
@@ -152,14 +160,22 @@ extension Shell {
         return (head, sub)
     }
 
-    /// Resolve a subscripted array reference. `${arr[N]}` returns the
-    /// Nth element (empty when the slot is unset — sparse semantics);
-    /// `${arr[@]}` / `${arr[*]}` join the *set* elements in index
-    /// order, separated by a space. The argv-level expander has its
-    /// own path for the proper boundary-merge / per-element semantics
-    /// of `"${arr[@]}"`.
+    /// Resolve a subscripted array reference.
+    ///
+    /// - Associative array (`declare -A`): subscript is a string key.
+    /// - Indexed array: `${arr[N]}` returns the Nth element (empty
+    ///   for unset slots), `${arr[@]}` / `${arr[*]}` join set elements
+    ///   in index order.
     private func arrayElementLookup(_ name: String,
                                     `subscript` sub: String) -> String {
+        if let assoc = environment.associativeArrays[name] {
+            switch sub {
+            case "@", "*":
+                return assoc.values.joined(separator: " ")
+            default:
+                return assoc[sub] ?? ""
+            }
+        }
         if let array = environment.arrays[name] {
             switch sub {
             case "@", "*":

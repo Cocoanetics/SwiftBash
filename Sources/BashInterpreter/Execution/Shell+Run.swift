@@ -330,12 +330,19 @@ extension Shell {
         let after = lhs.index(after: lb)
         let last = lhs.index(before: lhs.endIndex)
         let sub = String(lhs[after..<last])
-        // Only handle integer subscripts in element-set position; bash
-        // arithmetic-evaluating subscripts is a stretch goal.
-        guard let n = Int(sub), n >= 0 else { return false }
 
+        // Associative dispatch: if `name` was previously declared
+        // with `declare -A`, the subscript is a string key.
+        if environment.associativeArrays[arrName] != nil {
+            environment.associativeArrays[arrName]?[sub] = value
+            return true
+        }
+
+        // Indexed array element assignment — subscript must be an
+        // integer literal (arithmetic-evaluating subscripts are a
+        // stretch goal).
+        guard let n = Int(sub), n >= 0 else { return false }
         var array = environment.arrays[arrName] ?? BashArray()
-        // Sparse: just set the slot; no padding needed.
         array[n] = value
         environment.arrays[arrName] = array
         environment.variables.removeValue(forKey: arrName)

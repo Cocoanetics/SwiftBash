@@ -142,10 +142,16 @@ extension Shell {
                         continue
                     }
                     // `arr[@]` and `arr[*]` — give the same per-arg
-                    // splitting behaviour as `$@` / `$*`.
+                    // splitting behaviour as `$@` / `$*`. Works for
+                    // both indexed and associative arrays.
                     if let (arrName, sub) = arraySubscript(of: body) {
-                        let values =
-                            environment.arrays[arrName]?.elementsInOrder ?? []
+                        let values: [String]
+                        if let assoc = environment.associativeArrays[arrName] {
+                            values = Array(assoc.values)
+                        } else {
+                            values = environment.arrays[arrName]?
+                                .elementsInOrder ?? []
+                        }
                         if sub == "@" {
                             flushLiteral()
                             if inDoubleQuote {
