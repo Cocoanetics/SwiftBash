@@ -540,6 +540,15 @@ public final class Parser {
                 parts.append(try expandWord(t, asAssignment: false))
             case .assignmentWord:
                 _ = try next()
+                // `name=(item …)` — array assignment. The tokenizer
+                // emits the `name=` part as one assignment word; if
+                // the next token is `(`, fold the parenthesised
+                // items into an `arrayAssignment` node.
+                if t.value.hasSuffix("="), peek().type == .leftParen {
+                    parts.append(try parseArrayAssignment(
+                        nameToken: t))
+                    continue
+                }
                 parts.append(try expandWord(t, asAssignment: true))
             case .redirectWord:
                 _ = try next()
@@ -563,6 +572,35 @@ public final class Parser {
                 return Node(kind: .command(parts: parts), range: spanOf(parts))
             }
         }
+    }
+
+    /// Parse the `(items …)` portion of `name=(items …)`. The
+    /// `nameToken` is the assignment word like `arr=` (we strip the
+    /// trailing `=` to get the variable name).
+    private func parseArrayAssignment(nameToken: Token) throws -> Node {
+        let lp = try expect(.leftParen, "'('")
+        var items: [Node] = []
+        try skipNewlines()
+        while peek().type != .rightParen, peek().type != .eof {
+            let tok = try next()
+            switch tok.type {
+            case .word, .number, .assignmentWord:
+                items.append(try expandWord(tok, asAssignment: false))
+            case .newline:
+                try skipNewlines()
+            default:
+                throw BashSyntaxError.parsing(
+                    message: "unexpected token in array literal: \(tok.value)",
+                    source: source,
+                    position: tok.range.lowerBound)
+            }
+            try skipNewlines()
+        }
+        let rp = try expect(.rightParen, "')'")
+        let name = String(nameToken.value.dropLast()) // strip `=`
+        return Node(
+            kind: .arrayAssignment(name: name, items: items),
+            range: nameToken.range.lowerBound..<rp.range.upperBound)
     }
 
     // MARK: Redirections

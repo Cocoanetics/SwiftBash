@@ -164,7 +164,7 @@ enum ParameterFormParser {
             return s
         }
 
-        // Regular identifier.
+        // Regular identifier — possibly with `[subscript]` suffix.
         if first.isLetter || first == "_" {
             var s = ""
             while i < chars.count,
@@ -172,6 +172,24 @@ enum ParameterFormParser {
             {
                 s.append(chars[i])
                 i += 1
+            }
+            // Optional `[subscript]` for indexed arrays. The
+            // subscript text is preserved as part of the name so the
+            // interpreter's `lookup` can split it back out.
+            if i < chars.count, chars[i] == "[" {
+                let saved = i
+                i += 1
+                var sub = ""
+                while i < chars.count, chars[i] != "]" {
+                    sub.append(chars[i])
+                    i += 1
+                }
+                if i < chars.count, chars[i] == "]" {
+                    i += 1
+                    s += "[\(sub)]"
+                } else {
+                    i = saved
+                }
             }
             return s
         }

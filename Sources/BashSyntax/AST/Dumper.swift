@@ -150,6 +150,13 @@ struct Dumper {
                 Field(name: "parts", value: .nodeList(parts)),
             ]
 
+        case .arrayAssignment(let name, let items):
+            return [
+                posField,
+                Field(name: "name", value: .scalar(stringRepr(name))),
+                Field(name: "items", value: .nodeList(items)),
+            ]
+
         case .reservedWord(let w):
             return [
                 posField,

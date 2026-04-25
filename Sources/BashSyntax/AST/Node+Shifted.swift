@@ -60,6 +60,8 @@ extension Node {
             newKind = .arithmeticSubstitution(e)
         case .conditional(let p):
             newKind = .conditional(parts: shift(p))
+        case .arrayAssignment(let name, let items):
+            newKind = .arrayAssignment(name: name, items: shift(items))
         case .unimplemented(let p):
             newKind = .unimplemented(parts: shift(p))
         }

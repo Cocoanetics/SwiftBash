@@ -15,6 +15,13 @@ extension Shell {
             return lookup(name)
 
         case .length(let name):
+            // `${#arr[@]}` / `${#arr[*]}` returns element COUNT, not
+            // the joined string's character length.
+            if let (arrName, sub) = parseSubscriptedName(name),
+               sub == "@" || sub == "*"
+            {
+                return String(environment.arrays[arrName]?.count ?? 0)
+            }
             return String(lookup(name).count)
 
         case .defaultValue(let name, let checkEmpty, let value):
@@ -97,7 +104,50 @@ extension Shell {
                 ? positionalParameters[idx]
                 : ""
         }
+        // Indexed-array reference: `arr[0]`, `arr[1]`, `arr[@]`, `arr[*]`.
+        if let (arrName, sub) = parseSubscriptedName(name) {
+            return arrayElementLookup(arrName, subscript: sub)
+        }
         return environment[name] ?? ""
+    }
+
+    /// Split `arr[sub]` into `("arr", "sub")`. Returns `nil` if
+    /// `name` isn't a subscripted form.
+    private func parseSubscriptedName(_ name: String) -> (String, String)? {
+        guard let lb = name.firstIndex(of: "["), name.last == "]" else {
+            return nil
+        }
+        let head = String(name[..<lb])
+        let after = name.index(after: lb)
+        let last = name.index(before: name.endIndex)
+        guard after <= last else { return nil }
+        let sub = String(name[after..<last])
+        return (head, sub)
+    }
+
+    /// Resolve a subscripted array reference. `${arr[N]}` returns the
+    /// Nth element; `${arr[@]}` / `${arr[*]}` join all elements with
+    /// a space. The argv-level expander gets a separate path for the
+    /// proper boundary-merge / per-element semantics of `"${arr[@]}"`.
+    private func arrayElementLookup(_ name: String,
+                                    `subscript` sub: String) -> String {
+        if let array = environment.arrays[name] {
+            switch sub {
+            case "@", "*":
+                return array.joined(separator: " ")
+            default:
+                if let n = Int(sub), n >= 0, n < array.count {
+                    return array[n]
+                }
+                return ""
+            }
+        }
+        // Scalar fallback: `${name[0]}` reads the scalar value at
+        // index 0; everything else is empty.
+        if sub == "0" || sub == "@" || sub == "*" {
+            return environment.variables[name] ?? ""
+        }
+        return ""
     }
 
     private func isMissing(_ raw: String?, checkEmpty: Bool) -> Bool {

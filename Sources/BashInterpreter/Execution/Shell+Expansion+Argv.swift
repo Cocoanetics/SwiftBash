@@ -141,6 +141,36 @@ extension Shell {
                         queue.removeFirst()
                         continue
                     }
+                    // `arr[@]` and `arr[*]` — give the same per-arg
+                    // splitting behaviour as `$@` / `$*`.
+                    if let (arrName, sub) = arraySubscript(of: body) {
+                        let values = environment.arrays[arrName] ?? []
+                        if sub == "@" {
+                            flushLiteral()
+                            if inDoubleQuote {
+                                fragments.append(.dollarAtQuoted(values))
+                            } else {
+                                fragments.append(.dollarAtUnquoted(values))
+                            }
+                            i = min(hi, head.range.upperBound)
+                            queue.removeFirst()
+                            continue
+                        }
+                        if sub == "*" {
+                            flushLiteral()
+                            let joined = values
+                                .joined(separator: dollarStarSeparator())
+                            if inDoubleQuote {
+                                literalBuf += joined
+                            } else {
+                                fragments.append(.unquotedSub(joined))
+                            }
+                            i = min(hi, head.range.upperBound)
+                            queue.removeFirst()
+                            continue
+                        }
+                        // `arr[N]` — falls through to generic resolve.
+                    }
                 }
                 let value = try await resolve(part: head)
                 if inDoubleQuote {
@@ -370,5 +400,25 @@ extension Shell {
         guard let ifs = environment["IFS"] else { return " " }
         if ifs.isEmpty { return "" }
         return String(ifs.first!)
+    }
+
+    /// Split `arr[sub]` into `("arr", "sub")`. Only matches when the
+    /// part before `[` is a valid identifier — so `${#arr[@]}` (which
+    /// has body `#arr[@]`) doesn't get misclassified here and stays
+    /// on the slow path through ``resolveParameter``.
+    private func arraySubscript(of body: String) -> (String, String)? {
+        guard let lb = body.firstIndex(of: "["), body.last == "]" else {
+            return nil
+        }
+        let head = String(body[..<lb])
+        guard let first = head.first,
+              first.isLetter || first == "_",
+              head.dropFirst().allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" })
+        else { return nil }
+        let after = body.index(after: lb)
+        let last = body.index(before: body.endIndex)
+        guard after <= last else { return nil }
+        let sub = String(body[after..<last])
+        return (head, sub)
     }
 }

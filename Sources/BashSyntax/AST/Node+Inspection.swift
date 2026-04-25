@@ -30,6 +30,7 @@ extension Node {
         case .arithmeticCommand: return "arithmeticcommand"
         case .arithmeticSubstitution: return "arithmeticsubstitution"
         case .conditional: return "conditional"
+        case .arrayAssignment: return "arrayassignment"
         case .unimplemented: return "unimplemented"
         }
     }
@@ -64,6 +65,8 @@ extension Node {
             return [command]
         case .function(_, _, let parts):
             return parts
+        case .arrayAssignment(_, let items):
+            return items
         case .pipe, .operator, .reservedWord, .parameter, .tilde, .heredoc,
              .arithmeticCommand, .arithmeticSubstitution:
             return []

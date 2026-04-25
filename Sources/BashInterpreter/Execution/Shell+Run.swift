@@ -87,6 +87,13 @@ extension Shell {
         case .conditional(let parts):
             return try await executeConditional(parts: parts)
 
+        case .arrayAssignment:
+            // The parser always wraps array assignments inside a
+            // `.command(parts: [.arrayAssignment])`, so we route
+            // through `executeSimpleCommand` which handles the
+            // assignment alongside any words/redirects on the line.
+            return try await executeSimpleCommand(parts: [node])
+
         case .operator, .pipe, .reservedWord, .redirect,
              .word, .assignment, .parameter, .tilde, .heredoc,
              .commandSubstitution, .processSubstitution,
@@ -204,6 +211,16 @@ extension Shell {
                         let value = String(expanded[expanded.index(after: eq)...])
                         assignments.append((name, value))
                     }
+                case .arrayAssignment(let name, let items):
+                    // `name=(item …)` — evaluate items now, store
+                    // permanently. Prefix-form `arr=(a b) cmd` is
+                    // rare; we don't model the scoped variant.
+                    var values: [String] = []
+                    for item in items {
+                        values.append(try await expand(word: item))
+                    }
+                    environment.arrays[name] = values
+                    environment.variables.removeValue(forKey: name)
                 case .word:
                     let frags = try await collectArgFragments(word: part)
                     wordFragments.append((part, frags))

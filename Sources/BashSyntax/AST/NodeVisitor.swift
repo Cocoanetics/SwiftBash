@@ -35,5 +35,6 @@ public protocol NodeVisitor {
     mutating func visitArithmeticCommand(_ node: Node, expression: String)
     mutating func visitArithmeticSubstitution(_ node: Node, expression: String)
     mutating func visitConditional(_ node: Node, parts: [Node]) -> Bool
+    mutating func visitArrayAssignment(_ node: Node, name: String, items: [Node]) -> Bool
     mutating func visitUnimplemented(_ node: Node, parts: [Node]) -> Bool
 }

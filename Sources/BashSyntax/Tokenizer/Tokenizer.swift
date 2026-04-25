@@ -729,7 +729,8 @@ public final class Tokenizer {
             if sawDollar, c == "{" {
                 let nested = try parseMatchedPair(doubleQuote: nil, open: "{", close: "}",
                                                   firstClose: true, dolbrace: true)
-                out.append(nested) // includes closing '}'
+                out.append(c)        // include the opening '{'
+                out.append(nested)   // body + closing '}'
                 sawDollar = false
                 continue
             }

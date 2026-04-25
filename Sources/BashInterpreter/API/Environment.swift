@@ -12,19 +12,37 @@ import Foundation
 ///   process — builtins stay self-contained.
 public struct Environment: Hashable, Sendable {
     public var variables: [String: String]
+    /// Indexed array variables, parallel to `variables`. A name in
+    /// `arrays` masks the same name in `variables` for `${name[...]}`
+    /// references. Bare `${name}` reads element 0 (matching bash's
+    /// "an unsubscripted array reference is element 0" rule).
+    public var arrays: [String: [String]]
     public var workingDirectory: String
 
     public init(variables: [String: String] = [:],
+                arrays: [String: [String]] = [:],
                 workingDirectory: String = FileManager.default.currentDirectoryPath)
     {
         self.variables = variables
+        self.arrays = arrays
         self.workingDirectory = workingDirectory
     }
 
-    /// Read/write a variable by name.
+    /// Read/write a variable by name. Reading a name that's an array
+    /// returns its first element; writing replaces *both* the array
+    /// (cleared) and the scalar value.
     public subscript(name: String) -> String? {
-        get { variables[name] }
-        set { variables[name] = newValue }
+        get {
+            if let arr = arrays[name] {
+                return arr.first ?? ""
+            }
+            return variables[name]
+        }
+        set {
+            // Scalar assignment to an array name removes the array.
+            arrays.removeValue(forKey: name)
+            variables[name] = newValue
+        }
     }
 
     /// A snapshot of the host process's environment and cwd.
