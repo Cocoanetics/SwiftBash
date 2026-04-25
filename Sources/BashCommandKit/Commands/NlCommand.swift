@@ -88,9 +88,8 @@ public struct NlCommand: ParsableBashCommand {
                 for await line in shell.stdin.lines { emit(line) }
                 continue
             }
-            let resolved = shell.resolvePath(path)
             do {
-                let data = try await shell.fileSystem.readData(resolved)
+                let data = try await shell.readDataAtPath(path)
                 let text = String(decoding: data, as: UTF8.self)
                 let parts = text.split(separator: "\n",
                                        omittingEmptySubsequences: false)

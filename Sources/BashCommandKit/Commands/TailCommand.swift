@@ -47,9 +47,8 @@ public struct TailCommand: ParsableBashCommand {
                 emit(lines: lastN(lines), shell: shell)
                 continue
             }
-            let resolved = shell.resolvePath(path)
             do {
-                let data = try await shell.fileSystem.readData(resolved)
+                let data = try await shell.readDataAtPath(path)
                 let text = String(decoding: data, as: UTF8.self)
                 let lines = text.split(separator: "\n",
                                        omittingEmptySubsequences: false)

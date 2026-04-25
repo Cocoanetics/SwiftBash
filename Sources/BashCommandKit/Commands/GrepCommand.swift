@@ -156,7 +156,7 @@ public struct GrepCommand: ParsableBashCommand {
             let resolved = shell.resolvePath(file)
             let meta: FileMetadata?
             do {
-                meta = try await shell.fileSystem.metadata(resolved)
+                meta = try await shell.metadataAtPath(file)
             } catch {
                 shell.stderr("grep: \(file): \(error)\n")
                 continue
@@ -229,7 +229,7 @@ public struct GrepCommand: ParsableBashCommand {
                           shell: Shell) async -> Source?
     {
         do {
-            let stream = try await shell.fileSystem.openRead(absolutePath)
+            let stream = try await shell.openInputPath(absolutePath)
             return Source(displayName: displayPath, input: stream)
         } catch {
             shell.stderr("grep: \(displayPath): \(error)\n")

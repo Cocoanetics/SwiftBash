@@ -174,7 +174,7 @@ public struct RgCommand: ParsableBashCommand {
                          absolutePath: String,
                          globs: [GlobRule],
                          shell: Shell) async {
-        let meta = try? await shell.fileSystem.metadata(absolutePath)
+        let meta = try? await shell.metadataAtPath(displayPath)
         guard let meta else {
             shell.stderr("rg: \(displayPath): No such file or directory\n")
             return
@@ -203,7 +203,7 @@ public struct RgCommand: ParsableBashCommand {
                             matcher: LineMatcher,
                             opts: OutputOptions,
                             shell: Shell) async -> Bool {
-        let meta = try? await shell.fileSystem.metadata(absolutePath)
+        let meta = try? await shell.metadataAtPath(displayPath)
         guard let meta else {
             shell.stderr("rg: \(displayPath): No such file or directory\n")
             return false
@@ -285,7 +285,7 @@ public struct RgCommand: ParsableBashCommand {
                             shell: Shell) async -> Bool {
         let input: InputSource
         do {
-            input = try await shell.fileSystem.openRead(absolutePath)
+            input = try await shell.openInputPath(displayPath)
         } catch {
             shell.stderr("rg: \(displayPath): \(error)\n")
             return false

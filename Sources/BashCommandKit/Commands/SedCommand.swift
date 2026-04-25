@@ -97,10 +97,9 @@ public struct SedCommand: ParsableBashCommand {
             for line in out { shell.stdout(line + "\n") }
         } else {
             for f in files {
-                let abs = shell.resolvePath(f)
                 let data: Data
                 do {
-                    data = try await shell.fileSystem.readData(abs)
+                    data = try await shell.readDataAtPath(f)
                 } catch {
                     shell.stderr("sed: \(f): \(error)\n")
                     return .failure
@@ -113,8 +112,8 @@ public struct SedCommand: ParsableBashCommand {
                         ? ""
                         : out.joined(separator: "\n") + "\n"
                     do {
-                        try await shell.fileSystem.writeData(
-                            Data(joined.utf8), to: abs, append: false)
+                        try await shell.writeData(
+                            Data(joined.utf8), toPath: f, append: false)
                     } catch {
                         shell.stderr("sed: \(f): \(error)\n")
                         return .failure

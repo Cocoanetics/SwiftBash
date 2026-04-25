@@ -31,9 +31,8 @@ public struct CatCommand: ParsableBashCommand {
                 }
                 continue
             }
-            let resolved = shell.resolvePath(path)
             do {
-                let source = try await shell.fileSystem.openRead(resolved)
+                let source = try await shell.openInputPath(path)
                 for await chunk in source.bytes {
                     shell.stdout(chunk)
                 }

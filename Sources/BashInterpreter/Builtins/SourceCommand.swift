@@ -18,10 +18,9 @@ public struct SourceCommand: Command {
             shell.stderr("\(name): filename argument required\n")
             return ExitStatus(2)
         }
-        let resolved = shell.resolvePath(path)
         let data: Data
         do {
-            data = try await shell.fileSystem.readData(resolved)
+            data = try await shell.readDataAtPath(path)
         } catch FileSystemError.notFound {
             shell.stderr("\(name): \(path): No such file or directory\n")
             return .failure

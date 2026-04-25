@@ -44,9 +44,8 @@ public struct SortCommand: ParsableBashCommand {
             for await line in shell.stdin.lines { lines.append(line) }
         } else {
             for f in files {
-                let abs = shell.resolvePath(f)
                 do {
-                    let data = try await shell.fileSystem.readData(abs)
+                    let data = try await shell.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     lines.append(contentsOf: Self.splitLines(text))
                 } catch {

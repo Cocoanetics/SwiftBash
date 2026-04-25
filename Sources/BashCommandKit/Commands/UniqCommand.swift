@@ -32,9 +32,8 @@ public struct UniqCommand: ParsableBashCommand {
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
         var lines: [String] = []
         if let f = input {
-            let abs = shell.resolvePath(f)
             do {
-                let data = try await shell.fileSystem.readData(abs)
+                let data = try await shell.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 lines = SortCommand.splitLines(text)
             } catch {

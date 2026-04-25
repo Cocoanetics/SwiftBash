@@ -63,21 +63,19 @@ extension Shell {
         switch type {
         case ">":
             let target = try await expand(word: output)
-            let sink = try await fileSystem.openWrite(
-                resolvePath(target), append: false)
+            let sink = try await openOutputPath(target, append: false)
             openedSinks.append(sink)
             bind(outputSink: sink, toFd: input ?? 1)
 
         case ">>":
             let target = try await expand(word: output)
-            let sink = try await fileSystem.openWrite(
-                resolvePath(target), append: true)
+            let sink = try await openOutputPath(target, append: true)
             openedSinks.append(sink)
             bind(outputSink: sink, toFd: input ?? 1)
 
         case "<":
             let target = try await expand(word: output)
-            stdin = try await fileSystem.openRead(resolvePath(target))
+            stdin = try await openInputPath(target)
 
         case "<<":
             // Heredoc. The parser captures the body as `.heredoc(value:)`.

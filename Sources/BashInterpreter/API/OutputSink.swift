@@ -124,4 +124,15 @@ public final class OutputSink: @unchecked Sendable {
     public static var discard: OutputSink {
         OutputSink(bufferingPolicy: .bufferingOldest(0))
     }
+
+    /// A sink whose writes forward to `upstream` and whose `finish()` is
+    /// a deliberate no-op on the upstream — used for redirections to
+    /// `/dev/stdout` / `/dev/stderr` so that closing the redirection
+    /// doesn't close the shell's actual fd1/fd2.
+    public static func proxy(to upstream: OutputSink) -> OutputSink {
+        OutputSink(
+            bufferingPolicy: .bufferingOldest(0),
+            onWrite: { upstream.write($0) },
+            onFinish: { /* deliberately do not close upstream */ })
+    }
 }
