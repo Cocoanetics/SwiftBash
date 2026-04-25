@@ -369,6 +369,20 @@ a formatted error on stderr and a non-zero exit.
 | `base64`   | Encode (default) / decode (`-d`); 76-char wrapping when encoding |
 | `md5`      | MD5 digests of stdin / files / `-s STRING`; `-q` for bare hex |
 | `xxd`      | Hex dump (16-byte rows, hex pairs + ASCII); stdin or file |
+| `clear`    | Emit ANSI clear-screen + cursor-home |
+| `tac`      | Print lines in reverse order |
+| `rev`      | Reverse each line's characters (grapheme-aware) |
+| `rmdir`    | Remove empty directories; `-p` removes empty parents too |
+| `tee`      | Copy stdin to stdout *and* each FILE; `-a` to append |
+| `paste`    | Merge corresponding lines side by side; `-d DELIM`, `-s` serial |
+| `comm`     | Three-column compare of two sorted files; `-1`/`-2`/`-3` suppress |
+| `which`    | Print `/builtin/<name>` for registered commands |
+| `type`     | Describe how the shell would resolve a name |
+| `command`  | `command -v X` registry lookup; or run X bypassing functions |
+| `printenv` | Print env variables (all sorted, or named ones) |
+| `od`       | Octal (default) / hex (`-x`) / character (`-c`) dump |
+| `md5sum` / `sha1sum` / `sha256sum` | Coreutils-format `<hex>  <file>` digests via CryptoKit |
+| `fgrep` / `egrep` | Aliases for `grep` (substring) and `grep -E` (ERE) |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:

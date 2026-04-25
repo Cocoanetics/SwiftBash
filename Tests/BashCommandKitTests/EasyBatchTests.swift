@@ -1,0 +1,300 @@
+import Testing
+import Foundation
+@testable import BashInterpreter
+@testable import BashCommandKit
+
+@Suite struct EasyBatchTests {
+
+    private func makeShell() -> (CapturingShell, String) {
+        let base = NSTemporaryDirectory()
+        let dir = (base as NSString)
+            .appendingPathComponent("easybatch-\(UUID())")
+        try! FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true)
+        let cap = CapturingShell()
+        cap.shell.registerStandardCommands()
+        cap.shell.environment.workingDirectory = dir
+        return (cap, dir)
+    }
+
+    private func cleanup(_ path: String) {
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    private func write(_ contents: String, to path: String, in dir: String) {
+        let p = (dir as NSString).appendingPathComponent(path)
+        try? contents.write(toFile: p, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: clear
+
+    @Test func clearEmitsAnsi() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("clear")
+        #expect(cap.stdout == "\u{1B}[2J\u{1B}[H")
+    }
+
+    // MARK: tac
+
+    @Test func tacReversesStdinLines() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'a\\nb\\nc\\n' | tac")
+        #expect(cap.stdout == "c\nb\na\n")
+    }
+
+    @Test func tacReadsFile() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("1\n2\n3\n", to: "f.txt", in: dir)
+        try await cap.shell.run("tac f.txt")
+        #expect(cap.stdout == "3\n2\n1\n")
+    }
+
+    // MARK: rev
+
+    @Test func revReversesEachLine() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'hello\\nworld\\n' | rev")
+        #expect(cap.stdout == "olleh\ndlrow\n")
+    }
+
+    @Test func revHandlesEmoji() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        // Reversal is by grapheme cluster, so the emoji stays whole.
+        try await cap.shell.run("echo 'a🌍b' | rev")
+        #expect(cap.stdout == "b🌍a\n")
+    }
+
+    // MARK: rmdir
+
+    @Test func rmdirRemovesEmptyDir() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("mkdir empty")
+        try await cap.shell.run("rmdir empty")
+        try await cap.shell.run("ls")
+        #expect(cap.stdout == "")
+    }
+
+    @Test func rmdirFailsOnNonEmpty() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("mkdir d")
+        try await cap.shell.run("touch d/f")
+        let status = try await cap.shell.run("rmdir d")
+        #expect(status == .failure)
+        #expect(cap.stderr.contains("rmdir:"))
+    }
+
+    @Test func rmdirParentsClimbsUntilNonEmpty() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("mkdir -p a/b/c")
+        try await cap.shell.run("rmdir -p a/b/c")
+        // a, a/b, and a/b/c should all be gone.
+        let status = try await cap.shell.run("ls a")
+        #expect(status == .failure)
+    }
+
+    // MARK: tee
+
+    @Test func teeFanoutsStdinToFileAndStdout() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("echo hi | tee out.txt")
+        #expect(cap.stdout == "hi\n")
+        let p = (dir as NSString).appendingPathComponent("out.txt")
+        let written = try String(contentsOfFile: p, encoding: .utf8)
+        #expect(written == "hi\n")
+    }
+
+    @Test func teeAppendDoesNotTruncate() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let p = (dir as NSString).appendingPathComponent("log")
+        try "first\n".write(toFile: p, atomically: true, encoding: .utf8)
+        try await cap.shell.run("echo second | tee -a log")
+        let written = try String(contentsOfFile: p, encoding: .utf8)
+        #expect(written == "first\nsecond\n")
+    }
+
+    @Test func teeToDevNullStillPassesStdoutThrough() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("echo hello | tee /dev/null")
+        // /dev/null discarded; stdout still got it.
+        #expect(cap.stdout == "hello\n")
+    }
+
+    // MARK: paste
+
+    @Test func pasteJoinsLinesSideBySide() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("a\nb\nc\n", to: "x", in: dir)
+        write("1\n2\n3\n", to: "y", in: dir)
+        try await cap.shell.run("paste x y")
+        #expect(cap.stdout == "a\t1\nb\t2\nc\t3\n")
+    }
+
+    @Test func pasteCustomDelimiter() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("a\nb\n", to: "x", in: dir)
+        write("1\n2\n", to: "y", in: dir)
+        try await cap.shell.run("paste -d , x y")
+        #expect(cap.stdout == "a,1\nb,2\n")
+    }
+
+    @Test func pasteSerialJoinsOneFileAtATime() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("a\nb\nc\n", to: "x", in: dir)
+        write("1\n2\n3\n", to: "y", in: dir)
+        try await cap.shell.run("paste -s -d , x y")
+        #expect(cap.stdout == "a,b,c\n1,2,3\n")
+    }
+
+    // MARK: comm
+
+    @Test func commProducesThreeColumns() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("apple\nbanana\ncherry\n", to: "a", in: dir)
+        write("banana\ncherry\ndate\n", to: "b", in: dir)
+        try await cap.shell.run("comm a b")
+        #expect(cap.stdout == "apple\n\t\tbanana\n\t\tcherry\n\tdate\n")
+    }
+
+    @Test func commSuppress23ShowsOnlyUniqueToFirst() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("a\nb\nc\n", to: "a", in: dir)
+        write("b\n", to: "b", in: dir)
+        try await cap.shell.run("comm -2 -3 a b")
+        #expect(cap.stdout == "a\nc\n")
+    }
+
+    @Test func commWithStdin() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("a\nb\nc\n", to: "a", in: dir)
+        try await cap.shell.run(
+            "printf 'b\\n' | comm -1 -3 - a")
+        // - is stdin (only in stdin), a is the file (suppress matches +
+        // file-only). With -1 (suppress col1=stdin-only) and -3
+        // (suppress common), what remains is col2 = file-only.
+        #expect(cap.stdout == "a\nc\n")
+    }
+
+    // MARK: which / type / command -v
+
+    @Test func whichReportsBuiltinPath() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("which echo")
+        #expect(cap.stdout == "/builtin/echo\n")
+    }
+
+    @Test func whichExitsNonZeroForUnknown() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("which nope")
+        #expect(status == .failure)
+        #expect(cap.stdout == "")
+    }
+
+    @Test func typeReportsBuiltin() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("type echo")
+        #expect(cap.stdout == "echo is a shell builtin\n")
+    }
+
+    @Test func commandDashVPrintsName() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("command -v echo")
+        #expect(cap.stdout == "echo\n")
+    }
+
+    @Test func commandDashVSilentOnUnknown() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("command -v nope")
+        #expect(status == .failure)
+        #expect(cap.stdout == "")
+    }
+
+    // MARK: printenv
+
+    @Test func printenvAllVariablesSorted() async throws {
+        let cap = CapturingShell()
+        cap.shell.registerStandardCommands()
+        cap.shell.environment.variables = ["B": "two", "A": "one"]
+        try await cap.shell.run("printenv")
+        #expect(cap.stdout == "A=one\nB=two\n")
+    }
+
+    @Test func printenvNamedVariablePrintsValue() async throws {
+        let cap = CapturingShell()
+        cap.shell.registerStandardCommands()
+        cap.shell.environment.variables = ["FOO": "bar"]
+        try await cap.shell.run("printenv FOO")
+        #expect(cap.stdout == "bar\n")
+    }
+
+    @Test func printenvMissingVariableExitsNonZero() async throws {
+        let cap = CapturingShell()
+        cap.shell.registerStandardCommands()
+        let status = try await cap.shell.run("printenv NOPE")
+        #expect(status == .failure)
+        #expect(cap.stdout == "")
+    }
+
+    // MARK: od
+
+    @Test func odDefaultIsOctal() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'AB' | od")
+        // 'A'=0101, 'B'=0102. Final offset=0000002.
+        #expect(cap.stdout == "0000000  101 102\n0000002\n")
+    }
+
+    @Test func odCharsRendersEscapes() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run(#"printf 'a\nb' | od -c"#)
+        // a, \n, b → "  a", " \n", "  b"
+        #expect(cap.stdout == "0000000    a  \\n   b\n0000003\n")
+    }
+
+    // MARK: md5sum / sha1sum / sha256sum
+
+    @Test func md5sumStdinFormat() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf '' | md5sum")
+        #expect(cap.stdout
+            == "d41d8cd98f00b204e9800998ecf8427e  -\n")
+    }
+
+    @Test func md5sumFileFormat() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        write("hello", to: "h", in: dir)
+        try await cap.shell.run("md5sum h")
+        #expect(cap.stdout
+            == "5d41402abc4b2a76b9719d911017c592  h\n")
+    }
+
+    @Test func sha1sumStdin() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf '' | sha1sum")
+        #expect(cap.stdout
+            == "da39a3ee5e6b4b0d3255bfef95601890afd80709  -\n")
+    }
+
+    @Test func sha256sumStdin() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf '' | sha256sum")
+        #expect(cap.stdout
+            == "e3b0c44298fc1c149afbf4c8996fb924"
+                + "27ae41e4649b934ca495991b7852b855  -\n")
+    }
+
+    // MARK: fgrep / egrep aliases
+
+    @Test func egrepAcceptsExtendedRegex() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run(
+            "printf 'foo\\nbar\\nbaz\\n' | egrep 'foo|baz'")
+        #expect(cap.stdout == "foo\nbaz\n")
+    }
+
+    @Test func fgrepRunsAsSubstringSearch() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run(
+            "printf 'apple\\nbanana\\n' | fgrep 'app'")
+        #expect(cap.stdout == "apple\n")
+    }
+}

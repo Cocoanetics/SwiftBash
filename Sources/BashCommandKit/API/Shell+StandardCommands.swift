@@ -2,39 +2,26 @@ import BashInterpreter
 
 extension Shell {
 
-    /// Register every command shipped with `BashCommandKit` on this shell:
+    /// Register every command shipped with `BashCommandKit` on this shell.
     ///
-    /// - `date` — ``DateCommand``
-    /// - `basename` — ``BasenameCommand``
-    /// - `dirname` — ``DirnameCommand``
-    /// - `realpath` — ``RealpathCommand``
-    /// - `seq` — ``SeqCommand``
-    /// - `sleep` — ``SleepCommand``
-    /// - `env` — ``EnvCommand``
-    /// - `whoami` — ``WhoamiCommand``
-    /// - `hostname` — ``HostnameCommand``
-    /// - `cat` — ``CatCommand``
-    /// - `wc` — ``WcCommand``
-    /// - `head` — ``HeadCommand``
-    /// - `tail` — ``TailCommand``
-    /// - `nl` — ``NlCommand``
-    /// - `grep` — ``GrepCommand``
-    /// - `ls` — ``LsCommand``
-    /// - `mkdir` — ``MkdirCommand``
-    /// - `rm` — ``RmCommand``
-    /// - `mv` — ``MvCommand``
-    /// - `cp` — ``CpCommand``
-    /// - `touch` — ``TouchCommand``
-    /// - `find` — ``FindCommand``
-    /// - `sort` — ``SortCommand``
-    /// - `uniq` — ``UniqCommand``
-    /// - `sed` — ``SedCommand``
-    /// - `rg` — ``RgCommand``
-    /// - `tr` — ``TrCommand``
-    /// - `cut` — ``CutCommand``
-    /// - `base64` — ``Base64Command``
-    /// - `md5` — ``Md5Command``
-    /// - `xxd` — ``XxdCommand``
+    /// **Filesystem & navigation:** `ls`, `mkdir`, `rmdir`, `rm`, `mv`,
+    /// `cp`, `touch`, `find`, `realpath`, `basename`, `dirname`.
+    ///
+    /// **Reading & writing:** `cat`, `tee`, `head`, `tail`, `nl`, `tac`,
+    /// `rev`, `wc`.
+    ///
+    /// **Searching:** `grep`, `fgrep`, `egrep`, `rg`, `find`.
+    ///
+    /// **Text manipulation:** `sed`, `sort`, `uniq`, `tr`, `cut`,
+    /// `paste`, `comm`.
+    ///
+    /// **Encoding & hashing:** `base64`, `md5`, `md5sum`, `sha1sum`,
+    /// `sha256sum`, `xxd`, `od`.
+    ///
+    /// **Introspection / shell-state:** `which`, `type`, `command`,
+    /// `env`, `printenv`, `whoami`, `hostname`, `clear`.
+    ///
+    /// **Misc:** `date`, `seq`, `sleep`.
     ///
     /// Individual commands can still be registered à la carte via
     /// ``register(_:)-<…>``; this is just the convenient one-call form.
@@ -70,5 +57,46 @@ extension Shell {
         register(Base64Command.self)
         register(Md5Command.self)
         register(XxdCommand.self)
+
+        // Easy-batch additions
+        register(ClearCommand.self)
+        register(TacCommand.self)
+        register(RevCommand.self)
+        register(RmdirCommand.self)
+        register(TeeCommand.self)
+        register(PasteCommand.self)
+        register(CommCommand.self)
+        register(WhichCommand.self)
+        register(TypeCommand.self)
+        register(CommandBuiltinCommand.self)
+        register(PrintenvCommand.self)
+        register(OdCommand.self)
+        register(Md5sumCommand.self)
+        register(Sha1sumCommand.self)
+        register(Sha256sumCommand.self)
+
+        // fgrep / egrep are thin grep aliases. Resolve `grep` from the
+        // *running* shell rather than capturing the registering shell —
+        // works correctly inside subshells too, and avoids reference
+        // cycles on closure capture.
+        register(name: "egrep") { argv, shell in
+            guard let grep = shell.commands["grep"] else {
+                shell.stderr("egrep: grep not registered\n")
+                return .failure
+            }
+            return try await grep.run(["grep", "-E"]
+                + Array(argv.dropFirst()), shell: shell)
+        }
+        register(name: "fgrep") { argv, shell in
+            // We don't have grep -F yet; substring is grep's default
+            // matching mode anyway, so this is effectively a name alias.
+            // When -F lands later, prepend it here.
+            guard let grep = shell.commands["grep"] else {
+                shell.stderr("fgrep: grep not registered\n")
+                return .failure
+            }
+            return try await grep.run(["grep"]
+                + Array(argv.dropFirst()), shell: shell)
+        }
     }
 }
