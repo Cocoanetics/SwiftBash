@@ -363,6 +363,7 @@ a formatted error on stderr and a non-zero exit.
 | `sort`     | Sort lines from stdin or files; `-u` dedup, `-n` numeric, `-r` reverse |
 | `uniq`     | Drop adjacent duplicate lines; `-c` prefixes a repeat count |
 | `sed`      | Pragmatic subset: `s/PAT/REP/[gp]`, `d`, `p` with line-number / `$` / `/regex/` addresses; `-n` quiet, `-e PROGRAM`, `-E` ERE, `-i` in-place |
+| `rg`       | ripgrep subset — default-recursive regex search. `-n` `-i` `-S` smart-case, `-l` `-q`, `-m N` max-count, `-A`/`-B`/`-C` context, `-g GLOB` (repeatable, `!`-prefix to exclude), `--hidden`, `--files` list-mode |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:

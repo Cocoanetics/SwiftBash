@@ -29,6 +29,7 @@ extension Shell {
     /// - `sort` — ``SortCommand``
     /// - `uniq` — ``UniqCommand``
     /// - `sed` — ``SedCommand``
+    /// - `rg` — ``RgCommand``
     ///
     /// Individual commands can still be registered à la carte via
     /// ``register(_:)-<…>``; this is just the convenient one-call form.
@@ -58,5 +59,6 @@ extension Shell {
         register(SortCommand.self)
         register(UniqCommand.self)
         register(SedCommand.self)
+        register(RgCommand.self)
     }
 }
