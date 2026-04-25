@@ -797,7 +797,12 @@ public final class Parser {
         if peek().type == .inKw {
             let inTok = try next()
             parts.append(Node(kind: .reservedWord("in"), range: inTok.range))
-            while peek().type == .word || peek().type == .number {
+            // After `for X in`, words shaped like `k=v` look like
+            // assignments to the tokenizer but here they're plain
+            // words — accept `.assignmentWord` too.
+            while peek().type == .word || peek().type == .number
+                  || peek().type == .assignmentWord
+            {
                 let wt = try next()
                 parts.append(try expandWord(wt, asAssignment: false))
             }

@@ -23,6 +23,11 @@ struct WordExpander {
         var parts: [Node] = []
         var output = ""
         var i = 0
+        // Tracks whether we're currently inside a "..." run. Bash's
+        // backslash rules differ from outside: inside dquote, `\` only
+        // escapes `$`, `\``, `"`, `\` and newline — every other `\X`
+        // is preserved as two characters (e.g. `\n` stays `\n`).
+        var inDouble = false
 
         while i < chars.count {
             let c = chars[i]
@@ -173,13 +178,22 @@ struct WordExpander {
 
             // Backslash escape
             if c == "\\", i + 1 < chars.count {
-                output.append(chars[i + 1])
+                let next = chars[i + 1]
+                if inDouble, !"$`\"\\\n".contains(next) {
+                    // Inside "..." bash keeps `\X` literal unless X is
+                    // one of the escape-meaningful chars.
+                    output.append(c)
+                    output.append(next)
+                } else {
+                    output.append(next)
+                }
                 i += 2
                 continue
             }
 
             // Quotes are removed during expansion.
             if c == "\"" {
+                inDouble.toggle()
                 i += 1
                 continue
             }

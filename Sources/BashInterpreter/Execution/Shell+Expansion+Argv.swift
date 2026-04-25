@@ -232,10 +232,11 @@ extension Shell {
             }
 
             let c = chars[i]
-            if c == "'" {
+            if c == "'", !inDoubleQuote {
                 // Single-quoted: every char between the quotes is
                 // literal, including `$`. An empty `''` still emits an
-                // empty literal so `cmd ''` becomes `cmd ""`.
+                // empty literal so `cmd ''` becomes `cmd ""`. Inside
+                // a `"..."` run a `'` is just a literal character.
                 let beforeFragments = fragments.count
                 let beforeLitLen = literalBuf.count
                 i += 1
@@ -271,7 +272,17 @@ extension Shell {
             if c == "\\" {
                 i += 1
                 if i < hi {
-                    literalBuf.append(chars[i])
+                    let next = chars[i]
+                    if inDoubleQuote, !"$`\"\\\n".contains(next) {
+                        // Inside "..." backslash only escapes the meta
+                        // chars `$ ` " \ \n`; everywhere else `\X` stays
+                        // as two characters (e.g. `\n` inside a dquoted
+                        // word fed to `printf`).
+                        literalBuf.append(c)
+                        literalBuf.append(next)
+                    } else {
+                        literalBuf.append(next)
+                    }
                     i += 1
                 }
                 continue
