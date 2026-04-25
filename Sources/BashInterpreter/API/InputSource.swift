@@ -23,8 +23,24 @@ public struct InputSource: Sendable {
 
     public let bytes: AsyncStream<Data>
 
+    /// Stateful read-cursor for `readLine()` / `readBytes(count:)`.
+    /// Class-backed so copies of the struct share the iterator —
+    /// `while read line; do …; done < file` keeps consuming where
+    /// the previous `read` left off.
+    private let cursor: ReadCursor
+
     public init(bytes: AsyncStream<Data>) {
         self.bytes = bytes
+        self.cursor = ReadCursor(bytes: bytes)
+    }
+
+    /// Read one newline-terminated line from the stream, returning
+    /// `nil` at EOF. Subsequent calls continue from where this one
+    /// left off. Doesn't conflict with `bytes` / `lines` / `readAllData`
+    /// in *practice* — a stream is single-consumer, so a command
+    /// should pick *one* style.
+    public func readLine() async -> String? {
+        await cursor.readLine()
     }
 
     // MARK: Factories
@@ -66,6 +82,53 @@ public struct InputSource: Sendable {
     public func readAllString() async -> String {
         let data = await readAllData()
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Stateful single-line reader shared across `InputSource` copies.
+    /// Holds a lazy `AsyncIterator` over `bytes` plus a partial-line
+    /// buffer so that `read` can pull one line at a time without
+    /// losing the rest. Marked `@unchecked Sendable` because shells
+    /// are single-threaded — only one command runs `read` at a time.
+    final class ReadCursor: @unchecked Sendable {
+        private let bytes: AsyncStream<Data>
+        private var iterator: AsyncStream<Data>.AsyncIterator?
+        private var pending = Data()
+        private var atEOF = false
+
+        init(bytes: AsyncStream<Data>) {
+            self.bytes = bytes
+        }
+
+        func readLine() async -> String? {
+            while true {
+                if let nl = pending.firstIndex(of: 0x0A) {
+                    let line = pending[pending.startIndex..<nl]
+                    pending.removeSubrange(pending.startIndex..<(nl + 1))
+                    return String(decoding: line, as: UTF8.self)
+                }
+                if atEOF {
+                    if pending.isEmpty { return nil }
+                    let line = String(decoding: pending, as: UTF8.self)
+                    pending.removeAll()
+                    return line
+                }
+                // AsyncStream's iterator is a value type with a
+                // `mutating next()`. Lift to a local, advance, write
+                // back — `iterator?.next()` would otherwise mutate a
+                // temporary copy and lose the position.
+                if iterator == nil {
+                    iterator = bytes.makeAsyncIterator()
+                }
+                var it = iterator!
+                let chunk = await it.next()
+                iterator = it
+                if let chunk {
+                    pending.append(chunk)
+                } else {
+                    atEOF = true
+                }
+            }
+        }
     }
 
     /// Stream the stdin line-by-line. Newlines are stripped; the final

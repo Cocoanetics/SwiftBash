@@ -121,6 +121,7 @@ public final class Shell: @unchecked Sendable {
             SourceCommand(name: "."),
             DeclareCommand(name: "declare"),
             DeclareCommand(name: "typeset"),
+            ReadCommand(),
         ]
         var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }
