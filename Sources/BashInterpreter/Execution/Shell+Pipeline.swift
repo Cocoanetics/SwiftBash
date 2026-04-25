@@ -48,6 +48,7 @@ extension Shell {
         let fileSystemRef = fileSystem
         let sourceSnapshot = currentSource
 
+        let pipefailMode = pipefail
         let status = try await withThrowingTaskGroup(
             of: (Int, ExitStatus).self
         ) { group in
@@ -83,14 +84,21 @@ extension Shell {
                 }
             }
 
-            var finalStatus = ExitStatus.success
+            // Collect every stage's status so pipefail can pick the
+            // rightmost non-zero. Pre-fill with .success — stages
+            // that are cancelled mid-stream (because a downstream
+            // consumer finished) shouldn't count as failures.
+            var stageStatuses = Array(repeating: ExitStatus.success,
+                                      count: stages.count)
+            var lastStageDone = false
             while true {
                 do {
                     guard let (index, result) = try await group.next() else {
                         break
                     }
+                    stageStatuses[index] = result
                     if index == stages.count - 1 {
-                        finalStatus = result
+                        lastStageDone = true
                         // Downstream terminated — signal upstream to
                         // stop. Producers that check `Task.isCancelled`
                         // (including our cooperative `sleep`) unblock
@@ -101,12 +109,29 @@ extension Shell {
                     continue
                 }
             }
-            return finalStatus
+            _ = lastStageDone
+
+            if pipefailMode {
+                // Rightmost non-zero status, or .success if every
+                // stage succeeded.
+                for s in stageStatuses.reversed() where !s.isSuccess {
+                    return s
+                }
+                return .success
+            }
+            return stageStatuses.last ?? .success
         }
 
-        lastExitStatus = invert
-            ? (status.isSuccess ? .failure : .success)
-            : status
-        return lastExitStatus
+        // `!`-prefixed pipelines disable errexit on the inverted
+        // result (matching bash). Tell the enclosing executeList to
+        // skip its next errexit check.
+        if invert {
+            let inverted: ExitStatus = status.isSuccess ? .failure : .success
+            skipNextErrexitCheck = true
+            lastExitStatus = inverted
+            return inverted
+        }
+        lastExitStatus = status
+        return status
     }
 }

@@ -56,6 +56,32 @@ public final class Shell: @unchecked Sendable {
     /// Exit status of the most recently completed command.
     public internal(set) var lastExitStatus: ExitStatus = .success
 
+    /// `set -e` / `set -o errexit` — when `true`, the shell exits as
+    /// soon as a command returns a non-zero status, except inside a
+    /// "checked" context tracked via ``errexitGuard``.
+    public var errexit: Bool = false
+
+    /// `set -o pipefail` — when `true`, a pipeline's exit status is
+    /// the rightmost non-zero stage (or 0 if all succeeded), instead
+    /// of just the last stage.
+    public var pipefail: Bool = false
+
+    /// `set -u` / `set -o nounset` — when `true`, expanding an unset
+    /// parameter is an error rather than silently producing "".
+    /// Reserved for future implementation; currently unused.
+    public var nounset: Bool = false
+
+    /// Counter tracking nested "checked" contexts in which `errexit`
+    /// is suppressed (`if`/`while`/`until` conditions, LHS of
+    /// `&&`/`||`). `errexit` only triggers when this is 0.
+    var errexitGuard: Int = 0
+
+    /// Set by an executed `!`-pipeline to tell the enclosing list
+    /// loop to skip its post-command `errexit` check (bash exempts
+    /// `!`-inverted commands from errexit). Consumed on the next
+    /// executeList iteration.
+    var skipNextErrexitCheck: Bool = false
+
     /// Depth of enclosing `while`/`until`/`for` loops on the call stack.
     /// See `LoopControlSignal` for why this matters.
     var loopDepth: Int = 0

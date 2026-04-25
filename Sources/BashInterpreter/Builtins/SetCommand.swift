@@ -1,29 +1,94 @@
 import Foundation
 
-/// `set [-- ARG ...]` — replace the shell's positional parameters
-/// with the given list. Without `--`, this skeleton just lists them
-/// (real bash also takes `-e`, `-x`, etc.; those aren't modelled).
+/// `set` — toggle shell options and replace positional parameters.
 ///
-/// ```bash
-/// set -- a b c
-/// echo $1 $2 $3   # → a b c
-/// ```
+/// Supported invocations:
+/// - `set -e` / `set +e` — toggle `errexit`.
+/// - `set -o pipefail` / `set +o pipefail` — toggle the like-named option.
+/// - `set -o errexit` / `set -o nounset` etc. — long-name option toggling.
+/// - `set -u` / `set +u` — toggle `nounset`.
+/// - `set -- ARG …` — replace positional parameters (`$1, $2, …`).
+/// - `set` (no args) — list current positional parameters.
+///
+/// Combined short flags (`set -eu`) are accepted: each character is
+/// applied left-to-right.
 public struct SetCommand: Command {
     public let name = "set"
     public init() {}
 
     public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
-        guard let dashDash = args.firstIndex(of: "--") else {
-            // No `--` separator: list current positional params and
-            // exported environment, à la bash without options.
+        if args.isEmpty {
             for (i, value) in shell.positionalParameters.enumerated() {
                 shell.stdout("\(i + 1)=\(value)\n")
             }
             return .success
         }
-        let newParams = Array(args[(dashDash + 1)...])
-        shell.positionalParameters = newParams
+
+        var i = 0
+        while i < args.count {
+            let a = args[i]
+            if a == "--" {
+                shell.positionalParameters = Array(args[(i + 1)...])
+                return .success
+            }
+            // `-o NAME` / `+o NAME`
+            if a == "-o" || a == "+o" {
+                guard i + 1 < args.count else {
+                    shell.stderr("set: \(a): option name required\n")
+                    return ExitStatus(2)
+                }
+                let on = (a == "-o")
+                if let err = applyLongOption(args[i + 1], on: on, shell: shell) {
+                    shell.stderr(err)
+                    return ExitStatus(2)
+                }
+                i += 2
+                continue
+            }
+            // `-X` / `+X` short-flag bundles
+            if (a.hasPrefix("-") || a.hasPrefix("+")), a.count >= 2 {
+                let on = a.hasPrefix("-")
+                for ch in a.dropFirst() {
+                    if let err = applyShortFlag(ch, on: on, shell: shell) {
+                        shell.stderr(err)
+                        return ExitStatus(2)
+                    }
+                }
+                i += 1
+                continue
+            }
+            // Anything else: bash treats `set arg1 arg2` as setting
+            // positional parameters (POSIX). Match that.
+            shell.positionalParameters = Array(args[i...])
+            return .success
+        }
         return .success
+    }
+
+    /// Apply a single short-flag character. Returns an error string on
+    /// unknown flags, `nil` on success.
+    private func applyShortFlag(_ ch: Character, on: Bool,
+                                shell: Shell) -> String? {
+        switch ch {
+        case "e": shell.errexit = on
+        case "u": shell.nounset = on
+        default:
+            return "set: -\(ch): invalid option\n"
+        }
+        return nil
+    }
+
+    /// Apply a long option name (`-o NAME` / `+o NAME`).
+    private func applyLongOption(_ name: String, on: Bool,
+                                 shell: Shell) -> String? {
+        switch name {
+        case "errexit":  shell.errexit = on
+        case "pipefail": shell.pipefail = on
+        case "nounset":  shell.nounset = on
+        default:
+            return "set: -o: invalid option name: \(name)\n"
+        }
+        return nil
     }
 }

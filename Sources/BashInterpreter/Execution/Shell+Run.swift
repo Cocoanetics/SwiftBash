@@ -33,6 +33,14 @@ extension Shell {
                     last = .success
                     lastExitStatus = last
                 }
+                // Top-level errexit: each statement is its own
+                // node, so executeList's per-list check doesn't see
+                // a sequence that crosses statement boundaries.
+                let suppressed = skipNextErrexitCheck
+                skipNextErrexitCheck = false
+                if errexit, !last.isSuccess, errexitGuard == 0, !suppressed {
+                    throw ShellExit(status: last)
+                }
             }
             return last
         } catch let exit as ShellExit {
@@ -147,6 +155,11 @@ extension Shell {
                 case "&&":
                     if !status.isSuccess {
                         i = skipRhsOfShortCircuit(parts: parts, from: i + 1)
+                        // Bash exempts a chain's final non-zero status
+                        // from errexit when the failure happened on an
+                        // already-guarded sub-command (the LHS of an
+                        // `&&` we just short-circuited).
+                        skipNextErrexitCheck = true
                         continue
                     }
                 case "||":
@@ -162,18 +175,59 @@ extension Shell {
                 i += 1
                 continue
             }
+            // Bash's errexit rule: a failing command does NOT trigger
+            // errexit if it's the LHS of `&&`/`||`. Look ahead one
+            // operator to detect that and run the command under a
+            // guard so its exit doesn't take down the whole script.
+            let isGuardedByChain = isGuardedByLogicalChain(parts: parts, from: i + 1)
+            if isGuardedByChain { errexitGuard += 1 }
             do {
                 status = try await execute(node)
                 lastExitStatus = status
             } catch let signal as LoopControlSignal {
+                if isGuardedByChain { errexitGuard -= 1 }
                 if loopDepth > 0 { throw signal }
                 warnStrayLoopControl(signal)
                 status = .success
+                i += 1
+                continue
+            } catch {
+                if isGuardedByChain { errexitGuard -= 1 }
+                throw error
+            }
+            if isGuardedByChain { errexitGuard -= 1 }
+
+            // errexit: bail when a checked command fails. A
+            // `!`-inverted pipeline asks the next iteration to skip
+            // this check.
+            let suppressed = skipNextErrexitCheck
+            skipNextErrexitCheck = false
+            if errexit, !status.isSuccess, errexitGuard == 0,
+               !suppressed, !isGuardedByChain
+            {
+                throw ShellExit(status: status)
             }
             i += 1
         }
 
         return status
+    }
+
+    /// Look at the next operator (skipping no-ops like `;` / `\n`) and
+    /// return `true` iff it's `&&` or `||` — meaning the just-ran
+    /// command's failure is "checked" by the chain and shouldn't fire
+    /// errexit.
+    private func isGuardedByLogicalChain(parts: [Node], from: Int) -> Bool {
+        var j = from
+        while j < parts.count {
+            guard case .operator(let op) = parts[j].kind else { return false }
+            switch op {
+            case "&&", "||": return true
+            case ";", "\n":  j += 1; continue
+            default:         return false
+            }
+        }
+        return false
     }
 
     private func skipRhsOfShortCircuit(parts: [Node], from: Int) -> Int {

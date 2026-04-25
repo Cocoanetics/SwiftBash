@@ -24,7 +24,11 @@ extension Shell {
                 guard i + 3 < parts.count else { return .success }
                 let cond = parts[i + 1]
                 let body = parts[i + 3]
-                let condStatus = try await execute(cond)
+                errexitGuard += 1
+                let condStatus: ExitStatus
+                do { condStatus = try await execute(cond) }
+                catch { errexitGuard -= 1; throw error }
+                errexitGuard -= 1
                 lastExitStatus = condStatus
                 if condStatus.isSuccess {
                     let result = try await execute(body)
@@ -73,7 +77,11 @@ extension Shell {
         var iterations = 0
         let maxIterations = 1_000_000 // guard against runaway loops
         loop: while true {
-            let condStatus = try await execute(cond)
+            errexitGuard += 1
+            let condStatus: ExitStatus
+            do { condStatus = try await execute(cond) }
+            catch { errexitGuard -= 1; throw error }
+            errexitGuard -= 1
             let keepGoing = invert ? !condStatus.isSuccess : condStatus.isSuccess
             if !keepGoing { break }
             do {
@@ -183,7 +191,11 @@ extension Shell {
         var last = ExitStatus.success
         loop: while true {
             if !condExpr.isEmpty {
-                let v = try await evaluateArithmetic(condExpr)
+                errexitGuard += 1
+                let v: Int64
+                do { v = try await evaluateArithmetic(condExpr) }
+                catch { errexitGuard -= 1; throw error }
+                errexitGuard -= 1
                 if v == 0 { break }
             }
             do {
