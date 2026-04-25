@@ -26,6 +26,9 @@ extension Shell {
     /// - `cp` — ``CpCommand``
     /// - `touch` — ``TouchCommand``
     /// - `find` — ``FindCommand``
+    /// - `sort` — ``SortCommand``
+    /// - `uniq` — ``UniqCommand``
+    /// - `sed` — ``SedCommand``
     ///
     /// Individual commands can still be registered à la carte via
     /// ``register(_:)-<…>``; this is just the convenient one-call form.
@@ -52,5 +55,8 @@ extension Shell {
         register(CpCommand.self)
         register(TouchCommand.self)
         register(FindCommand())
+        register(SortCommand.self)
+        register(UniqCommand.self)
+        register(SedCommand.self)
     }
 }

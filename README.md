@@ -358,8 +358,11 @@ a formatted error on stderr and a non-zero exit.
 | `cat`      | Pass stdin through (or read files) |
 | `wc`       | Count lines (`-l`), words (`-w`), bytes (`-c`) of stdin |
 | `head`     | First N lines of stdin (`-n N`, default 10) |
-| `grep`     | Filter stdin by substring, with `-v` invert and `-i` case-fold |
+| `grep`     | Match lines from stdin or files. Substring or `-E` ERE; `-i` `-v` `-n` `-c` `-l` `-q`; `-A`/`-B`/`-C` context; `-r` with `--include=GLOB` |
 | `find`     | Walk a path with tests (`-name`, `-iname`, `-path`, `-type`, `-empty`, `-newer`), boolean ops (`-not`, `-a`, `-o`, `( )`), actions (`-print`, `-print0`, `-prune`, `-delete`, `-exec`), and globals (`-maxdepth`, `-mindepth`, `-depth`) |
+| `sort`     | Sort lines from stdin or files; `-u` dedup, `-n` numeric, `-r` reverse |
+| `uniq`     | Drop adjacent duplicate lines; `-c` prefixes a repeat count |
+| `sed`      | Pragmatic subset: `s/PAT/REP/[gp]`, `d`, `p` with line-number / `$` / `/regex/` addresses; `-n` quiet, `-e PROGRAM`, `-E` ERE, `-i` in-place |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:
