@@ -38,6 +38,12 @@ public struct Node: Hashable, Sendable {
         case whileCommand(parts: [Node])
         case untilCommand(parts: [Node])
         case forCommand(parts: [Node])
+
+        /// `for ((init; cond; update)); do … done` — C-style for. Each
+        /// of `init`, `cond`, `update` is a verbatim arithmetic body
+        /// (possibly empty); `body` is the loop body.
+        case cStyleForCommand(initExpr: String, condExpr: String,
+                              updateExpr: String, body: Node)
         case caseCommand(parts: [Node])
         case pattern(parts: [Node])
         case function(name: Node, body: Node, parts: [Node])

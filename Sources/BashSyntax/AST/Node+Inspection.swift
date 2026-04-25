@@ -24,6 +24,7 @@ extension Node {
         case .whileCommand: return "while"
         case .untilCommand: return "until"
         case .forCommand: return "for"
+        case .cStyleForCommand: return "cstylefor"
         case .caseCommand: return "case"
         case .pattern: return "pattern"
         case .function: return "function"
@@ -63,6 +64,8 @@ extension Node {
         case .commandSubstitution(let command),
              .processSubstitution(let command):
             return [command]
+        case .cStyleForCommand(_, _, _, let body):
+            return [body]
         case .function(_, _, let parts):
             return parts
         case .arrayAssignment(_, let items, _):

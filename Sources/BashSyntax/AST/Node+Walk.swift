@@ -65,6 +65,11 @@ extension Node {
         case .forCommand(let parts):
             descend = visitor.visitFor(self, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }
+        case .cStyleForCommand(let initExpr, let condExpr, let updateExpr, let body):
+            descend = visitor.visitCStyleFor(
+                self, initExpr: initExpr, condExpr: condExpr,
+                updateExpr: updateExpr, body: body)
+            if descend { body.walk(&visitor) }
         case .caseCommand(let parts):
             descend = visitor.visitCase(self, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }

@@ -98,6 +98,7 @@ extension Shell {
              .word, .assignment, .parameter, .tilde, .heredoc,
              .commandSubstitution, .processSubstitution,
              .ifCommand, .whileCommand, .untilCommand, .forCommand,
+             .cStyleForCommand,
              .caseCommand, .pattern, .unimplemented:
             throw BashInterpreterError.unimplemented(
                 "top-level node kind: \(node.kindName)")
@@ -119,6 +120,9 @@ extension Shell {
                 return try await executeWhileLike(parts: parts, invert: true)
             case .forCommand(let parts):
                 return try await executeFor(parts: parts)
+            case .cStyleForCommand(let i, let c, let u, let body):
+                return try await executeCStyleFor(initExpr: i, condExpr: c,
+                                                  updateExpr: u, body: body)
             case .caseCommand(let parts):
                 return try await executeCase(parts: parts)
             default:

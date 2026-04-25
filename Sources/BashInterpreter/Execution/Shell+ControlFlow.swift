@@ -166,6 +166,44 @@ extension Shell {
                                     body: body)
     }
 
+    /// Run a C-style `for ((init; cond; update)); do … done`. Empty
+    /// `cond` is "always true" — `for ((;;))` loops forever (subject
+    /// to `break`). Exit status is the body's last status, or
+    /// `.success` if the loop never runs.
+    func executeCStyleFor(initExpr: String, condExpr: String,
+                          updateExpr: String, body: Node) async throws -> ExitStatus
+    {
+        loopDepth += 1
+        defer { loopDepth -= 1 }
+
+        if !initExpr.isEmpty {
+            _ = try await evaluateArithmetic(initExpr)
+        }
+
+        var last = ExitStatus.success
+        loop: while true {
+            if !condExpr.isEmpty {
+                let v = try await evaluateArithmetic(condExpr)
+                if v == 0 { break }
+            }
+            do {
+                last = try await execute(body)
+                lastExitStatus = last
+            } catch var signal as LoopControlSignal {
+                signal.remainingLevels -= 1
+                if signal.remainingLevels > 0 { throw signal }
+                switch signal.kind {
+                case .breakLoop:    break loop
+                case .continueLoop: break // fall through to update
+                }
+            }
+            if !updateExpr.isEmpty {
+                _ = try await evaluateArithmetic(updateExpr)
+            }
+        }
+        return last
+    }
+
     /// Run a `for` loop body once per pre-resolved value (already-
     /// expanded strings, no further word splitting). Used by the
     /// `for VAR; do … done` (positional) form.

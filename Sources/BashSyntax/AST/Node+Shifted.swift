@@ -48,6 +48,10 @@ extension Node {
         case .whileCommand(let p): newKind = .whileCommand(parts: shift(p))
         case .untilCommand(let p): newKind = .untilCommand(parts: shift(p))
         case .forCommand(let p):   newKind = .forCommand(parts: shift(p))
+        case .cStyleForCommand(let i, let c, let u, let body):
+            newKind = .cStyleForCommand(
+                initExpr: i, condExpr: c, updateExpr: u,
+                body: body.shifted(by: offset))
         case .caseCommand(let p):  newKind = .caseCommand(parts: shift(p))
         case .pattern(let p):      newKind = .pattern(parts: shift(p))
         case .function(let name, let body, let parts):

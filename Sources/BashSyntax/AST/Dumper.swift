@@ -225,6 +225,15 @@ struct Dumper {
                 Field(name: "expression", value: .scalar(stringRepr(expr))),
                 posField,
             ]
+
+        case .cStyleForCommand(let initExpr, let condExpr, let updateExpr, let body):
+            return [
+                Field(name: "init", value: .scalar(stringRepr(initExpr))),
+                Field(name: "cond", value: .scalar(stringRepr(condExpr))),
+                Field(name: "update", value: .scalar(stringRepr(updateExpr))),
+                Field(name: "body", value: .node(body)),
+                posField,
+            ]
         }
     }
 

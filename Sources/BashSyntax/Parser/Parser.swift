@@ -130,6 +130,11 @@ public final class Parser {
             case .whileCommand(let p): return Node(kind: .whileCommand(parts: p.map(rewrite)), range: n.range)
             case .untilCommand(let p): return Node(kind: .untilCommand(parts: p.map(rewrite)), range: n.range)
             case .forCommand(let p):   return Node(kind: .forCommand(parts: p.map(rewrite)),   range: n.range)
+            case .cStyleForCommand(let i, let c, let u, let body):
+                return Node(
+                    kind: .cStyleForCommand(initExpr: i, condExpr: c,
+                                            updateExpr: u, body: rewrite(body)),
+                    range: n.range)
             case .caseCommand(let p):  return Node(kind: .caseCommand(parts: p.map(rewrite)),  range: n.range)
             case .pattern(let p):      return Node(kind: .pattern(parts: p.map(rewrite)),      range: n.range)
             case .function(let name, let body, let parts):
@@ -788,6 +793,15 @@ public final class Parser {
 
     private func parseFor() throws -> Node {
         let forTok = try next()
+
+        // C-style: `for ((init; cond; update)); do … done`. The
+        // tokenizer emits the whole `((…))` as one `.arithCommand`
+        // token whose value is `init; cond; update`.
+        try skipNewlines()
+        if peek().type == .arithCommand {
+            return try parseCStyleFor(startingAt: forTok)
+        }
+
         var parts: [Node] = [Node(kind: .reservedWord("for"), range: forTok.range)]
         let nameTok = try expect(.word, "variable name")
         parts.append(Node(kind: .word(nameTok.value, parts: []), range: nameTok.range))
@@ -827,6 +841,81 @@ public final class Parser {
         let forNode = Node(kind: .forCommand(parts: parts), range: spanOf(parts))
         return Node(kind: .compound(list: [forNode], redirects: []),
                     range: forNode.range)
+    }
+
+    /// Parse a C-style `for ((init; cond; update)); do … done`. `forTok`
+    /// is the already-consumed `for` keyword; the next token is the
+    /// `((…))` arithmetic-command token.
+    private func parseCStyleFor(startingAt forTok: Token) throws -> Node {
+        let arithTok = try next() // .arithCommand, value = body between `((` and `))`
+        let (initExpr, condExpr, updateExpr) =
+            try splitCStyleForBody(arithTok.value)
+
+        // Optional `;` and newlines, then `do … done`.
+        if peek().type == .semicolon { _ = try next() }
+        try skipNewlines()
+        _ = try expect(.doKw, "'do'")
+        let body = try parseCompoundList(until: [.doneKw])
+        let doneTok = try expect(.doneKw, "'done'")
+        let span = forTok.range.lowerBound..<doneTok.range.upperBound
+        let forNode = Node(
+            kind: .cStyleForCommand(initExpr: initExpr,
+                                    condExpr: condExpr,
+                                    updateExpr: updateExpr,
+                                    body: body),
+            range: span)
+        return Node(kind: .compound(list: [forNode], redirects: []),
+                    range: span)
+    }
+
+    /// Split the body of a `((init; cond; update))` on top-level `;`,
+    /// honouring parens, braces, brackets, and quotes. Bash requires
+    /// exactly two `;` separators; missing parts are treated as empty.
+    private func splitCStyleForBody(_ body: String) throws
+        -> (String, String, String)
+    {
+        var parts: [String] = [""]
+        var depth = 0
+        var quote: Character? = nil
+        for c in body {
+            if let q = quote {
+                parts[parts.count - 1].append(c)
+                if c == q { quote = nil }
+                continue
+            }
+            if c == "'" || c == "\"" || c == "`" {
+                quote = c
+                parts[parts.count - 1].append(c)
+                continue
+            }
+            if c == "(" || c == "[" || c == "{" {
+                depth += 1
+                parts[parts.count - 1].append(c)
+                continue
+            }
+            if c == ")" || c == "]" || c == "}" {
+                depth -= 1
+                parts[parts.count - 1].append(c)
+                continue
+            }
+            if c == ";", depth == 0 {
+                parts.append("")
+                continue
+            }
+            parts[parts.count - 1].append(c)
+        }
+        // Tolerate 1, 2 or 3 segments — pad with empty strings as bash
+        // does for the omitted-parts forms (`for ((;;))`).
+        while parts.count < 3 { parts.append("") }
+        if parts.count > 3 {
+            throw BashSyntaxError.parsing(
+                message: "too many `;` in C-style for header",
+                source: "", position: 0)
+        }
+        let trim: (String) -> String = {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        return (trim(parts[0]), trim(parts[1]), trim(parts[2]))
     }
 
     private func parseCase() throws -> Node {

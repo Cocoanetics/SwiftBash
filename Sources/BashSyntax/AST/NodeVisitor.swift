@@ -29,6 +29,11 @@ public protocol NodeVisitor {
     mutating func visitWhile(_ node: Node, parts: [Node]) -> Bool
     mutating func visitUntil(_ node: Node, parts: [Node]) -> Bool
     mutating func visitFor(_ node: Node, parts: [Node]) -> Bool
+    mutating func visitCStyleFor(_ node: Node,
+                                 initExpr: String,
+                                 condExpr: String,
+                                 updateExpr: String,
+                                 body: Node) -> Bool
     mutating func visitCase(_ node: Node, parts: [Node]) -> Bool
     mutating func visitPattern(_ node: Node, parts: [Node]) -> Bool
     mutating func visitFunction(_ node: Node, name: Node, body: Node, parts: [Node]) -> Bool
