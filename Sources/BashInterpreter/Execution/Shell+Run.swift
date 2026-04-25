@@ -20,6 +20,7 @@ extension Shell {
         currentSource = source
         defer { currentSource = saved }
 
+        let result: ExitStatus
         do {
             var last = ExitStatus.success
             for node in parts {
@@ -38,15 +39,25 @@ extension Shell {
                 // a sequence that crosses statement boundaries.
                 let suppressed = skipNextErrexitCheck
                 skipNextErrexitCheck = false
-                if errexit, !last.isSuccess, errexitGuard == 0, !suppressed {
-                    throw ShellExit(status: last)
+                if !last.isSuccess, errexitGuard == 0, !suppressed {
+                    try await fireErrTrap()
+                    if errexit { throw ShellExit(status: last) }
                 }
             }
-            return last
+            result = last
         } catch let exit as ShellExit {
             lastExitStatus = exit.status
-            return exit.status
+            result = exit.status
         }
+        // EXIT trap fires once when the run finishes — whether through
+        // normal completion, exit, or errexit.
+        if let body = traps["EXIT"], !runningTraps.contains("EXIT") {
+            runningTraps.insert("EXIT")
+            do { _ = try await self.run(body) } catch {}
+            runningTraps.remove("EXIT")
+        }
+        lastExitStatus = result
+        return result
     }
 
     // MARK: AST dispatch
@@ -197,15 +208,15 @@ extension Shell {
             }
             if isGuardedByChain { errexitGuard -= 1 }
 
-            // errexit: bail when a checked command fails. A
-            // `!`-inverted pipeline asks the next iteration to skip
-            // this check.
+            // ERR trap fires after a command fails (in a non-guarded
+            // context — same exemptions as errexit).
             let suppressed = skipNextErrexitCheck
             skipNextErrexitCheck = false
-            if errexit, !status.isSuccess, errexitGuard == 0,
+            if !status.isSuccess, errexitGuard == 0,
                !suppressed, !isGuardedByChain
             {
-                throw ShellExit(status: status)
+                try await fireErrTrap()
+                if errexit { throw ShellExit(status: status) }
             }
             i += 1
         }
@@ -235,12 +246,39 @@ extension Shell {
         return from + 1
     }
 
+    // MARK: Trap firing
+
+    /// Fire the `ERR` trap if registered. Re-entrancy is guarded so a
+    /// failing command inside the trap body doesn't recurse.
+    func fireErrTrap() async throws {
+        guard let body = traps["ERR"], !runningTraps.contains("ERR") else { return }
+        runningTraps.insert("ERR")
+        defer { runningTraps.remove("ERR") }
+        // Suppress errexit while running the trap so a failure
+        // inside doesn't trigger an immediate exit.
+        errexitGuard += 1
+        defer { errexitGuard -= 1 }
+        do { _ = try await self.run(body) } catch is ShellExit { /* let it through */ }
+    }
+
+    /// Fire the `DEBUG` trap if registered. Called before each simple
+    /// command. The trap body is evaluated in the current shell.
+    func fireDebugTrap() async throws {
+        guard let body = traps["DEBUG"], !runningTraps.contains("DEBUG") else { return }
+        runningTraps.insert("DEBUG")
+        defer { runningTraps.remove("DEBUG") }
+        errexitGuard += 1
+        defer { errexitGuard -= 1 }
+        do { _ = try await self.run(body) } catch is ShellExit { /* swallow */ }
+    }
+
     // MARK: Simple commands
 
     /// Execute a `command` node — a sequence of assignments, words and
     /// redirections. Redirections still throw `.unimplemented`; dispatch
     /// falls through to the registered command registry.
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
+        try await fireDebugTrap()
         let procSubFrame = pendingProcessSubs.count
         var assignments: [(String, String)] = []
         var wordFragments: [(node: Node, fragments: [WordFragment])] = []

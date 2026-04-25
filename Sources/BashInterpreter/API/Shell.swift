@@ -82,6 +82,19 @@ public final class Shell: @unchecked Sendable {
     /// executeList iteration.
     var skipNextErrexitCheck: Bool = false
 
+    /// Trap handlers keyed by canonical signal name. Special pseudo-
+    /// signals supported: `EXIT` (run when `run()` returns), `ERR`
+    /// (run after each command that fails), `DEBUG` (run before each
+    /// simple command), `RETURN` (run when a function returns). Real
+    /// process signals (`INT`, `TERM`, …) are accepted by `trap` and
+    /// stored, but without OS signal delivery they only matter for
+    /// `trap -p` introspection.
+    var traps: [String: String] = [:]
+
+    /// Re-entrancy guard so a trap handler can't recursively fire its
+    /// own type while running.
+    var runningTraps: Set<String> = []
+
     /// Depth of enclosing `while`/`until`/`for` loops on the call stack.
     /// See `LoopControlSignal` for why this matters.
     var loopDepth: Int = 0
@@ -149,6 +162,7 @@ public final class Shell: @unchecked Sendable {
             DeclareCommand(name: "typeset"),
             ReadCommand(),
             PrintfCommand(),
+            TrapCommand(),
         ]
         var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }
