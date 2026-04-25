@@ -308,6 +308,71 @@ import Testing
         #expect(cap.stdout == "[0]\n[1]\n[2]\n")
     }
 
+    // MARK: ${arr[$k]} — subscript with substitution
+
+    @Test func subscriptWithVariable() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            arr=(alpha bravo charlie)
+            i=2
+            echo "${arr[$i]}"
+            """)
+        #expect(cap.stdout == "charlie\n")
+    }
+
+    @Test func subscriptWithBracedVariable() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            arr=(alpha bravo charlie)
+            i=1
+            echo "${arr[${i}]}"
+            """)
+        #expect(cap.stdout == "bravo\n")
+    }
+
+    @Test func subscriptWithArithmetic() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            arr=(a b c d e)
+            echo "${arr[$((2 + 1))]}"
+            """)
+        #expect(cap.stdout == "d\n")
+    }
+
+    @Test func subscriptWithCommandSub() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            arr=(zero one two)
+            echo "${arr[$(echo 1)]}"
+            """)
+        #expect(cap.stdout == "one\n")
+    }
+
+    @Test func iterateAndDereference() async throws {
+        // The classic use of ${!arr[@]} + ${arr[$i]}.
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            arr=(alpha bravo charlie)
+            for i in "${!arr[@]}"; do
+              echo "$i: ${arr[$i]}"
+            done
+            """#)
+        #expect(cap.stdout == "0: alpha\n1: bravo\n2: charlie\n")
+    }
+
+    @Test func associativeSubscriptWithVariable() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            declare -A m
+            m[hello]=world
+            key=hello
+            echo "${m[$key]}"
+            """)
+        #expect(cap.stdout == "world\n")
+    }
+
+    // MARK: original — quoted indices preserve associative keys with spaces
+
     @Test func quotedIndicesPreserveSpaceyAssocKeys() async throws {
         // Associative array keys may contain spaces — "${!m[@]}"
         // preserves each key as a single arg.

@@ -10,6 +10,7 @@ extension Shell {
     /// inner pass. Command substitutions and arithmetic inside parameter
     /// bodies are NOT yet supported.
     func applyParameterForm(_ form: ParameterForm) async throws -> String {
+        let form = try await expandingSubscripts(in: form)
         switch form {
         case .plain(let name):
             return lookup(name)
@@ -158,6 +159,59 @@ extension Shell {
         guard after <= last else { return nil }
         let sub = String(name[after..<last])
         return (head, sub)
+    }
+
+    /// Pre-expand any `$var` / `${...}` / `$(cmd)` / `$((expr))` /
+    /// backticks inside an array subscript. `${arr[$k]}` becomes
+    /// `${arr[<value-of-k>]}` before the form is dispatched.
+    /// `[@]` and `[*]` are passed through unchanged. Names without
+    /// subscripts are returned as-is.
+    private func expandingSubscripts(in form: ParameterForm)
+        async throws -> ParameterForm
+    {
+        switch form {
+        case .plain(let name):
+            return .plain(try await expandedSubscript(in: name))
+        case .length(let name):
+            return .length(try await expandedSubscript(in: name))
+        case .indices(let name):
+            return .indices(try await expandedSubscript(in: name))
+        case .defaultValue(let name, let ce, let v):
+            return .defaultValue(name: try await expandedSubscript(in: name),
+                                 checkEmpty: ce, value: v)
+        case .assignDefault(let name, let ce, let v):
+            return .assignDefault(name: try await expandedSubscript(in: name),
+                                  checkEmpty: ce, value: v)
+        case .errorIfUnset(let name, let ce, let m):
+            return .errorIfUnset(name: try await expandedSubscript(in: name),
+                                 checkEmpty: ce, message: m)
+        case .alternative(let name, let ce, let v):
+            return .alternative(name: try await expandedSubscript(in: name),
+                                checkEmpty: ce, value: v)
+        case .removePrefix(let name, let p, let l):
+            return .removePrefix(
+                name: try await expandedSubscript(in: name),
+                pattern: p, longest: l)
+        case .removeSuffix(let name, let p, let l):
+            return .removeSuffix(
+                name: try await expandedSubscript(in: name),
+                pattern: p, longest: l)
+        case .replace(let name, let p, let r, let all, let a):
+            return .replace(name: try await expandedSubscript(in: name),
+                            pattern: p, replacement: r,
+                            all: all, anchor: a)
+        case .substring(let name, let o, let l):
+            return .substring(name: try await expandedSubscript(in: name),
+                              offset: o, length: l)
+        }
+    }
+
+    private func expandedSubscript(in name: String) async throws -> String {
+        guard let (head, sub) = parseSubscriptedName(name),
+              sub != "@", sub != "*"
+        else { return name }
+        let expanded = try await expandHeredocBody(sub)
+        return "\(head)[\(expanded)]"
     }
 
     /// Resolve a subscripted array reference.
