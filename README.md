@@ -359,6 +359,7 @@ a formatted error on stderr and a non-zero exit.
 | `wc`       | Count lines (`-l`), words (`-w`), bytes (`-c`) of stdin |
 | `head`     | First N lines of stdin (`-n N`, default 10) |
 | `grep`     | Filter stdin by substring, with `-v` invert and `-i` case-fold |
+| `find`     | Walk a path with tests (`-name`, `-iname`, `-path`, `-type`, `-empty`, `-newer`), boolean ops (`-not`, `-a`, `-o`, `( )`), actions (`-print`, `-print0`, `-prune`, `-delete`, `-exec`), and globals (`-maxdepth`, `-mindepth`, `-depth`) |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:
