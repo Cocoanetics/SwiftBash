@@ -295,17 +295,40 @@ import Testing
         #expect(cap.stdout == "[]\n")
     }
 
-    @Test func iterateIndices() async throws {
-        // Unquoted form IFS-splits the indices. Quoted "${!arr[@]}"
-        // boundary-merge is a future improvement.
+    @Test func iterateIndicesQuoted() async throws {
+        // "${!arr[@]}" expands to N args — one per set index — so
+        // the for-loop iterates N times.
         let cap = makeShell()
         try await cap.shell.run(#"""
             arr=(alpha bravo charlie)
-            for i in ${!arr[@]}; do
+            for i in "${!arr[@]}"; do
               echo "[$i]"
             done
             """#)
         #expect(cap.stdout == "[0]\n[1]\n[2]\n")
+    }
+
+    @Test func quotedIndicesPreserveSpaceyAssocKeys() async throws {
+        // Associative array keys may contain spaces — "${!m[@]}"
+        // preserves each key as a single arg.
+        let cap = makeShell()
+        cap.shell.register(name: "args") { argv, shell in
+            for (i, a) in argv.dropFirst().enumerated() {
+                shell.stdout("[\(i + 1)]\(a)\n")
+            }
+            shell.stdout("count=\(argv.count - 1)\n")
+            return .success
+        }
+        try await cap.shell.run(#"""
+            declare -A m
+            m["space key"]=v1
+            m[plain]=v2
+            args "${!m[@]}"
+            """#)
+        // Order isn't dict-stable, so just check argc.
+        #expect(cap.stdout.contains("count=2\n"))
+        #expect(cap.stdout.contains("space key"))
+        #expect(cap.stdout.contains("plain"))
     }
 
     // MARK: Slicing — ${arr[@]:offset:length}

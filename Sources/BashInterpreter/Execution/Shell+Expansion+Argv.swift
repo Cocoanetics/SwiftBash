@@ -141,6 +141,46 @@ extension Shell {
                         queue.removeFirst()
                         continue
                     }
+                    // `${!arr[@]}` and `${!arr[*]}` — list of
+                    // indices (indexed array) or keys (associative
+                    // array) with the same per-arg splitting as
+                    // `${arr[@]}`. Quoted form preserves spaces in
+                    // keys; unquoted IFS-splits.
+                    if body.hasPrefix("!"),
+                       let (arrName, sub) = arraySubscript(
+                            of: String(body.dropFirst())),
+                       sub == "@" || sub == "*"
+                    {
+                        let keys: [String]
+                        if let assoc = environment.associativeArrays[arrName] {
+                            keys = Array(assoc.keys)
+                        } else if let array = environment.arrays[arrName] {
+                            keys = array.sortedIndices.map(String.init)
+                        } else {
+                            keys = []
+                        }
+                        if sub == "@" {
+                            flushLiteral()
+                            if inDoubleQuote {
+                                fragments.append(.dollarAtQuoted(keys))
+                            } else {
+                                fragments.append(.dollarAtUnquoted(keys))
+                            }
+                        } else {
+                            // `*` — single space-joined string.
+                            flushLiteral()
+                            let joined = keys
+                                .joined(separator: dollarStarSeparator())
+                            if inDoubleQuote {
+                                literalBuf += joined
+                            } else {
+                                fragments.append(.unquotedSub(joined))
+                            }
+                        }
+                        i = min(hi, head.range.upperBound)
+                        queue.removeFirst()
+                        continue
+                    }
                     // `arr[@]` and `arr[*]` — give the same per-arg
                     // splitting behaviour as `$@` / `$*`. Works for
                     // both indexed and associative arrays.
