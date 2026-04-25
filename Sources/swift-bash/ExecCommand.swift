@@ -35,14 +35,7 @@ struct ExecCommand: AsyncParsableCommand {
     var scriptArgs: [String] = []
 
     func run() async throws {
-        let source: String
-        do {
-            source = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        } catch {
-            throw CLIError(
-                "could not read \(scriptPath): \(error.localizedDescription)"
-            )
-        }
+        let source = try Self.readScript(at: scriptPath)
 
         let shell = Shell(environment: .current())
         shell.registerStandardCommands()
@@ -61,5 +54,44 @@ struct ExecCommand: AsyncParsableCommand {
         }
         // Propagate the script's exit code back through ArgumentParser.
         throw ExitCode(status.code)
+    }
+
+    /// Read script source from `path`. Handles three cases that
+    /// `String(contentsOfFile:)` doesn't:
+    ///
+    /// - `-`, `/dev/stdin`, `/dev/fd/0` → `FileHandle.standardInput`
+    /// - `/dev/fd/N` (N > 0) → open the matching fd directly so bash
+    ///   process-substitution (`<(echo …)`) works
+    /// - regular files / FIFOs / pipes → `FileHandle(forReadingAtPath:)`
+    ///   uses `read(2)` and tolerates non-mappable kinds
+    ///
+    /// `String(contentsOfFile:)` memory-maps the path under the hood,
+    /// which the kernel rejects for pipes, sockets, and other
+    /// non-regular files — Foundation reports the rejection as a
+    /// "permission denied" error, which is misleading.
+    static func readScript(at path: String) throws -> String {
+        let data: Data
+        do {
+            if path == "-" || path == "/dev/stdin" || path == "/dev/fd/0" {
+                data = (try FileHandle.standardInput.readToEnd()) ?? Data()
+            } else if path.hasPrefix("/dev/fd/"),
+                      let fd = Int32(path.dropFirst("/dev/fd/".count)) {
+                let handle = FileHandle(fileDescriptor: fd,
+                                        closeOnDealloc: false)
+                data = (try handle.readToEnd()) ?? Data()
+            } else {
+                guard let handle = FileHandle(forReadingAtPath: path) else {
+                    throw CLIError("could not read \(path): no such file")
+                }
+                defer { try? handle.close() }
+                data = (try handle.readToEnd()) ?? Data()
+            }
+        } catch let err as CLIError {
+            throw err
+        } catch {
+            throw CLIError(
+                "could not read \(path): \(error.localizedDescription)")
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 }
