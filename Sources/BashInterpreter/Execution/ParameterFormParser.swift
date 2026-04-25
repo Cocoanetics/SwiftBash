@@ -50,6 +50,20 @@ enum ParameterFormParser {
             i = 0
         }
 
+        // Indices: `${!name[@]}` / `${!name[*]}` — the only `!`-prefix
+        // form we support (full indirect expansion is a separate
+        // feature). `name` must end with `[@]` or `[*]`.
+        if chars[0] == "!", chars.count > 1 {
+            i = 1
+            let name = readName(chars, &i)
+            if !name.isEmpty, i == chars.count,
+               name.hasSuffix("[@]") || name.hasSuffix("[*]")
+            {
+                return .indices(name)
+            }
+            i = 0
+        }
+
         let name = readName(chars, &i)
         guard !name.isEmpty else {
             throw BashInterpreterError.parameter("bad parameter body: `\(body)`")

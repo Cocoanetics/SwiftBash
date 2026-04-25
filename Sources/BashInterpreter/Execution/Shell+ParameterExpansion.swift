@@ -84,14 +84,26 @@ extension Shell {
             if let (arrName, sub) = parseSubscriptedName(name),
                sub == "@" || sub == "*"
             {
-                let array = environment.arrays[arrName] ?? []
-                let sliced = sliceArray(array, offset: offset, length: length)
+                let elements = environment.arrays[arrName]?.elementsInOrder ?? []
+                let sliced = sliceArray(elements, offset: offset, length: length)
                 let sep = sub == "*"
                     ? String(environment["IFS"]?.first ?? " ")
                     : " "
                 return sliced.joined(separator: sep)
             }
             return substring(of: lookup(name), offset: offset, length: length)
+
+        case .indices(let name):
+            // `${!arr[@]}` / `${!arr[*]}` — sorted list of set indices.
+            // The parser only feeds us names ending with `[@]` or `[*]`.
+            if let (arrName, _) = parseSubscriptedName(name),
+               let array = environment.arrays[arrName]
+            {
+                return array.sortedIndices
+                    .map(String.init)
+                    .joined(separator: " ")
+            }
+            return ""
         }
     }
 
@@ -141,18 +153,20 @@ extension Shell {
     }
 
     /// Resolve a subscripted array reference. `${arr[N]}` returns the
-    /// Nth element; `${arr[@]}` / `${arr[*]}` join all elements with
-    /// a space. The argv-level expander gets a separate path for the
-    /// proper boundary-merge / per-element semantics of `"${arr[@]}"`.
+    /// Nth element (empty when the slot is unset — sparse semantics);
+    /// `${arr[@]}` / `${arr[*]}` join the *set* elements in index
+    /// order, separated by a space. The argv-level expander has its
+    /// own path for the proper boundary-merge / per-element semantics
+    /// of `"${arr[@]}"`.
     private func arrayElementLookup(_ name: String,
                                     `subscript` sub: String) -> String {
         if let array = environment.arrays[name] {
             switch sub {
             case "@", "*":
-                return array.joined(separator: " ")
+                return array.elementsInOrder.joined(separator: " ")
             default:
-                if let n = Int(sub), n >= 0, n < array.count {
-                    return array[n]
+                if let n = Int(sub) {
+                    return array[n] ?? ""
                 }
                 return ""
             }

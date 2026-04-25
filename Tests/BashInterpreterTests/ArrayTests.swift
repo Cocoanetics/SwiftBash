@@ -196,7 +196,9 @@ import Testing
         #expect(cap.stdout == "a BRAVO c\n")
     }
 
-    @Test func elementAssignmentBeyondLengthPads() async throws {
+    @Test func elementAssignmentBeyondLengthIsSparse() async throws {
+        // Sparse: setting [5] doesn't pad indices 2–4 with empties.
+        // ${#arr[@]} reports SET slot count, not max-index+1.
         let cap = makeShell()
         try await cap.shell.run("""
             arr=(a b)
@@ -204,18 +206,20 @@ import Testing
             echo "count=${#arr[@]}"
             echo "[${arr[3]}]"
             echo "[${arr[5]}]"
+            echo "indices=${!arr[@]}"
             """)
-        #expect(cap.stdout == "count=6\n[]\n[tail]\n")
+        #expect(cap.stdout == "count=3\n[]\n[tail]\nindices=0 1 5\n")
     }
 
-    @Test func elementAssignmentOnFreshName() async throws {
+    @Test func elementAssignmentOnFreshNameIsSparse() async throws {
         let cap = makeShell()
         try await cap.shell.run("""
             arr[2]=hello
             echo "[${arr[0]}][${arr[1]}][${arr[2]}]"
             echo "count=${#arr[@]}"
+            echo "indices=${!arr[@]}"
             """)
-        #expect(cap.stdout == "[][][hello]\ncount=3\n")
+        #expect(cap.stdout == "[][][hello]\ncount=1\nindices=2\n")
     }
 
     @Test func elementAssignmentExpandsValue() async throws {
@@ -261,6 +265,47 @@ import Testing
             echo "${arr[0]}|${arr[1]}|${arr[2]}"
             """)
         #expect(cap.stdout == "literal|expanded|computed\n")
+    }
+
+    // MARK: ${!arr[@]} — list of indices
+
+    @Test func indicesOfDenseArray() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            arr=(a b c)
+            echo "${!arr[@]}"
+            """)
+        #expect(cap.stdout == "0 1 2\n")
+    }
+
+    @Test func indicesOfSparseArray() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            arr[2]=x
+            arr[5]=y
+            arr[100]=z
+            echo "${!arr[@]}"
+            """)
+        #expect(cap.stdout == "2 5 100\n")
+    }
+
+    @Test func indicesOfEmptyArrayIsEmpty() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"echo "[${!nope[@]}]""#)
+        #expect(cap.stdout == "[]\n")
+    }
+
+    @Test func iterateIndices() async throws {
+        // Unquoted form IFS-splits the indices. Quoted "${!arr[@]}"
+        // boundary-merge is a future improvement.
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            arr=(alpha bravo charlie)
+            for i in ${!arr[@]}; do
+              echo "[$i]"
+            done
+            """#)
+        #expect(cap.stdout == "[0]\n[1]\n[2]\n")
     }
 
     // MARK: Slicing — ${arr[@]:offset:length}
@@ -329,12 +374,8 @@ import Testing
             echo "${arr[@]}"
             echo "count=${#arr[@]}"
             """)
-        // Note: real bash uses sparse arrays — index 5 (gap between
-        // appended `e` and arr[6]=LATE) wouldn't appear in
-        // `${arr[@]}`. We pad with an empty element instead, so the
-        // join shows "a b c d e  LATE" (two spaces). Bash compat
-        // here would need a sparse-array refactor; the tradeoff is
-        // documented.
-        #expect(cap.stdout == "a b c d e  LATE\ncount=7\n")
+        // Sparse: gap at index 5 disappears from `${arr[@]}`.
+        // count is the SET-slot count, not max-index+1.
+        #expect(cap.stdout == "a b c d e LATE\ncount=6\n")
     }
 }

@@ -12,15 +12,14 @@ import Foundation
 ///   process — builtins stay self-contained.
 public struct Environment: Hashable, Sendable {
     public var variables: [String: String]
-    /// Indexed array variables, parallel to `variables`. A name in
-    /// `arrays` masks the same name in `variables` for `${name[...]}`
-    /// references. Bare `${name}` reads element 0 (matching bash's
-    /// "an unsubscripted array reference is element 0" rule).
-    public var arrays: [String: [String]]
+    /// Indexed array variables — *sparse* by design, just like bash:
+    /// `arr[5]=x` on a fresh name leaves indices 0–4 unset rather
+    /// than padding with empty strings. `${arr[@]}` skips gaps.
+    public var arrays: [String: BashArray]
     public var workingDirectory: String
 
     public init(variables: [String: String] = [:],
-                arrays: [String: [String]] = [:],
+                arrays: [String: BashArray] = [:],
                 workingDirectory: String = FileManager.default.currentDirectoryPath)
     {
         self.variables = variables
@@ -28,18 +27,18 @@ public struct Environment: Hashable, Sendable {
         self.workingDirectory = workingDirectory
     }
 
-    /// Read/write a variable by name. Reading a name that's an array
-    /// returns its first element; writing replaces *both* the array
-    /// (cleared) and the scalar value.
+    /// Read/write a variable by name. Reading an array name returns
+    /// its element-0 (matching bash's "bare reference reads index 0"
+    /// rule); writing replaces both the array (cleared) and any
+    /// scalar with the same name.
     public subscript(name: String) -> String? {
         get {
             if let arr = arrays[name] {
-                return arr.first ?? ""
+                return arr[0] ?? ""
             }
             return variables[name]
         }
         set {
-            // Scalar assignment to an array name removes the array.
             arrays.removeValue(forKey: name)
             variables[name] = newValue
         }
@@ -49,5 +48,54 @@ public struct Environment: Hashable, Sendable {
     public static func current() -> Environment {
         Environment(variables: ProcessInfo.processInfo.environment,
                     workingDirectory: FileManager.default.currentDirectoryPath)
+    }
+}
+
+/// A sparse indexed array — `[Int: String]` plus convenience accessors
+/// that hide the storage choice from callers.
+///
+/// Bash arrays are sparse: `arr[5]=x` on an empty name sets index 5
+/// only, leaving 0–4 unset. `${arr[@]}` then yields `["x"]` — gaps
+/// disappear. Most callers want one of: an indexed read, the sorted
+/// list of *set* indices, or the values in index order.
+public struct BashArray: Hashable, Sendable {
+    public private(set) var entries: [Int: String]
+
+    public init() { self.entries = [:] }
+    public init(entries: [Int: String]) { self.entries = entries }
+
+    /// Build a dense array from a Swift `[String]` — indices 0..count-1.
+    public init(dense values: [String]) {
+        var dict: [Int: String] = [:]
+        for (i, v) in values.enumerated() { dict[i] = v }
+        self.entries = dict
+    }
+
+    /// Number of *set* slots. `arr[5]=x` on a fresh array gives 1,
+    /// not 6 — matches `${#arr[@]}` semantics.
+    public var count: Int { entries.count }
+
+    /// Sorted indices of set slots (for `${!arr[@]}`).
+    public var sortedIndices: [Int] { entries.keys.sorted() }
+
+    /// All values in sorted-index order (for `${arr[@]}`).
+    public var elementsInOrder: [String] {
+        sortedIndices.compactMap { entries[$0] }
+    }
+
+    /// Indexed access — `nil` when the slot isn't set.
+    public subscript(index: Int) -> String? {
+        get { entries[index] }
+        set { entries[index] = newValue }
+    }
+
+    /// Append values starting at `(maxIndex + 1)`. Empty array
+    /// appends starting at 0, matching bash.
+    public mutating func append(_ values: [String]) {
+        var next = (entries.keys.max() ?? -1) + 1
+        for v in values {
+            entries[next] = v
+            next += 1
+        }
     }
 }

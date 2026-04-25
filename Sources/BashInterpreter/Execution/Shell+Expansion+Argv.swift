@@ -144,7 +144,8 @@ extension Shell {
                     // `arr[@]` and `arr[*]` — give the same per-arg
                     // splitting behaviour as `$@` / `$*`.
                     if let (arrName, sub) = arraySubscript(of: body) {
-                        let values = environment.arrays[arrName] ?? []
+                        let values =
+                            environment.arrays[arrName]?.elementsInOrder ?? []
                         if sub == "@" {
                             flushLiteral()
                             if inDoubleQuote {

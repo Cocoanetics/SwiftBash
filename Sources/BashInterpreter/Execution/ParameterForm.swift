@@ -42,6 +42,9 @@ enum ParameterForm: Equatable {
                  all: Bool,
                  anchor: ReplaceAnchor)
     case substring(name: String, offset: Int, length: Int?)
+    /// `${!arr[@]}` / `${!arr[*]}` — list of indices of the array
+    /// (sparse-aware: only set slots are reported, in sorted order).
+    case indices(String)
 
     enum ReplaceAnchor: Equatable {
         case any   // matches at any position

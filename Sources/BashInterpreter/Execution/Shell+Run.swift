@@ -229,11 +229,11 @@ extension Shell {
                         values.append(try await expand(word: item))
                     }
                     if append {
-                        var existing = environment.arrays[name] ?? []
-                        existing.append(contentsOf: values)
+                        var existing = environment.arrays[name] ?? BashArray()
+                        existing.append(values)
                         environment.arrays[name] = existing
                     } else {
-                        environment.arrays[name] = values
+                        environment.arrays[name] = BashArray(dense: values)
                     }
                     environment.variables.removeValue(forKey: name)
                 case .word:
@@ -334,10 +334,8 @@ extension Shell {
         // arithmetic-evaluating subscripts is a stretch goal.
         guard let n = Int(sub), n >= 0 else { return false }
 
-        var array = environment.arrays[arrName]
-            ?? [environment.variables[arrName] ?? ""].filter { !$0.isEmpty }
-        // Pad with empty strings up to index `n`.
-        while array.count <= n { array.append("") }
+        var array = environment.arrays[arrName] ?? BashArray()
+        // Sparse: just set the slot; no padding needed.
         array[n] = value
         environment.arrays[arrName] = array
         environment.variables.removeValue(forKey: arrName)
