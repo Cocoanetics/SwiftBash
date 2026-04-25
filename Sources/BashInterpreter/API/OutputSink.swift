@@ -32,17 +32,20 @@ public final class OutputSink: @unchecked Sendable {
     public let bytes: AsyncStream<Data>
 
     private let continuation: AsyncStream<Data>.Continuation
-    private let onWrite: (Data) -> Void
+    private let onWrite: @Sendable (Data) -> Void
+    private let onFinish: @Sendable () -> Void
 
     public init(
         bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy = .unbounded,
-        onWrite: @escaping (Data) -> Void = { _ in }
+        onWrite: @escaping @Sendable (Data) -> Void = { _ in },
+        onFinish: @escaping @Sendable () -> Void = {}
     ) {
         let (stream, cont) = AsyncStream<Data>.makeStream(
             bufferingPolicy: bufferingPolicy)
         self.bytes = stream
         self.continuation = cont
         self.onWrite = onWrite
+        self.onFinish = onFinish
     }
 
     // MARK: Writing (from commands)
@@ -62,9 +65,11 @@ public final class OutputSink: @unchecked Sendable {
 
     /// Close the output stream. After this, consumers iterating `bytes`
     /// (or reading via `readAllData` / `readAllString` / `lines`) will
-    /// see the iterator finish.
+    /// see the iterator finish, and the `onFinish` hook fires — which
+    /// file-backed sinks use to close their handle.
     public func finish() {
         continuation.finish()
+        onFinish()
     }
 
     // MARK: Reading (from outside)

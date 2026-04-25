@@ -29,5 +29,6 @@ extension NodeVisitor {
     public mutating func visitFunction(_ node: Node, name: Node, body: Node, parts: [Node]) -> Bool { true }
     public mutating func visitArithmeticCommand(_ node: Node, expression: String) {}
     public mutating func visitArithmeticSubstitution(_ node: Node, expression: String) {}
+    public mutating func visitConditional(_ node: Node, parts: [Node]) -> Bool { true }
     public mutating func visitUnimplemented(_ node: Node, parts: [Node]) -> Bool { true }
 }

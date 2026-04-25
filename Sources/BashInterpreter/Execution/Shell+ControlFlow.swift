@@ -137,10 +137,6 @@ extension Shell {
         guard doIndex >= 0 else {
             throw BashInterpreterError.unimplemented("for: missing 'do'")
         }
-        if !hasIn {
-            throw BashInterpreterError.unimplemented(
-                "for VAR; do … done (positional parameters not supported)")
-        }
         guard let body = firstNonReserved(in: parts, startingAt: doIndex + 1)
         else {
             throw BashInterpreterError.unimplemented("for: missing body")
@@ -149,57 +145,52 @@ extension Shell {
         loopDepth += 1
         defer { loopDepth -= 1 }
 
+        // `for VAR; do … done` (no `in` clause) iterates over the
+        // shell's positional parameters — `$1, $2, …`.
+        if !hasIn {
+            return try await runForBody(varName: varName,
+                                        values: positionalParameters,
+                                        body: body)
+        }
+
+        // The `in WORDS` clause is subject to the full word-expansion
+        // pipeline (including `"$@"` boundary merge and IFS splitting),
+        // so `for x in "$@"`, `for x in $VAR`, and `for x in $(seq 3)`
+        // all iterate the right number of times.
+        var allValues: [String] = []
+        for item in items {
+            allValues.append(contentsOf: try await expandToArgs(word: item))
+        }
+        return try await runForBody(varName: varName,
+                                    values: allValues,
+                                    body: body)
+    }
+
+    /// Run a `for` loop body once per pre-resolved value (already-
+    /// expanded strings, no further word splitting). Used by the
+    /// `for VAR; do … done` (positional) form.
+    private func runForBody(varName: String,
+                            values: [String],
+                            body: Node) async throws -> ExitStatus
+    {
         var last = ExitStatus.success
-        loop: for item in items {
-            // `for x in $(seq 3)` must iterate three times — i.e., the
-            // expansion of a substitution in the `in` clause is
-            // word-split. Literal words pass through unchanged.
-            let expanded = try await expand(word: item)
-            let values = splitForLoopWord(expanded, originalWord: item)
-            for value in values {
-                environment[varName] = value
-                do {
-                    last = try await execute(body)
-                    lastExitStatus = last
-                } catch var signal as LoopControlSignal {
-                    signal.remainingLevels -= 1
-                    if signal.remainingLevels > 0 { throw signal }
-                    switch signal.kind {
-                    case .breakLoop:    break loop
-                    case .continueLoop: continue loop
-                    }
+        loop: for value in values {
+            environment[varName] = value
+            do {
+                last = try await execute(body)
+                lastExitStatus = last
+            } catch var signal as LoopControlSignal {
+                signal.remainingLevels -= 1
+                if signal.remainingLevels > 0 { throw signal }
+                switch signal.kind {
+                case .breakLoop:    break loop
+                case .continueLoop: continue loop
                 }
             }
         }
         return last
     }
 
-    /// Approximate bash word splitting for the `for … in …` position.
-    /// Only words that contained a substitution are split — literal
-    /// words pass through unchanged. Splits on whitespace runs
-    /// (space, tab, newline), matching the default `IFS`.
-    private func splitForLoopWord(_ expanded: String,
-                                  originalWord: Node) -> [String] {
-        let hasSubstitution: Bool
-        switch originalWord.kind {
-        case .word(_, let parts), .assignment(_, let parts):
-            hasSubstitution = parts.contains { part in
-                switch part.kind {
-                case .parameter, .commandSubstitution,
-                     .arithmeticSubstitution, .tilde:
-                    return true
-                default:
-                    return false
-                }
-            }
-        default:
-            hasSubstitution = false
-        }
-        if !hasSubstitution { return [expanded] }
-        return expanded
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-    }
 
     // MARK: case
 
@@ -295,10 +286,15 @@ extension Shell {
 
     // MARK: Group / subshell
 
-    /// Execute `{ … ; }` or `( … )` — run each non-reservedWord child in
-    /// order. Subshells don't get env isolation in this skeleton (no
-    /// subprocess model yet); callers should be aware mutations leak out.
+    /// Execute `{ … ; }` or `( … )`. Brace groups share the parent
+    /// shell — they're just sequencing. Subshells (`(...)`) run in
+    /// an isolated copy so environment mutations and `cd` calls stay
+    /// local, matching bash. We detect subshells by the leading `(`
+    /// reservedWord that the parser inserts.
     func executeGroup(list: [Node]) async throws -> ExitStatus {
+        if isSubshellGroup(list) {
+            return try await executeSubshellGroup(list: list)
+        }
         var last = ExitStatus.success
         for node in list {
             if case .reservedWord = node.kind { continue }
@@ -306,6 +302,34 @@ extension Shell {
             lastExitStatus = last
         }
         return last
+    }
+
+    /// Run `( … )` in a sub-`Shell` with a copied environment, so
+    /// assignments, `cd`, `unset`, and `export` inside don't leak out.
+    /// stdout/stderr/stdin/commands/fileSystem are inherited, so
+    /// output, redirection, and command lookup work normally.
+    private func executeSubshellGroup(list: [Node]) async throws -> ExitStatus {
+        let sub = makeSubshell()
+        sub.stdin = stdin
+        sub.currentSource = currentSource
+        sub.lastExitStatus = lastExitStatus
+
+        var last = ExitStatus.success
+        for node in list {
+            if case .reservedWord = node.kind { continue }
+            last = try await sub.execute(node)
+            sub.lastExitStatus = last
+        }
+        // The exit status — but NOT the env mutations — propagates back.
+        lastExitStatus = last
+        return last
+    }
+
+    private func isSubshellGroup(_ list: [Node]) -> Bool {
+        guard let first = list.first,
+              case .reservedWord(let w) = first.kind
+        else { return false }
+        return w == "("
     }
 
     /// Emit a bash-style warning when `break` / `continue` fires outside

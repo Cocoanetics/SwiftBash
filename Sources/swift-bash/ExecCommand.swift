@@ -30,6 +30,10 @@ struct ExecCommand: AsyncParsableCommand {
     @Argument(help: "Path to a bash script file.")
     var scriptPath: String
 
+    @Argument(parsing: .captureForPassthrough,
+              help: "Arguments passed to the script as $1 $2 ...")
+    var scriptArgs: [String] = []
+
     func run() async throws {
         let source: String
         do {
@@ -42,6 +46,8 @@ struct ExecCommand: AsyncParsableCommand {
 
         let shell = Shell(environment: .current())
         shell.registerStandardCommands()
+        shell.scriptName = scriptPath
+        shell.positionalParameters = scriptArgs
         // Shell defaults already forward to FileHandle.standardOutput /
         // .standardError — no additional wiring needed.
 

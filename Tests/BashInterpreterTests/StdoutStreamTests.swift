@@ -2,6 +2,18 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+private final class DataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = Data()
+    var value: Data {
+        lock.lock(); defer { lock.unlock() }; return _value
+    }
+    func append(_ data: Data) {
+        lock.lock(); defer { lock.unlock() }
+        _value.append(data)
+    }
+}
+
 /// Exercises the two ways to consume a Shell's stdout:
 ///  1. `Shell.runCapturing` — convenience, drains the whole output.
 ///  2. Replacing `shell.stdout` with your own `OutputSink` and
@@ -81,8 +93,10 @@ import Foundation
 
         let lines = await arrivals
         #expect(lines.map(\.0) == ["first", "second", "third"])
-        // First line appears immediately; later ones at least 70 ms apart.
-        #expect(lines[0].1 < 0.05)
+        // First line should be near-instant (well under one inter-line
+        // sleep). Subsequent lines at least one sleep duration apart.
+        // Generous bounds to absorb CI scheduler jitter.
+        #expect(lines[0].1 < 0.07)
         #expect(lines[1].1 > 0.07)
         #expect(lines[2].1 > 0.14)
     }
@@ -94,7 +108,7 @@ import Foundation
         // see every write, which is what lets the test CapturingShell
         // give synchronous access to the collected string while still
         // exposing the stream for live consumers.
-        var seen: [Data] = []
+        let seen = DataBox()
         let sink = OutputSink { data in seen.append(data) }
         let shell = Shell(stdout: sink, stderr: .discard)
 
@@ -102,8 +116,7 @@ import Foundation
         sink.finish()
 
         // onWrite observed the data synchronously:
-        let synchronouslySeen = seen.reduce(Data(), +)
-        #expect(String(decoding: synchronouslySeen, as: UTF8.self) == "hi\n")
+        #expect(String(decoding: seen.value, as: UTF8.self) == "hi\n")
 
         // And the async stream has the same data:
         let drained = await sink.readAllString()

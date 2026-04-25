@@ -138,6 +138,7 @@ struct Dumper {
              .forCommand(let parts),
              .caseCommand(let parts),
              .pattern(let parts),
+             .conditional(let parts),
              .unimplemented(let parts):
             return [posField, Field(name: "parts", value: .nodeList(parts))]
 

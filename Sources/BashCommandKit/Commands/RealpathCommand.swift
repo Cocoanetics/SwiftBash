@@ -23,30 +23,15 @@ public struct RealpathCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        let expanded = expandTilde(path, home: shell.environment["HOME"])
-        let base = expanded.hasPrefix("/")
-            ? expanded
-            : (shell.environment.workingDirectory as NSString)
-                .appendingPathComponent(expanded)
-
-        let url = URL(fileURLWithPath: base)
-                    .standardizedFileURL
-                    .resolvingSymlinksInPath()
-        let resolved = url.path
-
-        if !missing, !FileManager.default.fileExists(atPath: resolved) {
+        let absolute = shell.resolvePath(path)
+        do {
+            let resolved = try await shell.fileSystem.canonicalize(
+                absolute, allowMissing: missing)
+            shell.stdout(resolved + "\n")
+            return .success
+        } catch FileSystemError.notFound {
             shell.stderr("realpath: \(path): No such file or directory\n")
             return .failure
         }
-
-        shell.stdout(resolved + "\n")
-        return .success
-    }
-
-    private func expandTilde(_ path: String, home: String?) -> String {
-        guard path.hasPrefix("~"), let home, !home.isEmpty else { return path }
-        if path == "~" { return home }
-        if path.hasPrefix("~/") { return home + String(path.dropFirst()) }
-        return path // `~user` not supported in this minimal build
     }
 }

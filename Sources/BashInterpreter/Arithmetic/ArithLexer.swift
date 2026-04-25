@@ -57,12 +57,25 @@ public enum ArithLexer {
 
             // Identifiers and `$var` references
             if c == "$" {
-                // `$name` — consume the `$` and read the identifier.
                 advance()
-                guard let next = peek(), next.isLetter || next == "_" else {
+                guard let next = peek() else {
                     throw ArithError.unexpectedCharacter(c, position: index - 1)
                 }
-                return .ident(try readIdentifier())
+                // `$name` — read identifier.
+                if next.isLetter || next == "_" {
+                    return .ident(try readIdentifier())
+                }
+                // `$1`, `$10`, … — positional parameter ref. We emit
+                // an ident token whose name is the digit string; the
+                // `get` closure looks it up in `positionalParameters`.
+                if next.isNumber {
+                    var digits = ""
+                    while let d = peek(), d.isNumber {
+                        digits.append(d); advance()
+                    }
+                    return .ident(digits)
+                }
+                throw ArithError.unexpectedCharacter(c, position: index - 1)
             }
             if c.isLetter || c == "_" {
                 return .ident(try readIdentifier())

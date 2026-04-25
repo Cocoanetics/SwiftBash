@@ -55,39 +55,37 @@ extension Shell {
             return try await executePipeline(parts: parts)
 
         case .compound(let list, let redirects):
-            if !redirects.isEmpty {
-                throw BashInterpreterError.unimplemented(
-                    "redirections on compound commands")
+            let procSubFrame = pendingProcessSubs.count
+            let restore = try await applyRedirects(redirects)
+            let result: ExitStatus
+            do {
+                result = try await runCompoundBody(list: list)
+            } catch {
+                restore()
+                await drainProcessSubs(from: procSubFrame)
+                throw error
             }
-            if list.count == 1 {
-                switch list[0].kind {
-                case .arithmeticCommand(let expr):
-                    return try runArithmeticCommand(expr)
-                case .ifCommand(let parts):
-                    return try await executeIf(parts: parts)
-                case .whileCommand(let parts):
-                    return try await executeWhileLike(parts: parts, invert: false)
-                case .untilCommand(let parts):
-                    return try await executeWhileLike(parts: parts, invert: true)
-                case .forCommand(let parts):
-                    return try await executeFor(parts: parts)
-                case .caseCommand(let parts):
-                    return try await executeCase(parts: parts)
-                default:
-                    break
-                }
-            }
-            return try await executeGroup(list: list)
+            restore()
+            await drainProcessSubs(from: procSubFrame)
+            return result
 
-        case .function:
-            throw BashInterpreterError.unimplemented("function definitions")
+        case .function(let nameNode, let body, _):
+            let name = try await expand(word: nameNode)
+            commands[name] = FunctionCommand(
+                name: name,
+                body: body,
+                definitionSource: currentSource)
+            return .success
 
         case .arithmeticCommand(let expr):
-            return try runArithmeticCommand(expr)
+            return try await runArithmeticCommand(expr)
 
         case .arithmeticSubstitution:
             throw BashInterpreterError.unimplemented(
                 "arithmetic substitution used outside a word")
+
+        case .conditional(let parts):
+            return try await executeConditional(parts: parts)
 
         case .operator, .pipe, .reservedWord, .redirect,
              .word, .assignment, .parameter, .tilde, .heredoc,
@@ -97,6 +95,30 @@ extension Shell {
             throw BashInterpreterError.unimplemented(
                 "top-level node kind: \(node.kindName)")
         }
+    }
+
+    /// Dispatch the body of a `.compound` node — extracted so the
+    /// caller can wrap redirects and process-sub draining around it.
+    private func runCompoundBody(list: [Node]) async throws -> ExitStatus {
+        if list.count == 1 {
+            switch list[0].kind {
+            case .arithmeticCommand(let expr):
+                return try await runArithmeticCommand(expr)
+            case .ifCommand(let parts):
+                return try await executeIf(parts: parts)
+            case .whileCommand(let parts):
+                return try await executeWhileLike(parts: parts, invert: false)
+            case .untilCommand(let parts):
+                return try await executeWhileLike(parts: parts, invert: true)
+            case .forCommand(let parts):
+                return try await executeFor(parts: parts)
+            case .caseCommand(let parts):
+                return try await executeCase(parts: parts)
+            default:
+                break
+            }
+        }
+        return try await executeGroup(list: list)
     }
 
     // MARK: Lists
@@ -154,47 +176,139 @@ extension Shell {
     /// redirections. Redirections still throw `.unimplemented`; dispatch
     /// falls through to the registered command registry.
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
+        let procSubFrame = pendingProcessSubs.count
         var assignments: [(String, String)] = []
-        var argv: [String] = []
-        var hasRedirect = false
+        var wordFragments: [(node: Node, fragments: [WordFragment])] = []
+        var redirects: [Node] = []
 
-        for part in parts {
-            switch part.kind {
-            case .assignment:
-                let expanded = try await expand(word: part)
-                if let eq = expanded.firstIndex(of: "=") {
-                    let name = String(expanded[..<eq])
-                    let value = String(expanded[expanded.index(after: eq)...])
-                    assignments.append((name, value))
+        // Bash word expansion order:
+        // 1. Substitution (parameter / command / arithmetic) on
+        //    assignment values AND command words — *all using the
+        //    pre-prefix env*. This matters: `X=outer; X=inner echo $X`
+        //    must print "outer" because $X's substitution runs before
+        //    the prefix assignment is in scope.
+        // 2. Apply prefix assignments to the shell env (scoped to the
+        //    duration of the command).
+        // 3. Field splitting on the substituted command words — uses
+        //    the *new* `$IFS`, so `IFS=":" cmd $X` does split on `:`.
+        // 4. Pathname expansion (globbing).
+        // 5. Run the command.
+        // 6. Restore.
+        do {
+            for part in parts {
+                switch part.kind {
+                case .assignment:
+                    let expanded = try await expand(word: part)
+                    if let eq = expanded.firstIndex(of: "=") {
+                        let name = String(expanded[..<eq])
+                        let value = String(expanded[expanded.index(after: eq)...])
+                        assignments.append((name, value))
+                    }
+                case .word:
+                    let frags = try await collectArgFragments(word: part)
+                    wordFragments.append((part, frags))
+                case .redirect:
+                    redirects.append(part)
+                default:
+                    break
                 }
-            case .word:
-                argv.append(try await expand(word: part))
-            case .redirect:
-                hasRedirect = true
-            default:
-                break
             }
+        } catch {
+            await drainProcessSubs(from: procSubFrame)
+            throw error
         }
 
-        if hasRedirect {
-            throw BashInterpreterError.unimplemented(
-                "redirection (no fd plumbing yet)")
+        // Step 2: apply prefix assignments. Scope is restored at the
+        // end unless the command turns out to be empty (assignments
+        // stay permanent in that case, matching bash).
+        var savedScope: [(String, String?)] = []
+        for (name, value) in assignments {
+            savedScope.append((name, environment[name]))
+            environment[name] = value
+        }
+        func restoreScope() {
+            for (name, prior) in savedScope.reversed() {
+                environment[name] = prior
+            }
+            savedScope.removeAll()
         }
 
+        let restoreRedirects: @Sendable () -> Void
+        do {
+            restoreRedirects = try await applyRedirects(redirects)
+        } catch {
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
+        }
+
+        // Step 3 + 4: field splitting (uses scoped $IFS) then globbing.
+        var argv: [String] = []
+        do {
+            for (node, frags) in wordFragments {
+                for arg in assembleArgs(frags) {
+                    argv.append(contentsOf: try await globExpand(
+                        arg, originalWord: node))
+                }
+            }
+        } catch {
+            restoreRedirects()
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
+        }
+
+        // No command word → keep assignments permanent.
         if argv.isEmpty {
-            for (name, value) in assignments {
-                environment[name] = value
-            }
+            savedScope.removeAll()
+            restoreRedirects()
+            await drainProcessSubs(from: procSubFrame)
             return .success
         }
 
-        let restore = applyScopedAssignments(assignments)
-        defer { restore() }
-
-        guard let command = commands[argv[0]] else {
-            throw BashInterpreterError.commandNotFound(argv[0])
+        let result: ExitStatus
+        do {
+            guard let command = commands[argv[0]] else {
+                throw BashInterpreterError.commandNotFound(argv[0])
+            }
+            result = try await command.run(argv, shell: self)
+        } catch {
+            restoreScope()
+            restoreRedirects()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
         }
-        return try await command.run(argv, shell: self)
+        restoreScope()
+        restoreRedirects()
+        await drainProcessSubs(from: procSubFrame)
+        return result
+    }
+
+    /// Clean up process substitutions allocated by the just-finished
+    /// command. For `<(cmd)`, just delete the temp file. For `>(cmd)`,
+    /// feed the temp file's contents to the consumer command first,
+    /// then delete.
+    func drainProcessSubs(from frameStart: Int) async {
+        guard pendingProcessSubs.count > frameStart else { return }
+        let frame = Array(pendingProcessSubs[frameStart...])
+        pendingProcessSubs.removeSubrange(frameStart...)
+
+        for sub in frame {
+            switch sub.kind {
+            case .input:
+                try? await fileSystem.remove(sub.path, recursive: false)
+            case .output:
+                if let consumer = sub.consumer {
+                    let captured =
+                        (try? await fileSystem.readData(sub.path)) ?? Data()
+                    let savedStdin = stdin
+                    stdin = .data(captured)
+                    _ = try? await execute(consumer)
+                    stdin = savedStdin
+                }
+                try? await fileSystem.remove(sub.path, recursive: false)
+            }
+        }
     }
 
     private func applyScopedAssignments(_ assignments: [(String, String)]) -> () -> Void {

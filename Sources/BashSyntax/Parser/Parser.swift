@@ -328,27 +328,115 @@ public final class Parser {
 
     private func parseCommand() throws -> Node {
         let t = peek()
+        let node: Node
+        let wantsTrailingRedirects: Bool
         switch t.type {
         case .ifKw:
-            return try parseIf()
+            node = try parseIf(); wantsTrailingRedirects = true
         case .whileKw:
-            return try parseWhileLike(kind: .whileCommand(parts: []))
+            node = try parseWhileLike(kind: .whileCommand(parts: []))
+            wantsTrailingRedirects = true
         case .untilKw:
-            return try parseWhileLike(kind: .untilCommand(parts: []))
+            node = try parseWhileLike(kind: .untilCommand(parts: []))
+            wantsTrailingRedirects = true
         case .forKw:
-            return try parseFor()
+            node = try parseFor(); wantsTrailingRedirects = true
         case .caseKw:
-            return try parseCase()
+            node = try parseCase(); wantsTrailingRedirects = true
         case .leftParen:
-            return try parseSubshell()
+            node = try parseSubshell(); wantsTrailingRedirects = true
         case .leftCurly:
-            return try parseGroup()
+            node = try parseGroup(); wantsTrailingRedirects = true
         case .functionKw:
-            return try parseFunctionDefKeyword()
+            node = try parseFunctionDefKeyword(); wantsTrailingRedirects = false
         case .arithCommand:
+            // parseArithmeticCommand already consumes its own trailing redirects.
             return try parseArithmeticCommand()
+        case .condStart:
+            return try parseConditional()
         default:
             return try parseSimpleOrFunctionDef()
+        }
+
+        guard wantsTrailingRedirects else { return node }
+        return try attachTrailingRedirects(to: node)
+    }
+
+    /// After parsing a compound command (if/while/for/case/group/subshell),
+    /// consume any redirects that follow it on the same command line and
+    /// fold them into the compound's `redirects` array.
+    private func attachTrailingRedirects(to node: Node) throws -> Node {
+        var extra: [Node] = []
+        while isRedirectStart(peek()) {
+            extra.append(try parseRedirection())
+        }
+        guard !extra.isEmpty,
+              case .compound(let list, let existing) = node.kind
+        else { return node }
+        let all = existing + extra
+        let upper = extra.last!.range.upperBound
+        return Node(kind: .compound(list: list, redirects: all),
+                    range: node.range.lowerBound..<upper)
+    }
+
+    /// `[[ EXPR ]]` — collect everything between the brackets as a
+    /// flat token list. Operators (`&&`, `||`, `<`, `>`, `(`, `)`,
+    /// `!`) are reified as small nodes so the interpreter has a
+    /// uniform list to walk. We match `]]` by literal value because
+    /// the tokenizer's reserved-word recognition only fires at
+    /// command-start positions, not after operand words.
+    private func parseConditional() throws -> Node {
+        let start = try expect(.condStart, "'[['")
+        var parts: [Node] = []
+        while !isCondEnd(peek()), peek().type != .eof {
+            let tok = try next()
+            parts.append(condNode(for: tok))
+        }
+        guard isCondEnd(peek()) else {
+            throw BashSyntaxError.parsing(
+                message: "expected ']]' to close '[['",
+                source: source,
+                position: peek().range.lowerBound)
+        }
+        let end = try next()
+        return Node(kind: .conditional(parts: parts),
+                    range: start.range.lowerBound..<end.range.upperBound)
+    }
+
+    private func isCondEnd(_ t: Token) -> Bool {
+        t.type == .condEnd || t.value == "]]"
+    }
+
+    private func condNode(for tok: Token) -> Node {
+        switch tok.type {
+        case .word, .number, .assignmentWord, .redirectWord:
+            // Try to expand as a word so $VAR / $(...) etc. become
+            // proper sub-nodes — same as in command position.
+            if let expanded = try? expandWord(tok, asAssignment: false) {
+                return expanded
+            }
+            return Node(kind: .word(tok.value, parts: []), range: tok.range)
+        case .less:
+            return Node(kind: .operator("<"), range: tok.range)
+        case .greater:
+            return Node(kind: .operator(">"), range: tok.range)
+        case .andAnd:
+            return Node(kind: .operator("&&"), range: tok.range)
+        case .orOr:
+            return Node(kind: .operator("||"), range: tok.range)
+        case .bang:
+            return Node(kind: .reservedWord("!"), range: tok.range)
+        case .leftParen:
+            return Node(kind: .reservedWord("("), range: tok.range)
+        case .rightParen:
+            return Node(kind: .reservedWord(")"), range: tok.range)
+        case .newline, .semicolon:
+            // Whitespace-equivalents inside [[ ]] — bash treats them
+            // as separators we should drop. Use an operator marker so
+            // the AST stays printable; interpreter skips them.
+            return Node(kind: .operator(";"), range: tok.range)
+        default:
+            return Node(kind: .word(tok.value, parts: []), range: tok.range)
         }
     }
 

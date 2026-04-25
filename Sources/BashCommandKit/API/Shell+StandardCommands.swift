@@ -16,7 +16,14 @@ extension Shell {
     /// - `cat` — ``CatCommand``
     /// - `wc` — ``WcCommand``
     /// - `head` — ``HeadCommand``
+    /// - `tail` — ``TailCommand``
     /// - `grep` — ``GrepCommand``
+    /// - `ls` — ``LsCommand``
+    /// - `mkdir` — ``MkdirCommand``
+    /// - `rm` — ``RmCommand``
+    /// - `mv` — ``MvCommand``
+    /// - `cp` — ``CpCommand``
+    /// - `touch` — ``TouchCommand``
     ///
     /// Individual commands can still be registered à la carte via
     /// ``register(_:)-<…>``; this is just the convenient one-call form.
@@ -33,6 +40,13 @@ extension Shell {
         register(CatCommand.self)
         register(WcCommand.self)
         register(HeadCommand.self)
+        register(TailCommand.self)
         register(GrepCommand.self)
+        register(LsCommand.self)
+        register(MkdirCommand.self)
+        register(RmCommand.self)
+        register(MvCommand.self)
+        register(CpCommand.self)
+        register(TouchCommand.self)
     }
 }

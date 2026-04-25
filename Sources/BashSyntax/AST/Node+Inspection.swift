@@ -29,6 +29,7 @@ extension Node {
         case .function: return "function"
         case .arithmeticCommand: return "arithmeticcommand"
         case .arithmeticSubstitution: return "arithmeticsubstitution"
+        case .conditional: return "conditional"
         case .unimplemented: return "unimplemented"
         }
     }
@@ -49,6 +50,7 @@ extension Node {
              .forCommand(let parts),
              .caseCommand(let parts),
              .pattern(let parts),
+             .conditional(let parts),
              .unimplemented(let parts):
             return parts
         case .compound(let list, let redirects):

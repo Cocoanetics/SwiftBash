@@ -40,6 +40,19 @@ public final class Shell: @unchecked Sendable {
     /// Commands keyed by name.
     public var commands: [String: Command]
 
+    /// The filesystem the shell reads and writes through. Defaults to
+    /// ``RealFileSystem`` (the host's real `FileManager`). Swap in
+    /// `InMemoryFileSystem` or similar to sandbox scripts.
+    public var fileSystem: FileSystem
+
+    /// Positional parameters — `$1` is `positionalParameters[0]`, etc.
+    /// Set this directly, or use `set -- a b c` from a script. The
+    /// CLI's `swift-bash exec script.sh arg1 arg2` populates them.
+    public var positionalParameters: [String] = []
+
+    /// `$0` — the script or shell name. Defaults to "swift-bash".
+    public var scriptName: String = "swift-bash"
+
     /// Exit status of the most recently completed command.
     public internal(set) var lastExitStatus: ExitStatus = .success
 
@@ -47,15 +60,40 @@ public final class Shell: @unchecked Sendable {
     /// See `LoopControlSignal` for why this matters.
     var loopDepth: Int = 0
 
+    /// Depth of nested function calls on the call stack. Used by
+    /// `local` (only valid `> 0`) and `return` (only meaningful `> 0`).
+    var functionCallDepth: Int = 0
+
+    /// Stack of function-local variable frames. The top frame is
+    /// the currently-running function's locals; each entry records
+    /// the variable's *previous* value so it can be restored on
+    /// function return.
+    var localVarStack: [[(name: String, prior: String?)]] = []
+
+    /// Process substitutions allocated during expansion that need
+    /// post-command cleanup (delete the temp file, and for `>(cmd)`
+    /// run the consumer with the captured bytes as stdin).
+    var pendingProcessSubs: [ProcessSub] = []
+
+    /// One pending `<(cmd)` or `>(cmd)` substitution.
+    struct ProcessSub: Sendable {
+        enum Kind: Sendable { case input, output }
+        let kind: Kind
+        let path: String
+        let consumer: Node?  // for `.output`, the command to feed
+    }
+
     public init(environment: Environment = Environment(),
                 stdout: OutputSink? = nil,
                 stderr: OutputSink? = nil,
-                commands: [String: Command] = Shell.defaultCommands())
+                commands: [String: Command] = Shell.defaultCommands(),
+                fileSystem: FileSystem = RealFileSystem())
     {
         self.environment = environment
         self.stdout = stdout ?? .forwarding(to: FileHandle.standardOutput)
         self.stderr = stderr ?? .forwarding(to: FileHandle.standardError)
         self.commands = commands
+        self.fileSystem = fileSystem
     }
 
     // MARK: Default registry
@@ -73,6 +111,14 @@ public final class Shell: @unchecked Sendable {
             ExitCommand(),
             BreakCommand(),
             ContinueCommand(),
+            SetCommand(),
+            ShiftCommand(),
+            TestCommand(name: "test"),
+            TestCommand(name: "["),
+            ReturnCommand(),
+            LocalCommand(),
+            SourceCommand(name: "source"),
+            SourceCommand(name: "."),
         ]
         var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }
@@ -94,7 +140,8 @@ public final class Shell: @unchecked Sendable {
         let sub = Shell(environment: environment,
                         stdout: stdout,
                         stderr: stderr,
-                        commands: commands)
+                        commands: commands,
+                        fileSystem: fileSystem)
         return sub
     }
 }

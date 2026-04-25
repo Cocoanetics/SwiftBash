@@ -31,11 +31,20 @@ public struct CatCommand: ParsableBashCommand {
                 }
                 continue
             }
+            let resolved = shell.resolvePath(path)
             do {
-                let data = try Data(contentsOf: URL(fileURLWithPath: path))
-                shell.stdout(data)
+                let source = try await shell.fileSystem.openRead(resolved)
+                for await chunk in source.bytes {
+                    shell.stdout(chunk)
+                }
+            } catch FileSystemError.notFound {
+                shell.stderr("cat: \(path): No such file or directory\n")
+                hadError = true
+            } catch FileSystemError.isADirectory {
+                shell.stderr("cat: \(path): Is a directory\n")
+                hadError = true
             } catch {
-                shell.stderr("cat: \(path): \(error.localizedDescription)\n")
+                shell.stderr("cat: \(path): \(error)\n")
                 hadError = true
             }
         }

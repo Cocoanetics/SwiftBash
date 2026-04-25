@@ -66,7 +66,7 @@ extension Shell {
     }
 
     /// Resolve a single substitution sub-node to its string value.
-    private func resolve(part: Node) async throws -> String {
+    func resolve(part: Node) async throws -> String {
         switch part.kind {
         case .parameter(let name):
             return try await resolveParameter(name)
@@ -75,14 +75,74 @@ extension Shell {
             return raw
         case .commandSubstitution(let cmd):
             return try await captureOutput(of: cmd)
-        case .processSubstitution:
-            throw BashInterpreterError.unimplemented("process substitution")
+        case .processSubstitution(let cmd):
+            return try await resolveProcessSubstitution(part: part, command: cmd)
         case .arithmeticSubstitution(let expr):
-            let value = try evaluateArithmetic(expr)
+            let value = try await evaluateArithmetic(expr)
             return String(value)
         default:
             return ""
         }
+    }
+
+    /// Implement `<(cmd)` and `>(cmd)` against the in-process file
+    /// system. These don't use real fds — we synthesise a temp file in
+    /// ``Shell/fileSystem``, pre-fill it (input case) or post-drain it
+    /// (output case), and substitute the path into argv.
+    ///
+    /// **Limitations vs. `/bin/bash`:**
+    /// - Not streaming: `<(cmd)` waits for `cmd` to finish before the
+    ///   outer command starts, and `>(cmd)` waits for the outer
+    ///   command to finish before `cmd` runs.
+    /// - Concurrent tools that rely on overlapping execution
+    ///   (`<(tail -f log)`) won't work; bounded outputs (`diff <(a) <(b)`)
+    ///   work fine.
+    private func resolveProcessSubstitution(part: Node,
+                                            command: Node) async throws -> String
+    {
+        let direction: ProcessSub.Kind
+        let chars = Array(currentSource)
+        if part.range.lowerBound < chars.count,
+           chars[part.range.lowerBound] == ">"
+        {
+            direction = .output
+        } else {
+            direction = .input
+        }
+
+        switch direction {
+        case .input:
+            // Run the inner command, capture its stdout, write to a
+            // temp file, hand back the path.
+            let path = try await fileSystem.makeTempPath(prefix: "procsub-in")
+            let captured = try await captureBytes(of: command)
+            try await fileSystem.writeData(captured, to: path, append: false)
+            pendingProcessSubs.append(
+                ProcessSub(kind: .input, path: path, consumer: nil))
+            return path
+
+        case .output:
+            // Reserve a path now; the outer command writes to it.
+            // After the outer command finishes, we read the path and
+            // feed it to `command` as stdin.
+            let path = try await fileSystem.makeTempPath(prefix: "procsub-out")
+            try await fileSystem.writeData(Data(), to: path, append: false)
+            pendingProcessSubs.append(
+                ProcessSub(kind: .output, path: path, consumer: command))
+            return path
+        }
+    }
+
+    /// Run `node` in a scope that captures stdout as raw bytes
+    /// (binary-safe — used by `<(cmd)`).
+    private func captureBytes(of node: Node) async throws -> Data {
+        let sink = OutputSink()
+        let savedStdout = stdout
+        stdout = sink
+        defer { stdout = savedStdout }
+        _ = try await execute(node)
+        sink.finish()
+        return await sink.readAllData()
     }
 
     /// Resolve a `.parameter(body)` sub-node to its runtime string value.
@@ -91,8 +151,22 @@ extension Shell {
         case "?": return "\(lastExitStatus.code)"
         case "$": return "\(getpid())"
         case "!": return "0"
-        case "#": return "0"
+        case "#": return "\(positionalParameters.count)"
+        case "0": return scriptName
+        case "@", "*":
+            // Both join with the first IFS char (default: space). We
+            // don't model "$@" vs $@ argv-splitting yet — both produce
+            // a single space-joined string. The for-loop word splitter
+            // breaks unquoted substitutions back apart on whitespace.
+            return positionalParameters.joined(separator: " ")
         default: break
+        }
+        // `$1`, `$2`, … `${10}`, `${42}`
+        if let n = Int(body), n >= 1 {
+            let idx = n - 1
+            return idx < positionalParameters.count
+                ? positionalParameters[idx]
+                : ""
         }
         let form = try ParameterFormParser.parse(body)
         return try await applyParameterForm(form)
@@ -100,7 +174,7 @@ extension Shell {
 
     /// Run `node` in a scope that captures stdout into a string.
     /// Trailing newlines are trimmed — matching bash's `$(…)` semantics.
-    private func captureOutput(of node: Node) async throws -> String {
+    func captureOutput(of node: Node) async throws -> String {
         let sink = OutputSink()
         let savedStdout = stdout
         stdout = sink

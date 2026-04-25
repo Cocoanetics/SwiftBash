@@ -76,16 +76,28 @@ extension Shell {
     // MARK: Lookup helper
 
     private func lookup(_ name: String) -> String {
-        // Special single-char parameters handled by the existing
-        // resolveParameter; for everything else, raw value or empty.
+        // Special parameters first.
         switch name {
         case "?": return "\(lastExitStatus.code)"
         case "$": return "\(getpid())"
-        case "#": return "0"
-        case "0": return "swift-bash"
+        case "#": return "\(positionalParameters.count)"
+        case "0": return scriptName
+        case "@", "*":
+            return positionalParameters.joined(separator: " ")
         default:
-            return environment[name] ?? ""
+            break
         }
+        // Digit-only names address positional parameters
+        // (`${1}`, `${10}`, length-of `${#10}`, etc.).
+        if !name.isEmpty, name.allSatisfy(\.isNumber),
+           let n = Int(name), n >= 1
+        {
+            let idx = n - 1
+            return idx < positionalParameters.count
+                ? positionalParameters[idx]
+                : ""
+        }
+        return environment[name] ?? ""
     }
 
     private func isMissing(_ raw: String?, checkEmpty: Bool) -> Bool {
@@ -94,55 +106,14 @@ extension Shell {
         return false
     }
 
-    // MARK: Inner $var / ${name} expansion for default values
+    // MARK: Inner expansion for parameter-operator words
 
-    /// Lightweight expander used for the "word" inside parameter
-    /// operators (e.g. the `$FOO` in `${BAR:-$FOO}`). Supports `$name`
-    /// and `${body}` only — no command substitution or arithmetic.
+    /// Expand the "word" portion of a parameter-form operator
+    /// (e.g. the `$(date)` in `${BAR:-$(date)}`) — same rules as
+    /// inside a double-quoted string. Implementation lives in
+    /// ``expandHeredocBody(_:)``; both contexts share semantics.
     private func recursivelyExpand(_ s: String) async throws -> String {
-        let chars = Array(s)
-        var out = ""
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\\", i + 1 < chars.count {
-                out.append(chars[i + 1])
-                i += 2
-                continue
-            }
-            if c == "$", i + 1 < chars.count {
-                if chars[i + 1] == "{" {
-                    // Find matching `}` (no nesting support).
-                    var j = i + 2
-                    var body = ""
-                    while j < chars.count, chars[j] != "}" {
-                        body.append(chars[j])
-                        j += 1
-                    }
-                    if j < chars.count { j += 1 } // consume `}`
-                    let form = (try? ParameterFormParser.parse(body)) ?? .plain(body)
-                    out.append(try await applyParameterForm(form))
-                    i = j
-                    continue
-                }
-                if chars[i + 1].isLetter || chars[i + 1] == "_" {
-                    var j = i + 1
-                    var name = ""
-                    while j < chars.count,
-                          chars[j].isLetter || chars[j].isNumber || chars[j] == "_"
-                    {
-                        name.append(chars[j])
-                        j += 1
-                    }
-                    out.append(lookup(name))
-                    i = j
-                    continue
-                }
-            }
-            out.append(c)
-            i += 1
-        }
-        return out
+        try await expandHeredocBody(s)
     }
 
     // MARK: Prefix / suffix pattern operations

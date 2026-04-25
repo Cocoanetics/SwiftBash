@@ -58,6 +58,8 @@ extension Node {
             newKind = .arithmeticCommand(e)
         case .arithmeticSubstitution(let e):
             newKind = .arithmeticSubstitution(e)
+        case .conditional(let p):
+            newKind = .conditional(parts: shift(p))
         case .unimplemented(let p):
             newKind = .unimplemented(parts: shift(p))
         }

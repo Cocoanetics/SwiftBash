@@ -264,6 +264,20 @@ import Testing
 
     // MARK: Wrapping overflow behaviour
 
+    // MARK: Positional parameters in arithmetic (lexer + evaluator)
+
+    @Test func dollarOneInArithmetic() throws {
+        let store = Store(["1": "5"])
+        // Note: in real usage Shell threads positionalParameters into
+        // the get closure; here we simulate by storing under key "1".
+        #expect(try eval("$1 + 1", store: store) == 6)
+    }
+
+    @Test func dollarMultiDigit() throws {
+        let store = Store(["10": "42"])
+        #expect(try eval("$10 + 8", store: store) == 50)
+    }
+
     @Test func signedOverflowWraps() throws {
         // Int64.max + 1 wraps to Int64.min.
         let store = Store(["m": "\(Int64.max)"])

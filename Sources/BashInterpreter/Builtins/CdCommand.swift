@@ -30,12 +30,9 @@ public struct CdCommand: Command {
             target = home
         }
 
-        let absolute = resolve(path: target,
-                               relativeTo: shell.environment.workingDirectory)
-
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: absolute, isDirectory: &isDir),
-              isDir.boolValue
+        let absolute = shell.resolvePath(target)
+        guard let meta = try? await shell.fileSystem.metadata(absolute),
+              meta.kind == .directory
         else {
             shell.stderr("cd: no such file or directory: \(target)\n")
             return .failure
@@ -46,11 +43,5 @@ public struct CdCommand: Command {
         shell.environment["OLDPWD"] = old
         shell.environment["PWD"] = absolute
         return .success
-    }
-
-    private func resolve(path: String, relativeTo base: String) -> String {
-        if path.hasPrefix("/") { return (path as NSString).standardizingPath }
-        let joined = (base as NSString).appendingPathComponent(path)
-        return (joined as NSString).standardizingPath
     }
 }

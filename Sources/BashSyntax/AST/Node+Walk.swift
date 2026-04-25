@@ -78,6 +78,9 @@ extension Node {
             visitor.visitArithmeticCommand(self, expression: expr)
         case .arithmeticSubstitution(let expr):
             visitor.visitArithmeticSubstitution(self, expression: expr)
+        case .conditional(let parts):
+            descend = visitor.visitConditional(self, parts: parts)
+            if descend { parts.forEach { $0.walk(&visitor) } }
         case .unimplemented(let parts):
             descend = visitor.visitUnimplemented(self, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }

@@ -45,6 +45,7 @@ extension Shell {
         let outerStderr = stderr
         let envSnapshot = environment
         let commandRegistry = commands
+        let fileSystemRef = fileSystem
         let sourceSnapshot = currentSource
 
         let status = try await withThrowingTaskGroup(
@@ -64,7 +65,8 @@ extension Shell {
                         stderr: mergeStderr
                             ? (outgoingSink ?? outerStderr)
                             : outerStderr,
-                        commands: commandRegistry
+                        commands: commandRegistry,
+                        fileSystem: fileSystemRef
                     )
                     sub.currentSource = sourceSnapshot
                     sub.stdin = incomingSink.map { InputSource(bytes: $0.bytes) }

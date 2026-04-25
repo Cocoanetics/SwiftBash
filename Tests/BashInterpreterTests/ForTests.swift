@@ -59,11 +59,10 @@ import Testing
         #expect(cap.stdout == "[a]\n[b]\n[c]\n")
     }
 
-    @Test func forWithoutInIsUnimplemented() async {
+    @Test func forWithoutInIteratesPositionalParameters() async throws {
         let cap = CapturingShell()
-        let err = await #expect(throws: BashInterpreterError.self) {
-            try await cap.shell.run("for x; do echo $x; done")
-        }
-        #expect(err != nil, "expected BashInterpreterError")
+        cap.shell.positionalParameters = ["a", "b", "c"]
+        try await cap.shell.run("for x; do echo $x; done")
+        #expect(cap.stdout == "a\nb\nc\n")
     }
 }

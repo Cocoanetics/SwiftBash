@@ -50,6 +50,13 @@ public struct Node: Hashable, Sendable {
         /// word. The expression body is stored verbatim.
         case arithmeticSubstitution(String)
 
+        /// `[[ EXPR ]]` — bash's enhanced conditional expression.
+        /// `parts` is the flat token-by-token list (word nodes,
+        /// operator nodes for `&&` / `||` / `<` / `>`, and
+        /// `reservedWord("!" | "(" | ")")`) between the brackets.
+        /// The interpreter decides how to fold it into a tree.
+        case conditional(parts: [Node])
+
         case unimplemented(parts: [Node])
     }
 }
