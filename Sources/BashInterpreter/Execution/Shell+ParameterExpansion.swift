@@ -76,6 +76,21 @@ extension Shell {
                            anchor: anchor)
 
         case .substring(let name, let offset, let length):
+            // `${arr[@]:offset:length}` / `${arr[*]:offset:length}` —
+            // element-wise slice, joined with a space (or with IFS
+            // first char for the `*` form). Other subscript forms
+            // (`arr[0]:1:2`) and bare scalars use the regular
+            // character-substring semantics.
+            if let (arrName, sub) = parseSubscriptedName(name),
+               sub == "@" || sub == "*"
+            {
+                let array = environment.arrays[arrName] ?? []
+                let sliced = sliceArray(array, offset: offset, length: length)
+                let sep = sub == "*"
+                    ? String(environment["IFS"]?.first ?? " ")
+                    : " "
+                return sliced.joined(separator: sep)
+            }
             return substring(of: lookup(name), offset: offset, length: length)
         }
     }
@@ -265,6 +280,29 @@ extension Shell {
     }
 
     // MARK: Substring
+
+    /// Slice `array` per bash's `${arr[@]:offset[:length]}` rules:
+    /// negative `offset` indexes from the end; nil `length` is "all
+    /// remaining"; negative `length` truncates that many elements
+    /// from the end of the result.
+    private func sliceArray(_ array: [String],
+                            offset: Int,
+                            length: Int?) -> [String] {
+        let n = array.count
+        var start = offset < 0 ? max(0, n + offset) : min(offset, n)
+        let end: Int
+        switch length {
+        case .none:
+            end = n
+        case .some(let len) where len >= 0:
+            end = min(n, start + len)
+        case .some(let len):
+            end = max(start, n + len)
+        }
+        if end < start { return [] }
+        start = min(start, end)
+        return Array(array[start..<end])
+    }
 
     private func substring(of value: String, offset: Int, length: Int?) -> String {
         let chars = Array(value)
