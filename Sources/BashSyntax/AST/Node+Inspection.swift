@@ -65,7 +65,7 @@ extension Node {
             return [command]
         case .function(_, _, let parts):
             return parts
-        case .arrayAssignment(_, let items):
+        case .arrayAssignment(_, let items, _):
             return items
         case .pipe, .operator, .reservedWord, .parameter, .tilde, .heredoc,
              .arithmeticCommand, .arithmeticSubstitution:

@@ -150,11 +150,12 @@ struct Dumper {
                 Field(name: "parts", value: .nodeList(parts)),
             ]
 
-        case .arrayAssignment(let name, let items):
+        case .arrayAssignment(let name, let items, let append):
             return [
                 posField,
                 Field(name: "name", value: .scalar(stringRepr(name))),
                 Field(name: "items", value: .nodeList(items)),
+                Field(name: "append", value: .scalar(append ? "true" : "false")),
             ]
 
         case .reservedWord(let w):

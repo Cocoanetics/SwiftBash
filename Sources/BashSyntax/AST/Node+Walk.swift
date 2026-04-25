@@ -81,8 +81,9 @@ extension Node {
         case .conditional(let parts):
             descend = visitor.visitConditional(self, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }
-        case .arrayAssignment(let name, let items):
-            descend = visitor.visitArrayAssignment(self, name: name, items: items)
+        case .arrayAssignment(let name, let items, let append):
+            descend = visitor.visitArrayAssignment(
+                self, name: name, items: items, append: append)
             if descend { items.forEach { $0.walk(&visitor) } }
         case .unimplemented(let parts):
             descend = visitor.visitUnimplemented(self, parts: parts)

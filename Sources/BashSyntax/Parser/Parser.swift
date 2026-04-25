@@ -574,9 +574,9 @@ public final class Parser {
         }
     }
 
-    /// Parse the `(items …)` portion of `name=(items …)`. The
-    /// `nameToken` is the assignment word like `arr=` (we strip the
-    /// trailing `=` to get the variable name).
+    /// Parse the `(items …)` portion of `name=(items …)` or
+    /// `name+=(items …)`. The `nameToken` is the assignment word
+    /// like `arr=` or `arr+=`.
     private func parseArrayAssignment(nameToken: Token) throws -> Node {
         let lp = try expect(.leftParen, "'('")
         var items: [Node] = []
@@ -597,9 +597,25 @@ public final class Parser {
             try skipNewlines()
         }
         let rp = try expect(.rightParen, "')'")
-        let name = String(nameToken.value.dropLast()) // strip `=`
+        // Strip the trailing `=` and (if present) the `+` for the
+        // append form `name+=(…)`.
+        var raw = nameToken.value
+        guard raw.hasSuffix("=") else {
+            throw BashSyntaxError.parsing(
+                message: "malformed array assignment: \(raw)",
+                source: source,
+                position: nameToken.range.lowerBound)
+        }
+        raw.removeLast()
+        let append: Bool
+        if raw.hasSuffix("+") {
+            raw.removeLast()
+            append = true
+        } else {
+            append = false
+        }
         return Node(
-            kind: .arrayAssignment(name: name, items: items),
+            kind: .arrayAssignment(name: raw, items: items, append: append),
             range: nameToken.range.lowerBound..<rp.range.upperBound)
     }
 

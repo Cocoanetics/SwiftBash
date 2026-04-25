@@ -30,6 +30,6 @@ extension NodeVisitor {
     public mutating func visitArithmeticCommand(_ node: Node, expression: String) {}
     public mutating func visitArithmeticSubstitution(_ node: Node, expression: String) {}
     public mutating func visitConditional(_ node: Node, parts: [Node]) -> Bool { true }
-    public mutating func visitArrayAssignment(_ node: Node, name: String, items: [Node]) -> Bool { true }
+    public mutating func visitArrayAssignment(_ node: Node, name: String, items: [Node], append: Bool) -> Bool { true }
     public mutating func visitUnimplemented(_ node: Node, parts: [Node]) -> Bool { true }
 }

@@ -59,8 +59,10 @@ public struct Node: Hashable, Sendable {
 
         /// `name=(item1 item2 …)` — indexed array assignment. `items`
         /// are word nodes; their expanded string values become the
-        /// array elements at runtime.
-        case arrayAssignment(name: String, items: [Node])
+        /// array elements at runtime. `append` is true for the
+        /// `name+=(item …)` form, which extends an existing array
+        /// instead of replacing it.
+        case arrayAssignment(name: String, items: [Node], append: Bool)
 
         case unimplemented(parts: [Node])
     }

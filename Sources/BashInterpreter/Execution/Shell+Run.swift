@@ -207,19 +207,34 @@ extension Shell {
                 case .assignment:
                     let expanded = try await expand(word: part)
                     if let eq = expanded.firstIndex(of: "=") {
-                        let name = String(expanded[..<eq])
-                        let value = String(expanded[expanded.index(after: eq)...])
-                        assignments.append((name, value))
+                        let lhs = String(expanded[..<eq])
+                        let value = String(
+                            expanded[expanded.index(after: eq)...])
+                        // Element form: `arr[N]=value` updates the
+                        // array in place rather than introducing a
+                        // scalar named `arr[N]`.
+                        if applyArrayElementAssignmentIfApplicable(
+                            lhs: lhs, value: value)
+                        {
+                            continue
+                        }
+                        assignments.append((lhs, value))
                     }
-                case .arrayAssignment(let name, let items):
-                    // `name=(item …)` — evaluate items now, store
-                    // permanently. Prefix-form `arr=(a b) cmd` is
-                    // rare; we don't model the scoped variant.
+                case .arrayAssignment(let name, let items, let append):
+                    // `name=(item …)` and `name+=(item …)`. Evaluate
+                    // items now, store permanently. Prefix-form
+                    // `arr=(a b) cmd` is rare; we don't scope it.
                     var values: [String] = []
                     for item in items {
                         values.append(try await expand(word: item))
                     }
-                    environment.arrays[name] = values
+                    if append {
+                        var existing = environment.arrays[name] ?? []
+                        existing.append(contentsOf: values)
+                        environment.arrays[name] = existing
+                    } else {
+                        environment.arrays[name] = values
+                    }
                     environment.variables.removeValue(forKey: name)
                 case .word:
                     let frags = try await collectArgFragments(word: part)
@@ -299,6 +314,34 @@ extension Shell {
         restoreRedirects()
         await drainProcessSubs(from: procSubFrame)
         return result
+    }
+
+    /// Handle `arr[N]=value` element assignment if `lhs` looks like
+    /// `name[subscript]`. Returns `true` when the form was matched
+    /// and applied (caller should *not* fall through to scalar
+    /// assignment), `false` otherwise.
+    private func applyArrayElementAssignmentIfApplicable(
+        lhs: String, value: String
+    ) -> Bool {
+        guard let lb = lhs.firstIndex(of: "["), lhs.last == "]" else {
+            return false
+        }
+        let arrName = String(lhs[..<lb])
+        let after = lhs.index(after: lb)
+        let last = lhs.index(before: lhs.endIndex)
+        let sub = String(lhs[after..<last])
+        // Only handle integer subscripts in element-set position; bash
+        // arithmetic-evaluating subscripts is a stretch goal.
+        guard let n = Int(sub), n >= 0 else { return false }
+
+        var array = environment.arrays[arrName]
+            ?? [environment.variables[arrName] ?? ""].filter { !$0.isEmpty }
+        // Pad with empty strings up to index `n`.
+        while array.count <= n { array.append("") }
+        array[n] = value
+        environment.arrays[arrName] = array
+        environment.variables.removeValue(forKey: arrName)
+        return true
     }
 
     /// Clean up process substitutions allocated by the just-finished

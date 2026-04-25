@@ -825,10 +825,33 @@ public final class Tokenizer {
         guard let first = chars.first, first.isLetter || first == "_" else {
             return nil
         }
-        for (i, c) in chars.enumerated() {
-            if c == "=" { return i }
-            if c == "+", i + 1 < chars.count, chars[i + 1] == "=" { return i + 1 }
-            if !(c.isLetter || c.isNumber || c == "_") { return nil }
+        var i = 0
+        // Identifier head.
+        while i < chars.count {
+            let c = chars[i]
+            if c.isLetter || c.isNumber || c == "_" { i += 1; continue }
+            break
+        }
+        // Optional `[subscript]` for array-element assignment
+        // (`arr[2]=x`). The subscript text is preserved in the
+        // assignment-word value; the interpreter splits it out.
+        if i < chars.count, chars[i] == "[" {
+            var depth = 1
+            i += 1
+            while i < chars.count, depth > 0 {
+                if chars[i] == "[" { depth += 1 }
+                else if chars[i] == "]" { depth -= 1 }
+                i += 1
+            }
+            if depth != 0 { return nil }
+        }
+        // `=` or `+=`
+        guard i < chars.count else { return nil }
+        if chars[i] == "=" { return i }
+        if chars[i] == "+",
+           i + 1 < chars.count, chars[i + 1] == "="
+        {
+            return i + 1
         }
         return nil
     }
