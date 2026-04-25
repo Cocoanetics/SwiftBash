@@ -17,6 +17,7 @@ extension Shell {
     /// - `wc` — ``WcCommand``
     /// - `head` — ``HeadCommand``
     /// - `tail` — ``TailCommand``
+    /// - `nl` — ``NlCommand``
     /// - `grep` — ``GrepCommand``
     /// - `ls` — ``LsCommand``
     /// - `mkdir` — ``MkdirCommand``
@@ -41,6 +42,7 @@ extension Shell {
         register(WcCommand.self)
         register(HeadCommand.self)
         register(TailCommand.self)
+        register(NlCommand.self)
         register(GrepCommand.self)
         register(LsCommand.self)
         register(MkdirCommand.self)
