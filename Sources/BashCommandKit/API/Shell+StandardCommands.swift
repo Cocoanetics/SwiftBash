@@ -30,6 +30,11 @@ extension Shell {
     /// - `uniq` — ``UniqCommand``
     /// - `sed` — ``SedCommand``
     /// - `rg` — ``RgCommand``
+    /// - `tr` — ``TrCommand``
+    /// - `cut` — ``CutCommand``
+    /// - `base64` — ``Base64Command``
+    /// - `md5` — ``Md5Command``
+    /// - `xxd` — ``XxdCommand``
     ///
     /// Individual commands can still be registered à la carte via
     /// ``register(_:)-<…>``; this is just the convenient one-call form.
@@ -60,5 +65,10 @@ extension Shell {
         register(UniqCommand.self)
         register(SedCommand.self)
         register(RgCommand.self)
+        register(TrCommand.self)
+        register(CutCommand.self)
+        register(Base64Command.self)
+        register(Md5Command.self)
+        register(XxdCommand.self)
     }
 }

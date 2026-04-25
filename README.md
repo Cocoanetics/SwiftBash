@@ -364,6 +364,11 @@ a formatted error on stderr and a non-zero exit.
 | `uniq`     | Drop adjacent duplicate lines; `-c` prefixes a repeat count |
 | `sed`      | Pragmatic subset: `s/PAT/REP/[gp]`, `d`, `p` with line-number / `$` / `/regex/` addresses; `-n` quiet, `-e PROGRAM`, `-E` ERE, `-i` in-place |
 | `rg`       | ripgrep subset — default-recursive regex search. `-n` `-i` `-S` smart-case, `-l` `-q`, `-m N` max-count, `-A`/`-B`/`-C` context, `-g GLOB` (repeatable, `!`-prefix to exclude), `--hidden`, `--files` list-mode |
+| `tr`       | Translate or delete characters; `-d` delete, supports `a-z` ranges and `\n`/`\t`/`\\` escapes |
+| `cut`      | Extract delimited fields; `-f` (with ranges/lists), `-d DELIM`, file or stdin |
+| `base64`   | Encode (default) / decode (`-d`); 76-char wrapping when encoding |
+| `md5`      | MD5 digests of stdin / files / `-s STRING`; `-q` for bare hex |
+| `xxd`      | Hex dump (16-byte rows, hex pairs + ASCII); stdin or file |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:
