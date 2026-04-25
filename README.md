@@ -383,6 +383,8 @@ a formatted error on stderr and a non-zero exit.
 | `od`       | Octal (default) / hex (`-x`) / character (`-c`) dump |
 | `md5sum` / `sha1sum` / `sha256sum` | Coreutils-format `<hex>  <file>` digests via CryptoKit |
 | `fgrep` / `egrep` | Aliases for `grep` (substring) and `grep -E` (ERE) |
+| `diff`     | Unified-format line diff (`-u N` for context size); backed by Swift's `CollectionDifference` |
+| `gzip` / `gunzip` | gzip (RFC 1952) compress / decompress via the `Compression` framework + a hand-coded header |
 
 Register individually via `shell.register(DateCommand.self)`, or grab
 the full set at once:

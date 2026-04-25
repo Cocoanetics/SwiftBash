@@ -74,6 +74,9 @@ extension Shell {
         register(Md5sumCommand.self)
         register(Sha1sumCommand.self)
         register(Sha256sumCommand.self)
+        register(DiffCommand.self)
+        register(GzipCommand.self)
+        register(GunzipCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
