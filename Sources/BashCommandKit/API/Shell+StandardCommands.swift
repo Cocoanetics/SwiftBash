@@ -103,6 +103,7 @@ extension Shell {
         register(DfCommand.self)
         register(CmpCommand.self)
         register(NohupCommand())
+        register(BcCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
