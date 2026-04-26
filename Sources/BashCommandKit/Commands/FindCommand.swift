@@ -9,9 +9,16 @@ import Foundation
 /// - `-name PATTERN` — basename matches a shell glob
 /// - `-iname PATTERN` — case-insensitive variant of `-name`
 /// - `-path PATTERN` / `-wholename PATTERN` — full path matches a glob
+/// - `-regex PATTERN` / `-iregex PATTERN` — full path matches a regex
 /// - `-type [f|d|l]` — regular file, directory, or symlink
 /// - `-empty` — empty regular files or empty directories
 /// - `-newer FILE` — modified more recently than `FILE`
+/// - `-mtime [+-]N` — modified N×24h ago (`+N` strictly more, `-N` less)
+/// - `-mmin [+-]N` — modified N minutes ago
+/// - `-size [+-]N[ckMG]` — size matches (default unit blocks of 512B,
+///   `c` bytes, `k` KiB, `M` MiB, `G` GiB)
+/// - `-perm MODE` — permission bits (octal). `-MODE` requires all bits
+///   set; `/MODE` requires any bit set; bare `MODE` is exact match.
 ///
 /// ### Actions
 /// - `-print` — print the path with a newline (the default)
@@ -35,10 +42,11 @@ import Foundation
 /// Within each directory, entries are visited in sorted order so script
 /// output and tests are deterministic.
 ///
-/// Out of scope (need filesystem facts our `FileMetadata` doesn't carry):
-/// `-perm`, `-xattr`, `-flags`, `-size`, `-mtime`. Symlink-following
+/// Out of scope: `-xattr`, `-flags`, `-uid`, `-gid`. Symlink-following
 /// global options (`-L` / `-H` / `-P`) are accepted as no-ops because
-/// our metadata already follows symlinks via `stat(2)`.
+/// our metadata already follows symlinks via `stat(2)`. `-perm` reads
+/// the mode via `stat(2)` directly since `FileMetadata` doesn't carry
+/// permission bits.
 public struct FindCommand: Command {
     public let name = "find"
     public init() {}
@@ -238,7 +246,65 @@ public struct FindCommand: Command {
         case .newer(let path):
             guard let ref = ctx.newer[path] else { return false }
             return node.meta.modifiedAt > ref
+        case .regex(let pat, let ci):
+            var opts: NSRegularExpression.Options = []
+            if ci { opts.insert(.caseInsensitive) }
+            guard let re = try? NSRegularExpression(pattern: pat, options: opts) else {
+                return false
+            }
+            let s = node.displayPath as NSString
+            return re.firstMatch(in: node.displayPath,
+                                 range: NSRange(location: 0, length: s.length)) != nil
+        case .mtime(let days, let cmp):
+            let secsAgo = Date().timeIntervalSince(node.meta.modifiedAt)
+            let buckets = Int(secsAgo / (24 * 60 * 60))
+            return Self.compareInt(buckets, days, cmp)
+        case .mmin(let mins, let cmp):
+            let secsAgo = Date().timeIntervalSince(node.meta.modifiedAt)
+            let buckets = Int(secsAgo / 60)
+            return Self.compareInt(buckets, mins, cmp)
+        case .size(let n, let unit, let cmp):
+            // Round up to the nearest unit, GNU/POSIX style.
+            let raw = Double(node.meta.size) / Double(unit.multiplier)
+            let buckets: Int64 = unit == .bytes
+                ? node.meta.size
+                : Int64(raw.rounded(.up))
+            return Self.compareInt64(buckets, n, cmp)
+        case .perm(let want, let match):
+            guard let mode = try? Self.statMode(node.absolutePath) else {
+                return false
+            }
+            let masked = mode & 0o7777
+            switch match {
+            case .exact: return masked == want
+            case .all:   return (masked & want) == want
+            case .any:   return want == 0 ? false : (masked & want) != 0
+            }
         }
+    }
+
+    static func compareInt(_ have: Int, _ want: Int, _ cmp: Comparison) -> Bool {
+        switch cmp {
+        case .exact: return have == want
+        case .more: return have > want
+        case .less: return have < want
+        }
+    }
+    static func compareInt64(_ have: Int64, _ want: Int64, _ cmp: Comparison) -> Bool {
+        switch cmp {
+        case .exact: return have == want
+        case .more: return have > want
+        case .less: return have < want
+        }
+    }
+
+    /// Read raw permission bits via `lstat(2)`. Returns `nil` if the
+    /// path can't be stat'd (caller treats as no-match).
+    static func statMode(_ path: String) throws -> UInt16 {
+        var st = stat()
+        let r = path.withCString { lstat($0, &st) }
+        guard r == 0 else { throw FileSystemError.notFound(path) }
+        return UInt16(st.st_mode & 0o7777)
     }
 
     private func runAction(_ a: Action,
@@ -352,11 +418,43 @@ public struct FindCommand: Command {
     enum Predicate: Sendable {
         case name(String, caseInsensitive: Bool)
         case path(String)
+        case regex(String, caseInsensitive: Bool)
         case type(Character)
         case empty
         /// Carries the *user-supplied* path; the runtime resolves it to
         /// an mtime via ``EvalContext/newer`` once before the walk.
         case newer(referencePath: String)
+        /// `mtime [+-]N` — N×24h ago. `+N` strictly older, `-N` newer.
+        case mtime(days: Int, comparison: Comparison)
+        /// `mmin [+-]N` — N minutes ago.
+        case mmin(minutes: Int, comparison: Comparison)
+        /// `size [+-]N[ckMG]` — `c` bytes, `k` KiB, `M` MiB, `G` GiB,
+        /// none → 512-byte blocks.
+        case size(value: Int64, unit: SizeUnit, comparison: Comparison)
+        /// `perm MODE` (octal). `-MODE` requires all bits set;
+        /// `/MODE` requires any bit set; bare MODE is exact.
+        case perm(mode: UInt16, match: PermMatch)
+    }
+
+    enum Comparison: Sendable {
+        case exact, more, less   // N, +N, -N respectively
+    }
+
+    enum SizeUnit: Sendable {
+        case blocks, bytes, kib, mib, gib
+        var multiplier: Int64 {
+            switch self {
+            case .blocks: return 512
+            case .bytes:  return 1
+            case .kib:    return 1024
+            case .mib:    return 1024 * 1024
+            case .gib:    return 1024 * 1024 * 1024
+            }
+        }
+    }
+
+    enum PermMatch: Sendable {
+        case exact, all, any
     }
 
     enum Action: Sendable {
@@ -635,6 +733,22 @@ public struct FindCommand: Command {
                 let v = try value(for: flag)
                 newerPaths.append(v)
                 return .test(.newer(referencePath: v))
+            case "-regex":
+                return .test(.regex(try value(for: flag), caseInsensitive: false))
+            case "-iregex":
+                return .test(.regex(try value(for: flag), caseInsensitive: true))
+            case "-mtime":
+                let (n, c) = try FindCommand.parseSignedInt(try value(for: flag), label: flag)
+                return .test(.mtime(days: n, comparison: c))
+            case "-mmin":
+                let (n, c) = try FindCommand.parseSignedInt(try value(for: flag), label: flag)
+                return .test(.mmin(minutes: n, comparison: c))
+            case "-size":
+                let (n, unit, cmp) = try FindCommand.parseSize(try value(for: flag))
+                return .test(.size(value: n, unit: unit, comparison: cmp))
+            case "-perm":
+                let (mode, match) = try FindCommand.parsePerm(try value(for: flag))
+                return .test(.perm(mode: mode, match: match))
             case "-print":
                 return .action(.print)
             case "-print0":
@@ -663,6 +777,57 @@ public struct FindCommand: Command {
             }
             throw ParseError(message: "-exec: missing terminator (`;` or `+`)")
         }
+    }
+
+    // MARK: Argument parsers
+
+    /// Parse `[+-]N` for `-mtime` / `-mmin`.
+    static func parseSignedInt(_ s: String, label: String) throws -> (Int, Comparison) {
+        var rest = s
+        var cmp: Comparison = .exact
+        if rest.first == "+" { cmp = .more; rest.removeFirst() }
+        else if rest.first == "-" { cmp = .less; rest.removeFirst() }
+        guard let n = Int(rest) else {
+            throw ParseError(message: "\(label): expected an integer, got \(s)")
+        }
+        return (n, cmp)
+    }
+
+    /// Parse `[+-]N[ckMG]` for `-size`. Default unit is 512-byte
+    /// blocks (POSIX).
+    static func parseSize(_ s: String) throws -> (Int64, SizeUnit, Comparison) {
+        var rest = s
+        var cmp: Comparison = .exact
+        if rest.first == "+" { cmp = .more; rest.removeFirst() }
+        else if rest.first == "-" { cmp = .less; rest.removeFirst() }
+        var unit: SizeUnit = .blocks
+        if let last = rest.last {
+            switch last {
+            case "c": unit = .bytes;  rest.removeLast()
+            case "k": unit = .kib;    rest.removeLast()
+            case "M": unit = .mib;    rest.removeLast()
+            case "G": unit = .gib;    rest.removeLast()
+            case "b": unit = .blocks; rest.removeLast()
+            default: break
+            }
+        }
+        guard let n = Int64(rest) else {
+            throw ParseError(message: "-size: bad value: \(s)")
+        }
+        return (n, unit, cmp)
+    }
+
+    /// Parse the `-perm` argument: leading `-` or `/` selects all/any
+    /// match; otherwise exact. Octal only.
+    static func parsePerm(_ s: String) throws -> (UInt16, PermMatch) {
+        var rest = s
+        var match: PermMatch = .exact
+        if rest.first == "-" { match = .all; rest.removeFirst() }
+        else if rest.first == "/" { match = .any; rest.removeFirst() }
+        guard let m = UInt16(rest, radix: 8) else {
+            throw ParseError(message: "-perm: bad mode: \(s)")
+        }
+        return (m, match)
     }
 
     // MARK: Glob matching
