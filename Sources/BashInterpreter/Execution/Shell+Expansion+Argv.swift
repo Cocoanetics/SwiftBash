@@ -33,7 +33,16 @@ extension Shell {
     func expandToArgs(word node: Node) async throws -> [String] {
         let fragments = try await collectArgFragments(word: node)
         let assembled = assembleArgs(fragments)
-        return braceExpandIfWordHasUnquotedBraces(node: node, args: assembled)
+        let braced = braceExpandIfWordHasUnquotedBraces(
+            node: node, args: assembled)
+        // Pathname expansion: `for f in *.txt` should iterate the
+        // matching files, not the literal pattern.
+        var out: [String] = []
+        for arg in braced {
+            out.append(contentsOf: try await globExpand(
+                arg, originalWord: node))
+        }
+        return out
     }
 
     /// Brace-expand `args` only when the *source* of `node` contains an

@@ -50,7 +50,12 @@ extension Shell {
                 let msg = message.isEmpty
                     ? "parameter null or not set"
                     : try await recursivelyExpand(message)
-                throw BashInterpreterError.parameter("\(name): \(msg)")
+                // Match bash: write `script:line: var: msg` to stderr,
+                // then exit with status 1. Inside a subshell the
+                // existing `ShellExit` catch in `executeSubshellGroup`
+                // turns the throw into the subshell's `$?`.
+                stderr("\(errorLocationPrefix())\(name): \(msg)\n")
+                throw ShellExit(status: ExitStatus(1))
             }
             return raw ?? ""
 
@@ -96,6 +101,19 @@ extension Shell {
                 return sliced.joined(separator: sep)
             }
             return substring(of: lookup(name), offset: offset, length: length)
+
+        case .indirect(let name):
+            // `${!ref}` — read `ref`'s value, then look that up as a
+            // parameter name. Common idiom for poor-man's nameref.
+            let target = lookup(name)
+            if target.isEmpty { return "" }
+            return lookup(target)
+
+        case .caseConvert(let name, let toUpper, let all, let pattern):
+            return applyCaseConvert(value: lookup(name),
+                                    toUpper: toUpper,
+                                    all: all,
+                                    pattern: pattern)
 
         case .indices(let name):
             // `${!arr[@]}` / `${!arr[*]}` — for indexed arrays, the
@@ -203,6 +221,12 @@ extension Shell {
         case .substring(let name, let o, let l):
             return .substring(name: try await expandedSubscript(in: name),
                               offset: o, length: l)
+        case .indirect(let name):
+            return .indirect(try await expandedSubscript(in: name))
+        case .caseConvert(let name, let u, let all, let pat):
+            return .caseConvert(
+                name: try await expandedSubscript(in: name),
+                toUpper: u, all: all, pattern: pat)
         }
     }
 
@@ -236,7 +260,13 @@ extension Shell {
                 return array.elementsInOrder.joined(separator: " ")
             default:
                 if let n = Int(sub) {
-                    return array[n] ?? ""
+                    // Bash 4.3+: negative indices count from the end of
+                    // the *highest* set slot, not from `count`. So for
+                    // `arr[0]=a; arr[5]=b`, `${arr[-1]}` is `b` (the
+                    // value at index 5, not index 4).
+                    let resolved = n >= 0 ? n
+                        : ((array.entries.keys.max() ?? -1) + 1 + n)
+                    return array[resolved] ?? ""
                 }
                 return ""
             }
@@ -347,6 +377,33 @@ extension Shell {
             }
         }
         return result
+    }
+
+    // MARK: Case conversion
+
+    /// Apply `${var^}` / `${var^^}` / `${var,}` / `${var,,}` semantics.
+    /// `pattern` empty means "every character matches".
+    func applyCaseConvert(value: String,
+                          toUpper: Bool,
+                          all: Bool,
+                          pattern: String) -> String
+    {
+        let effectivePattern = pattern.isEmpty ? "?" : pattern
+        var out = ""
+        var first = true
+        for ch in value {
+            let matches = GlobMatcher.match(
+                pattern: effectivePattern, string: String(ch))
+            let shouldConvert = matches && (all || first)
+            if shouldConvert {
+                out += toUpper ? String(ch).uppercased()
+                                : String(ch).lowercased()
+            } else {
+                out.append(ch)
+            }
+            first = false
+        }
+        return out
     }
 
     /// The length of the longest prefix of `chars[i…]` that fully matches

@@ -45,31 +45,33 @@ import Foundation
 
     // MARK: wc
 
+    // BSD/GNU `wc` right-aligns counts in 8-wide columns; expectations
+    // below preserve that padding so output matches `/usr/bin/wc`.
     @Test func wcDefaultAllCounts() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"echo "hello world" | wc"#)
         // echo prints "hello world\n" → 1 line, 2 words, 12 bytes
-        #expect(cap.stdout == "1 2 12\n")
+        #expect(cap.stdout == "       1        2       12\n")
     }
 
     @Test func wcLinesOnly() async throws {
         let cap = makeShell()
         cap.shell.stdin = .string("a\nb\nc\n")
         try await cap.shell.run("wc -l")
-        #expect(cap.stdout == "3\n")
+        #expect(cap.stdout == "       3\n")
     }
 
     @Test func wcWordsOnly() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"echo "one two three four" | wc -w"#)
-        #expect(cap.stdout == "4\n")
+        #expect(cap.stdout == "       4\n")
     }
 
     @Test func wcBytesOnly() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"echo "abc" | wc -c"#)
         // "abc\n" is 4 bytes
-        #expect(cap.stdout == "4\n")
+        #expect(cap.stdout == "       4\n")
     }
 
     // MARK: head
@@ -142,7 +144,7 @@ import Foundation
         try await cap.shell.run("seq 100 | grep 7 | wc -l")
         // Numbers 1..100 containing '7': 7,17,27,37,47,57,67,70..79 (but 77 only once),
         // 87,97 = 7, 17, 27, 37, 47, 57, 67, 70,71,72,73,74,75,76,77,78,79, 87, 97 → 19.
-        #expect(cap.stdout == "19\n")
+        #expect(cap.stdout == "      19\n")
     }
 
     @Test func pipelineExitStatusIsLast() async throws {

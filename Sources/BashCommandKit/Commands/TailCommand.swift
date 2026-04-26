@@ -2,64 +2,118 @@ import ArgumentParser
 import BashInterpreter
 import Foundation
 
-/// `tail [-n N] [FILE...]` — print the last N lines of each file (or
-/// stdin when no files are given). Default N is 10. With multiple
-/// files, prints a `==> name <==` header before each, matching
-/// `/bin/tail`.
+/// `tail [-n N] [-c B] [-q|-v] [-NUM] [+N] [FILE...]` — print the last
+/// portion of each file (or stdin when no files are given).
 ///
-/// Unlike `head`, `tail` has to see the whole input before it can
-/// know what to emit, so this version buffers — there's no
-/// streaming variant to back-pressure an upstream producer. Pair
-/// `tail` with bounded inputs.
+/// - `-n N`, `-n +N` — last N lines (or starting from line N when prefixed `+`)
+/// - `-NUM` — shorthand for `-n NUM`
+/// - `-c B` — last B bytes
+/// - `-q` / `-v` — suppress / force the `==> name <==` headers
 public struct TailCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "tail",
-        abstract: "Print the last N lines of input."
+        abstract: "Print the last lines or bytes of input."
     )
 
-    @Option(name: [.short, .long],
-            help: ArgumentHelp("Number of trailing lines to print.",
-                               valueName: "N"))
-    public var n: Int = 10
-
-    @Argument(help: "Files to tail. When empty, reads stdin.")
-    public var files: [String] = []
+    @Argument(parsing: .captureForPassthrough,
+              help: "OPTIONS, then FILE arguments.")
+    public var rawArgv: [String] = []
 
     public init() {}
 
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        if n <= 0 { return .success }
+        var lines: Int = 10
+        var bytes: Int? = nil
+        // `+N` semantics: skip the first N-1 lines / bytes and print the rest.
+        // We track the sign by whether `linesFromStart` is set.
+        var linesFromStart: Int? = nil
+        var bytesFromStart: Int? = nil
+        var headerMode: HeaderMode = .auto
+        var files: [String] = []
+
+        var i = 0
+        while i < rawArgv.count {
+            let a = rawArgv[i]
+            if a == "--" {
+                i += 1
+                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+                break
+            }
+            // Options.
+            if a == "-n" || a == "--lines" {
+                guard i + 1 < rawArgv.count else {
+                    shell.stderr("tail: option requires an argument: \(a)\n")
+                    return ExitStatus(2)
+                }
+                if let (n, fromStart) = parseCount(rawArgv[i + 1]) {
+                    if fromStart { linesFromStart = n } else { lines = n }
+                } else {
+                    shell.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
+                    return ExitStatus(2)
+                }
+                i += 2; continue
+            }
+            if a == "-c" || a == "--bytes" {
+                guard i + 1 < rawArgv.count else {
+                    shell.stderr("tail: option requires an argument: \(a)\n")
+                    return ExitStatus(2)
+                }
+                if let (n, fromStart) = parseCount(rawArgv[i + 1]) {
+                    if fromStart { bytesFromStart = n } else { bytes = n }
+                } else {
+                    shell.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
+                    return ExitStatus(2)
+                }
+                i += 2; continue
+            }
+            if a == "-q" || a == "--quiet" || a == "--silent" {
+                headerMode = .never; i += 1; continue
+            }
+            if a == "-v" || a == "--verbose" {
+                headerMode = .always; i += 1; continue
+            }
+            // `-NUM` and `+NUM` shorthands.
+            if a.hasPrefix("-"), a.count > 1,
+               let (n, _) = parseCount(String(a.dropFirst())),
+               isNumeric(String(a.dropFirst()))
+            {
+                lines = n; i += 1; continue
+            }
+            if a.hasPrefix("+"), let n = Int(a.dropFirst()) {
+                linesFromStart = n; i += 1; continue
+            }
+            // Anything else: file argument.
+            files.append(a); i += 1
+        }
+
+        let useHeaders: Bool
+        switch headerMode {
+        case .always: useHeaders = true
+        case .never: useHeaders = false
+        case .auto: useHeaders = files.count > 1
+        }
 
         if files.isEmpty {
-            let lines = await collectStdinLines(shell: shell)
-            emit(lines: lastN(lines), shell: shell)
+            let data = await readAll(stdin: shell.stdin)
+            emitTail(data: data, lines: lines, bytes: bytes,
+                     linesFromStart: linesFromStart,
+                     bytesFromStart: bytesFromStart, shell: shell)
             return .success
         }
 
         var hadError = false
-        for (i, path) in files.enumerated() {
-            if files.count > 1 {
-                if i > 0 { shell.stdout("\n") }
+        for (idx, path) in files.enumerated() {
+            if useHeaders {
+                if idx > 0 { shell.stdout("\n") }
                 shell.stdout("==> \(path) <==\n")
             }
-            if path == "-" {
-                let lines = await collectStdinLines(shell: shell)
-                emit(lines: lastN(lines), shell: shell)
-                continue
-            }
             do {
-                let data = try await shell.readDataAtPath(path)
-                let text = String(decoding: data, as: UTF8.self)
-                let lines = text.split(separator: "\n",
-                                       omittingEmptySubsequences: false)
-                                .map(String.init)
-                // `split` with omittingEmptySubsequences:false leaves a
-                // trailing "" when the input ends in `\n` — drop it so
-                // we don't tail an extra blank line.
-                let trimmed = (text.hasSuffix("\n") && !lines.isEmpty)
-                    ? Array(lines.dropLast())
-                    : lines
-                emit(lines: lastN(trimmed), shell: shell)
+                let data: Data
+                if path == "-" { data = await readAll(stdin: shell.stdin) }
+                else { data = try await shell.readDataAtPath(path) }
+                emitTail(data: data, lines: lines, bytes: bytes,
+                         linesFromStart: linesFromStart,
+                         bytesFromStart: bytesFromStart, shell: shell)
             } catch FileSystemError.notFound {
                 shell.stderr("tail: \(path): No such file or directory\n")
                 hadError = true
@@ -74,20 +128,56 @@ public struct TailCommand: ParsableBashCommand {
         return hadError ? .failure : .success
     }
 
-    private func collectStdinLines(shell: Shell) async -> [String] {
-        var lines: [String] = []
-        for await line in shell.stdin.lines { lines.append(line) }
-        return lines
+    private enum HeaderMode { case auto, always, never }
+
+    /// Parse `N`, `+N`, or `-N` into `(absolute count, fromStart)`.
+    private func parseCount(_ s: String) -> (Int, Bool)? {
+        if s.hasPrefix("+"), let n = Int(s.dropFirst()) { return (n, true) }
+        if let n = Int(s) { return (abs(n), false) }
+        return nil
     }
 
-    private func lastN(_ lines: [String]) -> [String] {
-        guard lines.count > n else { return lines }
-        return Array(lines.suffix(n))
+    private func isNumeric(_ s: String) -> Bool {
+        return !s.isEmpty && s.allSatisfy { $0.isNumber }
     }
 
-    private func emit(lines: [String], shell: Shell) {
-        for line in lines {
-            shell.stdout(line + "\n")
+    private func readAll(stdin: InputSource) async -> Data {
+        var out = Data()
+        for await chunk in stdin.bytes { out.append(chunk) }
+        return out
+    }
+
+    private func emitTail(data: Data,
+                          lines: Int, bytes: Int?,
+                          linesFromStart: Int?,
+                          bytesFromStart: Int?,
+                          shell: Shell)
+    {
+        if let bf = bytesFromStart {
+            // bash: `+N` means "starting at byte N" (1-indexed).
+            let start = max(0, bf - 1)
+            if start < data.count { shell.stdout(data.suffix(from: start)) }
+            return
         }
+        if let b = bytes {
+            shell.stdout(data.suffix(b))
+            return
+        }
+        if data.isEmpty { return }
+        let text = String(decoding: data, as: UTF8.self)
+        var split = text.split(separator: "\n", omittingEmptySubsequences: false)
+                        .map(String.init)
+        if text.hasSuffix("\n"), !split.isEmpty { split.removeLast() }
+
+        if let lf = linesFromStart {
+            let start = max(0, lf - 1)
+            if start < split.count {
+                for line in split[start...] { shell.stdout(line + "\n") }
+            }
+            return
+        }
+        let tailLines = split.count > lines
+            ? Array(split.suffix(lines)) : split
+        for line in tailLines { shell.stdout(line + "\n") }
     }
 }

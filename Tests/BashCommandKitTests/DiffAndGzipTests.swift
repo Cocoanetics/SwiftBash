@@ -32,7 +32,7 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\n", to: "x", in: dir)
         write("a\nb\nc\n", to: "y", in: dir)
-        let status = try await cap.shell.run("diff x y")
+        let status = try await cap.shell.run("diff -u x y")
         #expect(status == .success)
         #expect(cap.stdout == "")
     }
@@ -41,7 +41,7 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\n", to: "x", in: dir)
         write("a\nB\nc\n", to: "y", in: dir)
-        let status = try await cap.shell.run("diff x y")
+        let status = try await cap.shell.run("diff -u x y")
         #expect(status == .failure)
         #expect(cap.stdout == """
             --- x
@@ -59,7 +59,7 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("a\nb\n", to: "x", in: dir)
         write("a\nb\nc\n", to: "y", in: dir)
-        try await cap.shell.run("diff x y")
+        try await cap.shell.run("diff -u x y")
         #expect(cap.stdout == """
             --- x
             +++ y
@@ -75,7 +75,7 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\n", to: "x", in: dir)
         write("a\nc\n", to: "y", in: dir)
-        try await cap.shell.run("diff x y")
+        try await cap.shell.run("diff -u x y")
         #expect(cap.stdout == """
             --- x
             +++ y
@@ -98,7 +98,7 @@ import Foundation
         let b = bArr.joined(separator: "\n") + "\n"
         write(a, to: "x", in: dir)
         write(b, to: "y", in: dir)
-        try await cap.shell.run("diff x y")
+        try await cap.shell.run("diff -u x y")
         // Expect two `@@ ... @@` headers.
         let hunkCount = cap.stdout.components(separatedBy: "@@ -")
             .count - 1
@@ -130,7 +130,7 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hello\nworld\n", to: "fixed", in: dir)
         try await cap.shell.run(
-            "printf 'hello\\nWORLD\\n' | diff - fixed")
+            "printf 'hello\\nWORLD\\n' | diff -u - fixed")
         #expect(cap.stdout.contains("-WORLD"))
         #expect(cap.stdout.contains("+world"))
     }

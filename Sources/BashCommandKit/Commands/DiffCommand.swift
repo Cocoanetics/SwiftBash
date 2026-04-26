@@ -2,12 +2,11 @@ import ArgumentParser
 import BashInterpreter
 import Foundation
 
-/// `diff [-u N] FILE1 FILE2` — line-level unified diff.
+/// `diff [-u [N]] FILE1 FILE2` — line-level diff.
 ///
-/// Output is **always** unified format (real `diff`'s default is the
-/// classic `<`/`>` form, which scripts no longer use). Pass `-u N` to
-/// override the default context size of 3 lines; `-u` alone keeps the
-/// default. Use `-` for either FILE to read from stdin (only once).
+/// Default format is the classic `<`/`>` "normal" diff (matching BSD/GNU
+/// `diff`). Pass `-u` for unified format with 3 lines of context, or
+/// `-u N` to override the context size.
 ///
 /// ### Exit status
 /// - `0` — files are identical
@@ -15,32 +14,63 @@ import Foundation
 /// - `2` — error (missing file, etc.)
 ///
 /// Backed by `Swift.CollectionDifference` (an O(ND) Myers diff in the
-/// stdlib) — no third-party diff dependency.
+/// stdlib).
 ///
-/// Out of scope: classic format (`<`/`>`), context format (`-c`),
-/// brief mode (`-q`), recursive (`-r`), whitespace flags (`-w`/`-b`),
-/// case-insensitive (`-i`).
+/// Out of scope: context format (`-c`), brief mode (`-q`), recursive
+/// (`-r`), whitespace flags (`-w`/`-b`), case-insensitive (`-i`).
 public struct DiffCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "diff",
-        abstract: "Unified line-level diff (always -u)."
+        abstract: "Line-level diff (normal `<`/`>` by default; `-u` for unified)."
     )
 
-    @Option(name: [.customShort("u"), .customLong("unified")],
-            help: "Context lines around each change (default: 3).")
-    public var unified: Int = 3
-
-    @Argument(help: "Two files to compare (use `-` for stdin, once).")
-    public var files: [String] = []
+    @Argument(parsing: .captureForPassthrough,
+              help: "OPTIONS, then FILE1 FILE2.")
+    public var rawArgv: [String] = []
 
     public init() {}
 
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
+        var unifiedContext: Int? = nil
+        var files: [String] = []
+
+        var i = 0
+        while i < rawArgv.count {
+            let a = rawArgv[i]
+            if a == "--" {
+                i += 1
+                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+                break
+            }
+            if a == "-u" || a == "--unified" {
+                // Optional numeric arg.
+                if i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) {
+                    unifiedContext = n
+                    i += 2; continue
+                }
+                unifiedContext = 3; i += 1; continue
+            }
+            // `-uN` combined.
+            if a.hasPrefix("-u"), let n = Int(a.dropFirst(2)) {
+                unifiedContext = n; i += 1; continue
+            }
+            if a.hasPrefix("--unified="),
+               let n = Int(a.dropFirst("--unified=".count))
+            {
+                unifiedContext = n; i += 1; continue
+            }
+            if a.hasPrefix("-"), a.count > 1, a != "-" {
+                shell.stderr("diff: unknown option: \(a)\n")
+                return ExitStatus(2)
+            }
+            files.append(a); i += 1
+        }
+
         guard files.count == 2 else {
             shell.stderr("diff: expected two file arguments\n")
             return ExitStatus(2)
         }
-        guard unified >= 0 else {
+        if let ctx = unifiedContext, ctx < 0 {
             shell.stderr("diff: -u must be ≥ 0\n")
             return ExitStatus(2)
         }
@@ -57,11 +87,14 @@ public struct DiffCommand: ParsableBashCommand {
         if aLines == bLines { return .success }
 
         let merged = Self.mergeLines(old: aLines, new: bLines)
-        let output = Self.renderUnified(
-            merged: merged,
-            context: unified,
-            oldName: files[0],
-            newName: files[1])
+        let output: String
+        if let ctx = unifiedContext {
+            output = Self.renderUnified(
+                merged: merged, context: ctx,
+                oldName: files[0], newName: files[1])
+        } else {
+            output = Self.renderNormal(merged: merged)
+        }
         shell.stdout(output)
         return .failure
     }
@@ -135,6 +168,59 @@ public struct DiffCommand: ParsableBashCommand {
             }
         }
         return out
+    }
+
+    // MARK: Normal renderer
+
+    /// Group consecutive removals/additions into BSD/GNU "normal" diff
+    /// hunks: `1d0`, `2c2`, `0a1` and so on.
+    static func renderNormal(merged: [MergedLine]) -> String {
+        struct Hunk {
+            var removed: [(line: Int, text: String)] = []
+            var added:   [(line: Int, text: String)] = []
+        }
+        var hunks: [Hunk] = []
+        var current = Hunk()
+        for line in merged {
+            switch line {
+            case .context:
+                if !current.removed.isEmpty || !current.added.isEmpty {
+                    hunks.append(current)
+                    current = Hunk()
+                }
+            case .removed(let n, let t):
+                current.removed.append((n, t))
+            case .added(let n, let t):
+                current.added.append((n, t))
+            }
+        }
+        if !current.removed.isEmpty || !current.added.isEmpty {
+            hunks.append(current)
+        }
+
+        var out = ""
+        for h in hunks {
+            let oldRange = h.removed.isEmpty
+                ? "\(max(0, h.added.first!.line - 1))"
+                : range(lines: h.removed.map(\.line))
+            let newRange = h.added.isEmpty
+                ? "\(max(0, h.removed.first!.line - 1))"
+                : range(lines: h.added.map(\.line))
+            let op: Character
+            if h.removed.isEmpty { op = "a" }
+            else if h.added.isEmpty { op = "d" }
+            else { op = "c" }
+            out += "\(oldRange)\(op)\(newRange)\n"
+            for (_, t) in h.removed { out += "< \(t)\n" }
+            if !h.removed.isEmpty, !h.added.isEmpty { out += "---\n" }
+            for (_, t) in h.added { out += "> \(t)\n" }
+        }
+        return out
+    }
+
+    private static func range(lines: [Int]) -> String {
+        guard let first = lines.first, let last = lines.last else { return "0" }
+        return first == last ? "\(first)" : "\(first),\(last)"
     }
 
     // MARK: Unified renderer

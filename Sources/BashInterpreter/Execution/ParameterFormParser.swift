@@ -50,16 +50,17 @@ enum ParameterFormParser {
             i = 0
         }
 
-        // Indices: `${!name[@]}` / `${!name[*]}` — the only `!`-prefix
-        // form we support (full indirect expansion is a separate
-        // feature). `name` must end with `[@]` or `[*]`.
+        // `!`-prefix forms.
+        //   - `${!name[@]}` / `${!name[*]}` → array indices
+        //   - `${!name}` → indirect expansion
         if chars[0] == "!", chars.count > 1 {
             i = 1
             let name = readName(chars, &i)
-            if !name.isEmpty, i == chars.count,
-               name.hasSuffix("[@]") || name.hasSuffix("[*]")
-            {
-                return .indices(name)
+            if !name.isEmpty, i == chars.count {
+                if name.hasSuffix("[@]") || name.hasSuffix("[*]") {
+                    return .indices(name)
+                }
+                return .indirect(name)
             }
             i = 0
         }
@@ -143,6 +144,21 @@ enum ParameterFormParser {
         case "+":
             return .alternative(name: name, checkEmpty: false,
                                 value: String(chars[(i + 1)...]))
+
+        case "^":
+            // `${name^}` first matching char → upper.
+            // `${name^^}` every matching char → upper.
+            // Optional pattern follows: `${name^^[abc]}`.
+            let all = (next == "^")
+            let patStart = all ? i + 2 : i + 1
+            return .caseConvert(name: name, toUpper: true, all: all,
+                                pattern: String(chars[patStart...]))
+
+        case ",":
+            let all = (next == ",")
+            let patStart = all ? i + 2 : i + 1
+            return .caseConvert(name: name, toUpper: false, all: all,
+                                pattern: String(chars[patStart...]))
 
         default:
             // Unrecognised operator — fall back to plain lookup so the

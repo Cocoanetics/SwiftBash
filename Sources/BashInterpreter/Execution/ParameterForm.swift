@@ -45,6 +45,16 @@ enum ParameterForm: Equatable {
     /// `${!arr[@]}` / `${!arr[*]}` — list of indices of the array
     /// (sparse-aware: only set slots are reported, in sorted order).
     case indices(String)
+    /// `${!name}` — indirect expansion: `name` is a variable whose
+    /// value is the *real* parameter name to look up.
+    case indirect(String)
+    /// `${name^}` `${name^^}` `${name,}` `${name,,}` — case conversion.
+    /// `all=true` for `^^` / `,,`; `pattern` empty means "match every
+    /// char" (matches bash short-form behaviour).
+    case caseConvert(name: String,
+                     toUpper: Bool,
+                     all: Bool,
+                     pattern: String)
 
     enum ReplaceAnchor: Equatable {
         case any   // matches at any position

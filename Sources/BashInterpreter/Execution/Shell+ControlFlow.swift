@@ -320,13 +320,19 @@ extension Shell {
     }
 
     /// Evaluates whether any of an arm's patterns match `subject`.
+    /// `case` patterns implicitly enable extglob; `nocasematch` enables
+    /// case-insensitive comparison.
     private func armMatches(_ subject: String, armParts: [Node]) async throws -> Bool {
+        let opts = GlobOptions(
+            extglob: true,
+            nocase:  shoptOptions["nocasematch"] == true)
         for node in armParts {
             guard case .pattern(let patterns) = node.kind else { continue }
             for sub in patterns {
                 if case .reservedWord = sub.kind { continue }
                 let expanded = try await expand(word: sub)
-                if GlobMatcher.match(pattern: expanded, string: subject) {
+                if GlobMatcher.match(pattern: expanded, string: subject,
+                                     options: opts) {
                     return true
                 }
             }

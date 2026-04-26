@@ -53,6 +53,32 @@ public final class Shell: @unchecked Sendable {
     /// `$0` — the script or shell name. Defaults to "swift-bash".
     public var scriptName: String = "swift-bash"
 
+    /// Source range of the simple command currently being dispatched —
+    /// used to render `script.sh: line N:` prefixes on errors so they
+    /// match bash's formatting. Set/cleared by ``executeSimpleCommand``.
+    public internal(set) var currentCommandRange: Range<Int>? = nil
+
+    /// Compute the 1-indexed line number containing `position` in
+    /// ``currentSource``. Returns 1 for any out-of-range position.
+    public func lineNumber(for position: Int) -> Int {
+        let chars = Array(currentSource)
+        let limit = min(max(0, position), chars.count)
+        var line = 1
+        for i in 0..<limit {
+            if chars[i] == "\n" { line += 1 }
+        }
+        return line
+    }
+
+    /// `script:line:` prefix for diagnostics, or just `script:` when
+    /// no command is currently being executed.
+    public func errorLocationPrefix() -> String {
+        if let r = currentCommandRange {
+            return "\(scriptName): line \(lineNumber(for: r.lowerBound)): "
+        }
+        return "\(scriptName): "
+    }
+
     /// Exit status of the most recently completed command.
     public internal(set) var lastExitStatus: ExitStatus = .success
 
@@ -70,6 +96,18 @@ public final class Shell: @unchecked Sendable {
     /// parameter is an error rather than silently producing "".
     /// Reserved for future implementation; currently unused.
     public var nounset: Bool = false
+
+    /// `shopt`-controlled options. Most map directly to glob/expansion
+    /// behaviour; unknown options accept assignments but are otherwise
+    /// no-ops, matching bash's permissive defaults.
+    public var shoptOptions: [String: Bool] = [
+        "nullglob": false,    // unmatched globs disappear (vs. literal pass-through)
+        "globstar": false,    // `**` matches across directory boundaries
+        "extglob":  false,    // enables `?(p) *(p) +(p) @(p) !(p)` patterns
+        "nocaseglob": false,  // case-insensitive globbing
+        "dotglob":  false,    // include leading-dot files in globs
+        "nocasematch": false, // case-insensitive `[[ s == p ]]` and `case`
+    ]
 
     /// Counter tracking nested "checked" contexts in which `errexit`
     /// is suppressed (`if`/`while`/`until` conditions, LHS of
@@ -154,6 +192,10 @@ public final class Shell: @unchecked Sendable {
             UnsetCommand(),
             ExitCommand(),
             EvalCommand(),
+            LetCommand(),
+            ShoptCommand(),
+            MapfileCommand(name: "mapfile"),
+            MapfileCommand(name: "readarray"),
             BreakCommand(),
             ContinueCommand(),
             SetCommand(),

@@ -18,20 +18,51 @@ public struct PasteCommand: ParsableBashCommand {
         abstract: "Merge lines of files."
     )
 
-    @Option(name: [.customShort("d"), .customLong("delimiters")],
-            help: "Delimiter character(s); cycles when more than one.")
-    public var delimiters: String = "\t"
-
-    @Flag(name: [.customShort("s"), .customLong("serial")],
-          help: "Paste each file's lines serially into a single line.")
-    public var serial: Bool = false
-
-    @Argument(help: "Input files. Use `-` for stdin (only once).")
-    public var files: [String] = []
+    @Argument(parsing: .captureForPassthrough,
+              help: "OPTIONS, then FILE arguments.")
+    public var rawArgv: [String] = []
 
     public init() {}
 
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
+        var delimiters = "\t"
+        var serial = false
+        var files: [String] = []
+
+        var i = 0
+        while i < rawArgv.count {
+            let a = rawArgv[i]
+            if a == "--" {
+                i += 1
+                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+                break
+            }
+            if a == "-d" || a == "--delimiters" {
+                guard i + 1 < rawArgv.count else {
+                    shell.stderr("paste: option requires an argument: \(a)\n")
+                    return ExitStatus(2)
+                }
+                delimiters = decodePasteDelimiters(rawArgv[i + 1])
+                i += 2; continue
+            }
+            // BSD/GNU `-dCHAR(s)` combined form (e.g. `-d,`).
+            if a.hasPrefix("-d"), a.count > 2 {
+                delimiters = decodePasteDelimiters(String(a.dropFirst(2)))
+                i += 1; continue
+            }
+            if a == "-s" || a == "--serial" {
+                serial = true; i += 1; continue
+            }
+            if a == "-" {
+                files.append(a); i += 1; continue
+            }
+            if a.hasPrefix("-"), a.count > 1 {
+                shell.stderr("paste: invalid option: \(a)\n")
+                return ExitStatus(2)
+            }
+            files.append(a); i += 1
+        }
+
         guard !files.isEmpty else {
             shell.stderr("paste: missing operand\n")
             return .failure
@@ -98,4 +129,30 @@ public struct PasteCommand: ParsableBashCommand {
         }
         return .success
     }
+}
+
+/// Decode `\t`, `\n`, `\\`, `\0` escapes inside a `-d` value the way
+/// BSD/GNU `paste` does — `paste -d $'\t'` and `paste -d \\t` both
+/// yield a tab.
+private func decodePasteDelimiters(_ raw: String) -> String {
+    var out = ""
+    var i = raw.startIndex
+    while i < raw.endIndex {
+        let c = raw[i]
+        if c == "\\", raw.index(after: i) < raw.endIndex {
+            let n = raw[raw.index(after: i)]
+            switch n {
+            case "n": out.append("\n")
+            case "t": out.append("\t")
+            case "0": out.append("\0")
+            case "\\": out.append("\\")
+            default: out.append(n)
+            }
+            i = raw.index(i, offsetBy: 2)
+        } else {
+            out.append(c)
+            i = raw.index(after: i)
+        }
+    }
+    return out
 }

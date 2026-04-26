@@ -35,6 +35,11 @@ public final class Tokenizer {
 
     // After an IN or FOR/CASE reserved word, assignments aren't allowed.
     private var inCasePat = false
+    /// True inside `[[ … ]]` where extglob constructs are also allowed
+    /// in patterns. Currently unused (the parser doesn't yet flip it),
+    /// but referenced by ``readTokenWord`` so the wiring is in place
+    /// for a future enhancement.
+    private var inExtglobPattern = false
     private var openBraces = 0
 
     public init(_ source: String) {
@@ -365,6 +370,25 @@ public final class Tokenizer {
                 if consumed { continue }
                 // Fall through: `<` / `>` without `(` should be treated as a
                 // break when not inside a delimiter context.
+            }
+
+            // Extended-glob construct: `?(p)` `*(p)` `+(p)` `@(p)` `!(p)`
+            // appearing in pattern context (case patterns, [[ ]]). The
+            // construct lives inside the word so the parser sees a
+            // single pattern token.
+            if c == "(",
+               let prev = word.last,
+               "?*+@!".contains(prev),
+               (inCasePat || inExtglobPattern)
+            {
+                _ = getc()              // consume `(`
+                word.append(c)
+                let body = try parseMatchedPair(
+                    doubleQuote: nil, open: "(", close: ")")
+                word.append(contentsOf: body)
+                quoted = true           // suppress reserved-word demotion
+                allDigits = false
+                continue
             }
 
             if SyntaxClass.isBreak(c) {

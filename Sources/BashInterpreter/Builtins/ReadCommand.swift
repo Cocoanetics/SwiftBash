@@ -23,6 +23,7 @@ public struct ReadCommand: Command {
     public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
         var raw = false
         var prompt: String? = nil
+        var arrayName: String? = nil
         var i = 1
 
         while i < argv.count {
@@ -39,6 +40,16 @@ public struct ReadCommand: Command {
                 i += 2
             } else if arg.hasPrefix("-p") {
                 prompt = String(arg.dropFirst(2))
+                i += 1
+            } else if arg == "-a" {
+                guard i + 1 < argv.count else {
+                    shell.stderr("read: -a: missing array name\n")
+                    return ExitStatus(2)
+                }
+                arrayName = argv[i + 1]
+                i += 2
+            } else if arg.hasPrefix("-a"), arg.count > 2 {
+                arrayName = String(arg.dropFirst(2))
                 i += 1
             } else if arg.hasPrefix("-") && arg != "-" {
                 // Unknown flag; surface and stop option parsing.
@@ -57,6 +68,14 @@ public struct ReadCommand: Command {
             return .failure
         }
 
+        // `read -a NAME` overrides the variable list; bash splits the
+        // line on $IFS into the array NAME and ignores extra positional
+        // var names.
+        if let arrayName {
+            assignToArray(line, name: arrayName, shell: shell)
+            return .success
+        }
+
         let names = Array(argv[i...])
         if names.isEmpty {
             shell.environment["REPLY"] = line
@@ -64,6 +83,45 @@ public struct ReadCommand: Command {
         }
         assignSplitFields(line, into: names, shell: shell)
         return .success
+    }
+
+    /// Split `line` on $IFS and store the fields in `name` as an
+    /// indexed array, dense from index 0.
+    private func assignToArray(_ line: String,
+                               name: String,
+                               shell: Shell)
+    {
+        let ifsChars: [Character] = {
+            if let ifs = shell.environment["IFS"] { return Array(ifs) }
+            return [" ", "\t", "\n"]
+        }()
+        let ifsSet = Set(ifsChars)
+        let whitespace: Set<Character> = [" ", "\t", "\n"]
+        let isIfsWhitespace = ifsChars.allSatisfy { whitespace.contains($0) }
+
+        // For whitespace-only IFS, runs collapse and leading/trailing
+        // whitespace is stripped (matches `read VAR1 VAR2 …`).
+        var fields: [String] = []
+        var current = ""
+        var prevWasSep = isIfsWhitespace
+        for c in line {
+            if ifsSet.contains(c) {
+                if isIfsWhitespace {
+                    if !prevWasSep, !current.isEmpty {
+                        fields.append(current); current = ""
+                    }
+                    prevWasSep = true
+                } else {
+                    fields.append(current); current = ""
+                }
+            } else {
+                current.append(c); prevWasSep = false
+            }
+        }
+        if !current.isEmpty { fields.append(current) }
+
+        shell.environment.arrays[name] = BashArray(dense: fields)
+        shell.environment.variables.removeValue(forKey: name)
     }
 
     /// Read one line from `shell.stdin`. With `raw: false`, processes

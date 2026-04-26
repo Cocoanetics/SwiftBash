@@ -248,22 +248,9 @@ private struct ConditionalEvaluator {
 
         switch opStr {
         case "=", "==":
-            // Quoted RHS → literal compare. Unquoted → glob match.
-            if rhsIsLiteral(rhs, shell: shell) {
-                let rValue = try await shell.expand(word: rhs)
-                return lValue == rValue
-            } else {
-                let rValue = try await shell.expand(word: rhs)
-                return GlobMatcher.match(pattern: rValue, string: lValue)
-            }
+            return try await matchAsGlob(lhs: lValue, rhs: rhs, shell: shell)
         case "!=":
-            if rhsIsLiteral(rhs, shell: shell) {
-                let rValue = try await shell.expand(word: rhs)
-                return lValue != rValue
-            } else {
-                let rValue = try await shell.expand(word: rhs)
-                return !GlobMatcher.match(pattern: rValue, string: lValue)
-            }
+            return try await !matchAsGlob(lhs: lValue, rhs: rhs, shell: shell)
         case "=~":
             // Regex match. Always literal comparison — regex syntax
             // doesn't go through glob.
@@ -336,6 +323,95 @@ private struct ConditionalEvaluator {
             if c == "'" || c == "\"" || c == "\\" { return true }
         }
         return false
+    }
+
+    /// `[[ lhs == rhs ]]` — match `lhs` against `rhs` interpreted as a
+    /// bash glob, with quoted spans inside `rhs` taken literally and
+    /// unquoted spans treated as glob metacharacters. So `"h"*` is the
+    /// literal `h` followed by any chars; `'a*b'` is the literal three
+    /// characters; an entirely unquoted `*.txt` is a normal glob.
+    private func matchAsGlob(lhs: String, rhs: Node,
+                             shell: Shell) async throws -> Bool
+    {
+        let pattern = try await buildGlobPattern(rhs: rhs, shell: shell)
+        let opts = GlobOptions(
+            extglob: shell.shoptOptions["extglob"] == true,
+            nocase:  shell.shoptOptions["nocasematch"] == true)
+        return GlobMatcher.match(pattern: pattern, string: lhs, options: opts)
+    }
+
+    /// Walk the *source bytes* of `rhs` and build a glob pattern. Chars
+    /// that came from inside `'...'` or `"..."` (or were `\\X`-escaped)
+    /// are emitted as `\\X` so they match literally; unquoted glob
+    /// metacharacters pass through unchanged. Substitutions inside the
+    /// rhs are first resolved (parameter / command sub) then their
+    /// expanded value is escaped — bash treats substituted text as
+    /// literal in `[[ ]]` patterns.
+    private func buildGlobPattern(rhs: Node, shell: Shell) async throws -> String {
+        let chars = Array(shell.currentSource)
+        let lo = max(0, rhs.range.lowerBound)
+        let hi = min(chars.count, rhs.range.upperBound)
+        guard lo < hi else { return "" }
+
+        // Sort substitution sub-nodes by source position so we can
+        // splice them in as we walk.
+        let parts: [Node]
+        if case .word(_, let p) = rhs.kind { parts = p } else { parts = [] }
+        var queue = parts.sorted { $0.range.lowerBound < $1.range.lowerBound }
+
+        var out = ""
+        var inDouble = false
+        var i = lo
+        while i < hi {
+            if let head = queue.first, i == head.range.lowerBound {
+                let value = try await shell.resolve(part: head)
+                out.append(escapedForGlob(value))
+                i = min(hi, head.range.upperBound)
+                queue.removeFirst()
+                continue
+            }
+            let c = chars[i]
+            if c == "'", !inDouble {
+                i += 1
+                while i < hi, chars[i] != "'" {
+                    out.append(escapedForGlob(String(chars[i])))
+                    i += 1
+                }
+                if i < hi { i += 1 }
+                continue
+            }
+            if c == "\"" {
+                inDouble.toggle()
+                i += 1
+                continue
+            }
+            if c == "\\", i + 1 < hi {
+                out.append(escapedForGlob(String(chars[i + 1])))
+                i += 2
+                continue
+            }
+            if inDouble {
+                out.append(escapedForGlob(String(c)))
+            } else {
+                out.append(c)
+            }
+            i += 1
+        }
+        return out
+    }
+
+    private func escapedForGlob(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            switch ch {
+            case "*", "?", "[", "]", "\\", "(", ")", "|":
+                out.append("\\")
+                out.append(ch)
+            default:
+                out.append(ch)
+            }
+        }
+        return out
     }
 }
 

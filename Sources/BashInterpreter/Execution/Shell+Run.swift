@@ -279,6 +279,14 @@ extension Shell {
     /// falls through to the registered command registry.
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
         try await fireDebugTrap()
+        // Track which command we're dispatching so error messages can
+        // include `script.sh: line N:` like bash does.
+        let savedCommandRange = currentCommandRange
+        if let first = parts.first {
+            currentCommandRange = first.range
+        }
+        defer { currentCommandRange = savedCommandRange }
+
         let procSubFrame = pendingProcessSubs.count
         var assignments: [(String, String)] = []
         var wordFragments: [(node: Node, fragments: [WordFragment])] = []
@@ -403,10 +411,9 @@ extension Shell {
         let result: ExitStatus
         do {
             guard let command = commands[argv[0]] else {
-                // Match bash: report to stderr, return 127, do not abort
-                // the script. Callers chain on `cmd || …`, `command -v`,
-                // etc., and rely on $? observability.
-                stderr("\(argv[0]): command not found\n")
+                // Match bash: report to stderr (with `script:line:`
+                // prefix), return 127, do not abort the script.
+                stderr("\(errorLocationPrefix())\(argv[0]): command not found\n")
                 restoreScope()
                 restoreRedirects()
                 await drainProcessSubs(from: procSubFrame)

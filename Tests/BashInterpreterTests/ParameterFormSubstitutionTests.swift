@@ -61,11 +61,14 @@ import Testing
     // MARK: ${var:?MSG}
 
     @Test func errorMessageRunsCommandSub() async throws {
+        // ${var:?MSG} runs MSG through the same expansion pipeline as
+        // a regular word, so a `$(...)` substitution inside the message
+        // fires before the diagnostic is written to stderr.
         let cap = CapturingShell()
-        let err = await #expect(throws: BashInterpreterError.self) {
-            try await cap.shell.run(#"echo "${X:?$(echo computed message)}""#)
-        }
-        #expect(err?.description.contains("computed message") == true)
+        let status = try await cap.shell.run(
+            #"echo "${X:?$(echo computed message)}""#)
+        #expect(status.code == 1)
+        #expect(cap.stderr.contains("computed message"))
     }
 
     // MARK: ${var:+WORD}

@@ -89,16 +89,15 @@ import Testing
 
     // MARK: Error-if-unset `:?` and `?`
 
-    @Test func errorIfUnsetThrows() async {
+    @Test func errorIfUnsetWritesToStderrAndExits() async throws {
+        // Bash semantics: emit `script:line: var: msg` to stderr and
+        // exit the shell with status 1 (status surfacing as `$?` in
+        // a subshell). The throw is captured by the top-level run
+        // and does not propagate out of `cap.shell.run`.
         let cap = CapturingShell()
-        let err = await #expect(throws: BashInterpreterError.self) {
-            try await cap.shell.run(#"echo "${MISSING:?required}""#)
-        }
-        guard let err else {
-            Issue.record("expected BashInterpreterError")
-            return
-        }
-        #expect(err.description.contains("required"), "\(err.description)")
+        let status = try await cap.shell.run(#"echo "${MISSING:?required}""#)
+        #expect(status.code == 1)
+        #expect(cap.stderr.contains("MISSING: required"))
     }
 
     @Test func errorIfSetPassesThrough() async throws {

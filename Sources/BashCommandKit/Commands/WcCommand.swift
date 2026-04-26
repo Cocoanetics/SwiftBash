@@ -1,15 +1,17 @@
 import ArgumentParser
 import BashInterpreter
+import Foundation
 
-/// `wc [-l|-w|-c]` — count lines, words, and/or bytes of stdin.
+/// `wc [-l|-w|-c|-m] [FILE...]` — count lines, words, bytes, or
+/// characters of stdin or each named file.
 ///
-/// With no flags, prints all three in the order `lines words bytes`
-/// (matching `/usr/bin/wc`). Any flag restricts output to the
-/// selected counts (in a consistent `l w c` order).
+/// With no flags, prints lines+words+bytes (matching `/usr/bin/wc`).
+/// Multiple files emit a per-file row plus a `total` row. Counts are
+/// right-aligned in 7-wide columns to match BSD/GNU formatting.
 public struct WcCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "wc",
-        abstract: "Count lines, words, and bytes of stdin."
+        abstract: "Count lines, words, bytes, or characters."
     )
 
     @Flag(name: .customShort("l"), help: "Count newlines.")
@@ -21,22 +23,80 @@ public struct WcCommand: ParsableBashCommand {
     @Flag(name: .customShort("c"), help: "Count bytes (UTF-8).")
     public var bytes: Bool = false
 
+    @Flag(name: .customShort("m"), help: "Count characters (UTF-8 codepoints).")
+    public var chars: Bool = false
+
+    @Argument(help: "Files to count. When empty, reads stdin.")
+    public var files: [String] = []
+
     public init() {}
 
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        let data  = await shell.stdin.readAllData()
-        let input = String(decoding: data, as: UTF8.self)
-        let showAll = !lines && !words && !bytes
+        let showAll = !lines && !words && !bytes && !chars
 
-        let lineCount  = input.filter { $0 == "\n" }.count
-        let wordCount  = input.split(whereSeparator: { $0.isWhitespace }).count
-        let byteCount  = data.count
+        if files.isEmpty {
+            let data = await shell.stdin.readAllData()
+            let counts = compute(data: data)
+            shell.stdout(format(counts: counts, label: nil,
+                                showAll: showAll) + "\n")
+            return .success
+        }
 
+        var total = Counts()
+        var hadError = false
+        for path in files {
+            do {
+                let data = path == "-"
+                    ? await shell.stdin.readAllData()
+                    : try await shell.readDataAtPath(path)
+                let c = compute(data: data)
+                total.add(c)
+                shell.stdout(format(counts: c, label: path,
+                                    showAll: showAll) + "\n")
+            } catch FileSystemError.notFound {
+                shell.stderr("wc: \(path): No such file or directory\n")
+                hadError = true
+            } catch {
+                shell.stderr("wc: \(path): \(error)\n")
+                hadError = true
+            }
+        }
+        if files.count > 1 {
+            shell.stdout(format(counts: total, label: "total",
+                                showAll: showAll) + "\n")
+        }
+        return hadError ? .failure : .success
+    }
+
+    private struct Counts {
+        var lines = 0
+        var words = 0
+        var bytes = 0
+        var chars = 0
+        mutating func add(_ other: Counts) {
+            lines += other.lines; words += other.words
+            bytes += other.bytes; chars += other.chars
+        }
+    }
+
+    private func compute(data: Data) -> Counts {
+        let text = String(decoding: data, as: UTF8.self)
+        return Counts(
+            lines: text.filter { $0 == "\n" }.count,
+            words: text.split(whereSeparator: { $0.isWhitespace }).count,
+            bytes: data.count,
+            chars: text.count)
+    }
+
+    private func format(counts c: Counts, label: String?, showAll: Bool) -> String {
         var pieces: [String] = []
-        if lines || showAll { pieces.append("\(lineCount)") }
-        if words || showAll { pieces.append("\(wordCount)") }
-        if bytes || showAll { pieces.append("\(byteCount)") }
-        shell.stdout(pieces.joined(separator: " ") + "\n")
-        return .success
+        let pad = { (n: Int) in String(format: "%8d", n) }
+        if lines || showAll { pieces.append(pad(c.lines)) }
+        if words || showAll { pieces.append(pad(c.words)) }
+        if bytes || showAll { pieces.append(pad(c.bytes)) }
+        if chars             { pieces.append(pad(c.chars)) }
+        var out = pieces.joined(separator: " ")
+        if let l = label { out += " " + l }
+        return out
     }
 }

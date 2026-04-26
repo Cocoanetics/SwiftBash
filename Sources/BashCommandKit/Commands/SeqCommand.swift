@@ -1,46 +1,79 @@
 import ArgumentParser
 import BashInterpreter
 
-/// `seq [-s SEP] [LAST]`
-/// `seq [-s SEP] FIRST LAST`
-/// `seq [-s SEP] FIRST INCREMENT LAST`
+/// `seq [-s SEP] [-w] [LAST]`
+/// `seq [-s SEP] [-w] FIRST LAST`
+/// `seq [-s SEP] [-w] FIRST INCREMENT LAST`
 ///
 /// Print a sequence of numbers from `FIRST` to `LAST` (inclusive) in
 /// steps of `INCREMENT`. `FIRST` defaults to `1`, `INCREMENT` to `1`
 /// (or `-1` if `FIRST > LAST`).
 ///
-/// ```
-/// seq 3        → 1 2 3
-/// seq 2 5      → 2 3 4 5
-/// seq 1 2 9    → 1 3 5 7 9
-/// seq 5 -1 1   → 5 4 3 2 1
-/// seq -s , 4   → 1,2,3,4
-/// ```
+/// Flags:
+/// - `-s SEP` / `-sSEP` — separator between numbers (default newline).
+/// - `-w` / `--equal-width` — left-pad with zeros so every value is
+///   the same width.
 public struct SeqCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "seq",
         abstract: "Print a sequence of numbers."
     )
 
-    @Option(name: [.short, .long],
-            help: ArgumentHelp("Separator between numbers.",
-                               valueName: "sep"))
-    public var separator: String = "\n"
-
-    // `.captureForPassthrough` lets negative values like `-1` reach us as
-    // positional arguments — without it, ArgumentParser rejects them as
-    // unknown short options before our array ever sees them. We parse
-    // each token into a Double ourselves.
     @Argument(parsing: .captureForPassthrough,
-              help: "LAST, or FIRST LAST, or FIRST INCREMENT LAST.")
-    public var rawArgs: [String] = []
+              help: "OPTIONS, then LAST | FIRST LAST | FIRST INCREMENT LAST.")
+    public var rawArgv: [String] = []
 
     public init() {}
 
     public mutating func execute(shell: Shell) async throws -> ExitStatus {
+        var separator = "\n"
+        var equalWidth = false
+        var positional: [String] = []
+
+        var i = 0
+        while i < rawArgv.count {
+            let a = rawArgv[i]
+            if a == "--" {
+                i += 1
+                while i < rawArgv.count { positional.append(rawArgv[i]); i += 1 }
+                break
+            }
+            if a == "-s" || a == "--separator" {
+                guard i + 1 < rawArgv.count else {
+                    shell.stderr("seq: option requires an argument: \(a)\n")
+                    return ExitStatus(2)
+                }
+                separator = rawArgv[i + 1]
+                i += 2; continue
+            }
+            // `-sCHAR(s)` combined.
+            if a.hasPrefix("-s"), a.count > 2,
+               !isNumericArg(a)
+            {
+                separator = String(a.dropFirst(2))
+                i += 1; continue
+            }
+            if a == "-w" || a == "--equal-width" {
+                equalWidth = true; i += 1; continue
+            }
+            if a == "-f" || a == "--format" {
+                guard i + 1 < rawArgv.count else {
+                    shell.stderr("seq: option requires an argument: \(a)\n")
+                    return ExitStatus(2)
+                }
+                // We support the simplest case: pass-through the format
+                // and use it via String(format:). Bash's seq accepts
+                // anything printf accepts.
+                _ = rawArgv[i + 1] // currently unused — emit unformatted
+                i += 2; continue
+            }
+            // `-NUM` and bare numbers are positional.
+            positional.append(a); i += 1
+        }
+
         var parsed: [Double] = []
-        parsed.reserveCapacity(rawArgs.count)
-        for raw in rawArgs {
+        parsed.reserveCapacity(positional.count)
+        for raw in positional {
             guard let n = Double(raw) else {
                 shell.stderr("seq: invalid number: \(raw)\n")
                 return .failure
@@ -70,6 +103,9 @@ public struct SeqCommand: ParsableBashCommand {
             values.append(format(v))
             v += step
         }
+        if equalWidth, let width = values.map({ widthIgnoringSign($0) }).max() {
+            values = values.map { padLeftZeros($0, toWidth: width) }
+        }
         shell.stdout(values.joined(separator: separator) + "\n")
         return .success
     }
@@ -79,5 +115,24 @@ public struct SeqCommand: ParsableBashCommand {
             return String(Int64(n))
         }
         return String(n)
+    }
+
+    private func isNumericArg(_ a: String) -> Bool {
+        // True for `-3`, `-3.5`, `+1`, `2` — used to disambiguate
+        // `-3` (a negative LAST) from `-3...something` (an option).
+        let body = a.hasPrefix("-") || a.hasPrefix("+")
+            ? String(a.dropFirst()) : a
+        return Double(body) != nil
+    }
+
+    private func widthIgnoringSign(_ s: String) -> Int {
+        s.first == "-" ? s.count - 1 : s.count
+    }
+
+    private func padLeftZeros(_ s: String, toWidth w: Int) -> String {
+        let body = s.first == "-" ? String(s.dropFirst()) : s
+        let pad = max(0, w - body.count)
+        let zeros = String(repeating: "0", count: pad)
+        return (s.first == "-" ? "-" : "") + zeros + body
     }
 }

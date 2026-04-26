@@ -21,7 +21,11 @@ extension Shell {
     {
         guard shouldGlob(originalWord) else { return [expanded] }
         let matches = await glob(expanded)
-        return matches.isEmpty ? [expanded] : matches
+        if !matches.isEmpty { return matches }
+        // `nullglob`: drop the unmatched pattern entirely (yielding zero
+        // args) instead of leaving it as a literal.
+        if shoptOptions["nullglob"] == true { return [] }
+        return [expanded]
     }
 
     /// True when the *raw source* of `word` contains a glob
@@ -58,41 +62,133 @@ extension Shell {
         return false
     }
 
-    /// Expand `pattern` against ``fileSystem``. Splits the pattern at
-    /// its final slash and globs only the tail component. Hidden
-    /// entries (those starting with `.`) are excluded unless the
-    /// pattern itself starts with `.`.
+    /// Expand `pattern` against ``fileSystem``. Walks every segment of
+    /// the path, applying glob matching at each level. The leading
+    /// portion (everything up to the first segment containing a glob
+    /// metacharacter) is treated as a literal directory.
+    ///
+    /// `globstar`-aware: when enabled, a segment that is exactly `**`
+    /// matches zero or more directory levels.
     private func glob(_ pattern: String) async -> [String] {
-        let (dirPart, fileGlob) = splitGlobPattern(pattern)
-        let dirAbs = resolvePath(dirPart)
-        let entries: [String]
-        do {
-            entries = try await fileSystem.list(dirAbs)
-        } catch {
+        guard !pattern.isEmpty else { return [] }
+        let absolute = pattern.hasPrefix("/")
+        let segments = pattern.split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard !segments.isEmpty else { return [] }
+
+        let startBase = absolute ? "/" : "."
+        let matched = await globRecursive(
+            base: startBase, segments: segments, segIdx: 0,
+            isAbsolute: absolute)
+        return matched.sorted()
+    }
+
+    /// Recursively glob segment-by-segment under `base`. Each level
+    /// reads `base`'s directory entries, matches them against the
+    /// segment pattern, and recurses into the matches.
+    private func globRecursive(base: String,
+                               segments: [String],
+                               segIdx: Int,
+                               isAbsolute: Bool) async -> [String]
+    {
+        if segIdx >= segments.count {
+            // Past the last segment — emit `base` if it actually exists.
+            let resolved = resolvePath(base)
+            if (try? await fileSystem.metadata(resolved)) != nil {
+                return [pretty(base, isAbsolute: isAbsolute)]
+            }
             return []
         }
 
-        let includeHidden = fileGlob.hasPrefix(".")
-        var matches: [String] = []
-        for name in entries {
+        let seg = segments[segIdx]
+        let isLast = (segIdx == segments.count - 1)
+
+        // `**` (globstar): match zero or more path segments.
+        if seg == "**", shoptOptions["globstar"] == true {
+            var out: [String] = []
+            // Zero levels: skip past the `**` segment.
+            out.append(contentsOf: await globRecursive(
+                base: base, segments: segments, segIdx: segIdx + 1,
+                isAbsolute: isAbsolute))
+            // One-or-more levels: descend into every directory under base
+            // (including base's children, recursively), keeping `**` as
+            // the current segment.
+            let dirs = await listDirectoriesRecursive(under: base)
+            for d in dirs {
+                out.append(contentsOf: await globRecursive(
+                    base: d, segments: segments, segIdx: segIdx + 1,
+                    isAbsolute: isAbsolute))
+            }
+            return out
+        }
+
+        // Plain segment: list the dir, match each entry.
+        let resolvedBase = resolvePath(base)
+        let entries: [String]
+        do { entries = try await fileSystem.list(resolvedBase) }
+        catch { return [] }
+
+        let includeHidden = seg.hasPrefix(".")
+            || shoptOptions["dotglob"] == true
+        var out: [String] = []
+        for name in entries.sorted() {
             if !includeHidden && name.hasPrefix(".") { continue }
-            if GlobMatcher.match(pattern: fileGlob, string: name) {
-                let prefix = dirPart.isEmpty || dirPart == "."
-                    ? ""
-                    : (dirPart.hasSuffix("/") ? dirPart : dirPart + "/")
-                matches.append(prefix + name)
+            if !matches(pattern: seg, string: name) { continue }
+            let next = base == "/" ? "/" + name
+                : (base == "." ? name : base + "/" + name)
+            if isLast {
+                out.append(pretty(next, isAbsolute: isAbsolute))
+            } else {
+                // Must be a directory (or symlink to one) to descend.
+                let nextAbs = resolvePath(next)
+                if let meta = try? await fileSystem.metadata(nextAbs),
+                   meta.kind == .directory
+                {
+                    out.append(contentsOf: await globRecursive(
+                        base: next, segments: segments, segIdx: segIdx + 1,
+                        isAbsolute: isAbsolute))
+                }
             }
         }
-        return matches.sorted()
+        return out
     }
 
-    /// `foo/bar/*.txt` → (`foo/bar`, `*.txt`). `*.txt` → (`.`, `*.txt`).
-    private func splitGlobPattern(_ pattern: String) -> (String, String) {
-        if let lastSlash = pattern.lastIndex(of: "/") {
-            let dir = String(pattern[..<lastSlash])
-            let tail = String(pattern[pattern.index(after: lastSlash)...])
-            return (dir.isEmpty ? "/" : dir, tail)
+    /// Single-segment match honouring `nocaseglob` / `extglob`.
+    private func matches(pattern: String, string: String) -> Bool {
+        let opts = GlobOptions(
+            extglob:    shoptOptions["extglob"] == true,
+            nocase:     shoptOptions["nocaseglob"] == true)
+        return GlobMatcher.match(pattern: pattern, string: string, options: opts)
+    }
+
+    /// Recursively enumerate every directory under `base` (excluding
+    /// `base` itself). Used to power `globstar`.
+    private func listDirectoriesRecursive(under base: String) async -> [String] {
+        var out: [String] = []
+        let baseAbs = resolvePath(base)
+        let entries = (try? await fileSystem.list(baseAbs)) ?? []
+        for name in entries.sorted() {
+            // Globstar excludes hidden dirs unless dotglob is on.
+            if shoptOptions["dotglob"] != true, name.hasPrefix(".") {
+                continue
+            }
+            let child = base == "/" ? "/" + name
+                : (base == "." ? name : base + "/" + name)
+            let childAbs = resolvePath(child)
+            if let meta = try? await fileSystem.metadata(childAbs),
+               meta.kind == .directory
+            {
+                out.append(child)
+                out.append(contentsOf:
+                            await listDirectoriesRecursive(under: child))
+            }
         }
-        return (".", pattern)
+        return out
+    }
+
+    private func pretty(_ path: String, isAbsolute: Bool) -> String {
+        if isAbsolute { return path }
+        if path.hasPrefix("./") { return String(path.dropFirst(2)) }
+        return path
     }
 }
