@@ -40,8 +40,16 @@ import Foundation
 
     @Test func backreferences() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        // Default mode is BRE — groups need backslashes.
         try await cap.shell.run(
-            #"echo 'hello world' | sed 's/(hello) (world)/\2 \1/'"#)
+            #"echo 'hello world' | sed 's/\(hello\) \(world\)/\2 \1/'"#)
+        #expect(cap.stdout == "world hello\n")
+    }
+
+    @Test func backreferencesERE() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run(
+            #"echo 'hello world' | sed -E 's/(hello) (world)/\2 \1/'"#)
         #expect(cap.stdout == "world hello\n")
     }
 
