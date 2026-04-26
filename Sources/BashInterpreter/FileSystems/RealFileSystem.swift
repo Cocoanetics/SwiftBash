@@ -25,9 +25,36 @@ public struct RealFileSystem: FileSystem {
     /// `kind == .directory`. Returns `nil` if the path (or a broken
     /// symlink's target) doesn't exist.
     public func metadata(_ path: String) async throws -> FileMetadata? {
+        // lstat first to detect symlinks and capture their target.
+        var lst = stat()
+        let lstatOK = path.withCString { lstat($0, &lst) } == 0
+
+        var symlinkTarget: String? = nil
+        if lstatOK, (lst.st_mode & S_IFMT) == S_IFLNK {
+            var buf = [Int8](repeating: 0, count: 4096)
+            let n = path.withCString { p in
+                buf.withUnsafeMutableBufferPointer { bp in
+                    Darwin.readlink(p, bp.baseAddress, bp.count)
+                }
+            }
+            if n > 0 {
+                let bytes = (0..<Int(n)).map { UInt8(bitPattern: buf[$0]) }
+                symlinkTarget = String(decoding: bytes, as: UTF8.self)
+            }
+        }
+
+        // Now follow symlinks for kind/size/mode etc. We use
+        // `fstatat(AT_FDCWD, path, &st, 0)` because the `stat` symbol
+        // alone is ambiguous in Swift (the struct shadows the function).
         var st = stat()
-        if stat(path, &st) != 0 { return nil }
-        return FileMetadata.fromStat(st)
+        let statOK = path.withCString { fstatat(AT_FDCWD, $0, &st, 0) } == 0
+        if !statOK {
+            // Broken symlink → return lstat info so callers can still see
+            // the link target. Otherwise the path simply doesn't exist.
+            if lstatOK { return FileMetadata.fromStat(lst, symlinkTarget: symlinkTarget) }
+            return nil
+        }
+        return FileMetadata.fromStat(st, symlinkTarget: symlinkTarget)
     }
 
     public func list(_ path: String) async throws -> [String] {
@@ -158,7 +185,7 @@ public struct RealFileSystem: FileSystem {
             throw FileSystemError.io(
                 "open \(path) for write failed: \(error.localizedDescription)")
         }
-        if append { try? handle.seekToEnd() }
+        if append { _ = try? handle.seekToEnd() }
 
         let handleBox = FileHandleBox(handle: handle)
         return OutputSink(
@@ -278,18 +305,133 @@ final class FileHandleBox: @unchecked Sendable {
 }
 
 private extension FileMetadata {
-    static func fromStat(_ s: stat) -> FileMetadata {
+    static func fromStat(_ s: stat, symlinkTarget: String? = nil) -> FileMetadata {
         let kind: Kind
-        let mode = s.st_mode
-        if (mode & S_IFMT) == S_IFLNK       { kind = .symlink }
-        else if (mode & S_IFMT) == S_IFDIR  { kind = .directory }
-        else if (mode & S_IFMT) == S_IFREG  { kind = .file }
-        else                                { kind = .other }
+        let rawMode = s.st_mode
+        if (rawMode & S_IFMT) == S_IFLNK       { kind = .symlink }
+        else if (rawMode & S_IFMT) == S_IFDIR  { kind = .directory }
+        else if (rawMode & S_IFMT) == S_IFREG  { kind = .file }
+        else                                   { kind = .other }
 
-        let mtime = Date(timeIntervalSince1970:
-                            TimeInterval(s.st_mtimespec.tv_sec))
+        let mtime = Date(timeIntervalSince1970: TimeInterval(s.st_mtimespec.tv_sec))
+        let atime = Date(timeIntervalSince1970: TimeInterval(s.st_atimespec.tv_sec))
+        let ctime = Date(timeIntervalSince1970: TimeInterval(s.st_ctimespec.tv_sec))
         return FileMetadata(kind: kind,
                             size: Int64(s.st_size),
-                            modifiedAt: mtime)
+                            modifiedAt: mtime,
+                            symlinkTarget: symlinkTarget,
+                            mode: UInt16(rawMode & 0o7777),
+                            uid: UInt32(s.st_uid),
+                            gid: UInt32(s.st_gid),
+                            linkCount: Int(s.st_nlink),
+                            accessedAt: atime,
+                            createdAt: ctime)
     }
+}
+
+// MARK: - Permissions / links / xattrs
+
+public extension RealFileSystem {
+
+    func chmod(_ path: String, mode: UInt16) async throws {
+        let r = path.withCString { Darwin.chmod($0, mode_t(mode)) }
+        if r != 0 { throw fsError(op: "chmod", path: path) }
+    }
+
+    func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
+        // -1 means "leave unchanged" in chown(2).
+        let u = uid.map { uid_t($0) } ?? uid_t(bitPattern: -1)
+        let g = gid.map { gid_t($0) } ?? gid_t(bitPattern: -1)
+        let r = path.withCString { Darwin.chown($0, u, g) }
+        if r != 0 { throw fsError(op: "chown", path: path) }
+    }
+
+    func symlink(target: String, at linkPath: String) async throws {
+        let r = target.withCString { tp in
+            linkPath.withCString { lp in
+                Darwin.symlink(tp, lp)
+            }
+        }
+        if r != 0 { throw fsError(op: "symlink", path: linkPath) }
+    }
+
+    func hardlink(target: String, at linkPath: String) async throws {
+        let r = target.withCString { tp in
+            linkPath.withCString { lp in
+                Darwin.link(tp, lp)
+            }
+        }
+        if r != 0 { throw fsError(op: "link", path: linkPath) }
+    }
+
+    func listXattrs(_ path: String) async throws -> [String] {
+        let needed = path.withCString { listxattr($0, nil, 0, 0) }
+        if needed < 0 { throw fsError(op: "listxattr", path: path) }
+        if needed == 0 { return [] }
+        var buf = [Int8](repeating: 0, count: needed)
+        let written = path.withCString { p in
+            buf.withUnsafeMutableBufferPointer { bp in
+                listxattr(p, bp.baseAddress, needed, 0)
+            }
+        }
+        if written < 0 { throw fsError(op: "listxattr", path: path) }
+        var names: [String] = []
+        var i = 0
+        while i < written {
+            let start = i
+            while i < written, buf[i] != 0 { i += 1 }
+            if i > start {
+                let bytes = (start..<i).map { UInt8(bitPattern: buf[$0]) }
+                names.append(String(decoding: bytes, as: UTF8.self))
+            }
+            i += 1
+        }
+        return names
+    }
+
+    func getXattr(_ path: String, name: String) async throws -> Data {
+        let needed = path.withCString { p in
+            name.withCString { n in getxattr(p, n, nil, 0, 0, 0) }
+        }
+        if needed < 0 { throw fsError(op: "getxattr", path: path) }
+        if needed == 0 { return Data() }
+        var buf = [UInt8](repeating: 0, count: needed)
+        let written = path.withCString { p in
+            name.withCString { n in
+                buf.withUnsafeMutableBufferPointer { bp in
+                    getxattr(p, n, bp.baseAddress, needed, 0, 0)
+                }
+            }
+        }
+        if written < 0 { throw fsError(op: "getxattr", path: path) }
+        return Data(buf.prefix(written))
+    }
+
+    func setXattr(_ path: String, name: String, value: Data) async throws {
+        let r = path.withCString { p in
+            name.withCString { n in
+                value.withUnsafeBytes { vb in
+                    setxattr(p, n, vb.baseAddress, value.count, 0, 0)
+                }
+            }
+        }
+        if r < 0 { throw fsError(op: "setxattr", path: path) }
+    }
+
+    func removeXattr(_ path: String, name: String) async throws {
+        let r = path.withCString { p in
+            name.withCString { n in removexattr(p, n, 0) }
+        }
+        // ENOATTR (93 on macOS) is fine — silent no-op.
+        if r < 0 && errno != 93 {
+            throw fsError(op: "removexattr", path: path)
+        }
+    }
+}
+
+private func fsError(op: String, path: String) -> FileSystemError {
+    let msg = String(cString: strerror(errno))
+    if errno == ENOENT { return .notFound(path) }
+    if errno == EACCES || errno == EPERM { return .permissionDenied(path) }
+    return .io("\(op) \(path) failed: \(msg)")
 }

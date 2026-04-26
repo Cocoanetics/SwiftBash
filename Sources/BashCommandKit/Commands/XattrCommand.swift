@@ -117,8 +117,9 @@ public struct XattrCommand: ParsableBashCommand {
         let resolved = shell.resolvePath(path)
         let isDir = (try? await shell.fileSystem.metadata(resolved))?.kind == .directory
 
-        try processOne(path, resolved: resolved, shell: shell, mode: mode,
-                       attrName: attrName, attrValue: attrValue, multiple: multiple)
+        try await processOne(path, resolved: resolved, shell: shell, mode: mode,
+                             attrName: attrName, attrValue: attrValue,
+                             multiple: multiple)
 
         if recursive, isDir {
             let entries = (try? await shell.fileSystem.list(resolved)) ?? []
@@ -134,110 +135,38 @@ public struct XattrCommand: ParsableBashCommand {
 
     private func processOne(_ path: String, resolved: String, shell: Shell,
                             mode: Mode, attrName: String?, attrValue: String?,
-                            multiple: Bool) throws {
+                            multiple: Bool) async throws {
         let prefix = multiple ? "\(path): " : ""
+        let fs = shell.fileSystem
         switch mode {
         case .list:
-            let names = try Xattr.list(resolved)
+            let names = try await fs.listXattrs(resolved)
             for n in names { shell.stdout(prefix + n + "\n") }
         case .listLong:
-            let names = try Xattr.list(resolved)
+            let names = try await fs.listXattrs(resolved)
             for n in names {
-                let v = (try? Xattr.get(resolved, name: n)) ?? Data()
+                let v = (try? await fs.getXattr(resolved, name: n)) ?? Data()
                 let str = String(decoding: v, as: UTF8.self)
                 shell.stdout("\(prefix)\(n): \(str)\n")
             }
         case .print:
             guard let n = attrName else { return }
-            let v = try Xattr.get(resolved, name: n)
+            let v = try await fs.getXattr(resolved, name: n)
             shell.stdout(prefix + String(decoding: v, as: UTF8.self) + "\n")
         case .write:
             guard let n = attrName, let v = attrValue else { return }
-            try Xattr.set(resolved, name: n, value: Data(v.utf8))
+            try await fs.setXattr(resolved, name: n, value: Data(v.utf8))
         case .delete:
             guard let n = attrName else { return }
-            try Xattr.remove(resolved, name: n)
+            try await fs.removeXattr(resolved, name: n)
         case .clear:
-            let names = try Xattr.list(resolved)
+            let names = try await fs.listXattrs(resolved)
             for n in names {
-                try? Xattr.remove(resolved, name: n)
+                try? await fs.removeXattr(resolved, name: n)
             }
         }
     }
 }
 
-/// Thin wrappers around the POSIX-extended xattr family.
-enum Xattr {
-
-    static func list(_ path: String) throws -> [String] {
-        let needed = path.withCString { listxattr($0, nil, 0, 0) }
-        if needed < 0 { throw err("listxattr") }
-        if needed == 0 { return [] }
-        var buf = [Int8](repeating: 0, count: needed)
-        let written = path.withCString { p in
-            buf.withUnsafeMutableBufferPointer { bp in
-                listxattr(p, bp.baseAddress, needed, 0)
-            }
-        }
-        if written < 0 { throw err("listxattr") }
-        var names: [String] = []
-        var i = 0
-        while i < written {
-            let start = i
-            while i < written, buf[i] != 0 { i += 1 }
-            if i > start {
-                let bytes = (start..<i).map { UInt8(bitPattern: buf[$0]) }
-                names.append(String(decoding: bytes, as: UTF8.self))
-            }
-            i += 1
-        }
-        return names
-    }
-
-    static func get(_ path: String, name: String) throws -> Data {
-        let needed = path.withCString { p in
-            name.withCString { n in
-                getxattr(p, n, nil, 0, 0, 0)
-            }
-        }
-        if needed < 0 { throw err("getxattr") }
-        if needed == 0 { return Data() }
-        var buf = [UInt8](repeating: 0, count: needed)
-        let written = path.withCString { p in
-            name.withCString { n in
-                buf.withUnsafeMutableBufferPointer { bp in
-                    getxattr(p, n, bp.baseAddress, needed, 0, 0)
-                }
-            }
-        }
-        if written < 0 { throw err("getxattr") }
-        return Data(buf.prefix(written))
-    }
-
-    static func set(_ path: String, name: String, value: Data) throws {
-        let r = path.withCString { p in
-            name.withCString { n in
-                value.withUnsafeBytes { vb in
-                    setxattr(p, n, vb.baseAddress, value.count, 0, 0)
-                }
-            }
-        }
-        if r < 0 { throw err("setxattr") }
-    }
-
-    static func remove(_ path: String, name: String) throws {
-        let r = path.withCString { p in
-            name.withCString { n in
-                removexattr(p, n, 0)
-            }
-        }
-        if r < 0 { throw err("removexattr") }
-    }
-
-    private static func err(_ op: String) -> NSError {
-        let code = Int(errno)
-        let msg = String(cString: strerror(errno))
-        return NSError(domain: "xattr", code: code,
-                       userInfo: [NSLocalizedDescriptionKey: "\(op): \(msg)"])
-    }
-}
+// Xattr operations now live on the ``FileSystem`` protocol; the
+// previous POSIX wrappers were removed in favour of the abstraction.

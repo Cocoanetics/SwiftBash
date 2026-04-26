@@ -75,6 +75,39 @@ public protocol FileSystem: Sendable {
     /// buffers. Default places it under `/tmp/swift-bash/<prefix>-uuid`;
     /// real-disk implementations override to use `NSTemporaryDirectory`.
     func makeTempPath(prefix: String) async throws -> String
+
+    // MARK: Permissions / ownership
+
+    /// Set the POSIX permission bits on `path`.
+    func chmod(_ path: String, mode: UInt16) async throws
+
+    /// Set the owner uid / gid on `path`. Pass `nil` to leave a value
+    /// unchanged.
+    func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws
+
+    // MARK: Links
+
+    /// Create a symbolic link at `linkPath` whose target is `target`.
+    /// `target` is stored verbatim — no canonicalisation.
+    func symlink(target: String, at linkPath: String) async throws
+
+    /// Create a hard link at `linkPath` pointing at the same inode as
+    /// `target`. In-memory file systems may emulate via deep copy.
+    func hardlink(target: String, at linkPath: String) async throws
+
+    // MARK: Extended attributes
+
+    /// List the names of extended attributes on `path`.
+    func listXattrs(_ path: String) async throws -> [String]
+
+    /// Read the value of one extended attribute. Throws if missing.
+    func getXattr(_ path: String, name: String) async throws -> Data
+
+    /// Write or replace one extended attribute.
+    func setXattr(_ path: String, name: String, value: Data) async throws
+
+    /// Remove one extended attribute. Silently succeeds if absent.
+    func removeXattr(_ path: String, name: String) async throws
 }
 
 public extension FileSystem {
@@ -120,6 +153,54 @@ public extension FileSystem {
         try? await createDirectory(dir, intermediates: true)
         return "\(dir)/\(prefix)-\(UUID().uuidString)"
     }
+
+    // MARK: Default no-op-ish implementations for the new operations.
+    //
+    // Backings that don't natively track permissions / xattrs can still
+    // satisfy the protocol: chmod/chown become no-ops, link operations
+    // throw a clear error, and xattr methods report no attributes.
+
+    func chmod(_ path: String, mode: UInt16) async throws {
+        guard try await metadata(path) != nil else {
+            throw FileSystemError.notFound(path)
+        }
+        // Default: nothing to record. RealFileSystem and
+        // InMemoryFileSystem override this.
+    }
+
+    func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
+        guard try await metadata(path) != nil else {
+            throw FileSystemError.notFound(path)
+        }
+    }
+
+    func symlink(target: String, at linkPath: String) async throws {
+        throw FileSystemError.io("symlink not supported by this file system")
+    }
+
+    func hardlink(target: String, at linkPath: String) async throws {
+        // Fall back to copy. Real fs / in-memory override.
+        try await copy(from: target, to: linkPath)
+    }
+
+    func listXattrs(_ path: String) async throws -> [String] {
+        guard try await metadata(path) != nil else {
+            throw FileSystemError.notFound(path)
+        }
+        return []
+    }
+
+    func getXattr(_ path: String, name: String) async throws -> Data {
+        throw FileSystemError.io("no such xattr: \(name)")
+    }
+
+    func setXattr(_ path: String, name: String, value: Data) async throws {
+        throw FileSystemError.io("setXattr not supported by this file system")
+    }
+
+    func removeXattr(_ path: String, name: String) async throws {
+        // Silent no-op when xattrs aren't supported.
+    }
 }
 
 /// Thread-safe buffer used by the default `openWrite` fallback.
@@ -148,15 +229,41 @@ public struct FileMetadata: Sendable, Equatable {
     public let modifiedAt: Date
     /// For symlinks, the raw target string; `nil` otherwise.
     public let symlinkTarget: String?
+    /// POSIX permission bits (the low 12 bits include sticky / setuid).
+    public let mode: UInt16
+    /// Owner user ID. Real fs reports the host's value; in-memory fs
+    /// defaults to the current process's uid.
+    public let uid: UInt32
+    /// Owner group ID.
+    public let gid: UInt32
+    /// Hard-link count (1 unless explicitly linked).
+    public let linkCount: Int
+    /// Last access time. Defaults to `modifiedAt` when the backing
+    /// store doesn't track it separately.
+    public let accessedAt: Date
+    /// Inode change / creation time, depending on platform.
+    public let createdAt: Date
 
     public init(kind: Kind,
                 size: Int64,
                 modifiedAt: Date,
-                symlinkTarget: String? = nil) {
+                symlinkTarget: String? = nil,
+                mode: UInt16 = 0o644,
+                uid: UInt32 = 0,
+                gid: UInt32 = 0,
+                linkCount: Int = 1,
+                accessedAt: Date? = nil,
+                createdAt: Date? = nil) {
         self.kind = kind
         self.size = size
         self.modifiedAt = modifiedAt
         self.symlinkTarget = symlinkTarget
+        self.mode = mode
+        self.uid = uid
+        self.gid = gid
+        self.linkCount = linkCount
+        self.accessedAt = accessedAt ?? modifiedAt
+        self.createdAt = createdAt ?? modifiedAt
     }
 }
 

@@ -26,9 +26,22 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         enum Kind {
             case file(Data, mtime: Date)
             case directory([String: TreeNode])
+            case symlink(target: String, mtime: Date)
         }
         var kind: Kind
-        init(kind: Kind) { self.kind = kind }
+        var mode: UInt16
+        var uid: UInt32
+        var gid: UInt32
+        var xattrs: [String: Data]
+        init(kind: Kind, mode: UInt16? = nil) {
+            self.kind = kind
+            if let m = mode { self.mode = m }
+            else if case .directory = kind { self.mode = 0o755 }
+            else { self.mode = 0o644 }
+            self.uid = UInt32(getuid())
+            self.gid = UInt32(getgid())
+            self.xattrs = [:]
+        }
     }
 
     private let lock = NSLock()
@@ -103,6 +116,13 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
             switch node.kind {
             case .file(let data, _): return data
             case .directory:         throw FileSystemError.isADirectory(path)
+            case .symlink(let target, _):
+                // Read through the symlink to its target.
+                guard let resolved = resolveLocked(target) else {
+                    throw FileSystemError.notFound(path)
+                }
+                if case .file(let d, _) = resolved.kind { return d }
+                throw FileSystemError.isADirectory(path)
             }
         }
     }
@@ -151,6 +171,8 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
                     existing.kind = .file(d, mtime: Date())
                 case .directory:
                     break // touch on directory is a no-op
+                case .symlink(let target, _):
+                    existing.kind = .symlink(target: target, mtime: Date())
                 }
             } else {
                 children[last] = TreeNode(kind: .file(Data(), mtime: Date()))
@@ -268,6 +290,117 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         }
     }
 
+    // MARK: Permissions / ownership / links / xattrs
+
+    public func chmod(_ path: String, mode: UInt16) async throws {
+        try lock.withLock {
+            guard let node = resolveLocked(path) else {
+                throw FileSystemError.notFound(path)
+            }
+            node.mode = mode & 0o7777
+        }
+    }
+
+    public func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
+        try lock.withLock {
+            guard let node = resolveLocked(path) else {
+                throw FileSystemError.notFound(path)
+            }
+            if let u = uid { node.uid = u }
+            if let g = gid { node.gid = g }
+        }
+    }
+
+    public func symlink(target: String, at linkPath: String) async throws {
+        try lock.withLock {
+            let components = Self.splitAbsolute(linkPath)
+            guard let last = components.last else {
+                throw FileSystemError.io("cannot symlink at root")
+            }
+            let parentComponents = Array(components.dropLast())
+            guard let parent = resolveLocked(parentComponents),
+                  case .directory(var children) = parent.kind
+            else {
+                throw FileSystemError.notFound(
+                    "/" + parentComponents.joined(separator: "/"))
+            }
+            if children[last] != nil {
+                throw FileSystemError.alreadyExists(linkPath)
+            }
+            children[last] = TreeNode(
+                kind: .symlink(target: target, mtime: Date()),
+                mode: 0o777)
+            parent.kind = .directory(children)
+        }
+    }
+
+    public func hardlink(target: String, at linkPath: String) async throws {
+        try lock.withLock {
+            guard let src = resolveLocked(target) else {
+                throw FileSystemError.notFound(target)
+            }
+            let components = Self.splitAbsolute(linkPath)
+            guard let last = components.last else {
+                throw FileSystemError.io("cannot link at root")
+            }
+            let parentComponents = Array(components.dropLast())
+            guard let parent = resolveLocked(parentComponents),
+                  case .directory(var children) = parent.kind
+            else {
+                throw FileSystemError.notFound(
+                    "/" + parentComponents.joined(separator: "/"))
+            }
+            if children[last] != nil {
+                throw FileSystemError.alreadyExists(linkPath)
+            }
+            // True hard link semantics aren't expressible in our tree
+            // (one node, two names) without reference-counting indirection,
+            // but pointing the new entry at the same TreeNode object
+            // gives the right behaviour for most observable operations.
+            children[last] = src
+            parent.kind = .directory(children)
+        }
+    }
+
+    public func listXattrs(_ path: String) async throws -> [String] {
+        try lock.withLock {
+            guard let node = resolveLocked(path) else {
+                throw FileSystemError.notFound(path)
+            }
+            return Array(node.xattrs.keys).sorted()
+        }
+    }
+
+    public func getXattr(_ path: String, name: String) async throws -> Data {
+        try lock.withLock {
+            guard let node = resolveLocked(path) else {
+                throw FileSystemError.notFound(path)
+            }
+            guard let v = node.xattrs[name] else {
+                throw FileSystemError.io("no such xattr: \(name)")
+            }
+            return v
+        }
+    }
+
+    public func setXattr(_ path: String, name: String, value: Data) async throws {
+        try lock.withLock {
+            guard let node = resolveLocked(path) else {
+                throw FileSystemError.notFound(path)
+            }
+            node.xattrs[name] = value
+        }
+    }
+
+    public func removeXattr(_ path: String, name: String) async throws {
+        try lock.withLock {
+            guard let node = resolveLocked(path) else {
+                throw FileSystemError.notFound(path)
+            }
+            node.xattrs.removeValue(forKey: name)
+        }
+    }
+
     public func copy(from: String, to: String) async throws {
         try lock.withLock {
             guard let src = resolveLocked(from) else {
@@ -364,23 +497,45 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         case .file(let data, let mtime):
             return FileMetadata(kind: .file,
                                 size: Int64(data.count),
-                                modifiedAt: mtime)
+                                modifiedAt: mtime,
+                                mode: node.mode,
+                                uid: node.uid,
+                                gid: node.gid)
         case .directory:
             return FileMetadata(kind: .directory,
                                 size: 0,
-                                modifiedAt: Date(timeIntervalSince1970: 0))
+                                modifiedAt: Date(timeIntervalSince1970: 0),
+                                mode: node.mode,
+                                uid: node.uid,
+                                gid: node.gid)
+        case .symlink(let target, let mtime):
+            return FileMetadata(kind: .symlink,
+                                size: Int64(target.utf8.count),
+                                modifiedAt: mtime,
+                                symlinkTarget: target,
+                                mode: node.mode,
+                                uid: node.uid,
+                                gid: node.gid)
         }
     }
 
     private static func deepCopy(_ node: TreeNode) -> TreeNode {
+        let new: TreeNode
         switch node.kind {
         case .file(let data, let mtime):
-            return TreeNode(kind: .file(data, mtime: mtime))
+            new = TreeNode(kind: .file(data, mtime: mtime), mode: node.mode)
         case .directory(let children):
             var copied: [String: TreeNode] = [:]
             for (k, v) in children { copied[k] = deepCopy(v) }
-            return TreeNode(kind: .directory(copied))
+            new = TreeNode(kind: .directory(copied), mode: node.mode)
+        case .symlink(let target, let mtime):
+            new = TreeNode(kind: .symlink(target: target, mtime: mtime),
+                           mode: node.mode)
         }
+        new.uid = node.uid
+        new.gid = node.gid
+        new.xattrs = node.xattrs
+        return new
     }
 
     static func splitAbsolute(_ path: String) -> [String] {

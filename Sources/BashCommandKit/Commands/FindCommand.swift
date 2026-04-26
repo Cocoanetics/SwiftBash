@@ -271,10 +271,9 @@ public struct FindCommand: Command {
                 : Int64(raw.rounded(.up))
             return Self.compareInt64(buckets, n, cmp)
         case .perm(let want, let match):
-            guard let mode = try? Self.statMode(node.absolutePath) else {
-                return false
-            }
-            let masked = mode & 0o7777
+            // Read permission bits via FileMetadata so this works with
+            // any FileSystem backing, not just the real disk.
+            let masked = node.meta.mode & 0o7777
             switch match {
             case .exact: return masked == want
             case .all:   return (masked & want) == want
@@ -296,15 +295,6 @@ public struct FindCommand: Command {
         case .more: return have > want
         case .less: return have < want
         }
-    }
-
-    /// Read raw permission bits via `lstat(2)`. Returns `nil` if the
-    /// path can't be stat'd (caller treats as no-match).
-    static func statMode(_ path: String) throws -> UInt16 {
-        var st = stat()
-        let r = path.withCString { lstat($0, &st) }
-        guard r == 0 else { throw FileSystemError.notFound(path) }
-        return UInt16(st.st_mode & 0o7777)
     }
 
     private func runAction(_ a: Action,
