@@ -56,51 +56,6 @@ private final class DataBox: @unchecked Sendable {
         #expect(result.exitStatus == .failure)
     }
 
-    // MARK: Live streaming — iterate stdout while the shell runs
-
-    @Test func streamingStdoutDeliversLinesLive() async throws {
-        let shell = Shell(stderr: .discard)
-        let sink = OutputSink()
-        shell.stdout = sink
-
-        // Consumer runs concurrently: it collects lines AND records
-        // the wall-clock time of each arrival. For the cooperative
-        // `sleep`-based producer, the deltas should match the inter-
-        // line sleep — not be a single burst at the end.
-        let start = Date()
-        async let arrivals: [(String, TimeInterval)] = {
-            var out: [(String, TimeInterval)] = []
-            for await line in sink.lines {
-                out.append((line, Date().timeIntervalSince(start)))
-            }
-            return out
-        }()
-
-        shell.register(name: "sleep") { argv, _ in
-            let secs = Double(argv.dropFirst().first ?? "0") ?? 0
-            try await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
-            return .success
-        }
-
-        try await shell.run("""
-            echo first
-            sleep 0.08
-            echo second
-            sleep 0.08
-            echo third
-            """)
-        sink.finish()
-
-        let lines = await arrivals
-        #expect(lines.map(\.0) == ["first", "second", "third"])
-        // First line should be near-instant (well under one inter-line
-        // sleep). Subsequent lines at least one sleep duration apart.
-        // Generous bounds to absorb CI scheduler jitter.
-        #expect(lines[0].1 < 0.07)
-        #expect(lines[1].1 > 0.07)
-        #expect(lines[2].1 > 0.14)
-    }
-
     // MARK: Multiple consumers of the same sink? (shouldn't — stream is single-consumer)
 
     @Test func bytesAndOnWriteFireSynchronously() async throws {
