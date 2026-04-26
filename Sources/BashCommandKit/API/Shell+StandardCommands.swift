@@ -75,6 +75,7 @@ extension Shell {
         register(Sha1sumCommand.self)
         register(Sha256sumCommand.self)
         register(ShasumCommand.self)
+        register(CurlCommand.self)
         register(DiffCommand.self)
         register(GzipCommand.self)
         register(GunzipCommand.self)

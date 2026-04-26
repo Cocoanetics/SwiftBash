@@ -82,6 +82,13 @@ public final class Shell: @unchecked Sendable {
     /// Exit status of the most recently completed command.
     public internal(set) var lastExitStatus: ExitStatus = .success
 
+    /// Network policy used by `curl` and any other network-using
+    /// command. **`nil` means default-deny** — curl reports
+    /// `Network access denied: URL not in allow-list` and exits with
+    /// status 7. To enable, set a ``NetworkConfig`` with concrete
+    /// ``NetworkConfig/allowedURLPrefixes`` entries.
+    public var networkConfig: NetworkConfig? = nil
+
     /// `set -e` / `set -o errexit` — when `true`, the shell exits as
     /// soon as a command returns a non-zero status, except inside a
     /// "checked" context tracked via ``errexitGuard``.
@@ -235,6 +242,11 @@ public final class Shell: @unchecked Sendable {
                         stderr: stderr,
                         commands: commands,
                         fileSystem: fileSystem)
+        // Carry the network policy across — without this, a pipelined
+        // `curl ... | head -1` loses its allow-list and hits
+        // "no network configured".
+        sub.networkConfig = networkConfig
+        sub.shoptOptions = shoptOptions
         return sub
     }
 }

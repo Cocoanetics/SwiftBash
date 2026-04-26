@@ -47,6 +47,8 @@ extension Shell {
         let commandRegistry = commands
         let fileSystemRef = fileSystem
         let sourceSnapshot = currentSource
+        let networkConfigSnapshot = networkConfig
+        let shoptSnapshot = shoptOptions
 
         let pipefailMode = pipefail
         let status = try await withThrowingTaskGroup(
@@ -70,6 +72,8 @@ extension Shell {
                         fileSystem: fileSystemRef
                     )
                     sub.currentSource = sourceSnapshot
+                    sub.networkConfig = networkConfigSnapshot
+                    sub.shoptOptions = shoptSnapshot
                     sub.stdin = incomingSink.map { InputSource(bytes: $0.bytes) }
                              ?? outerStdin
 

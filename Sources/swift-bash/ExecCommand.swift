@@ -39,6 +39,39 @@ struct ExecCommand: AsyncParsableCommand {
             help: "Virtual mount point for --sandbox. Default: /batch.")
     var workspace: String = "/batch"
 
+    @Option(name: .long, parsing: .singleValue,
+            help: ArgumentHelp(
+                "Permit network access to URL prefixes matching this entry. "
+                + "Origin-only (\"https://api.example.com\") allows all paths; "
+                + "path-scoped (\"https://api.example.com/v1/\") matches at "
+                + "segment boundaries. Repeatable. Without any --allow-url, "
+                + "curl returns Network access denied."))
+    var allowUrl: [String] = []
+
+    @Option(name: .long, parsing: .singleValue,
+            help: ArgumentHelp(
+                "Permit an HTTP method beyond GET / HEAD. Repeatable. "
+                + "Values: GET HEAD POST PUT DELETE PATCH OPTIONS."))
+    var allowMethod: [String] = []
+
+    @Option(name: .long,
+            help: ArgumentHelp(
+                "Cap response body size in bytes. Default 10 MiB."))
+    var maxResponseSize: Int = 10 * 1024 * 1024
+
+    @Flag(name: .long,
+          inversion: .prefixedNo,
+          help: ArgumentHelp(
+            "Reject hostnames that resolve to private/loopback IPs "
+            + "(SSRF / DNS-rebinding defence). Default: on."))
+    var denyPrivate: Bool = true
+
+    @Flag(name: .long,
+          help: ArgumentHelp(
+            "Bypass the URL allow-list entirely. DANGEROUS: use only "
+            + "for trusted scripts. --deny-private still applies."))
+    var dangerousFullNetwork: Bool = false
+
     @Argument(help: "Path to a bash script file.")
     var scriptPath: String
 
@@ -72,6 +105,31 @@ struct ExecCommand: AsyncParsableCommand {
         shell.registerStandardCommands()
         shell.scriptName = scriptPath
         shell.positionalParameters = scriptArgs
+
+        // Configure network access. Defaults remain `nil` (deny-all)
+        // unless the user passed at least one --allow-url, opted into
+        // --dangerous-full-network, or set --max-response-size /
+        // --no-deny-private alongside.
+        let wantsNetwork = !allowUrl.isEmpty
+            || dangerousFullNetwork
+            || !allowMethod.isEmpty
+        if wantsNetwork {
+            var methods: Set<HTTPMethod> = [.GET, .HEAD]
+            for raw in allowMethod {
+                guard let m = HTTPMethod(rawValue: raw.uppercased()) else {
+                    throw CLIError(
+                        "--allow-method: unknown method '\(raw)'. "
+                        + "Valid: \(HTTPMethod.allCases.map(\.rawValue).joined(separator: ", "))")
+                }
+                methods.insert(m)
+            }
+            shell.networkConfig = NetworkConfig(
+                allowedURLPrefixes: allowUrl.map { AllowedURLEntry($0) },
+                allowedMethods: methods,
+                dangerouslyAllowFullInternetAccess: dangerousFullNetwork,
+                denyPrivateRanges: denyPrivate,
+                maxResponseSize: maxResponseSize)
+        }
         // Shell defaults already forward to FileHandle.standardOutput /
         // .standardError — no additional wiring needed.
 

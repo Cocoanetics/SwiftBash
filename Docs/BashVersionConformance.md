@@ -232,6 +232,75 @@ where the Perl script isn't available.
 
 ---
 
+## Network: `curl` and the deny-by-default allow-list
+
+SwiftBash ships a `curl` built on `URLSession` that is gated by an
+**allow-list policy** held on the shell. Default behaviour:
+
+```bash
+swift-bash exec script.sh                  # curl in script → exit 7, denied
+```
+
+To allow specific origins (modelled on just-bash's network design):
+
+```bash
+swift-bash exec --allow-url https://api.example.com \
+                --allow-url https://api.openai.com \
+                --allow-method POST \
+                script.sh
+```
+
+**Allow-list rules** ([URLAllowList.swift](../Sources/BashInterpreter/Network/URLAllowList.swift)):
+- Origin (scheme + host + port) must match exactly.
+- Path-scoped entries (`https://api.example.com/v1/`) match on segment
+  boundaries — `/v1/users` matches, `/v10` and `/v1-admin` do not.
+- URLs containing `%2f` or `%5c` in the path are rejected when the
+  matching entry is path-scoped (defends against encoded-separator
+  bypass).
+
+**Method gate** — defaults to `GET` and `HEAD`. POST / PUT / DELETE
+need explicit `--allow-method`.
+
+**Private-range guard** (`--deny-private`, on by default) — blocks
+hostnames that are *or resolve to* private / loopback / link-local
+IPs (127/8, 10/8, 172.16/12, 192.168/16, 169.254/16 incl. the AWS
+metadata endpoint, 100.64/10 CGNAT, IPv6 ULAs/loopback/link-local,
+IPv4-mapped private). The guard runs even when
+`--dangerous-full-network` is set, so SSRF / DNS-rebinding remain
+blocked even in trusted-script mode.
+
+**Header transforms** for credential brokering — entries can carry
+headers that get injected at the fetch boundary, so a script never
+sees the API key:
+
+```swift
+let config = NetworkConfig(allowedURLPrefixes: [
+    AllowedURLEntry(
+        url: "https://gateway.example.com",
+        transforms: [HeaderTransform(headers:
+            ["Authorization": "Bearer SECRET"])])
+])
+shell.networkConfig = config
+```
+
+**Curl exit codes** map to curl's `CURLE_*`:
+
+| Code | Meaning |
+|---|---|
+| 7  | URL not in allow-list / private IP / connection failure |
+| 3  | invalid URL or method denied |
+| 22 | HTTP 4xx/5xx with `-f` (`--fail`) |
+| 28 | request timed out |
+| 47 | too many redirects |
+| 56 | response body exceeded `--max-response-size` |
+
+Everything above goes through ``SecureFetcher`` — there is no second
+network path that could bypass the policy. `--sandbox` (file-system
+isolation) does **not** auto-enable network; you still have to pass
+`--allow-url` explicitly. The two sandboxes are independent levers.
+
+---
+
 ## Things SwiftBash does NOT do that bash does
 
 For honesty:
