@@ -105,6 +105,7 @@ extension Shell {
         register(NohupCommand())
         register(BcCommand.self)
         register(XattrCommand.self)
+        register(PatchCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
