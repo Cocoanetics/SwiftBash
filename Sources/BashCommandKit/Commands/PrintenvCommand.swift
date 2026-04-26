@@ -19,18 +19,18 @@ public struct PrintenvCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if names.isEmpty {
-            for (k, v) in shell.environment.variables
+            for (k, v) in Shell.current.environment.variables
                 .sorted(by: { $0.key < $1.key }) {
-                shell.stdout("\(k)=\(v)\n")
+                Shell.current.stdout("\(k)=\(v)\n")
             }
             return .success
         }
         var missing = false
         for name in names {
-            if let v = shell.environment[name] {
-                shell.stdout(v + "\n")
+            if let v = Shell.current.environment[name] {
+                Shell.current.stdout(v + "\n")
             } else {
                 missing = true
             }

@@ -18,13 +18,13 @@ public struct TestCommand: Command {
     public let name: String
     public init(name: String = "test") { self.name = name }
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
 
         // `[ EXPR ]` requires a literal `]` as the final arg.
         if argv.first == "[" {
             guard args.last == "]" else {
-                shell.stderr("[: missing `]'\n")
+                Shell.current.stderr("[: missing `]'\n")
                 return ExitStatus(2)
             }
             args.removeLast()
@@ -32,10 +32,10 @@ public struct TestCommand: Command {
 
         do {
             var parser = TestExpressionParser(tokens: args)
-            let result = try await parser.parse(shell: shell)
+            let result = try await parser.parse()
             return result ? .success : .failure
         } catch let err as TestError {
-            shell.stderr("\(name): \(err.message)\n")
+            Shell.current.stderr("\(name): \(err.message)\n")
             return ExitStatus(2)
         }
     }
@@ -75,10 +75,10 @@ private struct TestExpressionParser {
     }
     private var remaining: Int { tokens.count - pos }
 
-    mutating func parse(shell: Shell) async throws -> Bool {
+    mutating func parse() async throws -> Bool {
         // Empty argument list — `test` (no args) is false.
         if tokens.isEmpty { return false }
-        let result = try await parseOr(shell: shell)
+        let result = try await parseOr()
         if pos != tokens.count {
             throw TestError(message:
                 "unexpected argument: `\(tokens[pos])'")
@@ -86,39 +86,39 @@ private struct TestExpressionParser {
         return result
     }
 
-    private mutating func parseOr(shell: Shell) async throws -> Bool {
-        var left = try await parseAnd(shell: shell)
+    private mutating func parseOr() async throws -> Bool {
+        var left = try await parseAnd()
         while peek() == "-o" {
             _ = advance()
-            let right = try await parseAnd(shell: shell)
+            let right = try await parseAnd()
             left = left || right
         }
         return left
     }
 
-    private mutating func parseAnd(shell: Shell) async throws -> Bool {
-        var left = try await parseNot(shell: shell)
+    private mutating func parseAnd() async throws -> Bool {
+        var left = try await parseNot()
         while peek() == "-a" {
             _ = advance()
-            let right = try await parseNot(shell: shell)
+            let right = try await parseNot()
             left = left && right
         }
         return left
     }
 
-    private mutating func parseNot(shell: Shell) async throws -> Bool {
+    private mutating func parseNot() async throws -> Bool {
         if peek() == "!" {
             _ = advance()
-            return !(try await parseNot(shell: shell))
+            return !(try await parseNot())
         }
-        return try await parsePrimary(shell: shell)
+        return try await parsePrimary()
     }
 
-    private mutating func parsePrimary(shell: Shell) async throws -> Bool {
+    private mutating func parsePrimary() async throws -> Bool {
         // Parenthesised group.
         if peek() == "(" {
             _ = advance()
-            let inner = try await parseOr(shell: shell)
+            let inner = try await parseOr()
             guard advance() == ")" else {
                 throw TestError(message: "missing `)'")
             }
@@ -137,7 +137,7 @@ private struct TestExpressionParser {
             let op = advance()!
             let rhs = advance()!
             return try await evalBinary(
-                lhs: lhs, op: op, rhs: rhs, shell: shell)
+                lhs: lhs, op: op, rhs: rhs)
         }
         if remaining >= 2,
            let first = peek(),
@@ -145,7 +145,7 @@ private struct TestExpressionParser {
         {
             let op = advance()!
             let arg = advance()!
-            return try await evalUnary(op: op, arg: arg, shell: shell)
+            return try await evalUnary(op: op, arg: arg)
         }
         // Nullary: a single arg is "true if non-empty".
         guard let arg = advance() else {
@@ -168,26 +168,25 @@ private struct TestExpressionParser {
 
     // MARK: Unary evaluation
 
-    private func evalUnary(op: String, arg: String,
-                           shell: Shell) async throws -> Bool
+    private func evalUnary(op: String, arg: String) async throws -> Bool
     {
-        let path = shell.resolvePath(arg)
+        let path = Shell.current.resolvePath(arg)
         switch op {
         case "-e":
-            return (try? await shell.fileSystem.metadata(path)) ?? nil != nil
+            return (try? await Shell.current.fileSystem.metadata(path)) ?? nil != nil
         case "-f":
-            let m = try? await shell.fileSystem.metadata(path)
+            let m = try? await Shell.current.fileSystem.metadata(path)
             return m?.kind == .file
         case "-d":
-            let m = try? await shell.fileSystem.metadata(path)
+            let m = try? await Shell.current.fileSystem.metadata(path)
             return m?.kind == .directory
         case "-s":
-            let m = try? await shell.fileSystem.metadata(path)
+            let m = try? await Shell.current.fileSystem.metadata(path)
             return (m?.size ?? 0) > 0
         case "-r", "-w", "-x":
             // No permission model; report true iff the path exists.
             // RealFileSystem could be enhanced later via `access(2)`.
-            let m = try? await shell.fileSystem.metadata(path)
+            let m = try? await Shell.current.fileSystem.metadata(path)
             return m != nil
         case "-L", "-h":
             // We don't expose a separate symlink-stat from the FS yet;
@@ -208,8 +207,7 @@ private struct TestExpressionParser {
 
     // MARK: Binary evaluation
 
-    private func evalBinary(lhs: String, op: String, rhs: String,
-                            shell: Shell) async throws -> Bool
+    private func evalBinary(lhs: String, op: String, rhs: String) async throws -> Bool
     {
         switch op {
         // String
@@ -238,10 +236,10 @@ private struct TestExpressionParser {
 
         // File mtime / identity comparison.
         case "-nt", "-ot", "-ef":
-            let lp = shell.resolvePath(lhs)
-            let rp = shell.resolvePath(rhs)
-            let lm = try? await shell.fileSystem.metadata(lp)
-            let rm = try? await shell.fileSystem.metadata(rp)
+            let lp = Shell.current.resolvePath(lhs)
+            let rp = Shell.current.resolvePath(rhs)
+            let lm = try? await Shell.current.fileSystem.metadata(lp)
+            let rm = try? await Shell.current.fileSystem.metadata(rp)
             switch op {
             case "-nt":
                 // True if `lhs` exists and either rhs is missing or
@@ -256,9 +254,9 @@ private struct TestExpressionParser {
             case "-ef":
                 // Same file: compare canonicalised paths. Without
                 // device/inode info this is the closest we can get.
-                let lc = try? await shell.fileSystem.canonicalize(
+                let lc = try? await Shell.current.fileSystem.canonicalize(
                     lp, allowMissing: false)
-                let rc = try? await shell.fileSystem.canonicalize(
+                let rc = try? await Shell.current.fileSystem.canonicalize(
                     rp, allowMissing: false)
                 return lc != nil && lc == rc
             default: return false

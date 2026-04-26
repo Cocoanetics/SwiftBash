@@ -21,15 +21,15 @@ public struct WhichCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if names.isEmpty {
-            shell.stderr("which: missing operand\n")
+            Shell.current.stderr("which: missing operand\n")
             return .failure
         }
         var missing = false
         for name in names {
-            if shell.commands[name] != nil {
-                shell.stdout("/builtin/\(name)\n")
+            if Shell.current.commands[name] != nil {
+                Shell.current.stdout("/builtin/\(name)\n")
             } else {
                 missing = true
             }

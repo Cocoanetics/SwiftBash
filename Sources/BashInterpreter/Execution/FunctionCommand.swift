@@ -17,34 +17,34 @@ struct FunctionCommand: Command {
     /// for word expansion of the body.
     let definitionSource: String
 
-    func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    func run(_ argv: [String]) async throws -> ExitStatus {
         // Save call-frame state.
-        let savedParams = shell.positionalParameters
-        let savedSource = shell.currentSource
+        let savedParams = Shell.current.positionalParameters
+        let savedSource = Shell.current.currentSource
 
-        shell.positionalParameters = Array(argv.dropFirst())
-        shell.currentSource = definitionSource
-        shell.functionCallDepth += 1
-        shell.localVarStack.append([])
+        Shell.current.positionalParameters = Array(argv.dropFirst())
+        Shell.current.currentSource = definitionSource
+        Shell.current.functionCallDepth += 1
+        Shell.current.localVarStack.append([])
 
         defer {
             // Pop locals — restore shadowed values in reverse order.
-            if let frame = shell.localVarStack.popLast() {
+            if let frame = Shell.current.localVarStack.popLast() {
                 for (name, prior) in frame.reversed() {
-                    shell.environment[name] = prior
+                    Shell.current.environment[name] = prior
                 }
             }
-            shell.functionCallDepth -= 1
-            shell.positionalParameters = savedParams
-            shell.currentSource = savedSource
+            Shell.current.functionCallDepth -= 1
+            Shell.current.positionalParameters = savedParams
+            Shell.current.currentSource = savedSource
         }
 
         do {
-            let result = try await shell.execute(body)
-            shell.lastExitStatus = result
+            let result = try await Shell.current.execute(body)
+            Shell.current.lastExitStatus = result
             return result
         } catch let ret as ReturnSignal {
-            shell.lastExitStatus = ret.status
+            Shell.current.lastExitStatus = ret.status
             return ret.status
         }
     }

@@ -32,7 +32,7 @@ public struct SortCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var opts = SortOptions()
         var files: [String] = []
 
@@ -63,7 +63,7 @@ public struct SortCommand: ParsableBashCommand {
             }
             if a == "-o" || a == "--output" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("sort: -o requires FILE\n"); return ExitStatus(2)
+                    Shell.current.stderr("sort: -o requires FILE\n"); return ExitStatus(2)
                 }
                 opts.outputFile = rawArgv[i + 1]; i += 2; continue
             }
@@ -75,7 +75,7 @@ public struct SortCommand: ParsableBashCommand {
             }
             if a == "-t" || a == "--field-separator" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("sort: -t requires SEP\n"); return ExitStatus(2)
+                    Shell.current.stderr("sort: -t requires SEP\n"); return ExitStatus(2)
                 }
                 opts.fieldDelimiter = rawArgv[i + 1]; i += 2; continue
             }
@@ -88,7 +88,7 @@ public struct SortCommand: ParsableBashCommand {
             }
             if a == "-k" || a == "--key" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("sort: -k requires KEYDEF\n"); return ExitStatus(2)
+                    Shell.current.stderr("sort: -k requires KEYDEF\n"); return ExitStatus(2)
                 }
                 if let k = parseKeySpec(rawArgv[i + 1]) { opts.keys.append(k) }
                 i += 2; continue
@@ -104,7 +104,7 @@ public struct SortCommand: ParsableBashCommand {
                 i += 1; continue
             }
             if a.hasPrefix("--") {
-                shell.stderr("sort: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.current.stderr("sort: unknown option: \(a)\n"); return ExitStatus(2)
             }
             if a.hasPrefix("-") && a.count > 1 {
                 // Combined short flags like -rn, -bf, etc.
@@ -122,7 +122,7 @@ public struct SortCommand: ParsableBashCommand {
                     case "s": opts.stable = true
                     case "c": opts.checkOnly = true
                     default:
-                        shell.stderr("sort: unknown option: -\(c)\n")
+                        Shell.current.stderr("sort: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -134,15 +134,15 @@ public struct SortCommand: ParsableBashCommand {
         // Read inputs.
         var lines: [String] = []
         if files.isEmpty {
-            for await line in shell.stdin.lines { lines.append(line) }
+            for await line in Shell.current.stdin.lines { lines.append(line) }
         } else {
             for f in files {
                 do {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     lines.append(contentsOf: SortCommand.splitLines(text))
                 } catch {
-                    shell.stderr("sort: \(f): \(error)\n")
+                    Shell.current.stderr("sort: \(f): \(error)\n")
                     return .failure
                 }
             }
@@ -155,7 +155,7 @@ public struct SortCommand: ParsableBashCommand {
             let label = files.first ?? "-"
             for j in 1..<lines.count {
                 if cmp(lines[j - 1], lines[j]) > 0 {
-                    shell.stderr("sort: \(label):\(j + 1): disorder: \(lines[j])\n")
+                    Shell.current.stderr("sort: \(label):\(j + 1): disorder: \(lines[j])\n")
                     return ExitStatus(1)
                 }
             }
@@ -182,13 +182,13 @@ public struct SortCommand: ParsableBashCommand {
         let output = lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
         if let outPath = opts.outputFile {
             do {
-                try await shell.writeData(Data(output.utf8), toPath: outPath, append: false)
+                try await Shell.current.writeData(Data(output.utf8), toPath: outPath, append: false)
             } catch {
-                shell.stderr("sort: \(outPath): \(error)\n")
+                Shell.current.stderr("sort: \(outPath): \(error)\n")
                 return .failure
             }
         } else {
-            shell.stdout(output)
+            Shell.current.stdout(output)
         }
         return .success
     }

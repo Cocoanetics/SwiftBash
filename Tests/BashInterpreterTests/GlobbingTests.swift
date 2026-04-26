@@ -170,11 +170,11 @@ import Foundation
             toFile: "\(dir)/1.txt", atomically: true, encoding: .utf8)
         try "two\n".write(
             toFile: "\(dir)/2.txt", atomically: true, encoding: .utf8)
-        cap.shell.register(ClosureCommand(name: "cat") { argv, shell in
-            let fs = shell.fileSystem
+        cap.shell.register(ClosureCommand(name: "cat") { argv in
+            let fs = Shell.current.fileSystem
             for p in argv.dropFirst() {
-                let data = try await fs.readData(shell.resolvePath(p))
-                shell.stdout(data)
+                let data = try await fs.readData(Shell.current.resolvePath(p))
+                Shell.current.stdout(data)
             }
             return .success
         })

@@ -36,12 +36,11 @@ public struct GzipCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         try await runGzip(decompress: decompress,
                           toStdout: toStdout,
                           files: files,
-                          commandName: "gzip",
-                          shell: shell)
+                          commandName: "gzip")
     }
 }
 
@@ -64,12 +63,11 @@ public struct GunzipCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         try await runGzip(decompress: true,
                           toStdout: toStdout,
                           files: files,
-                          commandName: "gunzip",
-                          shell: shell)
+                          commandName: "gunzip")
     }
 }
 
@@ -78,17 +76,16 @@ public struct GunzipCommand: ParsableBashCommand {
 private func runGzip(decompress: Bool,
                      toStdout: Bool,
                      files: [String],
-                     commandName: String,
-                     shell: Shell) async throws -> ExitStatus {
+                     commandName: String) async throws -> ExitStatus {
     if files.isEmpty {
-        let input = await shell.stdin.readAllData()
+        let input = await Shell.current.stdin.readAllData()
         do {
             let output = decompress
                 ? try Gzip.decode(input)
                 : Gzip.encode(input)
-            shell.stdout(output)
+            Shell.current.stdout(output)
         } catch let err as Gzip.Error {
-            shell.stderr("\(commandName): \(err)\n")
+            Shell.current.stderr("\(commandName): \(err)\n")
             return .failure
         }
         return .success
@@ -98,9 +95,9 @@ private func runGzip(decompress: Bool,
     for f in files {
         let data: Data
         do {
-            data = try await shell.readDataAtPath(f)
+            data = try await Shell.current.readDataAtPath(f)
         } catch {
-            shell.stderr("\(commandName): \(f): \(error)\n")
+            Shell.current.stderr("\(commandName): \(f): \(error)\n")
             hadError = true
             continue
         }
@@ -108,29 +105,29 @@ private func runGzip(decompress: Bool,
         do {
             output = decompress ? try Gzip.decode(data) : Gzip.encode(data)
         } catch let err as Gzip.Error {
-            shell.stderr("\(commandName): \(f): \(err)\n")
+            Shell.current.stderr("\(commandName): \(f): \(err)\n")
             hadError = true
             continue
         } catch {
-            shell.stderr("\(commandName): \(f): \(error)\n")
+            Shell.current.stderr("\(commandName): \(f): \(error)\n")
             hadError = true
             continue
         }
 
         if toStdout {
-            shell.stdout(output)
+            Shell.current.stdout(output)
         } else {
             // File replacement: write the new path, remove the old.
             let target = decompress
                 ? Gzip.strippedSuffix(f)
                 : f + ".gz"
             do {
-                try await shell.writeData(
+                try await Shell.current.writeData(
                     output, toPath: target, append: false)
-                try await shell.fileSystem.remove(
-                    shell.resolvePath(f), recursive: false)
+                try await Shell.current.fileSystem.remove(
+                    Shell.current.resolvePath(f), recursive: false)
             } catch {
-                shell.stderr("\(commandName): \(f): \(error)\n")
+                Shell.current.stderr("\(commandName): \(f): \(error)\n")
                 hadError = true
             }
         }

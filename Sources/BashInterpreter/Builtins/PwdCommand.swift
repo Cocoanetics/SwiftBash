@@ -4,8 +4,8 @@ import Foundation
 public struct PwdCommand: Command {
     public let name = "pwd"
     public init() {}
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
-        shell.stdout(shell.environment.workingDirectory + "\n")
+    public func run(_ argv: [String]) async throws -> ExitStatus {
+        Shell.current.stdout(Shell.current.environment.workingDirectory + "\n")
         return .success
     }
 }

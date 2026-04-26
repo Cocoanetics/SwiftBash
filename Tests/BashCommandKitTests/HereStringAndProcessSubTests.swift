@@ -52,11 +52,11 @@ import Foundation
 
     @Test func twoInputSubstitutionsBothWork() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "twocat") { argv, shell in
+        cap.shell.register(name: "twocat") { argv in
             for path in argv.dropFirst() {
-                let data = try await shell.fileSystem.readData(
-                    shell.resolvePath(path))
-                shell.stdout(data)
+                let data = try await Shell.current.fileSystem.readData(
+                    Shell.current.resolvePath(path))
+                Shell.current.stdout(data)
             }
             return .success
         }
@@ -67,8 +67,8 @@ import Foundation
     @Test func inputSubstitutionCleansUp() async throws {
         // After the command finishes, the temp file is removed.
         let cap = makeShell()
-        cap.shell.register(name: "echopath") { argv, shell in
-            shell.stdout(argv.dropFirst().joined(separator: " ") + "\n")
+        cap.shell.register(name: "echopath") { argv in
+            Shell.current.stdout(argv.dropFirst().joined(separator: " ") + "\n")
             return .success
         }
         try await cap.shell.run("echopath <(echo gone)")
@@ -123,11 +123,11 @@ import Foundation
     @Test func diffStylePattern() async throws {
         let cap = makeShell()
         // Synthetic diff that just concatenates two captured streams.
-        cap.shell.register(name: "join") { argv, shell in
+        cap.shell.register(name: "join") { argv in
             for path in argv.dropFirst() {
-                let data = try await shell.fileSystem.readData(
-                    shell.resolvePath(path))
-                shell.stdout(data)
+                let data = try await Shell.current.fileSystem.readData(
+                    Shell.current.resolvePath(path))
+                Shell.current.stdout(data)
             }
             return .success
         }

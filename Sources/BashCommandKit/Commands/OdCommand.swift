@@ -35,17 +35,17 @@ public struct OdCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let data: Data
         if let f = input, f != "-" {
             do {
-                data = try await shell.readDataAtPath(f)
+                data = try await Shell.current.readDataAtPath(f)
             } catch {
-                shell.stderr("od: \(f): \(error)\n")
+                Shell.current.stderr("od: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            data = await shell.stdin.readAllData()
+            data = await Shell.current.stdin.readAllData()
         }
 
         let mode: Mode = chars ? .chars : (hex ? .hex : .octal)
@@ -53,13 +53,13 @@ public struct OdCommand: ParsableBashCommand {
         var offset = 0
         while offset < bytes.count {
             let end = min(offset + 16, bytes.count)
-            shell.stdout(format(offset: offset,
+            Shell.current.stdout(format(offset: offset,
                                 row: Array(bytes[offset..<end]),
                                 mode: mode) + "\n")
             offset = end
         }
         // od traditionally prints the final offset on a line of its own.
-        shell.stdout(String(format: "%07o", bytes.count) + "\n")
+        Shell.current.stdout(String(format: "%07o", bytes.count) + "\n")
         return .success
     }
 

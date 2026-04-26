@@ -20,17 +20,17 @@ public struct TypeCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if names.isEmpty {
-            shell.stderr("type: missing operand\n")
+            Shell.current.stderr("type: missing operand\n")
             return .failure
         }
         var missing = false
         for name in names {
-            if shell.commands[name] != nil {
-                shell.stdout("\(name) is a shell builtin\n")
+            if Shell.current.commands[name] != nil {
+                Shell.current.stdout("\(name) is a shell builtin\n")
             } else {
-                shell.stderr("type: \(name): not found\n")
+                Shell.current.stderr("type: \(name): not found\n")
                 missing = true
             }
         }

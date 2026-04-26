@@ -43,12 +43,11 @@ extension Shell {
         let outerStdin = stdin
         let outerStdout = stdout
         let outerStderr = stderr
-        let envSnapshot = environment
-        let commandRegistry = commands
-        let fileSystemRef = fileSystem
-        let sourceSnapshot = currentSource
-        let networkConfigSnapshot = networkConfig
-        let shoptSnapshot = shoptOptions
+        // Single source-of-truth for what propagates: copy() clones
+        // every inheritable field. Per-stage we then patch only the
+        // stdio that's actually different (own piped sink vs. the
+        // outer stdout/stderr, possibly merged for `|&`).
+        let template = self  // captured for use in per-stage closure
 
         let pipefailMode = pipefail
         let status = try await withThrowingTaskGroup(
@@ -62,23 +61,18 @@ extension Shell {
                 let mergeStderr = !isLast && pipeOps[index] == "|&"
 
                 group.addTask {
-                    let sub = Shell(
-                        environment: envSnapshot,
-                        stdout: outgoingSink ?? outerStdout,
-                        stderr: mergeStderr
-                            ? (outgoingSink ?? outerStderr)
-                            : outerStderr,
-                        commands: commandRegistry,
-                        fileSystem: fileSystemRef
-                    )
-                    sub.currentSource = sourceSnapshot
-                    sub.networkConfig = networkConfigSnapshot
-                    sub.shoptOptions = shoptSnapshot
+                    let sub = template.copy()
+                    sub.stdout = outgoingSink ?? outerStdout
+                    sub.stderr = mergeStderr
+                        ? (outgoingSink ?? outerStderr)
+                        : outerStderr
                     sub.stdin = incomingSink.map { InputSource(bytes: $0.bytes) }
                              ?? outerStdin
 
                     do {
-                        let result = try await sub.execute(stage)
+                        let result = try await sub.withCurrent {
+                            try await sub.execute(stage)
+                        }
                         outgoingSink?.finish()
                         return (index, result)
                     } catch {

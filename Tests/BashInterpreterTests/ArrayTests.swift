@@ -92,11 +92,11 @@ import Testing
 
     @Test func quotedDollarAtPreservesSpaces() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv, shell in
+        cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                shell.stdout("[\(i + 1)]\(a)\n")
+                Shell.current.stdout("[\(i + 1)]\(a)\n")
             }
-            shell.stdout("count=\(argv.count - 1)\n")
+            Shell.current.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"""
@@ -108,8 +108,8 @@ import Testing
 
     @Test func unquotedDollarAtIFSSplits() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv, shell in
-            shell.stdout("count=\(argv.count - 1)\n")
+        cap.shell.register(name: "args") { argv in
+            Shell.current.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"""
@@ -148,9 +148,9 @@ import Testing
 
     @Test func boundaryMergeInWord() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv, shell in
+        cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                shell.stdout("[\(i + 1)]\(a)\n")
+                Shell.current.stdout("[\(i + 1)]\(a)\n")
             }
             return .success
         }
@@ -377,11 +377,11 @@ import Testing
         // Associative array keys may contain spaces — "${!m[@]}"
         // preserves each key as a single arg.
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv, shell in
+        cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                shell.stdout("[\(i + 1)]\(a)\n")
+                Shell.current.stdout("[\(i + 1)]\(a)\n")
             }
-            shell.stdout("count=\(argv.count - 1)\n")
+            Shell.current.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"""

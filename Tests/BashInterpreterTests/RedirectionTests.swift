@@ -45,10 +45,10 @@ import Foundation
         // end up with all output in the file (streaming, not clobbered
         // after each write).
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "emit") { _, shell in
-            shell.stdout("a\n")
-            shell.stdout("b\n")
-            shell.stdout("c\n")
+        cap.shell.register(name: "emit") { _ in
+            Shell.current.stdout("a\n")
+            Shell.current.stdout("b\n")
+            Shell.current.stdout("c\n")
             return .success
         }
         try await cap.shell.run("emit > out.txt")
@@ -77,9 +77,9 @@ import Foundation
 
     @Test func stderrRedirectToFile() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "warn") { _, shell in
-            shell.stdout("out\n")
-            shell.stderr("err\n")
+        cap.shell.register(name: "warn") { _ in
+            Shell.current.stdout("out\n")
+            Shell.current.stderr("err\n")
             return .success
         }
         try await cap.shell.run("warn 2> err.txt")
@@ -94,9 +94,9 @@ import Foundation
 
     @Test func stderrToStdoutSameFile() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "noisy") { _, shell in
-            shell.stdout("out\n")
-            shell.stderr("err\n")
+        cap.shell.register(name: "noisy") { _ in
+            Shell.current.stdout("out\n")
+            Shell.current.stderr("err\n")
             return .success
         }
         // Order matters: `>out 2>&1` → both into out.txt.
@@ -112,9 +112,9 @@ import Foundation
         // `2>&1 > out.txt` dups stderr to stdout BEFORE redirecting
         // stdout → so stderr still points at the caller's stdout.
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "noisy") { _, shell in
-            shell.stdout("out\n")
-            shell.stderr("err\n")
+        cap.shell.register(name: "noisy") { _ in
+            Shell.current.stdout("out\n")
+            Shell.current.stderr("err\n")
             return .success
         }
         try await cap.shell.run("noisy 2>&1 > out.txt")
@@ -126,8 +126,8 @@ import Foundation
 
     @Test func stdoutToStderr() async throws {
         let (cap, _) = makeShell()
-        cap.shell.register(name: "mixed") { _, shell in
-            shell.stdout("out\n")
+        cap.shell.register(name: "mixed") { _ in
+            Shell.current.stdout("out\n")
             return .success
         }
         try await cap.shell.run("mixed 1>&2")
@@ -141,10 +141,10 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try "line1\nline2\n".write(
             toFile: "\(dir)/in.txt", atomically: true, encoding: .utf8)
-        cap.shell.register(name: "count") { _, shell in
+        cap.shell.register(name: "count") { _ in
             var n = 0
-            for await _ in shell.stdin.lines { n += 1 }
-            shell.stdout("\(n)\n")
+            for await _ in Shell.current.stdin.lines { n += 1 }
+            Shell.current.stdout("\(n)\n")
             return .success
         }
         try await cap.shell.run("count < in.txt")
@@ -163,9 +163,9 @@ import Foundation
 
     @Test func heredocBecomesStdin() async throws {
         let (cap, _) = makeShell()
-        cap.shell.register(name: "capture") { _, shell in
-            let s = await shell.stdin.readAllString()
-            shell.stdout("[\(s)]")
+        cap.shell.register(name: "capture") { _ in
+            let s = await Shell.current.stdin.readAllString()
+            Shell.current.stdout("[\(s)]")
             return .success
         }
         try await cap.shell.run("""
@@ -180,9 +180,9 @@ import Foundation
     @Test func unquotedHeredocExpandsVariables() async throws {
         let (cap, _) = makeShell()
         cap.shell.environment["NAME"] = "oliver"
-        cap.shell.register(name: "capture") { _, shell in
-            let s = await shell.stdin.readAllString()
-            shell.stdout(s)
+        cap.shell.register(name: "capture") { _ in
+            let s = await Shell.current.stdin.readAllString()
+            Shell.current.stdout(s)
             return .success
         }
         try await cap.shell.run("""
@@ -197,9 +197,9 @@ import Foundation
     @Test func quotedHeredocStaysLiteral() async throws {
         let (cap, _) = makeShell()
         cap.shell.environment["NAME"] = "oliver"
-        cap.shell.register(name: "capture") { _, shell in
-            let s = await shell.stdin.readAllString()
-            shell.stdout(s)
+        cap.shell.register(name: "capture") { _ in
+            let s = await Shell.current.stdin.readAllString()
+            Shell.current.stdout(s)
             return .success
         }
         try await cap.shell.run("""
@@ -215,13 +215,13 @@ import Foundation
 
     @Test func redirectInsidePipeline() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "emit") { _, shell in
-            shell.stdout("one\ntwo\nthree\n")
+        cap.shell.register(name: "emit") { _ in
+            Shell.current.stdout("one\ntwo\nthree\n")
             return .success
         }
-        cap.shell.register(name: "upper") { _, shell in
-            let s = await shell.stdin.readAllString()
-            shell.stdout(s.uppercased())
+        cap.shell.register(name: "upper") { _ in
+            let s = await Shell.current.stdin.readAllString()
+            Shell.current.stdout(s.uppercased())
             return .success
         }
         try await cap.shell.run("emit | upper > out.txt")

@@ -11,8 +11,8 @@ public struct HostnameCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        shell.stdout(ProcessInfo.processInfo.hostName + "\n")
+    public mutating func execute() async throws -> ExitStatus {
+        Shell.current.stdout(ProcessInfo.processInfo.hostName + "\n")
         return .success
     }
 }

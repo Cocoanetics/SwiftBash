@@ -59,8 +59,8 @@ import Foundation
         // Record the wall-clock time at which each line reaches the
         // consumer.
         let arrivals: LineArrivalRecorder = LineArrivalRecorder()
-        cap.shell.register(name: "record") { _, shell in
-            for await line in shell.stdin.lines {
+        cap.shell.register(name: "record") { _ in
+            for await line in Shell.current.stdin.lines {
                 arrivals.record(line)
             }
             return .success

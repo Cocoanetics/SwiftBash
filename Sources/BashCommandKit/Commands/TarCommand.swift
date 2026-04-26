@@ -33,7 +33,7 @@ public struct TarCommand: ParsableBashCommand {
 
     enum Mode { case create, extract, list }
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var mode: Mode? = nil
         var archivePath: String? = nil
         var verbose = false
@@ -54,7 +54,7 @@ public struct TarCommand: ParsableBashCommand {
             if a == "-v" || a == "--verbose" { verbose = true; i += 1; continue }
             if a == "-f" || a == "--file" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
+                    Shell.current.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
                 }
                 archivePath = rawArgv[i + 1]; i += 2; continue
             }
@@ -63,7 +63,7 @@ public struct TarCommand: ParsableBashCommand {
             }
             if a == "-C" || a == "--directory" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("tar: -C requires DIR\n"); return ExitStatus(2)
+                    Shell.current.stderr("tar: -C requires DIR\n"); return ExitStatus(2)
                 }
                 changeDir = rawArgv[i + 1]; i += 2; continue
             }
@@ -81,14 +81,14 @@ public struct TarCommand: ParsableBashCommand {
                     case "v": verbose = true
                     case "f": consumeFile = true
                     default:
-                        shell.stderr("tar: unknown option: -\(c)\n")
+                        Shell.current.stderr("tar: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
                 i += 1
                 if consumeFile {
                     guard i < rawArgv.count else {
-                        shell.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
+                        Shell.current.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
                     }
                     archivePath = rawArgv[i]
                     i += 1
@@ -99,37 +99,36 @@ public struct TarCommand: ParsableBashCommand {
         }
 
         guard let mode else {
-            shell.stderr("tar: must specify one of -c -x -t\n")
+            Shell.current.stderr("tar: must specify one of -c -x -t\n")
             return ExitStatus(2)
         }
 
-        let cwd = changeDir.map { shell.resolvePath($0) } ?? shell.environment.workingDirectory
+        let cwd = changeDir.map { Shell.current.resolvePath($0) } ?? Shell.current.environment.workingDirectory
         switch mode {
         case .create:
             return await createArchive(files: files, archive: archivePath,
-                                       verbose: verbose, cwd: cwd, shell: shell)
+                                       verbose: verbose, cwd: cwd)
         case .extract:
             return await extractArchive(archive: archivePath,
-                                        verbose: verbose, cwd: cwd, shell: shell)
+                                        verbose: verbose, cwd: cwd)
         case .list:
             return await listArchive(archive: archivePath,
-                                     verbose: verbose, shell: shell)
+                                     verbose: verbose)
         }
     }
 
     // MARK: Create
 
     private func createArchive(files: [String], archive: String?,
-                               verbose: Bool, cwd: String,
-                               shell: Shell) async -> ExitStatus {
+                               verbose: Bool, cwd: String) async -> ExitStatus {
         var data = Data()
         for f in files {
             let abs = (f as NSString).isAbsolutePath ? f : (cwd as NSString).appendingPathComponent(f)
             do {
                 try await emitEntry(name: f, abs: abs, into: &data,
-                                    verbose: verbose, shell: shell)
+                                    verbose: verbose)
             } catch {
-                shell.stderr("tar: \(f): \(error)\n")
+                Shell.current.stderr("tar: \(f): \(error)\n")
                 return .failure
             }
         }
@@ -137,23 +136,23 @@ public struct TarCommand: ParsableBashCommand {
         data.append(Data(repeating: 0, count: 1024))
         do {
             if let p = archive, p != "-" {
-                try await shell.writeData(data, toPath: p, append: false)
+                try await Shell.current.writeData(data, toPath: p, append: false)
             } else {
-                shell.stdout(data)
+                Shell.current.stdout(data)
             }
         } catch {
-            shell.stderr("tar: \(error)\n")
+            Shell.current.stderr("tar: \(error)\n")
             return .failure
         }
         return .success
     }
 
     private func emitEntry(name: String, abs: String, into data: inout Data,
-                           verbose: Bool, shell: Shell) async throws {
-        guard let meta = try await shell.fileSystem.metadata(abs) else {
+                           verbose: Bool) async throws {
+        guard let meta = try await Shell.current.fileSystem.metadata(abs) else {
             throw FileSystemError.notFound(name)
         }
-        if verbose { shell.stderr(name + "\n") }
+        if verbose { Shell.current.stderr(name + "\n") }
         switch meta.kind {
         case .directory:
             // Header for the dir itself, then walk.
@@ -161,15 +160,15 @@ public struct TarCommand: ParsableBashCommand {
             if !dirName.hasSuffix("/") { dirName += "/" }
             data.append(makeHeader(name: dirName, size: 0, kind: .directory,
                                    mtime: meta.modifiedAt, mode: 0o755))
-            let entries = (try? await shell.fileSystem.list(abs)) ?? []
+            let entries = (try? await Shell.current.fileSystem.list(abs)) ?? []
             for child in entries.sorted() {
                 let childAbs = (abs as NSString).appendingPathComponent(child)
                 let childName = (name as NSString).appendingPathComponent(child)
                 try await emitEntry(name: childName, abs: childAbs, into: &data,
-                                    verbose: verbose, shell: shell)
+                                    verbose: verbose)
             }
         case .file:
-            let body = try await shell.readDataAtPath(abs)
+            let body = try await Shell.current.readDataAtPath(abs)
             data.append(makeHeader(name: name, size: Int64(body.count), kind: .file,
                                    mtime: meta.modifiedAt, mode: 0o644))
             data.append(body)
@@ -243,8 +242,8 @@ public struct TarCommand: ParsableBashCommand {
     // MARK: Extract / list
 
     private func extractArchive(archive: String?, verbose: Bool,
-                                cwd: String, shell: Shell) async -> ExitStatus {
-        guard let raw = await readArchiveData(archive: archive, shell: shell) else {
+                                cwd: String) async -> ExitStatus {
+        guard let raw = await readArchiveData(archive: archive) else {
             return .failure
         }
         var pos = 0
@@ -253,7 +252,7 @@ public struct TarCommand: ParsableBashCommand {
             if hdr.allSatisfy({ $0 == 0 }) { break }
             pos += 512
             guard let entry = parseHeader(hdr) else { continue }
-            if verbose { shell.stderr(entry.name + "\n") }
+            if verbose { Shell.current.stderr(entry.name + "\n") }
             let dest = (cwd as NSString).appendingPathComponent(entry.name)
             switch entry.type {
             case "5":
@@ -282,9 +281,8 @@ public struct TarCommand: ParsableBashCommand {
         return .success
     }
 
-    private func listArchive(archive: String?, verbose: Bool,
-                             shell: Shell) async -> ExitStatus {
-        guard let raw = await readArchiveData(archive: archive, shell: shell) else {
+    private func listArchive(archive: String?, verbose: Bool) async -> ExitStatus {
+        guard let raw = await readArchiveData(archive: archive) else {
             return .failure
         }
         var pos = 0
@@ -295,9 +293,9 @@ public struct TarCommand: ParsableBashCommand {
             guard let entry = parseHeader(hdr) else { continue }
             if verbose {
                 let kind = entry.type == "5" ? "d" : (entry.type == "2" ? "l" : "-")
-                shell.stdout("\(kind) \(entry.size) \(entry.name)\n")
+                Shell.current.stdout("\(kind) \(entry.size) \(entry.name)\n")
             } else {
-                shell.stdout(entry.name + "\n")
+                Shell.current.stdout(entry.name + "\n")
             }
             if entry.type != "5" && entry.type != "2" {
                 pos += Int(entry.size)
@@ -308,14 +306,14 @@ public struct TarCommand: ParsableBashCommand {
         return .success
     }
 
-    private func readArchiveData(archive: String?, shell: Shell) async -> Data? {
+    private func readArchiveData(archive: String?) async -> Data? {
         do {
             if let p = archive, p != "-" {
-                return try await shell.readDataAtPath(p)
+                return try await Shell.current.readDataAtPath(p)
             }
-            return await shell.stdin.readAllData()
+            return await Shell.current.stdin.readAllData()
         } catch {
-            shell.stderr("tar: \(error)\n")
+            Shell.current.stderr("tar: \(error)\n")
             return nil
         }
     }

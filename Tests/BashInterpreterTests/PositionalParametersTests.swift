@@ -143,9 +143,9 @@ import Testing
         // through as ONE argv element even when it contains spaces.
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["hello world", "second"]
-        cap.shell.register(name: "showargs") { argv, shell in
+        cap.shell.register(name: "showargs") { argv in
             for (i, arg) in argv.dropFirst().enumerated() {
-                shell.stdout("[\(i + 1)]\(arg)\n")
+                Shell.current.stdout("[\(i + 1)]\(arg)\n")
             }
             return .success
         }
@@ -157,8 +157,8 @@ import Testing
         // Unquoted $@ also splits per arg in argv position.
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["one", "two", "three"]
-        cap.shell.register(name: "count") { argv, shell in
-            shell.stdout("\(argv.count - 1)\n")
+        cap.shell.register(name: "count") { argv in
+            Shell.current.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run("count $@")
@@ -168,8 +168,8 @@ import Testing
     @Test func dollarAtEmptyParamsContributesZeroArgs() async throws {
         let cap = CapturingShell()
         // No positional params set.
-        cap.shell.register(name: "count") { argv, shell in
-            shell.stdout("\(argv.count - 1)\n")
+        cap.shell.register(name: "count") { argv in
+            Shell.current.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"count "$@""#)
@@ -181,9 +181,9 @@ import Testing
         // Classic pattern: wrapper "$@" → callee sees the same args.
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["a b", "c"]
-        cap.shell.register(name: "echoargs") { argv, shell in
+        cap.shell.register(name: "echoargs") { argv in
             for arg in argv.dropFirst() {
-                shell.stdout("<\(arg)>\n")
+                Shell.current.stdout("<\(arg)>\n")
             }
             return .success
         }

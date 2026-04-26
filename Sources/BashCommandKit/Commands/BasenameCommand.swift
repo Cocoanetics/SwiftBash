@@ -28,8 +28,8 @@ public struct BasenameCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        shell.stdout(Self.basename(of: path, suffix: suffix ?? "") + "\n")
+    public mutating func execute() async throws -> ExitStatus {
+        Shell.current.stdout(Self.basename(of: path, suffix: suffix ?? "") + "\n")
         return .success
     }
 

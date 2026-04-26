@@ -28,7 +28,7 @@ public struct SplitCommand: ParsableBashCommand {
 
     private enum Mode { case lines(Int), bytes(Int) }
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var mode: Mode = .lines(1000)
         var suffixLen = 2
         var numeric = false
@@ -46,37 +46,37 @@ public struct SplitCommand: ParsableBashCommand {
             }
             if a == "-l" || a == "--lines" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    shell.stderr("split: -l requires positive N\n"); return ExitStatus(2)
+                    Shell.current.stderr("split: -l requires positive N\n"); return ExitStatus(2)
                 }
                 mode = .lines(n); i += 2; continue
             }
             if a.hasPrefix("--lines=") {
                 guard let n = Int(a.dropFirst("--lines=".count)), n > 0 else {
-                    shell.stderr("split: invalid --lines value\n"); return ExitStatus(2)
+                    Shell.current.stderr("split: invalid --lines value\n"); return ExitStatus(2)
                 }
                 mode = .lines(n); i += 1; continue
             }
             if a == "-b" || a == "--bytes" {
                 guard i + 1 < rawArgv.count, let n = parseSize(rawArgv[i + 1]) else {
-                    shell.stderr("split: -b requires SIZE\n"); return ExitStatus(2)
+                    Shell.current.stderr("split: -b requires SIZE\n"); return ExitStatus(2)
                 }
                 mode = .bytes(n); i += 2; continue
             }
             if a.hasPrefix("--bytes=") {
                 guard let n = parseSize(String(a.dropFirst("--bytes=".count))) else {
-                    shell.stderr("split: invalid --bytes value\n"); return ExitStatus(2)
+                    Shell.current.stderr("split: invalid --bytes value\n"); return ExitStatus(2)
                 }
                 mode = .bytes(n); i += 1; continue
             }
             if a == "-a" || a == "--suffix-length" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    shell.stderr("split: -a requires positive N\n"); return ExitStatus(2)
+                    Shell.current.stderr("split: -a requires positive N\n"); return ExitStatus(2)
                 }
                 suffixLen = n; i += 2; continue
             }
             if a.hasPrefix("--suffix-length=") {
                 guard let n = Int(a.dropFirst("--suffix-length=".count)), n > 0 else {
-                    shell.stderr("split: invalid --suffix-length\n"); return ExitStatus(2)
+                    Shell.current.stderr("split: invalid --suffix-length\n"); return ExitStatus(2)
                 }
                 suffixLen = n; i += 1; continue
             }
@@ -96,13 +96,13 @@ public struct SplitCommand: ParsableBashCommand {
             }
             if a == "--additional-suffix" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("split: --additional-suffix requires STR\n")
+                    Shell.current.stderr("split: --additional-suffix requires STR\n")
                     return ExitStatus(2)
                 }
                 additional = rawArgv[i + 1]; i += 2; continue
             }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                shell.stderr("split: unknown option: \(a)\n")
+                Shell.current.stderr("split: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             positionals.append(a); i += 1
@@ -114,12 +114,12 @@ public struct SplitCommand: ParsableBashCommand {
         let data: Data
         do {
             if inputPath == "-" {
-                data = await shell.stdin.readAllData()
+                data = await Shell.current.stdin.readAllData()
             } else {
-                data = try await shell.readDataAtPath(inputPath)
+                data = try await Shell.current.readDataAtPath(inputPath)
             }
         } catch {
-            shell.stderr("split: \(inputPath): \(error)\n")
+            Shell.current.stderr("split: \(inputPath): \(error)\n")
             return ExitStatus(2)
         }
 
@@ -136,9 +136,9 @@ public struct SplitCommand: ParsableBashCommand {
                                     numeric: numeric, start: numericStart)
             let path = prefix + suffix + additional
             do {
-                try await shell.writeData(chunk, toPath: path, append: false)
+                try await Shell.current.writeData(chunk, toPath: path, append: false)
             } catch {
-                shell.stderr("split: \(path): \(error)\n")
+                Shell.current.stderr("split: \(path): \(error)\n")
                 return .failure
             }
         }

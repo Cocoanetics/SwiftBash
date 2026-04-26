@@ -34,29 +34,29 @@ public struct Md5Command: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if let s = string {
             let h = Self.hex(of: Data(s.utf8))
-            shell.stdout(quiet
+            Shell.current.stdout(quiet
                 ? h + "\n"
                 : "MD5 (\"\(s)\") = \(h)\n")
             return .success
         }
         if files.isEmpty {
-            let data = await shell.stdin.readAllData()
-            shell.stdout(Self.hex(of: data) + "\n")
+            let data = await Shell.current.stdin.readAllData()
+            Shell.current.stdout(Self.hex(of: data) + "\n")
             return .success
         }
         var hadError = false
         for f in files {
             do {
-                let data = try await shell.readDataAtPath(f)
+                let data = try await Shell.current.readDataAtPath(f)
                 let h = Self.hex(of: data)
-                shell.stdout(quiet
+                Shell.current.stdout(quiet
                     ? h + "\n"
                     : "MD5 (\(f)) = \(h)\n")
             } catch {
-                shell.stderr("md5: \(f): \(error)\n")
+                Shell.current.stderr("md5: \(f): \(error)\n")
                 hadError = true
             }
         }

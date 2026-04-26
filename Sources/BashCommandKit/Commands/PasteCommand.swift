@@ -24,7 +24,7 @@ public struct PasteCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var delimiters = "\t"
         var serial = false
         var files: [String] = []
@@ -39,7 +39,7 @@ public struct PasteCommand: ParsableBashCommand {
             }
             if a == "-d" || a == "--delimiters" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("paste: option requires an argument: \(a)\n")
+                    Shell.current.stderr("paste: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 delimiters = decodePasteDelimiters(rawArgv[i + 1])
@@ -57,18 +57,18 @@ public struct PasteCommand: ParsableBashCommand {
                 files.append(a); i += 1; continue
             }
             if a.hasPrefix("-"), a.count > 1 {
-                shell.stderr("paste: invalid option: \(a)\n")
+                Shell.current.stderr("paste: invalid option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
         }
 
         guard !files.isEmpty else {
-            shell.stderr("paste: missing operand\n")
+            Shell.current.stderr("paste: missing operand\n")
             return .failure
         }
         guard !delimiters.isEmpty else {
-            shell.stderr("paste: -d may not be empty\n")
+            Shell.current.stderr("paste: -d may not be empty\n")
             return ExitStatus(2)
         }
         let delimChars = Array(delimiters)
@@ -80,20 +80,20 @@ public struct PasteCommand: ParsableBashCommand {
         for f in files {
             if f == "-" {
                 guard !stdinUsed else {
-                    shell.stderr("paste: stdin can only be used once\n")
+                    Shell.current.stderr("paste: stdin can only be used once\n")
                     return .failure
                 }
                 stdinUsed = true
                 var lines: [String] = []
-                for await line in shell.stdin.lines { lines.append(line) }
+                for await line in Shell.current.stdin.lines { lines.append(line) }
                 inputs.append(lines)
             } else {
                 do {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     inputs.append(SortCommand.splitLines(text))
                 } catch {
-                    shell.stderr("paste: \(f): \(error)\n")
+                    Shell.current.stderr("paste: \(f): \(error)\n")
                     return .failure
                 }
             }
@@ -110,7 +110,7 @@ public struct PasteCommand: ParsableBashCommand {
                     }
                     out += line
                 }
-                shell.stdout(out + "\n")
+                Shell.current.stdout(out + "\n")
             }
         } else {
             // One output line per row index, taking the i-th line of
@@ -124,7 +124,7 @@ public struct PasteCommand: ParsableBashCommand {
                     }
                     if i < lines.count { out += lines[i] }
                 }
-                shell.stdout(out + "\n")
+                Shell.current.stdout(out + "\n")
             }
         }
         return .success

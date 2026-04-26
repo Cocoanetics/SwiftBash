@@ -25,18 +25,18 @@ public struct RmdirCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if paths.isEmpty {
-            shell.stderr("rmdir: missing operand\n")
+            Shell.current.stderr("rmdir: missing operand\n")
             return .failure
         }
         var hadError = false
         for path in paths {
-            if !(await removeOne(path, shell: shell)) { hadError = true }
+            if !(await removeOne(path)) { hadError = true }
             if parents, !hadError {
                 var p = (path as NSString).deletingLastPathComponent
                 while !p.isEmpty, p != "." , p != "/" {
-                    if !(await removeOne(p, shell: shell)) { break }
+                    if !(await removeOne(p)) { break }
                     p = (p as NSString).deletingLastPathComponent
                 }
             }
@@ -47,13 +47,13 @@ public struct RmdirCommand: ParsableBashCommand {
     /// Remove a single directory; reports stderr on failure and returns
     /// false. `FileSystem.remove(_:recursive:false)` errors when the
     /// directory isn't empty — exactly what `rmdir` is supposed to do.
-    private func removeOne(_ path: String, shell: Shell) async -> Bool {
-        let abs = shell.resolvePath(path)
+    private func removeOne(_ path: String) async -> Bool {
+        let abs = Shell.current.resolvePath(path)
         do {
-            try await shell.fileSystem.remove(abs, recursive: false)
+            try await Shell.current.fileSystem.remove(abs, recursive: false)
             return true
         } catch {
-            shell.stderr("rmdir: \(path): \(error)\n")
+            Shell.current.stderr("rmdir: \(path): \(error)\n")
             return false
         }
     }

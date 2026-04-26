@@ -30,7 +30,7 @@ public struct DiffCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var unifiedContext: Int? = nil
         var files: [String] = []
 
@@ -60,27 +60,27 @@ public struct DiffCommand: ParsableBashCommand {
                 unifiedContext = n; i += 1; continue
             }
             if a.hasPrefix("-"), a.count > 1, a != "-" {
-                shell.stderr("diff: unknown option: \(a)\n")
+                Shell.current.stderr("diff: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
         }
 
         guard files.count == 2 else {
-            shell.stderr("diff: expected two file arguments\n")
+            Shell.current.stderr("diff: expected two file arguments\n")
             return ExitStatus(2)
         }
         if let ctx = unifiedContext, ctx < 0 {
-            shell.stderr("diff: -u must be ≥ 0\n")
+            Shell.current.stderr("diff: -u must be ≥ 0\n")
             return ExitStatus(2)
         }
         let aLines: [String]
         let bLines: [String]
         do {
-            aLines = try await Self.readLines(at: files[0], shell: shell)
-            bLines = try await Self.readLines(at: files[1], shell: shell)
+            aLines = try await Self.readLines(at: files[0])
+            bLines = try await Self.readLines(at: files[1])
         } catch let err as DiffError {
-            shell.stderr("diff: \(err.message)\n")
+            Shell.current.stderr("diff: \(err.message)\n")
             return ExitStatus(2)
         }
 
@@ -95,7 +95,7 @@ public struct DiffCommand: ParsableBashCommand {
         } else {
             output = Self.renderNormal(merged: merged)
         }
-        shell.stdout(output)
+        Shell.current.stdout(output)
         return .failure
     }
 
@@ -103,15 +103,14 @@ public struct DiffCommand: ParsableBashCommand {
 
     private struct DiffError: Error { let message: String }
 
-    private static func readLines(at path: String,
-                                  shell: Shell) async throws -> [String] {
+    private static func readLines(at path: String) async throws -> [String] {
         if path == "-" {
             var lines: [String] = []
-            for await line in shell.stdin.lines { lines.append(line) }
+            for await line in Shell.current.stdin.lines { lines.append(line) }
             return lines
         }
         do {
-            let data = try await shell.readDataAtPath(path)
+            let data = try await Shell.current.readDataAtPath(path)
             return SortCommand.splitLines(
                 String(decoding: data, as: UTF8.self))
         } catch {

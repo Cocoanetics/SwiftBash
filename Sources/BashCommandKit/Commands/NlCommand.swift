@@ -27,7 +27,7 @@ public struct NlCommand: ParsableBashCommand {
 
     private enum BodyStyle { case all, nonEmpty, off }
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var style: BodyStyle = .nonEmpty
         var width = 6
         var separator = "\t"
@@ -45,24 +45,24 @@ public struct NlCommand: ParsableBashCommand {
             if a == "-" { files.append("-"); i += 1; continue }
             if a == "-b" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("nl: -b requires TYPE\n"); return ExitStatus(2)
+                    Shell.current.stderr("nl: -b requires TYPE\n"); return ExitStatus(2)
                 }
                 guard let s = parseStyle(rawArgv[i + 1]) else {
-                    shell.stderr("nl: invalid body numbering style: '\(rawArgv[i + 1])'\n")
+                    Shell.current.stderr("nl: invalid body numbering style: '\(rawArgv[i + 1])'\n")
                     return ExitStatus(2)
                 }
                 style = s; i += 2; continue
             }
             if a.hasPrefix("-b") && a.count > 2 {
                 guard let s = parseStyle(String(a.dropFirst(2))) else {
-                    shell.stderr("nl: invalid body numbering style: '\(a.dropFirst(2))'\n")
+                    Shell.current.stderr("nl: invalid body numbering style: '\(a.dropFirst(2))'\n")
                     return ExitStatus(2)
                 }
                 style = s; i += 1; continue
             }
             if a == "-w" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    shell.stderr("nl: -w requires N\n"); return ExitStatus(2)
+                    Shell.current.stderr("nl: -w requires N\n"); return ExitStatus(2)
                 }
                 width = n; i += 2; continue
             }
@@ -71,7 +71,7 @@ public struct NlCommand: ParsableBashCommand {
             }
             if a == "-s" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("nl: -s requires STR\n"); return ExitStatus(2)
+                    Shell.current.stderr("nl: -s requires STR\n"); return ExitStatus(2)
                 }
                 separator = rawArgv[i + 1]; i += 2; continue
             }
@@ -80,7 +80,7 @@ public struct NlCommand: ParsableBashCommand {
             }
             if a == "-v" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    shell.stderr("nl: -v requires N\n"); return ExitStatus(2)
+                    Shell.current.stderr("nl: -v requires N\n"); return ExitStatus(2)
                 }
                 counter = n; i += 2; continue
             }
@@ -88,7 +88,7 @@ public struct NlCommand: ParsableBashCommand {
                 counter = n; i += 1; continue
             }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                shell.stderr("nl: unknown option: \(a)\n")
+                Shell.current.stderr("nl: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -105,11 +105,11 @@ public struct NlCommand: ParsableBashCommand {
             if shouldNumber {
                 let numStr = String(counter)
                 let pad = max(0, width - numStr.count)
-                shell.stdout(String(repeating: " ", count: pad)
+                Shell.current.stdout(String(repeating: " ", count: pad)
                              + numStr + separator + line + "\n")
                 counter += 1
             } else {
-                shell.stdout(line + "\n")
+                Shell.current.stdout(line + "\n")
             }
         }
 
@@ -117,11 +117,11 @@ public struct NlCommand: ParsableBashCommand {
         var hadError = false
         for path in inputs {
             if path == "-" {
-                for await line in shell.stdin.lines { emit(line) }
+                for await line in Shell.current.stdin.lines { emit(line) }
                 continue
             }
             do {
-                let data = try await shell.readDataAtPath(path)
+                let data = try await Shell.current.readDataAtPath(path)
                 let text = String(decoding: data, as: UTF8.self)
                 let parts = text.split(separator: "\n",
                                        omittingEmptySubsequences: false)
@@ -131,13 +131,13 @@ public struct NlCommand: ParsableBashCommand {
                     : parts
                 for line in lines { emit(line) }
             } catch FileSystemError.notFound {
-                shell.stderr("nl: \(path): No such file or directory\n")
+                Shell.current.stderr("nl: \(path): No such file or directory\n")
                 hadError = true
             } catch FileSystemError.isADirectory {
-                shell.stderr("nl: \(path): Is a directory\n")
+                Shell.current.stderr("nl: \(path): Is a directory\n")
                 hadError = true
             } catch {
-                shell.stderr("nl: \(path): \(error)\n")
+                Shell.current.stderr("nl: \(path): \(error)\n")
                 hadError = true
             }
         }

@@ -17,9 +17,9 @@ import Foundation
     private func registerInfiniteProducer(on shell: Shell,
                                           name: String,
                                           chunk: String) {
-        shell.register(name: name) { _, shell in
+        shell.register(name: name) { _ in
             while !Task.isCancelled {
-                shell.stdout(chunk)
+                Shell.current.stdout(chunk)
                 // Yield so the consumer gets a chance to run and
                 // potentially signal cancellation by closing its stdin.
                 await Task.yield()
@@ -35,10 +35,10 @@ import Foundation
         registerInfiniteProducer(on: cap.shell, name: "yes", chunk: "y\n")
 
         // A simple stream-aware `head -n 3` implementation.
-        cap.shell.register(name: "take3") { _, shell in
+        cap.shell.register(name: "take3") { _ in
             var emitted = 0
-            for await line in shell.stdin.lines {
-                shell.stdout(line + "\n")
+            for await line in Shell.current.stdin.lines {
+                Shell.current.stdout(line + "\n")
                 emitted += 1
                 if emitted >= 3 { break }
             }
@@ -73,18 +73,18 @@ import Foundation
         let producerStart = AtomicDate()
         let consumerStart = AtomicDate()
 
-        cap.shell.register(name: "prod") { _, shell in
+        cap.shell.register(name: "prod") { _ in
             producerStart.setNow()
             // Emit 10 lines with a small delay between each.
             for n in 1...10 {
-                shell.stdout("\(n)\n")
+                Shell.current.stdout("\(n)\n")
                 try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
             }
             return .success
         }
 
-        cap.shell.register(name: "cons") { _, shell in
-            for await _ in shell.stdin.lines {
+        cap.shell.register(name: "cons") { _ in
+            for await _ in Shell.current.stdin.lines {
                 if consumerStart.value == nil {
                     consumerStart.setNow()
                 }
@@ -115,13 +115,13 @@ import Foundation
         // naive String-based pipe.
         let payload = Data([0x00, 0xFF, 0x7F, 0x80, 0x00, 0x01, 0xFE])
 
-        cap.shell.register(name: "emit") { _, shell in
-            shell.stdout(payload)
+        cap.shell.register(name: "emit") { _ in
+            Shell.current.stdout(payload)
             return .success
         }
         let received = AtomicData()
-        cap.shell.register(name: "collect") { _, shell in
-            received.value = await shell.stdin.readAllData()
+        cap.shell.register(name: "collect") { _ in
+            received.value = await Shell.current.stdin.readAllData()
             return .success
         }
 
@@ -136,9 +136,9 @@ import Foundation
         // propagate back to the outer shell (matching bash).
         let cap = CapturingShell()
         cap.shell.environment["X"] = "outer"
-        cap.shell.register(name: "stage") { _, shell in
-            shell.environment["X"] = "inside"
-            let _ = await shell.stdin.readAllData()
+        cap.shell.register(name: "stage") { _ in
+            Shell.current.environment["X"] = "inside"
+            let _ = await Shell.current.stdin.readAllData()
             return .success
         }
         try await cap.shell.run("true | stage")
@@ -154,16 +154,16 @@ import Foundation
         // (AsyncStream default buffering policy is unbounded) but shows
         // that the pipeline still finishes correctly.
         let cap = CapturingShell()
-        cap.shell.register(name: "burst") { _, shell in
-            for i in 1...100 { shell.stdout("\(i)\n") }
+        cap.shell.register(name: "burst") { _ in
+            for i in 1...100 { Shell.current.stdout("\(i)\n") }
             return .success
         }
-        cap.shell.register(name: "sum") { _, shell in
+        cap.shell.register(name: "sum") { _ in
             var total = 0
-            for await line in shell.stdin.lines {
+            for await line in Shell.current.stdin.lines {
                 total += Int(line) ?? 0
             }
-            shell.stdout("\(total)\n")
+            Shell.current.stdout("\(total)\n")
             return .success
         }
         try await cap.shell.run("burst | sum")

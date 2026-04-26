@@ -2,7 +2,7 @@ import Foundation
 import BashSyntax
 
 /// `source PATH [ARGS…]` (also spelled `.`) — read and execute the
-/// file's contents in the *current* shell. Variables and function
+/// file's contents in the *current* Shell.current. Variables and function
 /// definitions made by the sourced script persist.
 ///
 /// Extra args become the sourced script's positional parameters
@@ -13,46 +13,46 @@ public struct SourceCommand: Command {
     public let name: String
     public init(name: String = "source") { self.name = name }
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         guard let path = argv.dropFirst().first else {
-            shell.stderr("\(name): filename argument required\n")
+            Shell.current.stderr("\(name): filename argument required\n")
             return ExitStatus(2)
         }
         let data: Data
         do {
-            data = try await shell.readDataAtPath(path)
+            data = try await Shell.current.readDataAtPath(path)
         } catch FileSystemError.notFound {
-            shell.stderr("\(name): \(path): No such file or directory\n")
+            Shell.current.stderr("\(name): \(path): No such file or directory\n")
             return .failure
         }
         let source = String(decoding: data, as: UTF8.self)
 
         // Save call-frame state — same shape as a function call so
         // `return` works and the positional params don't leak.
-        let savedParams = shell.positionalParameters
-        let savedSource = shell.currentSource
+        let savedParams = Shell.current.positionalParameters
+        let savedSource = Shell.current.currentSource
 
         // `source PATH a b c` → the sourced script sees `a b c` as $1..$3.
         let extraArgs = Array(argv.dropFirst(2))
         if !extraArgs.isEmpty {
-            shell.positionalParameters = extraArgs
+            Shell.current.positionalParameters = extraArgs
         }
-        shell.functionCallDepth += 1
-        shell.localVarStack.append([])
+        Shell.current.functionCallDepth += 1
+        Shell.current.localVarStack.append([])
 
         defer {
-            if let frame = shell.localVarStack.popLast() {
+            if let frame = Shell.current.localVarStack.popLast() {
                 for (name, prior) in frame.reversed() {
-                    shell.environment[name] = prior
+                    Shell.current.environment[name] = prior
                 }
             }
-            shell.functionCallDepth -= 1
-            shell.positionalParameters = savedParams
-            shell.currentSource = savedSource
+            Shell.current.functionCallDepth -= 1
+            Shell.current.positionalParameters = savedParams
+            Shell.current.currentSource = savedSource
         }
 
         do {
-            return try await shell.run(source)
+            return try await Shell.current.run(source)
         } catch let ret as ReturnSignal {
             return ret.status
         }

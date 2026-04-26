@@ -16,6 +16,17 @@ extension Shell {
     /// Execute an array of pre-parsed top-level nodes against `source`.
     @discardableResult
     public func run(_ parts: [Node], source: String) async throws -> ExitStatus {
+        // Bind self as the task-local current shell for the duration
+        // of the run. Subshells, pipeline stages, traps, and any
+        // command body all read shell state via `Shell.current`.
+        return try await withCurrent {
+            try await runImpl(parts, source: source)
+        }
+    }
+
+    private func runImpl(_ parts: [Node],
+                         source: String) async throws -> ExitStatus
+    {
         let saved = currentSource
         currentSource = source
         defer { currentSource = saved }
@@ -262,7 +273,7 @@ extension Shell {
     }
 
     /// Fire the `DEBUG` trap if registered. Called before each simple
-    /// command. The trap body is evaluated in the current shell.
+    /// command. The trap body is evaluated in the current Shell.current.
     func fireDebugTrap() async throws {
         guard let body = traps["DEBUG"], !runningTraps.contains("DEBUG") else { return }
         runningTraps.insert("DEBUG")
@@ -419,7 +430,7 @@ extension Shell {
                 await drainProcessSubs(from: procSubFrame)
                 return ExitStatus(127)
             }
-            result = try await command.run(argv, shell: self)
+            result = try await command.run(argv)
         } catch {
             restoreScope()
             restoreRedirects()

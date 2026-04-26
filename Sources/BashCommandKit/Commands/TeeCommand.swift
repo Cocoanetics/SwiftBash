@@ -30,24 +30,24 @@ public struct TeeCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         // Open all sinks up front so a single bad path is reported
         // before we start consuming stdin.
         var sinks: [OutputSink] = []
         for f in files {
             do {
                 sinks.append(
-                    try await shell.openOutputPath(f, append: append))
+                    try await Shell.current.openOutputPath(f, append: append))
             } catch {
-                shell.stderr("tee: \(f): \(error)\n")
+                Shell.current.stderr("tee: \(f): \(error)\n")
                 for s in sinks { s.finish() }
                 return .failure
             }
         }
         defer { for s in sinks { s.finish() } }
 
-        for await chunk in shell.stdin.bytes {
-            shell.stdout(chunk)
+        for await chunk in Shell.current.stdin.bytes {
+            Shell.current.stdout(chunk)
             for s in sinks { s.write(chunk) }
         }
         return .success

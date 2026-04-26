@@ -35,10 +35,10 @@ public struct UnameCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var u = utsname()
         guard Foundation.uname(&u) == 0 else {
-            shell.stderr("uname: failed\n")
+            Shell.current.stderr("uname: failed\n")
             return .failure
         }
         // utsname fields are inline char arrays — convert via Mirror.
@@ -76,7 +76,7 @@ public struct UnameCommand: ParsableBashCommand {
         if all || release { parts.append(rl) }
         if all || version { parts.append(vr) }
         if all || machine { parts.append(mc) }
-        shell.stdout(parts.joined(separator: " ") + "\n")
+        Shell.current.stdout(parts.joined(separator: " ") + "\n")
         return .success
     }
 }
@@ -105,7 +105,7 @@ public struct IdCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let uid = realIds ? getuid() : geteuid()
         let gid = realIds ? getgid() : getegid()
         let userName = ProcessInfo.processInfo.userName
@@ -115,15 +115,15 @@ public struct IdCommand: ParsableBashCommand {
             "staff"
         }()
         if userOnly {
-            shell.stdout((names ? userName : "\(uid)") + "\n")
+            Shell.current.stdout((names ? userName : "\(uid)") + "\n")
             return .success
         }
         if groupOnly {
-            shell.stdout((names ? groupName : "\(gid)") + "\n")
+            Shell.current.stdout((names ? groupName : "\(gid)") + "\n")
             return .success
         }
         // Default: uid=N(name) gid=N(name)
-        shell.stdout("uid=\(uid)(\(userName)) gid=\(gid)(\(groupName))\n")
+        Shell.current.stdout("uid=\(uid)(\(userName)) gid=\(gid)(\(groupName))\n")
         return .success
     }
 }
@@ -150,22 +150,22 @@ public struct DfCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        let target = paths.isEmpty ? [shell.environment.workingDirectory] : paths
+    public mutating func execute() async throws -> ExitStatus {
+        let target = paths.isEmpty ? [Shell.current.environment.workingDirectory] : paths
         // Header.
         if human {
-            shell.stdout("Filesystem      Size    Used   Avail Capacity Mounted on\n")
+            Shell.current.stdout("Filesystem      Size    Used   Avail Capacity Mounted on\n")
         } else {
             let unit = mib ? "1M-blocks" : "1024-blocks"
-            shell.stdout("Filesystem    \(unit)        Used   Available Capacity Mounted on\n")
+            Shell.current.stdout("Filesystem    \(unit)        Used   Available Capacity Mounted on\n")
         }
         var hadError = false
         for p in target {
-            let resolved = shell.resolvePath(p)
+            let resolved = Shell.current.resolvePath(p)
             var s = statfs()
             let r = resolved.withCString { statfs($0, &s) }
             if r != 0 {
-                shell.stderr("df: \(p): no such file or directory\n")
+                Shell.current.stderr("df: \(p): no such file or directory\n")
                 hadError = true; continue
             }
             let blockSize = UInt64(s.f_bsize)
@@ -182,7 +182,7 @@ public struct DfCommand: ParsableBashCommand {
             let totalStr = formatSize(total)
             let usedStr = formatSize(used)
             let availStr = formatSize(free)
-            shell.stdout("\(device.padding(toLength: 14, withPad: " ", startingAt: 0))" +
+            Shell.current.stdout("\(device.padding(toLength: 14, withPad: " ", startingAt: 0))" +
                          " \(totalStr.leftPad(8))" +
                          " \(usedStr.leftPad(8))" +
                          " \(availStr.leftPad(8))" +
@@ -229,15 +229,15 @@ public struct NohupCommand: Command {
     public let name = "nohup"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
         guard !args.isEmpty else {
-            shell.stderr("nohup: usage: nohup COMMAND [ARG...]\n")
+            Shell.current.stderr("nohup: usage: nohup COMMAND [ARG...]\n")
             return ExitStatus(127)
         }
         let line = args.map(shellQuote).joined(separator: " ")
-        shell.stderr("nohup: ignoring input and appending output to 'nohup.out'\n")
-        return try await shell.run(line)
+        Shell.current.stderr("nohup: ignoring input and appending output to 'nohup.out'\n")
+        return try await Shell.current.run(line)
     }
 
     private func shellQuote(_ s: String) -> String {
@@ -264,17 +264,17 @@ public struct CmpCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard files.count == 2 else {
-            shell.stderr("cmp: usage: cmp [-s] FILE1 FILE2\n")
+            Shell.current.stderr("cmp: usage: cmp [-s] FILE1 FILE2\n")
             return ExitStatus(2)
         }
         let a: Data, b: Data
         do {
-            a = try await shell.readDataAtPath(files[0])
-            b = try await shell.readDataAtPath(files[1])
+            a = try await Shell.current.readDataAtPath(files[0])
+            b = try await Shell.current.readDataAtPath(files[1])
         } catch {
-            shell.stderr("cmp: \(error)\n")
+            Shell.current.stderr("cmp: \(error)\n")
             return ExitStatus(2)
         }
         let n = min(a.count, b.count)
@@ -282,7 +282,7 @@ public struct CmpCommand: ParsableBashCommand {
         for i in 0..<n {
             if a[i] != b[i] {
                 if !silent {
-                    shell.stdout("\(files[0]) \(files[1]) differ: char \(i + 1), line \(line)\n")
+                    Shell.current.stdout("\(files[0]) \(files[1]) differ: char \(i + 1), line \(line)\n")
                 }
                 return ExitStatus(1)
             }
@@ -291,7 +291,7 @@ public struct CmpCommand: ParsableBashCommand {
         if a.count != b.count {
             if !silent {
                 let longer = a.count > b.count ? files[0] : files[1]
-                shell.stdout("cmp: EOF on \(longer)\n")
+                Shell.current.stdout("cmp: EOF on \(longer)\n")
             }
             return ExitStatus(1)
         }

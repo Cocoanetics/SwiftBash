@@ -7,20 +7,20 @@ public struct ReturnCommand: Command {
     public let name = "return"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
-        if shell.functionCallDepth == 0 {
-            shell.stderr("return: can only `return' from a function or sourced script\n")
+    public func run(_ argv: [String]) async throws -> ExitStatus {
+        if Shell.current.functionCallDepth == 0 {
+            Shell.current.stderr("return: can only `return' from a function or sourced script\n")
             return .failure
         }
         let status: ExitStatus
         if let raw = argv.dropFirst().first {
             guard let n = Int32(raw) else {
-                shell.stderr("return: \(raw): numeric argument required\n")
+                Shell.current.stderr("return: \(raw): numeric argument required\n")
                 return ExitStatus(2)
             }
             status = ExitStatus(n)
         } else {
-            status = shell.lastExitStatus
+            status = Shell.current.lastExitStatus
         }
         throw ReturnSignal(status: status)
     }

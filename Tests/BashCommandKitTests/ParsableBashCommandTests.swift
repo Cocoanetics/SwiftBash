@@ -20,9 +20,9 @@ private struct GreetCommand: ParsableBashCommand {
     @Option(name: .shortAndLong, help: "Say it this many times.")
     var count: Int = 1
 
-    mutating func execute(shell: Shell) async throws -> ExitStatus {
+    mutating func execute() async throws -> ExitStatus {
         let line = loud ? "HELLO \(name.uppercased())" : "hello \(name)"
-        for _ in 0..<count { shell.stdout(line + "\n") }
+        for _ in 0..<count { Shell.current.stdout(line + "\n") }
         return .success
     }
 }
@@ -32,8 +32,8 @@ private struct SumCommand: ParsableBashCommand {
 
     @Argument var values: [Int] = []
 
-    mutating func execute(shell: Shell) async throws -> ExitStatus {
-        shell.stdout("\(values.reduce(0, +))\n")
+    mutating func execute() async throws -> ExitStatus {
+        Shell.current.stdout("\(values.reduce(0, +))\n")
         return .success
     }
 }
@@ -44,8 +44,8 @@ private struct RequireNameCommand: ParsableBashCommand {
     @Argument(help: "Required name.")
     var name: String
 
-    mutating func execute(shell: Shell) async throws -> ExitStatus {
-        shell.stdout("got \(name)\n")
+    mutating func execute() async throws -> ExitStatus {
+        Shell.current.stdout("got \(name)\n")
         return .success
     }
 }
@@ -54,8 +54,8 @@ private struct RequireNameCommand: ParsableBashCommand {
 private struct Nameless: ParsableBashCommand {
     static let configuration = CommandConfiguration()
     @Argument var word: String = "default"
-    mutating func execute(shell: Shell) async throws -> ExitStatus {
-        shell.stdout("\(word)\n")
+    mutating func execute() async throws -> ExitStatus {
+        Shell.current.stdout("\(word)\n")
         return .success
     }
 }
@@ -189,8 +189,8 @@ private struct Nameless: ParsableBashCommand {
             static let configuration = CommandConfiguration(commandName: "setvar")
             @Argument var name: String
             @Argument var value: String
-            mutating func execute(shell: Shell) async throws -> ExitStatus {
-                shell.environment[name] = value
+            mutating func execute() async throws -> ExitStatus {
+                Shell.current.environment[name] = value
                 return .success
             }
         }

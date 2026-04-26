@@ -6,22 +6,22 @@ public struct ShiftCommand: Command {
     public let name = "shift"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
         let n: Int
         if let raw = args.first {
             guard let parsed = Int(raw), parsed >= 0 else {
-                shell.stderr("shift: \(raw): numeric argument required\n")
+                Shell.current.stderr("shift: \(raw): numeric argument required\n")
                 return .failure
             }
             n = parsed
         } else {
             n = 1
         }
-        if n > shell.positionalParameters.count {
+        if n > Shell.current.positionalParameters.count {
             return .failure
         }
-        shell.positionalParameters.removeFirst(n)
+        Shell.current.positionalParameters.removeFirst(n)
         return .success
     }
 }

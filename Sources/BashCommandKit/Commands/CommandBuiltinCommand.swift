@@ -27,16 +27,16 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard !names.isEmpty else {
-            shell.stderr("command: missing operand\n")
+            Shell.current.stderr("command: missing operand\n")
             return .failure
         }
         if lookup {
             var missing = false
             for name in names {
-                if shell.commands[name] != nil {
-                    shell.stdout("\(name)\n")
+                if Shell.current.commands[name] != nil {
+                    Shell.current.stdout("\(name)\n")
                 } else {
                     missing = true
                 }
@@ -47,10 +47,10 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
         // functions/aliases yet, so this reduces to "look up in the
         // registry and call". Same shape as Shell's own dispatch.
         let head = names[0]
-        guard let cmd = shell.commands[head] else {
-            shell.stderr("command: \(head): not found\n")
+        guard let cmd = Shell.current.commands[head] else {
+            Shell.current.stderr("command: \(head): not found\n")
             return ExitStatus(127)
         }
-        return try await cmd.run(names, shell: shell)
+        return try await cmd.run(names)
     }
 }

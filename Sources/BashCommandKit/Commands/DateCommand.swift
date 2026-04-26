@@ -26,7 +26,7 @@ public struct DateCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var format = "%a %b %e %H:%M:%S %Z %Y"
         var utc = false
 
@@ -41,7 +41,7 @@ public struct DateCommand: ParsableBashCommand {
                 break
             }
             if a == "-h" || a == "--help" {
-                shell.stdout("""
+                Shell.current.stdout("""
                     USAGE: date [-u] [-f FMT | --format FMT] [+FORMAT]
 
                     Print the current date and time. Format strings follow
@@ -60,7 +60,7 @@ public struct DateCommand: ParsableBashCommand {
             }
             if a == "-f" || a == "--format" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("date: option requires an argument: \(a)\n")
+                    Shell.current.stderr("date: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 format = rawArgv[i + 1]
@@ -72,7 +72,7 @@ public struct DateCommand: ParsableBashCommand {
             }
             // Unknown option / extra positional. Real `date` accepts
             // `-r SECONDS` and `-d STRING` but those are out of scope.
-            shell.stderr("date: unknown argument: \(a)\n")
+            Shell.current.stderr("date: unknown argument: \(a)\n")
             return ExitStatus(2)
         }
 
@@ -86,7 +86,7 @@ public struct DateCommand: ParsableBashCommand {
 
         var buffer = [CChar](repeating: 0, count: 4096)
         _ = strftime(&buffer, buffer.count, format, &broken)
-        shell.stdout(String(cString: buffer) + "\n")
+        Shell.current.stdout(String(cString: buffer) + "\n")
         return .success
     }
 }

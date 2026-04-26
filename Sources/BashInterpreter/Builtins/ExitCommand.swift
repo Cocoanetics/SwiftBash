@@ -9,7 +9,7 @@ public struct ExitCommand: Command {
     public let name = "exit"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let status: ExitStatus
         if let raw = argv.dropFirst().first {
             guard let n = Int32(raw) else {
@@ -19,7 +19,7 @@ public struct ExitCommand: Command {
             }
             status = ExitStatus(n)
         } else {
-            status = shell.lastExitStatus
+            status = Shell.current.lastExitStatus
         }
         throw ShellExit(status: status)
     }

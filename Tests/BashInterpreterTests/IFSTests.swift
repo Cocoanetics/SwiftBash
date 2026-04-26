@@ -6,11 +6,11 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(name: "args") { argv, shell in
+        cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                shell.stdout("[\(i + 1)]\(a)\n")
+                Shell.current.stdout("[\(i + 1)]\(a)\n")
             }
-            shell.stdout("count=\(argv.count - 1)\n")
+            Shell.current.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         return cap

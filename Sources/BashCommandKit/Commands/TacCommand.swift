@@ -17,23 +17,23 @@ public struct TacCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if files.isEmpty {
             var lines: [String] = []
-            for await line in shell.stdin.lines { lines.append(line) }
-            for line in lines.reversed() { shell.stdout(line + "\n") }
+            for await line in Shell.current.stdin.lines { lines.append(line) }
+            for line in lines.reversed() { Shell.current.stdout(line + "\n") }
             return .success
         }
         var hadError = false
         for f in files {
             do {
-                let data = try await shell.readDataAtPath(f)
+                let data = try await Shell.current.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 for line in SortCommand.splitLines(text).reversed() {
-                    shell.stdout(line + "\n")
+                    Shell.current.stdout(line + "\n")
                 }
             } catch {
-                shell.stderr("tac: \(f): \(error)\n")
+                Shell.current.stderr("tac: \(f): \(error)\n")
                 hadError = true
             }
         }

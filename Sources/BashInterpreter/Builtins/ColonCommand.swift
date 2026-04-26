@@ -5,7 +5,7 @@ import Foundation
 public struct ColonCommand: Command {
     public let name = ":"
     public init() {}
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         .success
     }
 }

@@ -17,23 +17,23 @@ public struct RevCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if files.isEmpty {
-            for await line in shell.stdin.lines {
-                shell.stdout(String(line.reversed()) + "\n")
+            for await line in Shell.current.stdin.lines {
+                Shell.current.stdout(String(line.reversed()) + "\n")
             }
             return .success
         }
         var hadError = false
         for f in files {
             do {
-                let data = try await shell.readDataAtPath(f)
+                let data = try await Shell.current.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 for line in SortCommand.splitLines(text) {
-                    shell.stdout(String(line.reversed()) + "\n")
+                    Shell.current.stdout(String(line.reversed()) + "\n")
                 }
             } catch {
-                shell.stderr("rev: \(f): \(error)\n")
+                Shell.current.stderr("rev: \(f): \(error)\n")
                 hadError = true
             }
         }

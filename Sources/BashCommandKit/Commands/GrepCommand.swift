@@ -92,7 +92,7 @@ public struct GrepCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let matcher: LineMatcher
         do {
             matcher = try LineMatcher(pattern: pattern,
@@ -100,7 +100,7 @@ public struct GrepCommand: ParsableBashCommand {
                                       ignoreCase: ignoreCase,
                                       invert: invert)
         } catch {
-            shell.stderr("grep: \(pattern): \(error)\n")
+            Shell.current.stderr("grep: \(pattern): \(error)\n")
             return ExitStatus(2)
         }
 
@@ -111,7 +111,7 @@ public struct GrepCommand: ParsableBashCommand {
         // When are filenames printed? GNU rule: when there's more than
         // one input source, or `-r` is on, or `-H` is set (we don't
         // implement -H/-h yet).
-        let inputs = await collectSources(shell: shell)
+        let inputs = await collectSources()
         let showName = recursive || inputs.count > 1
         let opts = OutputOptions(
             showName: showName,
@@ -126,8 +126,7 @@ public struct GrepCommand: ParsableBashCommand {
         for input in inputs {
             let r = await searchOne(input: input,
                                     matcher: matcher,
-                                    opts: opts,
-                                    shell: shell)
+                                    opts: opts)
             if r { anyMatched = true }
             if quiet, anyMatched { break }
         }
@@ -145,38 +144,36 @@ public struct GrepCommand: ParsableBashCommand {
     /// directories when `-r`. Errors are written to stderr inline as
     /// they're discovered; the returned bool tracks "did we hit any?"
     /// so the caller can pick the right exit code.
-    private func collectSources(shell: Shell) async -> [Source] {
+    private func collectSources() async -> [Source] {
         if files.isEmpty {
             return [Source(displayName: "(standard input)",
-                           input: shell.stdin)]
+                           input: Shell.current.stdin)]
         }
 
         var out: [Source] = []
         for file in files {
-            let resolved = shell.resolvePath(file)
+            let resolved = Shell.current.resolvePath(file)
             let meta: FileMetadata?
             do {
-                meta = try await shell.metadataAtPath(file)
+                meta = try await Shell.current.metadataAtPath(file)
             } catch {
-                shell.stderr("grep: \(file): \(error)\n")
+                Shell.current.stderr("grep: \(file): \(error)\n")
                 continue
             }
             guard let meta else {
-                shell.stderr("grep: \(file): No such file or directory\n")
+                Shell.current.stderr("grep: \(file): No such file or directory\n")
                 continue
             }
             if meta.kind == .directory {
                 if !recursive {
-                    shell.stderr("grep: \(file): Is a directory\n")
+                    Shell.current.stderr("grep: \(file): Is a directory\n")
                     continue
                 }
                 let walked = await walkDirectory(displayPath: file,
-                                                 absolutePath: resolved,
-                                                 shell: shell)
+                                                 absolutePath: resolved)
                 out.append(contentsOf: walked)
             } else if let s = await openFile(displayPath: file,
-                                             absolutePath: resolved,
-                                             shell: shell) {
+                                             absolutePath: resolved) {
                 out.append(s)
             }
         }
@@ -184,15 +181,14 @@ public struct GrepCommand: ParsableBashCommand {
     }
 
     private func walkDirectory(displayPath: String,
-                               absolutePath: String,
-                               shell: Shell) async -> [Source]
+                               absolutePath: String) async -> [Source]
     {
         var result: [Source] = []
         let entries: [String]
         do {
-            entries = try await shell.fileSystem.list(absolutePath)
+            entries = try await Shell.current.fileSystem.list(absolutePath)
         } catch {
-            shell.stderr("grep: \(displayPath): \(error)\n")
+            Shell.current.stderr("grep: \(displayPath): \(error)\n")
             return []
         }
         for name in entries.sorted() {
@@ -200,12 +196,11 @@ public struct GrepCommand: ParsableBashCommand {
                 .appendingPathComponent(name)
             let childDisplay = (displayPath as NSString)
                 .appendingPathComponent(name)
-            let meta = try? await shell.fileSystem.metadata(childAbs)
+            let meta = try? await Shell.current.fileSystem.metadata(childAbs)
             guard let meta else { continue }
             if meta.kind == .directory {
                 let nested = await walkDirectory(displayPath: childDisplay,
-                                                 absolutePath: childAbs,
-                                                 shell: shell)
+                                                 absolutePath: childAbs)
                 result.append(contentsOf: nested)
             } else {
                 if !include.isEmpty,
@@ -215,8 +210,7 @@ public struct GrepCommand: ParsableBashCommand {
                     continue
                 }
                 if let s = await openFile(displayPath: childDisplay,
-                                          absolutePath: childAbs,
-                                          shell: shell) {
+                                          absolutePath: childAbs) {
                     result.append(s)
                 }
             }
@@ -225,14 +219,13 @@ public struct GrepCommand: ParsableBashCommand {
     }
 
     private func openFile(displayPath: String,
-                          absolutePath: String,
-                          shell: Shell) async -> Source?
+                          absolutePath: String) async -> Source?
     {
         do {
-            let stream = try await shell.openInputPath(absolutePath)
+            let stream = try await Shell.current.openInputPath(absolutePath)
             return Source(displayName: displayPath, input: stream)
         } catch {
-            shell.stderr("grep: \(displayPath): \(error)\n")
+            Shell.current.stderr("grep: \(displayPath): \(error)\n")
             return nil
         }
     }
@@ -253,8 +246,7 @@ public struct GrepCommand: ParsableBashCommand {
     /// Returns true if at least one line matched.
     private func searchOne(input: Source,
                            matcher: LineMatcher,
-                           opts: OutputOptions,
-                           shell: Shell) async -> Bool
+                           opts: OutputOptions) async -> Bool
     {
         let needsContext = opts.before > 0 || opts.after > 0
         var beforeBuf = RingBuffer<(Int, String)>(capacity: opts.before)
@@ -271,28 +263,28 @@ public struct GrepCommand: ParsableBashCommand {
                 matchCount += 1
                 if opts.quiet { return true }
                 if opts.filesWithMatches {
-                    shell.stdout(input.displayName + "\n")
+                    Shell.current.stdout(input.displayName + "\n")
                     return true
                 }
                 if !opts.countOnly {
                     // Separator between non-contiguous context groups.
                     if needsContext, lastEmittedLine > 0,
                        lineNum - opts.before > lastEmittedLine + 1 {
-                        shell.stdout("--\n")
+                        Shell.current.stdout("--\n")
                     }
                     // Flush before-context.
                     for (bn, bl) in beforeBuf.elements {
                         if bn > lastEmittedLine {
                             emit(file: input.displayName, lineNum: bn,
                                  line: bl, isMatch: false,
-                                 opts: opts, shell: shell)
+                                 opts: opts)
                             lastEmittedLine = bn
                         }
                     }
                     // Emit the matched line.
                     emit(file: input.displayName, lineNum: lineNum,
                          line: line, isMatch: true,
-                         opts: opts, shell: shell)
+                         opts: opts)
                     lastEmittedLine = lineNum
                     afterRemaining = opts.after
                 }
@@ -300,7 +292,7 @@ public struct GrepCommand: ParsableBashCommand {
                 if !opts.countOnly, !opts.filesWithMatches, !opts.quiet {
                     emit(file: input.displayName, lineNum: lineNum,
                          line: line, isMatch: false,
-                         opts: opts, shell: shell)
+                         opts: opts)
                     lastEmittedLine = lineNum
                 }
                 afterRemaining -= 1
@@ -314,9 +306,9 @@ public struct GrepCommand: ParsableBashCommand {
             // GNU prints `0` per file even with no matches.
             let n = matchCount
             if opts.showName {
-                shell.stdout("\(input.displayName):\(n)\n")
+                Shell.current.stdout("\(input.displayName):\(n)\n")
             } else {
-                shell.stdout("\(n)\n")
+                Shell.current.stdout("\(n)\n")
             }
         }
         return matchCount > 0
@@ -329,15 +321,14 @@ public struct GrepCommand: ParsableBashCommand {
                       lineNum: Int,
                       line: String,
                       isMatch: Bool,
-                      opts: OutputOptions,
-                      shell: Shell)
+                      opts: OutputOptions)
     {
         let sep = isMatch ? ":" : "-"
         var out = ""
         if opts.showName { out += file + sep }
         if opts.lineNumber { out += "\(lineNum)\(sep)" }
         out += line + "\n"
-        shell.stdout(out)
+        Shell.current.stdout(out)
     }
 
     // MARK: Match strategies

@@ -32,7 +32,7 @@ public struct JqCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var raw = false
         var rawInput = false
         var compact = false
@@ -62,7 +62,7 @@ public struct JqCommand: ParsableBashCommand {
                 if let v = try? JqJSON.parse(a) {
                     positional.append(v)
                 } else {
-                    shell.stderr("jq: invalid JSON in --jsonargs: \(a)\n")
+                    Shell.current.stderr("jq: invalid JSON in --jsonargs: \(a)\n")
                     return ExitStatus(2)
                 }
                 i += 1
@@ -86,38 +86,38 @@ public struct JqCommand: ParsableBashCommand {
             case "--tab": useTab = true; i += 1; continue
             case "--indent":
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    shell.stderr("jq: --indent requires a number\n")
+                    Shell.current.stderr("jq: --indent requires a number\n")
                     return ExitStatus(2)
                 }
                 indent = n; i += 2; continue
             case "--arg":
                 guard i + 2 < rawArgv.count else {
-                    shell.stderr("jq: --arg requires NAME VALUE\n")
+                    Shell.current.stderr("jq: --arg requires NAME VALUE\n")
                     return ExitStatus(2)
                 }
                 namedArgs[rawArgv[i + 1]] = .string(rawArgv[i + 2])
                 i += 3; continue
             case "--argjson":
                 guard i + 2 < rawArgv.count else {
-                    shell.stderr("jq: --argjson requires NAME VALUE\n")
+                    Shell.current.stderr("jq: --argjson requires NAME VALUE\n")
                     return ExitStatus(2)
                 }
                 if let v = try? JqJSON.parse(rawArgv[i + 2]) {
                     namedArgs[rawArgv[i + 1]] = v
                 } else {
-                    shell.stderr("jq: invalid JSON for --argjson \(rawArgv[i + 1])\n")
+                    Shell.current.stderr("jq: invalid JSON for --argjson \(rawArgv[i + 1])\n")
                     return ExitStatus(2)
                 }
                 i += 3; continue
             case "--slurpfile", "--rawfile":
                 guard i + 2 < rawArgv.count else {
-                    shell.stderr("jq: \(a) requires NAME FILE\n")
+                    Shell.current.stderr("jq: \(a) requires NAME FILE\n")
                     return ExitStatus(2)
                 }
                 let name = rawArgv[i + 1]
                 let path = rawArgv[i + 2]
                 do {
-                    let data = try await shell.readDataAtPath(path)
+                    let data = try await Shell.current.readDataAtPath(path)
                     let text = String(decoding: data, as: UTF8.self)
                     if a == "--slurpfile" {
                         let vs = try JqJSON.parseStream(text)
@@ -126,17 +126,17 @@ public struct JqCommand: ParsableBashCommand {
                         namedArgs[name] = .string(text)
                     }
                 } catch {
-                    shell.stderr("jq: cannot read file \(path): \(error)\n")
+                    Shell.current.stderr("jq: cannot read file \(path): \(error)\n")
                     return ExitStatus(2)
                 }
                 i += 3; continue
             case "--args": inArgsMode = .args; i += 1; continue
             case "--jsonargs": inArgsMode = .jsonargs; i += 1; continue
             case "--help":
-                shell.stdout("jq - command-line JSON processor\n")
+                Shell.current.stdout("jq - command-line JSON processor\n")
                 return .success
             case "--version":
-                shell.stdout("jq-1.7 (swift-bash)\n")
+                Shell.current.stdout("jq-1.7 (swift-bash)\n")
                 return .success
             default: break
             }
@@ -165,14 +165,14 @@ public struct JqCommand: ParsableBashCommand {
                     }
                 }
                 if unknown {
-                    shell.stderr("jq: invalid option: \(a)\n")
+                    Shell.current.stderr("jq: invalid option: \(a)\n")
                     return ExitStatus(2)
                 }
                 i += 1
                 continue
             }
             if a.hasPrefix("--") {
-                shell.stderr("jq: unknown option: \(a)\n")
+                Shell.current.stderr("jq: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
 
@@ -190,10 +190,10 @@ public struct JqCommand: ParsableBashCommand {
         do {
             ast = try JqParser.parse(filterStr)
         } catch let e as JqError {
-            shell.stderr("jq: \(e.message)\n")
+            Shell.current.stderr("jq: \(e.message)\n")
             return ExitStatus(3)
         } catch {
-            shell.stderr("jq: \(error)\n")
+            Shell.current.stderr("jq: \(error)\n")
             return ExitStatus(3)
         }
 
@@ -202,18 +202,18 @@ public struct JqCommand: ParsableBashCommand {
         if nullInput {
             // no inputs
         } else if files.isEmpty || (files.count == 1 && files[0] == "-") {
-            inputContents.append(await shell.stdin.readAllString())
+            inputContents.append(await Shell.current.stdin.readAllString())
         } else {
             for f in files {
                 if f == "-" {
-                    inputContents.append(await shell.stdin.readAllString())
+                    inputContents.append(await Shell.current.stdin.readAllString())
                     continue
                 }
                 do {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     inputContents.append(String(decoding: data, as: UTF8.self))
                 } catch {
-                    shell.stderr("jq: error: cannot read file \(f): \(error)\n")
+                    Shell.current.stderr("jq: error: cannot read file \(f): \(error)\n")
                     return ExitStatus(2)
                 }
             }
@@ -250,14 +250,14 @@ public struct JqCommand: ParsableBashCommand {
                 }
             }
         } catch let e as JqError {
-            shell.stderr("jq: \(e.message)\n")
+            Shell.current.stderr("jq: \(e.message)\n")
             return ExitStatus(2)
         } catch {
-            shell.stderr("jq: \(error)\n")
+            Shell.current.stderr("jq: \(error)\n")
             return ExitStatus(2)
         }
 
-        let env: [String: String] = shell.environment.variables
+        let env: [String: String] = Shell.current.environment.variables
 
         // Build a shared variable map carrying --arg/--argjson and $ARGS.
         var sharedVars: [String: JqValue] = [:]
@@ -279,13 +279,13 @@ public struct JqCommand: ParsableBashCommand {
                 let results = try JqEvaluator.evaluate(v, ast, ctx: ctx2)
                 allOutputs.append(contentsOf: results)
             } catch let e as JqError {
-                shell.stderr("jq: error: \(e.message)\n")
+                Shell.current.stderr("jq: error: \(e.message)\n")
                 return ExitStatus(5)
             } catch let e as JqThrown {
-                shell.stderr("jq: error: \(e.description)\n")
+                Shell.current.stderr("jq: error: \(e.description)\n")
                 return ExitStatus(5)
             } catch {
-                shell.stderr("jq: error: \(error)\n")
+                Shell.current.stderr("jq: error: \(error)\n")
                 return ExitStatus(5)
             }
         }
@@ -300,7 +300,7 @@ public struct JqCommand: ParsableBashCommand {
                 out += "\n"
             }
         }
-        shell.stdout(out)
+        Shell.current.stdout(out)
 
         if exitStatus {
             let allFalsy = allOutputs.isEmpty || allOutputs.allSatisfy { v in

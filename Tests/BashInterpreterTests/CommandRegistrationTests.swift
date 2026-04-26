@@ -7,9 +7,9 @@ import Testing
 
     @Test func registerClosureCommand() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "greet") { argv, shell in
+        cap.shell.register(name: "greet") { argv in
             let who = argv.dropFirst().first ?? "world"
-            shell.stdout("hello \(who)\n")
+            Shell.current.stdout("hello \(who)\n")
             return .success
         }
         try await cap.shell.run("greet oliver")
@@ -18,7 +18,7 @@ import Testing
 
     @Test func closureCommandCanFail() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "nope") { _, _ in .failure }
+        cap.shell.register(name: "nope") { _ in .failure }
         let status = try await cap.shell.run("nope")
         #expect(status == .failure)
         #expect(cap.shell.lastExitStatus == .failure)
@@ -26,7 +26,7 @@ import Testing
 
     @Test func closureCommandCanThrow() async {
         let cap = CapturingShell()
-        cap.shell.register(name: "boom") { _, _ in
+        cap.shell.register(name: "boom") { _ in
             throw BashInterpreterError.io("kaboom")
         }
         let err = await #expect(throws: BashInterpreterError.self) {
@@ -37,8 +37,8 @@ import Testing
 
     @Test func closureCommandMutatesEnvironment() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "bless") { argv, shell in
-            for arg in argv.dropFirst() { shell.environment[arg] = "ok" }
+        cap.shell.register(name: "bless") { argv in
+            for arg in argv.dropFirst() { Shell.current.environment[arg] = "ok" }
             return .success
         }
         try await cap.shell.run("bless A B C")
@@ -52,9 +52,9 @@ import Testing
     @Test func registerStructCommand() async throws {
         struct UpperCaseCommand: Command {
             let name = "upper"
-            func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+            func run(_ argv: [String]) async throws -> ExitStatus {
                 let out = argv.dropFirst().joined(separator: " ").uppercased()
-                shell.stdout(out + "\n")
+                Shell.current.stdout(out + "\n")
                 return .success
             }
         }
@@ -68,8 +68,8 @@ import Testing
 
     @Test func unregisterRemovesCommand() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "once") { _, shell in
-            shell.stdout("first\n"); return .success
+        cap.shell.register(name: "once") { _ in
+            Shell.current.stdout("first\n"); return .success
         }
         try await cap.shell.run("once")
         #expect(cap.stdout == "first\n")
@@ -91,9 +91,9 @@ import Testing
     @Test func registeringOverridesBuiltin() async throws {
         let cap = CapturingShell()
         // Override `echo` with a louder version.
-        cap.shell.register(name: "echo") { argv, shell in
+        cap.shell.register(name: "echo") { argv in
             let loud = argv.dropFirst().joined(separator: " ").uppercased()
-            shell.stdout(loud + "!\n")
+            Shell.current.stdout(loud + "!\n")
             return .success
         }
         try await cap.shell.run("echo hello")
@@ -104,9 +104,9 @@ import Testing
 
     @Test func registeredCommandInsideLoop() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "collect") { argv, shell in
-            let prior = shell.environment["COLLECTED"] ?? ""
-            shell.environment["COLLECTED"] = prior
+        cap.shell.register(name: "collect") { argv in
+            let prior = Shell.current.environment["COLLECTED"] ?? ""
+            Shell.current.environment["COLLECTED"] = prior
                 + (prior.isEmpty ? "" : ",")
                 + argv.dropFirst().joined(separator: " ")
             return .success
@@ -117,8 +117,8 @@ import Testing
 
     @Test func registeredCommandUsedInPipelinePositions() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "emit") { argv, shell in
-            for arg in argv.dropFirst() { shell.stdout("\(arg)\n") }
+        cap.shell.register(name: "emit") { argv in
+            for arg in argv.dropFirst() { Shell.current.stdout("\(arg)\n") }
             return .success
         }
         try await cap.shell.run("emit 1 2 && emit 3")
@@ -145,8 +145,8 @@ import Testing
         #expect(cap.shell.lastExitStatus.code == 127)
 
         // Register something and verify only it works.
-        cap.shell.register(name: "hi") { _, shell in
-            shell.stdout("hi\n"); return .success
+        cap.shell.register(name: "hi") { _ in
+            Shell.current.stdout("hi\n"); return .success
         }
         try await cap.shell.run("hi")
         #expect(cap.stdout == "hi\n")

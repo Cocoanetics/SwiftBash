@@ -14,9 +14,9 @@ public struct EnvCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        for (k, v) in shell.environment.variables.sorted(by: { $0.key < $1.key }) {
-            shell.stdout("\(k)=\(v)\n")
+    public mutating func execute() async throws -> ExitStatus {
+        for (k, v) in Shell.current.environment.variables.sorted(by: { $0.key < $1.key }) {
+            Shell.current.stdout("\(k)=\(v)\n")
         }
         return .success
     }

@@ -23,7 +23,7 @@ public struct StatCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var format: String? = nil
         var files: [String] = []
         var i = 0
@@ -36,7 +36,7 @@ public struct StatCommand: ParsableBashCommand {
             }
             if a == "-c" || a == "--format" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("stat: -c requires FORMAT\n"); return ExitStatus(2)
+                    Shell.current.stderr("stat: -c requires FORMAT\n"); return ExitStatus(2)
                 }
                 format = rawArgv[i + 1]; i += 2; continue
             }
@@ -47,7 +47,7 @@ public struct StatCommand: ParsableBashCommand {
                 format = String(a.dropFirst(2)); i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" {
-                shell.stderr("stat: unknown option: \(a)\n")
+                Shell.current.stderr("stat: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -55,15 +55,15 @@ public struct StatCommand: ParsableBashCommand {
 
         var hadError = false
         for f in files {
-            let resolved = shell.resolvePath(f)
-            guard let meta = try? await shell.fileSystem.metadata(resolved) else {
-                shell.stderr("stat: \(f): No such file or directory\n")
+            let resolved = Shell.current.resolvePath(f)
+            guard let meta = try? await Shell.current.fileSystem.metadata(resolved) else {
+                Shell.current.stderr("stat: \(f): No such file or directory\n")
                 hadError = true; continue
             }
             if let format {
-                shell.stdout(formatString(format, name: f, meta: meta) + "\n")
+                Shell.current.stdout(formatString(format, name: f, meta: meta) + "\n")
             } else {
-                shell.stdout(defaultStat(name: f, meta: meta))
+                Shell.current.stdout(defaultStat(name: f, meta: meta))
             }
         }
         return hadError ? .failure : .success
@@ -142,31 +142,31 @@ public struct ReadlinkCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard !files.isEmpty else {
-            shell.stderr("readlink: missing operand\n")
+            Shell.current.stderr("readlink: missing operand\n")
             return ExitStatus(2)
         }
         var hadError = false
         for f in files {
-            let resolved = shell.resolvePath(f)
+            let resolved = Shell.current.resolvePath(f)
             if canonicalize {
-                if let canonical = try? await shell.fileSystem
+                if let canonical = try? await Shell.current.fileSystem
                     .canonicalize(resolved, allowMissing: true) {
-                    shell.stdout(canonical + "\n")
+                    Shell.current.stdout(canonical + "\n")
                 } else {
-                    shell.stdout(resolved + "\n")
+                    Shell.current.stdout(resolved + "\n")
                 }
                 continue
             }
-            guard let meta = try? await shell.fileSystem.metadata(resolved) else {
-                shell.stderr("readlink: \(f): No such file or directory\n")
+            guard let meta = try? await Shell.current.fileSystem.metadata(resolved) else {
+                Shell.current.stderr("readlink: \(f): No such file or directory\n")
                 hadError = true; continue
             }
             if let target = meta.symlinkTarget {
-                shell.stdout(target + "\n")
+                Shell.current.stdout(target + "\n")
             } else {
-                shell.stderr("readlink: \(f): Not a symlink\n")
+                Shell.current.stderr("readlink: \(f): Not a symlink\n")
                 hadError = true
             }
         }
@@ -195,14 +195,14 @@ public struct LnCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard operands.count >= 2 else {
-            shell.stderr("ln: missing operand\n")
+            Shell.current.stderr("ln: missing operand\n")
             return ExitStatus(2)
         }
         let last = operands.last!
-        let lastResolved = shell.resolvePath(last)
-        let isDir = (try? await shell.fileSystem.metadata(lastResolved))?.kind == .directory
+        let lastResolved = Shell.current.resolvePath(last)
+        let isDir = (try? await Shell.current.fileSystem.metadata(lastResolved))?.kind == .directory
         let targets: [String]
         var destination: String
         if isDir && operands.count > 2 {
@@ -212,7 +212,7 @@ public struct LnCommand: ParsableBashCommand {
             targets = [operands[0]]
             destination = lastResolved
         } else {
-            shell.stderr("ln: target '\(last)' is not a directory\n")
+            Shell.current.stderr("ln: target '\(last)' is not a directory\n")
             return ExitStatus(1)
         }
         var hadError = false
@@ -225,17 +225,17 @@ public struct LnCommand: ParsableBashCommand {
                 dest = destination
             }
             do {
-                if force, let _ = try? await shell.fileSystem.metadata(dest) {
-                    try? await shell.fileSystem.remove(dest, recursive: false)
+                if force, let _ = try? await Shell.current.fileSystem.metadata(dest) {
+                    try? await Shell.current.fileSystem.remove(dest, recursive: false)
                 }
                 if symbolic {
-                    try await shell.fileSystem.symlink(target: target, at: dest)
+                    try await Shell.current.fileSystem.symlink(target: target, at: dest)
                 } else {
-                    try await shell.fileSystem.hardlink(
-                        target: shell.resolvePath(target), at: dest)
+                    try await Shell.current.fileSystem.hardlink(
+                        target: Shell.current.resolvePath(target), at: dest)
                 }
             } catch {
-                shell.stderr("ln: \(dest): \(error)\n")
+                Shell.current.stderr("ln: \(dest): \(error)\n")
                 hadError = true
             }
         }
@@ -260,40 +260,40 @@ public struct ChmodCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard operands.count >= 2 else {
-            shell.stderr("chmod: missing operand\n")
+            Shell.current.stderr("chmod: missing operand\n")
             return ExitStatus(2)
         }
         let modeStr = operands[0]
         guard let mode = UInt16(modeStr, radix: 8) else {
-            shell.stderr("chmod: invalid mode: \(modeStr)\n")
+            Shell.current.stderr("chmod: invalid mode: \(modeStr)\n")
             return ExitStatus(2)
         }
         var hadError = false
         for f in operands.dropFirst() {
-            let resolved = shell.resolvePath(f)
+            let resolved = Shell.current.resolvePath(f)
             do {
-                try await shell.fileSystem.chmod(resolved, mode: mode)
+                try await Shell.current.fileSystem.chmod(resolved, mode: mode)
                 if recursive {
-                    try await applyRecursive(resolved, mode: mode, shell: shell)
+                    try await applyRecursive(resolved, mode: mode)
                 }
             } catch {
-                shell.stderr("chmod: \(f): \(error)\n")
+                Shell.current.stderr("chmod: \(f): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
-    private func applyRecursive(_ path: String, mode: UInt16, shell: Shell) async throws {
-        guard let meta = try? await shell.fileSystem.metadata(path),
+    private func applyRecursive(_ path: String, mode: UInt16) async throws {
+        guard let meta = try? await Shell.current.fileSystem.metadata(path),
               meta.kind == .directory else { return }
-        let entries = (try? await shell.fileSystem.list(path)) ?? []
+        let entries = (try? await Shell.current.fileSystem.list(path)) ?? []
         for name in entries {
             let child = (path as NSString).appendingPathComponent(name)
-            try? await shell.fileSystem.chmod(child, mode: mode)
-            try await applyRecursive(child, mode: mode, shell: shell)
+            try? await Shell.current.fileSystem.chmod(child, mode: mode)
+            try await applyRecursive(child, mode: mode)
         }
     }
 }

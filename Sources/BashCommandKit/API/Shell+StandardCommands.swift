@@ -2,7 +2,7 @@ import BashInterpreter
 
 extension Shell {
 
-    /// Register every command shipped with `BashCommandKit` on this shell.
+    /// Register every command shipped with `BashCommandKit` on this Shell.current.
     ///
     /// **Filesystem & navigation:** `ls`, `mkdir`, `rmdir`, `rm`, `mv`,
     /// `cp`, `touch`, `find`, `realpath`, `basename`, `dirname`.
@@ -117,24 +117,24 @@ extension Shell {
         // *running* shell rather than capturing the registering shell —
         // works correctly inside subshells too, and avoids reference
         // cycles on closure capture.
-        register(name: "egrep") { argv, shell in
-            guard let grep = shell.commands["grep"] else {
-                shell.stderr("egrep: grep not registered\n")
+        register(name: "egrep") { argv in
+            guard let grep = Shell.current.commands["grep"] else {
+                Shell.current.stderr("egrep: grep not registered\n")
                 return .failure
             }
             return try await grep.run(["grep", "-E"]
-                + Array(argv.dropFirst()), shell: shell)
+                + Array(argv.dropFirst()))
         }
-        register(name: "fgrep") { argv, shell in
+        register(name: "fgrep") { argv in
             // We don't have grep -F yet; substring is grep's default
             // matching mode anyway, so this is effectively a name alias.
             // When -F lands later, prepend it here.
-            guard let grep = shell.commands["grep"] else {
-                shell.stderr("fgrep: grep not registered\n")
+            guard let grep = Shell.current.commands["grep"] else {
+                Shell.current.stderr("fgrep: grep not registered\n")
                 return .failure
             }
             return try await grep.run(["grep"]
-                + Array(argv.dropFirst()), shell: shell)
+                + Array(argv.dropFirst()))
         }
     }
 }

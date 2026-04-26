@@ -29,19 +29,19 @@ public struct UniqCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var lines: [String] = []
         if let f = input {
             do {
-                let data = try await shell.readDataAtPath(f)
+                let data = try await Shell.current.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 lines = SortCommand.splitLines(text)
             } catch {
-                shell.stderr("uniq: \(f): \(error)\n")
+                Shell.current.stderr("uniq: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            for await line in shell.stdin.lines { lines.append(line) }
+            for await line in Shell.current.stdin.lines { lines.append(line) }
         }
 
         var i = 0
@@ -53,10 +53,10 @@ public struct UniqCommand: ParsableBashCommand {
             if count {
                 // Match BSD `uniq -c`: 4-char right-aligned count, one
                 // space, then the line.
-                shell.stdout(String(format: "%4d %@\n",
+                Shell.current.stdout(String(format: "%4d %@\n",
                                     run, lines[i] as NSString))
             } else {
-                shell.stdout(lines[i] + "\n")
+                Shell.current.stdout(lines[i] + "\n")
             }
             i += run
         }

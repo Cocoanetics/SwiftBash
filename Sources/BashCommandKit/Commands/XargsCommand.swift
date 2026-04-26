@@ -29,7 +29,7 @@ public struct XargsCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var replaceStr: String? = nil
         var delimiter: String? = nil
         var maxArgs: Int? = nil
@@ -43,7 +43,7 @@ public struct XargsCommand: ParsableBashCommand {
             let a = rawArgv[i]
             if a == "-I" || a == "--replace" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("xargs: -I requires REPLACE\n"); return ExitStatus(2)
+                    Shell.current.stderr("xargs: -I requires REPLACE\n"); return ExitStatus(2)
                 }
                 replaceStr = rawArgv[i + 1]; i += 2; cmdStart = i; continue
             }
@@ -52,20 +52,20 @@ public struct XargsCommand: ParsableBashCommand {
             }
             if a == "-d" || a == "--delimiter" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("xargs: -d requires DELIM\n"); return ExitStatus(2)
+                    Shell.current.stderr("xargs: -d requires DELIM\n"); return ExitStatus(2)
                 }
                 delimiter = unescape(rawArgv[i + 1]); i += 2; cmdStart = i; continue
             }
             if a == "-n" || a == "--max-args" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    shell.stderr("xargs: -n requires N\n"); return ExitStatus(2)
+                    Shell.current.stderr("xargs: -n requires N\n"); return ExitStatus(2)
                 }
                 maxArgs = n; i += 2; cmdStart = i; continue
             }
             if a == "-P" || a == "--max-procs" {
                 // Accept but ignore; we run sequentially.
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("xargs: -P requires N\n"); return ExitStatus(2)
+                    Shell.current.stderr("xargs: -P requires N\n"); return ExitStatus(2)
                 }
                 i += 2; cmdStart = i; continue
             }
@@ -79,7 +79,7 @@ public struct XargsCommand: ParsableBashCommand {
                 noRunIfEmpty = true; i += 1; cmdStart = i; continue
             }
             if a.hasPrefix("--") {
-                shell.stderr("xargs: unknown option: \(a)\n")
+                Shell.current.stderr("xargs: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
@@ -90,7 +90,7 @@ public struct XargsCommand: ParsableBashCommand {
                     case "t": verbose = true
                     case "r": noRunIfEmpty = true
                     default:
-                        shell.stderr("xargs: unknown option: -\(c)\n")
+                        Shell.current.stderr("xargs: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -104,7 +104,7 @@ public struct XargsCommand: ParsableBashCommand {
         if commandTemplate.isEmpty { commandTemplate = ["echo"] }
 
         // Read stdin and split into items.
-        let raw = await shell.stdin.readAllString()
+        let raw = await Shell.current.stdin.readAllString()
         let items: [String]
         if nullSep {
             items = raw.split(separator: "\0").map(String.init).filter { !$0.isEmpty }
@@ -142,11 +142,11 @@ public struct XargsCommand: ParsableBashCommand {
         var lastStatus: ExitStatus = .success
         for argv in invocations {
             let line = argv.map(shellQuote).joined(separator: " ")
-            if verbose { shell.stderr(line + "\n") }
+            if verbose { Shell.current.stderr(line + "\n") }
             do {
-                lastStatus = try await shell.run(line)
+                lastStatus = try await Shell.current.run(line)
             } catch {
-                shell.stderr("xargs: \(error)\n")
+                Shell.current.stderr("xargs: \(error)\n")
                 return .failure
             }
         }

@@ -14,7 +14,7 @@ import Foundation
 /// try await fs.writeData(Data("hi\n".utf8), to: "/tmp/note", append: false)
 ///
 /// let shell = Shell(fileSystem: fs)
-/// shell.environment.workingDirectory = "/tmp"
+/// Shell.current.environment.workingDirectory = "/tmp"
 /// ```
 ///
 /// No symlinks, no permissions. Everything is UID 0 and world-readable.

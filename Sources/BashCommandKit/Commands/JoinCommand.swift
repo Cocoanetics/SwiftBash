@@ -37,7 +37,7 @@ public struct JoinCommand: ParsableBashCommand {
         var ignoreCase = false
     }
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var opts = Options()
         var files: [String] = []
         var i = 0
@@ -50,14 +50,14 @@ public struct JoinCommand: ParsableBashCommand {
             }
             if a == "-1" || a == "-2" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n >= 1 else {
-                    shell.stderr("join: invalid field number\n"); return ExitStatus(2)
+                    Shell.current.stderr("join: invalid field number\n"); return ExitStatus(2)
                 }
                 if a == "-1" { opts.field1 = n } else { opts.field2 = n }
                 i += 2; continue
             }
             if a == "-t" || a == "--field-separator" {
                 guard i + 1 < rawArgv.count, let c = rawArgv[i + 1].first else {
-                    shell.stderr("join: -t requires CHAR\n"); return ExitStatus(2)
+                    Shell.current.stderr("join: -t requires CHAR\n"); return ExitStatus(2)
                 }
                 opts.separator = c; i += 2; continue
             }
@@ -67,7 +67,7 @@ public struct JoinCommand: ParsableBashCommand {
             }
             if a == "-a" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n == 1 || n == 2 else {
-                    shell.stderr("join: -a requires 1 or 2\n"); return ExitStatus(2)
+                    Shell.current.stderr("join: -a requires 1 or 2\n"); return ExitStatus(2)
                 }
                 opts.printUnpairable.insert(n); i += 2; continue
             }
@@ -75,7 +75,7 @@ public struct JoinCommand: ParsableBashCommand {
             if a == "-a2" { opts.printUnpairable.insert(2); i += 1; continue }
             if a == "-v" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n == 1 || n == 2 else {
-                    shell.stderr("join: -v requires 1 or 2\n"); return ExitStatus(2)
+                    Shell.current.stderr("join: -v requires 1 or 2\n"); return ExitStatus(2)
                 }
                 opts.onlyUnpairable.insert(n); i += 2; continue
             }
@@ -83,13 +83,13 @@ public struct JoinCommand: ParsableBashCommand {
             if a == "-v2" { opts.onlyUnpairable.insert(2); i += 1; continue }
             if a == "-e" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("join: -e requires STRING\n"); return ExitStatus(2)
+                    Shell.current.stderr("join: -e requires STRING\n"); return ExitStatus(2)
                 }
                 opts.emptyString = rawArgv[i + 1]; i += 2; continue
             }
             if a == "-o" {
                 guard i + 1 < rawArgv.count, let f = parseOutputFormat(rawArgv[i + 1]) else {
-                    shell.stderr("join: invalid -o format\n"); return ExitStatus(2)
+                    Shell.current.stderr("join: invalid -o format\n"); return ExitStatus(2)
                 }
                 opts.outputFormat = f; i += 2; continue
             }
@@ -97,26 +97,26 @@ public struct JoinCommand: ParsableBashCommand {
                 opts.ignoreCase = true; i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" {
-                shell.stderr("join: unknown option: \(a)\n")
+                Shell.current.stderr("join: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
         }
 
         guard files.count == 2 else {
-            shell.stderr("join: \(files.count < 2 ? "missing file operand" : "extra operand")\n")
+            Shell.current.stderr("join: \(files.count < 2 ? "missing file operand" : "extra operand")\n")
             return ExitStatus(1)
         }
 
         let texts: [String]
         do {
             texts = try await files.asyncMap { f -> String in
-                if f == "-" { return await shell.stdin.readAllString() }
-                let data = try await shell.readDataAtPath(f)
+                if f == "-" { return await Shell.current.stdin.readAllString() }
+                let data = try await Shell.current.readDataAtPath(f)
                 return String(decoding: data, as: UTF8.self)
             }
         } catch {
-            shell.stderr("join: \(error)\n")
+            Shell.current.stderr("join: \(error)\n")
             return .failure
         }
         let lines1 = SortCommand.splitLines(texts[0])
@@ -140,20 +140,20 @@ public struct JoinCommand: ParsableBashCommand {
                 seen2.insert(p1.joinKey)
                 if !opts.onlyUnpairable.isEmpty { continue }
                 for p2 in matches {
-                    shell.stdout(formatPair(p1, p2, opts: opts) + "\n")
+                    Shell.current.stdout(formatPair(p1, p2, opts: opts) + "\n")
                 }
             } else {
                 if opts.onlyUnpairable.contains(1) {
-                    shell.stdout(formatPair(p1, nil, opts: opts) + "\n")
+                    Shell.current.stdout(formatPair(p1, nil, opts: opts) + "\n")
                 } else if opts.printUnpairable.contains(1) {
-                    shell.stdout(formatPair(p1, nil, opts: opts) + "\n")
+                    Shell.current.stdout(formatPair(p1, nil, opts: opts) + "\n")
                 }
             }
         }
         // Unpaired from file 2.
         if opts.onlyUnpairable.contains(2) || opts.printUnpairable.contains(2) {
             for p2 in parsed2 where !seen2.contains(p2.joinKey) {
-                shell.stdout(formatPair(nil, p2, opts: opts) + "\n")
+                Shell.current.stdout(formatPair(nil, p2, opts: opts) + "\n")
             }
         }
         return .success

@@ -34,7 +34,7 @@ public struct TrCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var deleteMode = false
         var squeezeMode = false
         var complementMode = false
@@ -55,7 +55,7 @@ public struct TrCommand: ParsableBashCommand {
                     case "s": squeezeMode = true
                     case "c", "C": complementMode = true
                     default:
-                        shell.stderr("tr: invalid option -- \(ch)\n")
+                        Shell.current.stderr("tr: invalid option -- \(ch)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -65,7 +65,7 @@ public struct TrCommand: ParsableBashCommand {
         }
 
         guard let set1Raw = positional.first else {
-            shell.stderr("tr: missing SET1\n")
+            Shell.current.stderr("tr: missing SET1\n")
             return ExitStatus(2)
         }
         let set1 = Self.expandSet(set1Raw)
@@ -112,7 +112,7 @@ public struct TrCommand: ParsableBashCommand {
         // squeeze can collapse runs across chunk boundaries.
         var prev: Character? = nil
 
-        for await chunk in shell.stdin.bytes {
+        for await chunk in Shell.current.stdin.bytes {
             let s = String(decoding: chunk, as: UTF8.self)
             var out = ""
             for ch in s {
@@ -149,7 +149,7 @@ public struct TrCommand: ParsableBashCommand {
                 }
                 out.append(ch); prev = ch
             }
-            shell.stdout(out)
+            Shell.current.stdout(out)
         }
         return .success
     }

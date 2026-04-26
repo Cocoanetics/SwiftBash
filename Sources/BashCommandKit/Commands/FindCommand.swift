@@ -51,22 +51,22 @@ public struct FindCommand: Command {
     public let name = "find"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let parsed: Parsed
         do {
             parsed = try Self.parse(argv: Array(argv.dropFirst()))
         } catch let err as ParseError {
-            shell.stderr("find: \(err.message)\n")
+            Shell.current.stderr("find: \(err.message)\n")
             return .failure
         }
 
         // Resolve `-newer FILE` paths to mtimes once before walking.
         var newerCache: [String: Date] = [:]
         for path in parsed.newerPaths {
-            let resolved = shell.resolvePath(path)
-            guard let meta = try? await shell.fileSystem.metadata(resolved)
+            let resolved = Shell.current.resolvePath(path)
+            guard let meta = try? await Shell.current.fileSystem.metadata(resolved)
             else {
-                shell.stderr("find: \(path): no such file or directory\n")
+                Shell.current.stderr("find: \(path): no such file or directory\n")
                 return .failure
             }
             newerCache[path] = meta.modifiedAt
@@ -74,26 +74,25 @@ public struct FindCommand: Command {
 
         let ctx = EvalContext(
             opts: parsed,
-            newer: newerCache,
-            shell: shell)
+            newer: newerCache)
 
         var hadError = false
         for path in parsed.paths {
-            let resolved = shell.resolvePath(path)
+            let resolved = Shell.current.resolvePath(path)
             do {
                 try await walk(displayPath: path,
                                absolutePath: resolved,
                                depth: 0,
                                ctx: ctx)
             } catch {
-                shell.stderr("find: \(path): \(error)\n")
+                Shell.current.stderr("find: \(path): \(error)\n")
                 hadError = true
             }
         }
 
         // Flush any -exec ... + batches.
         for batch in parsed.batches {
-            try await flushBatch(batch, shell: shell)
+            try await flushBatch(batch)
         }
 
         return hadError ? .failure : .success
@@ -107,10 +106,10 @@ public struct FindCommand: Command {
                       ctx: EvalContext) async throws {
         let meta: FileMetadata?
         do {
-            meta = try await ctx.shell.fileSystem.metadata(absolutePath)
+            meta = try await Shell.current.fileSystem.metadata(absolutePath)
         } catch {
             if depth == 0 { throw error }
-            ctx.shell.stderr("find: \(displayPath): \(error)\n")
+            Shell.current.stderr("find: \(displayPath): \(error)\n")
             return
         }
         guard let meta else {
@@ -140,9 +139,9 @@ public struct FindCommand: Command {
         if canDescend {
             let entries: [String]
             do {
-                entries = try await ctx.shell.fileSystem.list(absolutePath)
+                entries = try await Shell.current.fileSystem.list(absolutePath)
             } catch {
-                ctx.shell.stderr("find: \(displayPath): \(error)\n")
+                Shell.current.stderr("find: \(displayPath): \(error)\n")
                 if ctx.opts.depthFirst, depthOK {
                     _ = try await evaluate(
                         ctx.opts.expr,
@@ -237,7 +236,7 @@ public struct FindCommand: Command {
             case .file:
                 return node.meta.size == 0
             case .directory:
-                let kids = (try? await ctx.shell.fileSystem
+                let kids = (try? await Shell.current.fileSystem
                     .list(node.absolutePath)) ?? []
                 return kids.isEmpty
             default:
@@ -302,10 +301,10 @@ public struct FindCommand: Command {
                            ctx: EvalContext) async throws -> EvalResult {
         switch a {
         case .print:
-            ctx.shell.stdout(node.displayPath + "\n")
+            Shell.current.stdout(node.displayPath + "\n")
             return EvalResult(matched: true)
         case .print0:
-            ctx.shell.stdout(node.displayPath + "\u{0}")
+            Shell.current.stdout(node.displayPath + "\u{0}")
             return EvalResult(matched: true)
         case .prune:
             // Returns true; the walker reads `pruned` to skip descent.
@@ -319,21 +318,21 @@ public struct FindCommand: Command {
                 return EvalResult(matched: false)
             }
             do {
-                try await ctx.shell.fileSystem.remove(
+                try await Shell.current.fileSystem.remove(
                     node.absolutePath, recursive: false)
                 return EvalResult(matched: true)
             } catch {
-                ctx.shell.stderr("find: -delete \(node.displayPath): \(error)\n")
+                Shell.current.stderr("find: -delete \(node.displayPath): \(error)\n")
                 return EvalResult(matched: false)
             }
         case .execEach(let template):
             let argv = template.map { $0 == "{}" ? node.displayPath : $0 }
             let line = argv.map(Self.shellEscape).joined(separator: " ")
             do {
-                let status = try await ctx.shell.run(line)
+                let status = try await Shell.current.run(line)
                 return EvalResult(matched: status.isSuccess)
             } catch {
-                ctx.shell.stderr("find: -exec: \(error)\n")
+                Shell.current.stderr("find: -exec: \(error)\n")
                 return EvalResult(matched: false)
             }
         case .execBatch(let batch):
@@ -344,8 +343,7 @@ public struct FindCommand: Command {
     }
 
     /// Run an `-exec ... +` batch's accumulated paths and reset state.
-    private func flushBatch(_ batch: ExecBatchState,
-                            shell: Shell) async throws {
+    private func flushBatch(_ batch: ExecBatchState) async throws {
         let paths = batch.drain()
         guard !paths.isEmpty else { return }
         // Replace each `{}` token with the entire path list (each path
@@ -361,9 +359,9 @@ public struct FindCommand: Command {
         }
         let line = argv.map(Self.shellEscape).joined(separator: " ")
         do {
-            _ = try await shell.run(line)
+            _ = try await Shell.current.run(line)
         } catch {
-            shell.stderr("find: -exec: \(error)\n")
+            Shell.current.stderr("find: -exec: \(error)\n")
         }
     }
 
@@ -394,7 +392,6 @@ public struct FindCommand: Command {
     private struct EvalContext {
         let opts: Parsed
         let newer: [String: Date]
-        let shell: Shell
     }
 
     indirect enum Expr: Sendable {

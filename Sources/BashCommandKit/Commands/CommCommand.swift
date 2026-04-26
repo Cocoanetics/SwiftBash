@@ -37,16 +37,16 @@ public struct CommCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard files.count == 2 else {
-            shell.stderr("comm: expected two file arguments\n")
+            Shell.current.stderr("comm: expected two file arguments\n")
             return ExitStatus(2)
         }
         let lines: [[String]]
         do {
-            lines = try await Self.readBoth(files: files, shell: shell)
+            lines = try await Self.readBoth(files: files)
         } catch let err as CommError {
-            shell.stderr("comm: \(err.message)\n")
+            Shell.current.stderr("comm: \(err.message)\n")
             return .failure
         }
         let a = lines[0]
@@ -59,22 +59,22 @@ public struct CommCommand: ParsableBashCommand {
         var i = 0, j = 0
         while i < a.count, j < b.count {
             if a[i] == b[j] {
-                if !suppress3 { shell.stdout(col3Indent + a[i] + "\n") }
+                if !suppress3 { Shell.current.stdout(col3Indent + a[i] + "\n") }
                 i += 1; j += 1
             } else if a[i] < b[j] {
-                if !suppress1 { shell.stdout(a[i] + "\n") }
+                if !suppress1 { Shell.current.stdout(a[i] + "\n") }
                 i += 1
             } else {
-                if !suppress2 { shell.stdout(col2Indent + b[j] + "\n") }
+                if !suppress2 { Shell.current.stdout(col2Indent + b[j] + "\n") }
                 j += 1
             }
         }
         while i < a.count {
-            if !suppress1 { shell.stdout(a[i] + "\n") }
+            if !suppress1 { Shell.current.stdout(a[i] + "\n") }
             i += 1
         }
         while j < b.count {
-            if !suppress2 { shell.stdout(col2Indent + b[j] + "\n") }
+            if !suppress2 { Shell.current.stdout(col2Indent + b[j] + "\n") }
             j += 1
         }
         return .success
@@ -82,8 +82,7 @@ public struct CommCommand: ParsableBashCommand {
 
     private struct CommError: Error { let message: String }
 
-    private static func readBoth(files: [String],
-                                 shell: Shell) async throws -> [[String]] {
+    private static func readBoth(files: [String]) async throws -> [[String]] {
         var stdinUsed = false
         var out: [[String]] = []
         for f in files {
@@ -94,11 +93,11 @@ public struct CommCommand: ParsableBashCommand {
                 }
                 stdinUsed = true
                 var lines: [String] = []
-                for await line in shell.stdin.lines { lines.append(line) }
+                for await line in Shell.current.stdin.lines { lines.append(line) }
                 out.append(lines)
             } else {
                 do {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     out.append(SortCommand.splitLines(text))
                 } catch {

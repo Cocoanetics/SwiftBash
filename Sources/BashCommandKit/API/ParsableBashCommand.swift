@@ -24,17 +24,20 @@ import BashInterpreter
 ///     @Flag(name: .shortAndLong, help: "Shout it.")
 ///     var loud: Bool = false
 ///
-///     func execute(shell: Shell) throws -> ExitStatus {
+///     func execute() throws -> ExitStatus {
 ///         let msg = loud ? "HELLO \(name.uppercased())" : "hello \(name)"
-///         shell.stdout(msg + "\n")
+///         Shell.current.stdout(msg + "\n")
 ///         return .success
 ///     }
 /// }
 ///
 /// let shell = Shell()
-/// shell.register(Greet.self)
-/// try shell.run("greet --loud oliver")   // → HELLO OLIVER
+/// Shell.current.register(Greet.self)
+/// try Shell.current.run("greet --loud oliver")   // → HELLO OLIVER
 /// ```
+///
+/// Implementations read shell state via ``Shell/current`` (the
+/// task-local set by the dispatcher).
 ///
 /// Registration uses the type (not an instance) so a fresh value is
 /// parsed per invocation. The `commandName` in `configuration` is used
@@ -45,10 +48,11 @@ import BashInterpreter
 /// `--version` does the same. Parse errors print to stderr with a
 /// non-zero exit status (64, matching `EX_USAGE` on BSD).
 public protocol ParsableBashCommand: ParsableCommand {
-    /// Run this parsed command. Implementors read `@Argument` / `@Option` /
-    /// `@Flag` properties and perform any work, returning the exit status.
+    /// Run this parsed command. Implementors read `@Argument` /
+    /// `@Option` / `@Flag` properties and perform any work, returning
+    /// the exit status. Reads shell state via ``Shell/current``.
     ///
-    /// Mutating so assignments to `@Option var …` inside the body behave
-    /// as expected.
-    mutating func execute(shell: Shell) async throws -> ExitStatus
+    /// Mutating so assignments to `@Option var …` inside the body
+    /// behave as expected.
+    mutating func execute() async throws -> ExitStatus
 }

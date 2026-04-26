@@ -20,7 +20,7 @@ public struct TreeCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var maxDepth: Int? = nil
         var showHidden = false
         var dirsOnly = false
@@ -36,13 +36,13 @@ public struct TreeCommand: ParsableBashCommand {
             }
             if a == "-L" || a == "--level" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    shell.stderr("tree: -L requires a positive integer\n"); return ExitStatus(2)
+                    Shell.current.stderr("tree: -L requires a positive integer\n"); return ExitStatus(2)
                 }
                 maxDepth = n; i += 2; continue
             }
             if a.hasPrefix("--level=") {
                 guard let n = Int(a.dropFirst("--level=".count)), n > 0 else {
-                    shell.stderr("tree: invalid --level\n"); return ExitStatus(2)
+                    Shell.current.stderr("tree: invalid --level\n"); return ExitStatus(2)
                 }
                 maxDepth = n; i += 1; continue
             }
@@ -50,7 +50,7 @@ public struct TreeCommand: ParsableBashCommand {
             if a == "-d" { dirsOnly = true; i += 1; continue }
             if a == "-f" { fullPath = true; i += 1; continue }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                shell.stderr("tree: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.current.stderr("tree: unknown option: \(a)\n"); return ExitStatus(2)
             }
             roots.append(a); i += 1
         }
@@ -59,32 +59,32 @@ public struct TreeCommand: ParsableBashCommand {
         var dirCount = 0
         var fileCount = 0
         for root in roots {
-            shell.stdout(root + "\n")
-            await walk(root: root, dir: shell.resolvePath(root),
+            Shell.current.stdout(root + "\n")
+            await walk(root: root, dir: Shell.current.resolvePath(root),
                        prefix: "", depth: 1, maxDepth: maxDepth,
                        showHidden: showHidden, dirsOnly: dirsOnly,
                        fullPath: fullPath, displayPath: root,
-                       shell: shell, dirCount: &dirCount, fileCount: &fileCount)
+                       dirCount: &dirCount, fileCount: &fileCount)
         }
         let summary = dirsOnly
             ? "\n\(dirCount) director\(dirCount == 1 ? "y" : "ies")\n"
             : "\n\(dirCount) director\(dirCount == 1 ? "y" : "ies"), \(fileCount) file\(fileCount == 1 ? "" : "s")\n"
-        shell.stdout(summary)
+        Shell.current.stdout(summary)
         return .success
     }
 
     private func walk(root: String, dir: String, prefix: String, depth: Int,
                       maxDepth: Int?, showHidden: Bool, dirsOnly: Bool,
                       fullPath: Bool, displayPath: String,
-                      shell: Shell, dirCount: inout Int, fileCount: inout Int) async {
+                      dirCount: inout Int, fileCount: inout Int) async {
         if let m = maxDepth, depth > m { return }
-        var entries = (try? await shell.fileSystem.list(dir)) ?? []
+        var entries = (try? await Shell.current.fileSystem.list(dir)) ?? []
         if !showHidden { entries = entries.filter { !$0.hasPrefix(".") } }
         entries.sort()
         var visible: [(name: String, meta: FileMetadata?)] = []
         for n in entries {
             let p = (dir as NSString).appendingPathComponent(n)
-            let meta = (try? await shell.fileSystem.metadata(p)) ?? nil
+            let meta = (try? await Shell.current.fileSystem.metadata(p)) ?? nil
             if dirsOnly && meta?.kind != .directory { continue }
             visible.append((n, meta))
         }
@@ -94,7 +94,7 @@ public struct TreeCommand: ParsableBashCommand {
             let label = fullPath
                 ? (displayPath as NSString).appendingPathComponent(name)
                 : name
-            shell.stdout(prefix + connector + label + "\n")
+            Shell.current.stdout(prefix + connector + label + "\n")
             if meta?.kind == .directory {
                 dirCount += 1
                 let childPrefix = prefix + (isLast ? "    " : "│   ")
@@ -104,7 +104,7 @@ public struct TreeCommand: ParsableBashCommand {
                            depth: depth + 1, maxDepth: maxDepth,
                            showHidden: showHidden, dirsOnly: dirsOnly,
                            fullPath: fullPath, displayPath: childDisplay,
-                           shell: shell, dirCount: &dirCount, fileCount: &fileCount)
+                           dirCount: &dirCount, fileCount: &fileCount)
             } else {
                 fileCount += 1
             }
@@ -126,7 +126,7 @@ public struct StringsCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var minLen = 4
         var files: [String] = []
         var i = 0
@@ -139,19 +139,19 @@ public struct StringsCommand: ParsableBashCommand {
             }
             if a == "-n" || a == "--bytes" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    shell.stderr("strings: -n requires positive N\n"); return ExitStatus(2)
+                    Shell.current.stderr("strings: -n requires positive N\n"); return ExitStatus(2)
                 }
                 minLen = n; i += 2; continue
             }
             if a.hasPrefix("--bytes=") {
                 guard let n = Int(a.dropFirst("--bytes=".count)), n > 0 else {
-                    shell.stderr("strings: invalid --bytes\n"); return ExitStatus(2)
+                    Shell.current.stderr("strings: invalid --bytes\n"); return ExitStatus(2)
                 }
                 minLen = n; i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
                 if let n = Int(a.dropFirst()), n > 0 { minLen = n; i += 1; continue }
-                shell.stderr("strings: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.current.stderr("strings: unknown option: \(a)\n"); return ExitStatus(2)
             }
             files.append(a); i += 1
         }
@@ -160,18 +160,18 @@ public struct StringsCommand: ParsableBashCommand {
         for f in inputs {
             do {
                 let data: Data
-                if f == "-" { data = await shell.stdin.readAllData() }
-                else { data = try await shell.readDataAtPath(f) }
-                emit(data, minLen: minLen, shell: shell)
+                if f == "-" { data = await Shell.current.stdin.readAllData() }
+                else { data = try await Shell.current.readDataAtPath(f) }
+                emit(data, minLen: minLen)
             } catch {
-                shell.stderr("strings: \(f): \(error)\n")
+                Shell.current.stderr("strings: \(f): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
-    private func emit(_ data: Data, minLen: Int, shell: Shell) {
+    private func emit(_ data: Data, minLen: Int) {
         var run = [UInt8]()
         for byte in data {
             // Printable ASCII: space (0x20) through tilde (0x7E), plus
@@ -180,13 +180,13 @@ public struct StringsCommand: ParsableBashCommand {
                 run.append(byte)
             } else {
                 if run.count >= minLen {
-                    shell.stdout(String(decoding: run, as: UTF8.self) + "\n")
+                    Shell.current.stdout(String(decoding: run, as: UTF8.self) + "\n")
                 }
                 run.removeAll(keepingCapacity: true)
             }
         }
         if run.count >= minLen {
-            shell.stdout(String(decoding: run, as: UTF8.self) + "\n")
+            Shell.current.stdout(String(decoding: run, as: UTF8.self) + "\n")
         }
     }
 }
@@ -210,7 +210,7 @@ public struct ColumnCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var table = false
         var fillRows = false
         var sep: String? = nil
@@ -228,18 +228,18 @@ public struct ColumnCommand: ParsableBashCommand {
             if a == "-x" { fillRows = true; i += 1; continue }
             if a == "-s" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("column: -s requires SEP\n"); return ExitStatus(2)
+                    Shell.current.stderr("column: -s requires SEP\n"); return ExitStatus(2)
                 }
                 sep = rawArgv[i + 1]; i += 2; continue
             }
             if a == "-c" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    shell.stderr("column: -c requires WIDTH\n"); return ExitStatus(2)
+                    Shell.current.stderr("column: -c requires WIDTH\n"); return ExitStatus(2)
                 }
                 width = n; i += 2; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                shell.stderr("column: unknown option: \(a)\n")
+                Shell.current.stderr("column: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -248,15 +248,15 @@ public struct ColumnCommand: ParsableBashCommand {
         // Read input.
         var lines: [String] = []
         if files.isEmpty {
-            for await line in shell.stdin.lines { lines.append(line) }
+            for await line in Shell.current.stdin.lines { lines.append(line) }
         } else {
             for f in files {
                 do {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     lines.append(contentsOf: SortCommand.splitLines(text))
                 } catch {
-                    shell.stderr("column: \(f): \(error)\n")
+                    Shell.current.stderr("column: \(f): \(error)\n")
                     return .failure
                 }
             }
@@ -286,7 +286,7 @@ public struct ColumnCommand: ParsableBashCommand {
                     if i == cols - 1 { return v }
                     return v.padding(toLength: widths[i] + 2, withPad: " ", startingAt: 0)
                 }
-                shell.stdout(parts.joined() + "\n")
+                Shell.current.stdout(parts.joined() + "\n")
             }
             return .success
         }
@@ -303,7 +303,7 @@ public struct ColumnCommand: ParsableBashCommand {
                     pieces.append(lines[idx].padding(toLength: maxLen, withPad: " ", startingAt: 0))
                 }
             }
-            shell.stdout(pieces.joined().trimmingCharacters(in: .whitespaces) + "\n")
+            Shell.current.stdout(pieces.joined().trimmingCharacters(in: .whitespaces) + "\n")
         }
         return .success
     }

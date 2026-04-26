@@ -59,23 +59,23 @@ public struct SedCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         // Gather scripts and files.
         var scripts = expressions
         var files = positionals
         for sf in scriptFiles {
             do {
-                let data = try await shell.readDataAtPath(sf)
+                let data = try await Shell.current.readDataAtPath(sf)
                 let text = String(decoding: data, as: UTF8.self)
                 scripts.append(text)
             } catch {
-                shell.stderr("sed: couldn't open file \(sf): \(error)\n")
+                Shell.current.stderr("sed: couldn't open file \(sf): \(error)\n")
                 return ExitStatus(2)
             }
         }
         if expressions.isEmpty && scriptFiles.isEmpty {
             guard let first = positionals.first else {
-                shell.stderr("sed: missing program\n")
+                Shell.current.stderr("sed: missing program\n")
                 return ExitStatus(2)
             }
             scripts = [first]
@@ -87,33 +87,32 @@ public struct SedCommand: ParsableBashCommand {
         do {
             parsed = try SedParser.parse(scripts: scripts, extendedRegex: extendedFlag)
         } catch let err as SedScriptError {
-            shell.stderr("sed: \(err.message)\n")
+            Shell.current.stderr("sed: \(err.message)\n")
             return ExitStatus(2)
         }
         let effectiveSilent = quiet || parsed.silentMode
 
         if inPlace {
             if files.isEmpty {
-                shell.stderr("sed: -i requires file arguments\n")
+                Shell.current.stderr("sed: -i requires file arguments\n")
                 return ExitStatus(2)
             }
             for f in files {
                 if f == "-" { continue }
                 do {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     let result = await runScript(parsed.commands, on: text,
                                                  filename: f,
-                                                 silent: effectiveSilent,
-                                                 shell: shell)
+                                                 silent: effectiveSilent)
                     if let err = result.errorMessage {
-                        shell.stderr(err + "\n")
+                        Shell.current.stderr(err + "\n")
                         return ExitStatus(result.exitCode ?? 1)
                     }
-                    try await shell.writeData(Data(result.output.utf8),
+                    try await Shell.current.writeData(Data(result.output.utf8),
                                               toPath: f, append: false)
                 } catch {
-                    shell.stderr("sed: \(f): \(error)\n")
+                    Shell.current.stderr("sed: \(f): \(error)\n")
                     return .failure
                 }
             }
@@ -124,20 +123,20 @@ public struct SedCommand: ParsableBashCommand {
         // logical stream).
         var content = ""
         if files.isEmpty {
-            content = await shell.stdin.readAllString()
+            content = await Shell.current.stdin.readAllString()
         } else {
             var stdinConsumed = false
             for f in files {
                 let chunk: String
                 if f == "-" {
                     if stdinConsumed { chunk = "" }
-                    else { chunk = await shell.stdin.readAllString(); stdinConsumed = true }
+                    else { chunk = await Shell.current.stdin.readAllString(); stdinConsumed = true }
                 } else {
                     do {
-                        let data = try await shell.readDataAtPath(f)
+                        let data = try await Shell.current.readDataAtPath(f)
                         chunk = String(decoding: data, as: UTF8.self)
                     } catch {
-                        shell.stderr("sed: \(f): No such file or directory\n")
+                        Shell.current.stderr("sed: \(f): No such file or directory\n")
                         return ExitStatus(2)
                     }
                 }
@@ -150,19 +149,17 @@ public struct SedCommand: ParsableBashCommand {
         let displayName: String? = files.count == 1 ? files[0] : nil
         let result = await runScript(parsed.commands, on: content,
                                      filename: displayName,
-                                     silent: effectiveSilent,
-                                     shell: shell)
+                                     silent: effectiveSilent)
         if let err = result.errorMessage {
-            shell.stderr(err + "\n")
+            Shell.current.stderr(err + "\n")
             return ExitStatus(result.exitCode ?? 1)
         }
-        shell.stdout(result.output)
+        Shell.current.stdout(result.output)
         return ExitStatus(result.exitCode ?? 0)
     }
 
     private func runScript(_ cmds: [SedCommandNode], on content: String,
-                           filename: String?, silent: Bool,
-                           shell: Shell) async -> SedExecutor.RunResult {
+                           filename: String?, silent: Bool) async -> SedExecutor.RunResult {
         let inputEndsWithNewline = content.hasSuffix("\n")
         let lines = SedExecutor.splitLines(content)
         let executor = SedExecutor(commands: cmds, silent: silent,
@@ -173,7 +170,7 @@ public struct SedCommand: ParsableBashCommand {
         var fileCache: [String: String] = [:]
         for path in collectReadTargets(cmds) {
             do {
-                let data = try await shell.readDataAtPath(path)
+                let data = try await Shell.current.readDataAtPath(path)
                 fileCache[path] = String(decoding: data, as: UTF8.self)
             } catch {
                 // Missing files yield empty input — matches sed semantics.
@@ -186,7 +183,7 @@ public struct SedCommand: ParsableBashCommand {
         }
         // Flush any pending writes.
         for (path, content) in executor.pendingFileWrites {
-            try? await shell.writeData(Data(content.utf8), toPath: path, append: false)
+            try? await Shell.current.writeData(Data(content.utf8), toPath: path, append: false)
         }
         return result
     }

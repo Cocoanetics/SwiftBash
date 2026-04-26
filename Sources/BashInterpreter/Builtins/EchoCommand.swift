@@ -21,7 +21,7 @@ public struct EchoCommand: Command {
 
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
         var newline = true
         var interpret = false
@@ -58,7 +58,7 @@ public struct EchoCommand: Command {
 
         let joined = pieces.joined(separator: " ")
         let suffix = (newline && !stopAfter) ? "\n" : ""
-        shell.stdout(joined + suffix)
+        Shell.current.stdout(joined + suffix)
         return .success
     }
 

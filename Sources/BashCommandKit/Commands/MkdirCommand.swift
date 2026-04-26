@@ -17,22 +17,22 @@ public struct MkdirCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if paths.isEmpty {
-            shell.stderr("mkdir: missing operand\n")
+            Shell.current.stderr("mkdir: missing operand\n")
             return .failure
         }
         var hadError = false
         for path in paths {
-            let resolved = shell.resolvePath(path)
+            let resolved = Shell.current.resolvePath(path)
             do {
-                try await shell.fileSystem.createDirectory(
+                try await Shell.current.fileSystem.createDirectory(
                     resolved, intermediates: parents)
             } catch FileSystemError.alreadyExists where parents {
                 // `-p` treats existing as success.
                 continue
             } catch {
-                shell.stderr("mkdir: \(path): \(error)\n")
+                Shell.current.stderr("mkdir: \(path): \(error)\n")
                 hadError = true
             }
         }

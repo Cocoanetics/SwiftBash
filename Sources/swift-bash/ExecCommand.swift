@@ -13,7 +13,7 @@ import Foundation
 /// ```
 ///
 /// The interpreter sees:
-/// - the host process's environment (copy) as `shell.environment`
+/// - the host process's environment (copy) as `Shell.current.environment`
 /// - `registerStandardCommands()` preloaded, so `cat`, `seq`, `sleep`,
 ///   `date`, `grep`, `wc`, `head`, etc. are all available
 /// - stdout / stderr wired directly to the process's file handles so
@@ -102,9 +102,9 @@ struct ExecCommand: AsyncParsableCommand {
         }
 
         let shell = Shell(environment: environment, fileSystem: fileSystem)
-        shell.registerStandardCommands()
-        shell.scriptName = scriptPath
-        shell.positionalParameters = scriptArgs
+        Shell.current.registerStandardCommands()
+        Shell.current.scriptName = scriptPath
+        Shell.current.positionalParameters = scriptArgs
 
         // Configure network access. Defaults remain `nil` (deny-all)
         // unless the user passed at least one --allow-url, opted into
@@ -123,7 +123,7 @@ struct ExecCommand: AsyncParsableCommand {
                 }
                 methods.insert(m)
             }
-            shell.networkConfig = NetworkConfig(
+            Shell.current.networkConfig = NetworkConfig(
                 allowedURLPrefixes: allowUrl.map { AllowedURLEntry($0) },
                 allowedMethods: methods,
                 dangerouslyAllowFullInternetAccess: dangerousFullNetwork,
@@ -135,7 +135,7 @@ struct ExecCommand: AsyncParsableCommand {
 
         let status: ExitStatus
         do {
-            status = try await shell.run(source)
+            status = try await Shell.current.run(source)
         } catch let err as BashInterpreterError {
             throw CLIError(err.description)
         } catch let err as BashSyntaxError {

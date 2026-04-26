@@ -268,10 +268,10 @@ import Foundation
         let cap = makeShell()
         // Use a closure-registered consumer so we don't depend on
         // BashCommandKit being loaded in BashInterpreter tests.
-        cap.shell.register(name: "count") { _, shell in
+        cap.shell.register(name: "count") { _ in
             var n = 0
-            for await _ in shell.stdin.lines { n += 1 }
-            shell.stdout("\(n)\n")
+            for await _ in Shell.current.stdin.lines { n += 1 }
+            Shell.current.stdout("\(n)\n")
             return .success
         }
         try await cap.shell.run("""

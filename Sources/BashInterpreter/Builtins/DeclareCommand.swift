@@ -15,7 +15,7 @@ public struct DeclareCommand: Command {
     public let name: String
     public init(name: String = "declare") { self.name = name }
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         var i = 1
         var associative = false
 
@@ -26,7 +26,7 @@ public struct DeclareCommand: Command {
                 case "A": associative = true
                 case "r", "x", "i", "a", "g": break
                 default:
-                    shell.stderr("declare: -\(c): invalid option\n")
+                    Shell.current.stderr("declare: -\(c): invalid option\n")
                     return ExitStatus(2)
                 }
             }
@@ -46,19 +46,19 @@ public struct DeclareCommand: Command {
             }
 
             if associative {
-                if shell.environment.associativeArrays[nameOnly] == nil {
-                    shell.environment.associativeArrays[nameOnly] = [:]
+                if Shell.current.environment.associativeArrays[nameOnly] == nil {
+                    Shell.current.environment.associativeArrays[nameOnly] = [:]
                 }
-                shell.environment.arrays.removeValue(forKey: nameOnly)
-                shell.environment.variables.removeValue(forKey: nameOnly)
+                Shell.current.environment.arrays.removeValue(forKey: nameOnly)
+                Shell.current.environment.variables.removeValue(forKey: nameOnly)
                 if let value {
                     // `declare -A m=value` is unusual in real scripts
                     // (typically followed by `m[k]=v` lines instead);
                     // we treat the bare value as the empty-key entry.
-                    shell.environment.associativeArrays[nameOnly]?[""] = value
+                    Shell.current.environment.associativeArrays[nameOnly]?[""] = value
                 }
             } else if let value {
-                shell.environment[nameOnly] = value
+                Shell.current.environment[nameOnly] = value
             }
         }
         return .success

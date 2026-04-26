@@ -22,24 +22,24 @@ public struct RmCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         if paths.isEmpty {
             if force { return .success }
-            shell.stderr("rm: missing operand\n")
+            Shell.current.stderr("rm: missing operand\n")
             return .failure
         }
         var hadError = false
         for path in paths {
-            let resolved = shell.resolvePath(path)
+            let resolved = Shell.current.resolvePath(path)
             do {
-                try await shell.fileSystem.remove(resolved, recursive: recursive)
+                try await Shell.current.fileSystem.remove(resolved, recursive: recursive)
             } catch FileSystemError.notFound where force {
                 continue
             } catch FileSystemError.isADirectory {
-                shell.stderr("rm: \(path): is a directory\n")
+                Shell.current.stderr("rm: \(path): is a directory\n")
                 hadError = true
             } catch {
-                shell.stderr("rm: \(path): \(error)\n")
+                Shell.current.stderr("rm: \(path): \(error)\n")
                 hadError = true
             }
         }

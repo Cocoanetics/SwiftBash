@@ -3,7 +3,7 @@ import BashInterpreter
 
 extension Shell {
 
-    /// Register a ``ParsableBashCommand`` type with this shell. The
+    /// Register a ``ParsableBashCommand`` type with this Shell.current. The
     /// command name comes from
     /// `Parsed.configuration.commandName`; if that's `nil`, the Swift
     /// type's lowercased name is used as a fallback.

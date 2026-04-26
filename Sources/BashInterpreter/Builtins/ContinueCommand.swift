@@ -8,7 +8,7 @@ public struct ContinueCommand: Command {
     public let name = "continue"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let levels = try parseLevels(argv, builtin: name)
         throw LoopControlSignal(kind: .continueLoop, remainingLevels: levels)
     }

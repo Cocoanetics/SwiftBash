@@ -369,17 +369,18 @@ extension Shell {
     /// status is observable via `$?` in the parent. We catch the
     /// ``ShellExit`` sentinel here so it doesn't unwind the parent run.
     private func executeSubshellGroup(list: [Node]) async throws -> ExitStatus {
-        let sub = makeSubshell()
-        sub.stdin = stdin
-        sub.currentSource = currentSource
-        sub.lastExitStatus = lastExitStatus
-
+        // `copy()` is the single source of truth for what propagates
+        // into a subshell — adding a new shell-scoped option means
+        // updating that one method, never this code.
+        let sub = copy()
         var last = ExitStatus.success
         do {
-            for node in list {
-                if case .reservedWord = node.kind { continue }
-                last = try await sub.execute(node)
-                sub.lastExitStatus = last
+            try await sub.withCurrent {
+                for node in list {
+                    if case .reservedWord = node.kind { continue }
+                    last = try await sub.execute(node)
+                    sub.lastExitStatus = last
+                }
             }
         } catch let exit as ShellExit {
             // Subshell-scoped exit: capture the status and let the

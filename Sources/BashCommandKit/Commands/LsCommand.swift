@@ -67,33 +67,33 @@ public struct LsCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let targets = paths.isEmpty ? ["."] : paths
         var hadError = false
 
         for (i, path) in targets.enumerated() {
-            let resolved = shell.resolvePath(path)
+            let resolved = Shell.current.resolvePath(path)
             let meta: FileMetadata?
             do {
-                meta = try await shell.fileSystem.metadata(resolved)
+                meta = try await Shell.current.fileSystem.metadata(resolved)
             } catch {
-                shell.stderr("ls: \(path): \(error)\n")
+                Shell.current.stderr("ls: \(path): \(error)\n")
                 hadError = true
                 continue
             }
             guard let meta else {
-                shell.stderr("ls: \(path): No such file or directory\n")
+                Shell.current.stderr("ls: \(path): No such file or directory\n")
                 hadError = true
                 continue
             }
 
             if directoryOnly || meta.kind != .directory {
-                if i > 0 { shell.stdout("\n") }
+                if i > 0 { Shell.current.stdout("\n") }
                 let entry = Entry(name: path, meta: meta)
                 if long {
-                    shell.stdout(formatLong(entry) + "\n")
+                    Shell.current.stdout(formatLong(entry) + "\n")
                 } else {
-                    shell.stdout(formatEntry(name: path, meta: meta) + "\n")
+                    Shell.current.stdout(formatEntry(name: path, meta: meta) + "\n")
                 }
                 continue
             }
@@ -101,10 +101,9 @@ public struct LsCommand: ParsableBashCommand {
             do {
                 try await listDirectory(path: path, fullPath: resolved,
                                         showHeader: targets.count > 1 || recursive,
-                                        leadingNewline: i > 0,
-                                        shell: shell)
+                                        leadingNewline: i > 0)
             } catch {
-                shell.stderr("ls: \(path): \(error)\n")
+                Shell.current.stderr("ls: \(path): \(error)\n")
                 hadError = true
             }
         }
@@ -114,9 +113,8 @@ public struct LsCommand: ParsableBashCommand {
     // MARK: - Directory listing
 
     private func listDirectory(path: String, fullPath: String,
-                               showHeader: Bool, leadingNewline: Bool,
-                               shell: Shell) async throws {
-        let rawNames = try await shell.fileSystem.list(fullPath)
+                               showHeader: Bool, leadingNewline: Bool) async throws {
+        let rawNames = try await Shell.current.fileSystem.list(fullPath)
         var names: [String] = rawNames
         if !(all || almostAll) {
             names = names.filter { !$0.hasPrefix(".") }
@@ -128,7 +126,7 @@ public struct LsCommand: ParsableBashCommand {
         var entries: [Entry] = []
         for n in names {
             let p = joinPath(fullPath, n)
-            let meta = (try? await shell.fileSystem.metadata(p)) ?? nil
+            let meta = (try? await Shell.current.fileSystem.metadata(p)) ?? nil
             entries.append(Entry(name: n, meta: meta))
         }
 
@@ -140,20 +138,20 @@ public struct LsCommand: ParsableBashCommand {
         sort(&entries)
         if reverse { entries.reverse() }
 
-        if leadingNewline { shell.stdout("\n") }
-        if showHeader { shell.stdout("\(path):\n") }
+        if leadingNewline { Shell.current.stdout("\n") }
+        if showHeader { Shell.current.stdout("\(path):\n") }
 
         if long {
             // GNU ls prefaces long listings with "total N" — we don't
             // have block counts, but POSIX accepts a 0-or-count value.
             let total = entries.reduce(0) { $0 + Int(($1.meta?.size ?? 0) / 1024) }
-            shell.stdout("total \(total)\n")
+            Shell.current.stdout("total \(total)\n")
             for e in entries {
-                shell.stdout(formatLong(e) + "\n")
+                Shell.current.stdout(formatLong(e) + "\n")
             }
         } else {
             for e in entries {
-                shell.stdout(formatEntry(name: e.name, meta: e.meta) + "\n")
+                Shell.current.stdout(formatEntry(name: e.name, meta: e.meta) + "\n")
             }
         }
 
@@ -169,8 +167,7 @@ public struct LsCommand: ParsableBashCommand {
                 let subPath = path == "." ? "./\(sub.name)" : "\(path)/\(sub.name)"
                 let subFull = joinPath(fullPath, sub.name)
                 try await listDirectory(path: subPath, fullPath: subFull,
-                                        showHeader: true, leadingNewline: true,
-                                        shell: shell)
+                                        showHeader: true, leadingNewline: true)
             }
         }
     }

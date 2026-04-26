@@ -21,7 +21,7 @@ public struct TailCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var lines: Int = 10
         var bytes: Int? = nil
         // `+N` semantics: skip the first N-1 lines / bytes and print the rest.
@@ -42,26 +42,26 @@ public struct TailCommand: ParsableBashCommand {
             // Options.
             if a == "-n" || a == "--lines" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("tail: option requires an argument: \(a)\n")
+                    Shell.current.stderr("tail: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 if let (n, fromStart) = parseCount(rawArgv[i + 1]) {
                     if fromStart { linesFromStart = n } else { lines = n }
                 } else {
-                    shell.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
+                    Shell.current.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
                     return ExitStatus(2)
                 }
                 i += 2; continue
             }
             if a == "-c" || a == "--bytes" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("tail: option requires an argument: \(a)\n")
+                    Shell.current.stderr("tail: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 if let (n, fromStart) = parseCount(rawArgv[i + 1]) {
                     if fromStart { bytesFromStart = n } else { bytes = n }
                 } else {
-                    shell.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
+                    Shell.current.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
                     return ExitStatus(2)
                 }
                 i += 2; continue
@@ -94,34 +94,34 @@ public struct TailCommand: ParsableBashCommand {
         }
 
         if files.isEmpty {
-            let data = await readAll(stdin: shell.stdin)
+            let data = await readAll(stdin: Shell.current.stdin)
             emitTail(data: data, lines: lines, bytes: bytes,
                      linesFromStart: linesFromStart,
-                     bytesFromStart: bytesFromStart, shell: shell)
+                     bytesFromStart: bytesFromStart)
             return .success
         }
 
         var hadError = false
         for (idx, path) in files.enumerated() {
             if useHeaders {
-                if idx > 0 { shell.stdout("\n") }
-                shell.stdout("==> \(path) <==\n")
+                if idx > 0 { Shell.current.stdout("\n") }
+                Shell.current.stdout("==> \(path) <==\n")
             }
             do {
                 let data: Data
-                if path == "-" { data = await readAll(stdin: shell.stdin) }
-                else { data = try await shell.readDataAtPath(path) }
+                if path == "-" { data = await readAll(stdin: Shell.current.stdin) }
+                else { data = try await Shell.current.readDataAtPath(path) }
                 emitTail(data: data, lines: lines, bytes: bytes,
                          linesFromStart: linesFromStart,
-                         bytesFromStart: bytesFromStart, shell: shell)
+                         bytesFromStart: bytesFromStart)
             } catch FileSystemError.notFound {
-                shell.stderr("tail: \(path): No such file or directory\n")
+                Shell.current.stderr("tail: \(path): No such file or directory\n")
                 hadError = true
             } catch FileSystemError.isADirectory {
-                shell.stderr("tail: \(path): Is a directory\n")
+                Shell.current.stderr("tail: \(path): Is a directory\n")
                 hadError = true
             } catch {
-                shell.stderr("tail: \(path): \(error)\n")
+                Shell.current.stderr("tail: \(path): \(error)\n")
                 hadError = true
             }
         }
@@ -150,17 +150,16 @@ public struct TailCommand: ParsableBashCommand {
     private func emitTail(data: Data,
                           lines: Int, bytes: Int?,
                           linesFromStart: Int?,
-                          bytesFromStart: Int?,
-                          shell: Shell)
+                          bytesFromStart: Int?)
     {
         if let bf = bytesFromStart {
             // bash: `+N` means "starting at byte N" (1-indexed).
             let start = max(0, bf - 1)
-            if start < data.count { shell.stdout(data.suffix(from: start)) }
+            if start < data.count { Shell.current.stdout(data.suffix(from: start)) }
             return
         }
         if let b = bytes {
-            shell.stdout(data.suffix(b))
+            Shell.current.stdout(data.suffix(b))
             return
         }
         if data.isEmpty { return }
@@ -172,12 +171,12 @@ public struct TailCommand: ParsableBashCommand {
         if let lf = linesFromStart {
             let start = max(0, lf - 1)
             if start < split.count {
-                for line in split[start...] { shell.stdout(line + "\n") }
+                for line in split[start...] { Shell.current.stdout(line + "\n") }
             }
             return
         }
         let tailLines = split.count > lines
             ? Array(split.suffix(lines)) : split
-        for line in tailLines { shell.stdout(line + "\n") }
+        for line in tailLines { Shell.current.stdout(line + "\n") }
     }
 }

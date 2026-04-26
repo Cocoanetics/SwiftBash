@@ -40,25 +40,25 @@ public struct BcCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var ctx = Bc.Context()
         if mathlib { ctx.scale = 20 }
 
         for f in files {
             do {
-                let data = try await shell.readDataAtPath(f)
+                let data = try await Shell.current.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
-                if let exit = process(text, ctx: &ctx, shell: shell) {
+                if let exit = process(text, ctx: &ctx) {
                     return exit
                 }
             } catch {
-                shell.stderr("bc: \(f): \(error)\n")
+                Shell.current.stderr("bc: \(f): \(error)\n")
                 return .failure
             }
         }
-        let stdin = await shell.stdin.readAllString()
+        let stdin = await Shell.current.stdin.readAllString()
         if !stdin.isEmpty {
-            if let exit = process(stdin, ctx: &ctx, shell: shell) {
+            if let exit = process(stdin, ctx: &ctx) {
                 return exit
             }
         }
@@ -67,7 +67,7 @@ public struct BcCommand: ParsableBashCommand {
 
     /// Process a chunk of bc input. Returns a non-nil status if the
     /// program should exit (e.g., on `quit`).
-    private func process(_ text: String, ctx: inout Bc.Context, shell: Shell) -> ExitStatus? {
+    private func process(_ text: String, ctx: inout Bc.Context) -> ExitStatus? {
         // Strip /* ... */ comments and # comments.
         var stripped = ""
         var i = text.startIndex
@@ -99,12 +99,12 @@ public struct BcCommand: ParsableBashCommand {
             if line == "quit" || line == "halt" { return .success }
             do {
                 if let result = try Bc.evalLine(line, ctx: &ctx) {
-                    shell.stdout(Bc.format(result, scale: ctx.scale) + "\n")
+                    Shell.current.stdout(Bc.format(result, scale: ctx.scale) + "\n")
                 }
             } catch let e as Bc.Error {
-                shell.stderr("bc: \(e.message)\n")
+                Shell.current.stderr("bc: \(e.message)\n")
             } catch {
-                shell.stderr("bc: \(error)\n")
+                Shell.current.stderr("bc: \(error)\n")
             }
         }
         return nil

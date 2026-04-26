@@ -5,9 +5,9 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(name: "capture") { _, shell in
-            let s = await shell.stdin.readAllString()
-            shell.stdout(s)
+        cap.shell.register(name: "capture") { _ in
+            let s = await Shell.current.stdin.readAllString()
+            Shell.current.stdout(s)
             return .success
         }
         return cap
@@ -213,10 +213,10 @@ import Testing
 
     @Test func heredocFedIntoCommandViaRedirect() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "wc-l") { _, shell in
+        cap.shell.register(name: "wc-l") { _ in
             var n = 0
-            for await _ in shell.stdin.lines { n += 1 }
-            shell.stdout("\(n)\n")
+            for await _ in Shell.current.stdin.lines { n += 1 }
+            Shell.current.stdout("\(n)\n")
             return .success
         }
         cap.shell.environment["NAME"] = "world"

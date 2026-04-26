@@ -27,7 +27,7 @@ public struct HeadCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var lines: Int? = 10
         var bytes: Int? = nil
         // Negative limits ("-n -3") mean "all except the last K".
@@ -56,7 +56,7 @@ public struct HeadCommand: ParsableBashCommand {
             }
             if a == "-n" || a == "--lines" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("head: -n requires N\n"); return ExitStatus(2)
+                    Shell.current.stderr("head: -n requires N\n"); return ExitStatus(2)
                 }
                 let (n, trailing) = try parseSignedCount(rawArgv[i + 1])
                 lines = n; linesTrailing = trailing; bytes = nil
@@ -69,7 +69,7 @@ public struct HeadCommand: ParsableBashCommand {
             }
             if a == "-c" || a == "--bytes" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("head: -c requires BYTES\n"); return ExitStatus(2)
+                    Shell.current.stderr("head: -c requires BYTES\n"); return ExitStatus(2)
                 }
                 let (n, trailing) = try parseSignedCount(rawArgv[i + 1])
                 bytes = n; bytesTrailing = trailing; lines = nil
@@ -88,7 +88,7 @@ public struct HeadCommand: ParsableBashCommand {
                 i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" {
-                shell.stderr("head: unknown option: \(a)\n")
+                Shell.current.stderr("head: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -101,18 +101,18 @@ public struct HeadCommand: ParsableBashCommand {
         var hadError = false
         for (idx, f) in useFiles.enumerated() {
             if printHeaders {
-                if idx > 0 { shell.stdout("\n") }
+                if idx > 0 { Shell.current.stdout("\n") }
                 let label = (f == "-") ? "standard input" : f
-                shell.stdout("==> \(label) <==\n")
+                Shell.current.stdout("==> \(label) <==\n")
             }
             do {
                 if let n = lines {
-                    try await emitLines(f, count: n, trailing: linesTrailing, shell: shell)
+                    try await emitLines(f, count: n, trailing: linesTrailing)
                 } else if let n = bytes {
-                    try await emitBytes(f, count: n, trailing: bytesTrailing, shell: shell)
+                    try await emitBytes(f, count: n, trailing: bytesTrailing)
                 }
             } catch {
-                shell.stderr("head: \(f): \(error)\n")
+                Shell.current.stderr("head: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -134,20 +134,19 @@ public struct HeadCommand: ParsableBashCommand {
 
     // MARK: Line mode
 
-    private func emitLines(_ path: String, count: Int, trailing: Bool,
-                           shell: Shell) async throws {
+    private func emitLines(_ path: String, count: Int, trailing: Bool) async throws {
         if trailing {
             // All-but-last-K: need to buffer the last K lines and emit
             // everything older. Stream-friendly with a sliding window.
             if count <= 0 {
-                try await streamAllLines(path, shell: shell)
+                try await streamAllLines(path)
                 return
             }
             var window: [String] = []
             window.reserveCapacity(count)
-            try await forEachLine(path: path, shell: shell) { line in
+            try await forEachLine(path: path) { line in
                 if window.count == count {
-                    shell.stdout(window.removeFirst() + "\n")
+                    Shell.current.stdout(window.removeFirst() + "\n")
                 }
                 window.append(line)
             }
@@ -155,28 +154,28 @@ public struct HeadCommand: ParsableBashCommand {
         }
         if count <= 0 { return }
         var emitted = 0
-        try await forEachLine(path: path, shell: shell) { line in
-            shell.stdout(line + "\n")
+        try await forEachLine(path: path) { line in
+            Shell.current.stdout(line + "\n")
             emitted += 1
             if emitted >= count { throw HeadDone() }
         }
     }
 
-    private func streamAllLines(_ path: String, shell: Shell) async throws {
-        try await forEachLine(path: path, shell: shell) { line in
-            shell.stdout(line + "\n")
+    private func streamAllLines(_ path: String) async throws {
+        try await forEachLine(path: path) { line in
+            Shell.current.stdout(line + "\n")
         }
     }
 
-    private func forEachLine(path: String, shell: Shell,
+    private func forEachLine(path: String, 
                              _ body: (String) throws -> Void) async throws {
         if path == "-" {
-            for await line in shell.stdin.lines {
+            for await line in Shell.current.stdin.lines {
                 do { try body(line) } catch is HeadDone { return }
             }
             return
         }
-        let source = try await shell.openInputPath(path)
+        let source = try await Shell.current.openInputPath(path)
         for await line in source.lines {
             do { try body(line) } catch is HeadDone { return }
         }
@@ -184,24 +183,23 @@ public struct HeadCommand: ParsableBashCommand {
 
     // MARK: Byte mode
 
-    private func emitBytes(_ path: String, count: Int, trailing: Bool,
-                           shell: Shell) async throws {
+    private func emitBytes(_ path: String, count: Int, trailing: Bool) async throws {
         // Byte mode buffers a Data; cheap for typical inputs and avoids
         // the partial-utf8 worries of the chunked path.
         let data: Data
         if path == "-" {
-            data = await shell.stdin.readAllData()
+            data = await Shell.current.stdin.readAllData()
         } else {
-            data = try await shell.readDataAtPath(path)
+            data = try await Shell.current.readDataAtPath(path)
         }
         if trailing {
-            if count <= 0 { shell.stdout(data); return }
+            if count <= 0 { Shell.current.stdout(data); return }
             let end = max(0, data.count - count)
-            shell.stdout(data.prefix(end))
+            Shell.current.stdout(data.prefix(end))
             return
         }
         if count <= 0 { return }
-        shell.stdout(data.prefix(count))
+        Shell.current.stdout(data.prefix(count))
     }
 
     private struct HeadDone: Error {}

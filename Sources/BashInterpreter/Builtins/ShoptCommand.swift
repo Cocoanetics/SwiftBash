@@ -13,7 +13,7 @@ public struct ShoptCommand: Command {
     public let name = "shopt"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         var mode: Mode = .list
         var printMode = false
         var names: [String] = []
@@ -33,7 +33,7 @@ public struct ShoptCommand: Command {
                     case "p": printMode = true
                     case "o": break // we don't differentiate -o options here
                     default:
-                        shell.stderr("shopt: invalid option: -\(c)\n")
+                        Shell.current.stderr("shopt: invalid option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -45,16 +45,16 @@ public struct ShoptCommand: Command {
         switch mode {
         case .list:
             let keys = names.isEmpty
-                ? Array(shell.shoptOptions.keys).sorted()
+                ? Array(Shell.current.shoptOptions.keys).sorted()
                 : names
             var anyOff = false
             for key in keys {
-                let on = shell.shoptOptions[key] ?? false
+                let on = Shell.current.shoptOptions[key] ?? false
                 if printMode {
-                    shell.stdout(
+                    Shell.current.stdout(
                         "shopt -\(on ? "s" : "u") \(key)\n")
                 } else {
-                    shell.stdout("\(key)\t\(on ? "on" : "off")\n")
+                    Shell.current.stdout("\(key)\t\(on ? "on" : "off")\n")
                 }
                 if !on { anyOff = true }
             }
@@ -63,13 +63,13 @@ public struct ShoptCommand: Command {
         case .set, .unset:
             let value = (mode == .set)
             for key in names {
-                shell.shoptOptions[key] = value
+                Shell.current.shoptOptions[key] = value
             }
             return .success
 
         case .quiet:
             for key in names {
-                if !(shell.shoptOptions[key] ?? false) {
+                if !(Shell.current.shoptOptions[key] ?? false) {
                     return .failure
                 }
             }

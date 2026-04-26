@@ -10,12 +10,12 @@ public struct ExportCommand: Command {
     public let name = "export"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = argv.dropFirst()
         if args.isEmpty {
             // Print every variable as `declare -x NAME="value"`.
-            for (k, v) in shell.environment.variables.sorted(by: { $0.key < $1.key }) {
-                shell.stdout("declare -x \(k)=\"\(v)\"\n")
+            for (k, v) in Shell.current.environment.variables.sorted(by: { $0.key < $1.key }) {
+                Shell.current.stdout("declare -x \(k)=\"\(v)\"\n")
             }
             return .success
         }
@@ -23,12 +23,12 @@ public struct ExportCommand: Command {
             if let eq = arg.firstIndex(of: "=") {
                 let name = String(arg[..<eq])
                 let value = String(arg[arg.index(after: eq)...])
-                shell.environment[name] = value
+                Shell.current.environment[name] = value
             } else {
                 // `export NAME` without `=` ensures the variable exists
                 // (empty if previously unset).
-                if shell.environment[arg] == nil {
-                    shell.environment[arg] = ""
+                if Shell.current.environment[arg] == nil {
+                    Shell.current.environment[arg] = ""
                 }
             }
         }

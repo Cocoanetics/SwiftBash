@@ -36,9 +36,9 @@ public struct ExprCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard !operands.isEmpty else {
-            shell.stderr("expr: missing operand\n")
+            Shell.current.stderr("expr: missing operand\n")
             return ExitStatus(2)
         }
         var parser = ExprParser(args: operands)
@@ -49,10 +49,10 @@ public struct ExprCommand: ParsableBashCommand {
                 throw ExprError("syntax error: \(parser.peek() ?? "")")
             }
         } catch let e as ExprError {
-            shell.stderr("expr: \(e.message)\n")
+            Shell.current.stderr("expr: \(e.message)\n")
             return ExitStatus(2)
         }
-        shell.stdout(result + "\n")
+        Shell.current.stdout(result + "\n")
         return (result == "0" || result.isEmpty) ? ExitStatus(1) : .success
     }
 }

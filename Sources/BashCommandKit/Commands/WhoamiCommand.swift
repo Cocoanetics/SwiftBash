@@ -11,8 +11,8 @@ public struct WhoamiCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        shell.stdout(ProcessInfo.processInfo.userName + "\n")
+    public mutating func execute() async throws -> ExitStatus {
+        Shell.current.stdout(ProcessInfo.processInfo.userName + "\n")
         return .success
     }
 }

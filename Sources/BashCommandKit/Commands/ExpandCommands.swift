@@ -20,7 +20,7 @@ public struct ExpandCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var tabSpec = "8"
         var initialOnly = false
         var files: [String] = []
@@ -36,7 +36,7 @@ public struct ExpandCommand: ParsableBashCommand {
             if a == "-i" || a == "--initial" { initialOnly = true; i += 1; continue }
             if a == "-t" || a == "--tabs" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("expand: -t requires LIST\n"); return ExitStatus(2)
+                    Shell.current.stderr("expand: -t requires LIST\n"); return ExitStatus(2)
                 }
                 tabSpec = rawArgv[i + 1]; i += 2; continue
             }
@@ -51,7 +51,7 @@ public struct ExpandCommand: ParsableBashCommand {
                 if let _ = Int(a.dropFirst()) {
                     tabSpec = String(a.dropFirst()); i += 1; continue
                 }
-                shell.stderr("expand: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.current.stderr("expand: unknown option: \(a)\n"); return ExitStatus(2)
             }
             files.append(a); i += 1
         }
@@ -62,14 +62,14 @@ public struct ExpandCommand: ParsableBashCommand {
         for f in inputs {
             do {
                 let text: String
-                if f == "-" { text = await shell.stdin.readAllString() }
+                if f == "-" { text = await Shell.current.stdin.readAllString() }
                 else {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     text = String(decoding: data, as: UTF8.self)
                 }
-                shell.stdout(ExpandCommand.expand(text, stops: stops, initialOnly: initialOnly))
+                Shell.current.stdout(ExpandCommand.expand(text, stops: stops, initialOnly: initialOnly))
             } catch {
-                shell.stderr("expand: \(f): \(error)\n")
+                Shell.current.stderr("expand: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -140,7 +140,7 @@ public struct UnexpandCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var tabSpec = "8"
         var allBlanks = false
         var files: [String] = []
@@ -155,7 +155,7 @@ public struct UnexpandCommand: ParsableBashCommand {
             if a == "-a" || a == "--all" { allBlanks = true; i += 1; continue }
             if a == "-t" || a == "--tabs" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("unexpand: -t requires LIST\n"); return ExitStatus(2)
+                    Shell.current.stderr("unexpand: -t requires LIST\n"); return ExitStatus(2)
                 }
                 tabSpec = rawArgv[i + 1]; allBlanks = true; i += 2; continue
             }
@@ -167,7 +167,7 @@ public struct UnexpandCommand: ParsableBashCommand {
                 tabSpec = String(a.dropFirst(2)); allBlanks = true; i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                shell.stderr("unexpand: unknown option: \(a)\n")
+                Shell.current.stderr("unexpand: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -179,14 +179,14 @@ public struct UnexpandCommand: ParsableBashCommand {
         for f in inputs {
             do {
                 let text: String
-                if f == "-" { text = await shell.stdin.readAllString() }
+                if f == "-" { text = await Shell.current.stdin.readAllString() }
                 else {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     text = String(decoding: data, as: UTF8.self)
                 }
-                shell.stdout(UnexpandCommand.unexpand(text, stops: stops, allBlanks: allBlanks))
+                Shell.current.stdout(UnexpandCommand.unexpand(text, stops: stops, allBlanks: allBlanks))
             } catch {
-                shell.stderr("unexpand: \(f): \(error)\n")
+                Shell.current.stderr("unexpand: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -271,7 +271,7 @@ public struct FoldCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var width = 80
         var atSpaces = false
         var byBytes = false
@@ -288,19 +288,19 @@ public struct FoldCommand: ParsableBashCommand {
             if a == "-b" || a == "--bytes" { byBytes = true; i += 1; continue }
             if a == "-w" || a == "--width" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    shell.stderr("fold: -w requires WIDTH\n"); return ExitStatus(2)
+                    Shell.current.stderr("fold: -w requires WIDTH\n"); return ExitStatus(2)
                 }
                 width = n; i += 2; continue
             }
             if a.hasPrefix("--width=") {
                 guard let n = Int(a.dropFirst("--width=".count)), n > 0 else {
-                    shell.stderr("fold: invalid --width\n"); return ExitStatus(2)
+                    Shell.current.stderr("fold: invalid --width\n"); return ExitStatus(2)
                 }
                 width = n; i += 1; continue
             }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
                 if let n = Int(a.dropFirst()) { width = n; i += 1; continue }
-                shell.stderr("fold: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.current.stderr("fold: unknown option: \(a)\n"); return ExitStatus(2)
             }
             files.append(a); i += 1
         }
@@ -310,14 +310,14 @@ public struct FoldCommand: ParsableBashCommand {
         for f in inputs {
             do {
                 let text: String
-                if f == "-" { text = await shell.stdin.readAllString() }
+                if f == "-" { text = await Shell.current.stdin.readAllString() }
                 else {
-                    let data = try await shell.readDataAtPath(f)
+                    let data = try await Shell.current.readDataAtPath(f)
                     text = String(decoding: data, as: UTF8.self)
                 }
-                shell.stdout(FoldCommand.fold(text, width: width, atSpaces: atSpaces, byBytes: byBytes))
+                Shell.current.stdout(FoldCommand.fold(text, width: width, atSpaces: atSpaces, byBytes: byBytes))
             } catch {
-                shell.stderr("fold: \(f): \(error)\n")
+                Shell.current.stderr("fold: \(f): \(error)\n")
                 hadError = true
             }
         }

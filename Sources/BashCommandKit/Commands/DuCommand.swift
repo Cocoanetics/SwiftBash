@@ -23,7 +23,7 @@ public struct DuCommand: ParsableBashCommand {
 
     private enum Unit { case bytes, kib, mib, human }
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var unit: Unit = .kib
         var summarize = false
         var allFiles = false
@@ -45,18 +45,18 @@ public struct DuCommand: ParsableBashCommand {
             if a == "-m" { unit = .mib; i += 1; continue }
             if a == "-d" || a == "--max-depth" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    shell.stderr("du: -d requires N\n"); return ExitStatus(2)
+                    Shell.current.stderr("du: -d requires N\n"); return ExitStatus(2)
                 }
                 maxDepth = n; i += 2; continue
             }
             if a.hasPrefix("--max-depth=") {
                 guard let n = Int(a.dropFirst("--max-depth=".count)) else {
-                    shell.stderr("du: invalid --max-depth\n"); return ExitStatus(2)
+                    Shell.current.stderr("du: invalid --max-depth\n"); return ExitStatus(2)
                 }
                 maxDepth = n; i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                shell.stderr("du: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.current.stderr("du: unknown option: \(a)\n"); return ExitStatus(2)
             }
             paths.append(a); i += 1
         }
@@ -64,18 +64,17 @@ public struct DuCommand: ParsableBashCommand {
 
         var hadError = false
         for p in paths {
-            let resolved = shell.resolvePath(p)
+            let resolved = Shell.current.resolvePath(p)
             do {
                 let total = try await walk(displayPath: p, abs: resolved,
                                            depth: 0, unit: unit,
                                            maxDepth: summarize ? 0 : maxDepth,
-                                           allFiles: allFiles, summarize: summarize,
-                                           shell: shell)
+                                           allFiles: allFiles, summarize: summarize)
                 if summarize {
-                    shell.stdout("\(formatSize(total, unit: unit))\t\(p)\n")
+                    Shell.current.stdout("\(formatSize(total, unit: unit))\t\(p)\n")
                 }
             } catch {
-                shell.stderr("du: \(p): \(error)\n")
+                Shell.current.stderr("du: \(p): \(error)\n")
                 hadError = true
             }
         }
@@ -83,19 +82,18 @@ public struct DuCommand: ParsableBashCommand {
     }
 
     private func walk(displayPath: String, abs: String, depth: Int,
-                      unit: Unit, maxDepth: Int?, allFiles: Bool, summarize: Bool,
-                      shell: Shell) async throws -> Int64 {
-        guard let meta = try await shell.fileSystem.metadata(abs) else {
+                      unit: Unit, maxDepth: Int?, allFiles: Bool, summarize: Bool) async throws -> Int64 {
+        guard let meta = try await Shell.current.fileSystem.metadata(abs) else {
             throw FileSystemError.notFound(abs)
         }
         if meta.kind != .directory {
             if allFiles && !summarize {
-                shell.stdout("\(formatSize(meta.size, unit: unit))\t\(displayPath)\n")
+                Shell.current.stdout("\(formatSize(meta.size, unit: unit))\t\(displayPath)\n")
             }
             return meta.size
         }
         var total: Int64 = 0
-        let entries = (try? await shell.fileSystem.list(abs)) ?? []
+        let entries = (try? await Shell.current.fileSystem.list(abs)) ?? []
         for name in entries.sorted() {
             let childAbs = (abs as NSString).appendingPathComponent(name)
             let childDisplay = displayPath == "." ? "./\(name)"
@@ -103,12 +101,12 @@ public struct DuCommand: ParsableBashCommand {
             total += try await walk(displayPath: childDisplay, abs: childAbs,
                                     depth: depth + 1, unit: unit,
                                     maxDepth: maxDepth, allFiles: allFiles,
-                                    summarize: summarize, shell: shell)
+                                    summarize: summarize)
         }
         if !summarize {
             let withinDepth = (maxDepth.map { depth <= $0 } ?? true)
             if withinDepth {
-                shell.stdout("\(formatSize(total, unit: unit))\t\(displayPath)\n")
+                Shell.current.stdout("\(formatSize(total, unit: unit))\t\(displayPath)\n")
             }
         }
         return total

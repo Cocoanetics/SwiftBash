@@ -65,8 +65,8 @@ import Testing
         cap.shell.fileSystem = InMemoryFileSystem()
         try await cap.shell.fileSystem.createDirectory("/work", intermediates: true)
         cap.shell.environment.workingDirectory = "/work"
-        cap.shell.register(name: "greet") { _, shell in
-            shell.stdout("hi from registered cmd\n")
+        cap.shell.register(name: "greet") { _ in
+            Shell.current.stdout("hi from registered cmd\n")
             return .success
         }
         try await cap.shell.run("(greet)")

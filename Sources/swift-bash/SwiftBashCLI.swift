@@ -7,6 +7,6 @@ struct SwiftBashCLI: AsyncParsableCommand {
         commandName: "swift-bash",
         abstract: "Command-line tools for working with bash source.",
         version: "0.1.0",
-        subcommands: [ParseCommand.self, ExecCommand.self]
+        subcommands: [ParseCommand.self, ExecCommand.self, CodexUsageCommand.self, ClaudeUsageCommand.self]
     )
 }

@@ -97,7 +97,7 @@ public struct RgCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let pattern: String?
         let paths: [String]
         if listFiles {
@@ -105,7 +105,7 @@ public struct RgCommand: ParsableBashCommand {
             paths = positionals.isEmpty ? ["."] : positionals
         } else {
             guard let p = positionals.first else {
-                shell.stderr("rg: missing PATTERN\n")
+                Shell.current.stderr("rg: missing PATTERN\n")
                 return ExitStatus(2)
             }
             pattern = p
@@ -118,11 +118,10 @@ public struct RgCommand: ParsableBashCommand {
         // --files mode: walk and print, no matching.
         if listFiles {
             for path in paths {
-                let abs = shell.resolvePath(path)
+                let abs = Shell.current.resolvePath(path)
                 await listOne(displayPath: path,
                               absolutePath: abs,
-                              globs: parsedGlobs,
-                              shell: shell)
+                              globs: parsedGlobs)
             }
             return .success
         }
@@ -139,7 +138,7 @@ public struct RgCommand: ParsableBashCommand {
             matcher = try LineMatcher(pattern: pattern!,
                                       ignoreCase: effIgnore)
         } catch {
-            shell.stderr("rg: \(pattern!): \(error)\n")
+            Shell.current.stderr("rg: \(pattern!): \(error)\n")
             return ExitStatus(2)
         }
 
@@ -155,13 +154,12 @@ public struct RgCommand: ParsableBashCommand {
 
         var anyMatched = false
         for path in paths {
-            let abs = shell.resolvePath(path)
+            let abs = Shell.current.resolvePath(path)
             let r = await searchPath(displayPath: path,
                                      absolutePath: abs,
                                      globs: parsedGlobs,
                                      matcher: matcher,
-                                     opts: opts,
-                                     shell: shell)
+                                     opts: opts)
             if r { anyMatched = true }
             if quiet, anyMatched { break }
         }
@@ -172,25 +170,23 @@ public struct RgCommand: ParsableBashCommand {
 
     private func listOne(displayPath: String,
                          absolutePath: String,
-                         globs: [GlobRule],
-                         shell: Shell) async {
-        let meta = try? await shell.metadataAtPath(displayPath)
+                         globs: [GlobRule]) async {
+        let meta = try? await Shell.current.metadataAtPath(displayPath)
         guard let meta else {
-            shell.stderr("rg: \(displayPath): No such file or directory\n")
+            Shell.current.stderr("rg: \(displayPath): No such file or directory\n")
             return
         }
         if meta.kind == .directory {
             await walk(displayPath: displayPath,
                        absolutePath: absolutePath,
-                       globs: globs,
-                       shell: shell) { dp, _ in
-                shell.stdout(dp + "\n")
+                       globs: globs) { dp, _ in
+                Shell.current.stdout(dp + "\n")
                 return true
             }
         } else {
             let name = (displayPath as NSString).lastPathComponent
             if Self.passesGlobs(name: name, rules: globs) {
-                shell.stdout(displayPath + "\n")
+                Shell.current.stdout(displayPath + "\n")
             }
         }
     }
@@ -201,24 +197,21 @@ public struct RgCommand: ParsableBashCommand {
                             absolutePath: String,
                             globs: [GlobRule],
                             matcher: LineMatcher,
-                            opts: OutputOptions,
-                            shell: Shell) async -> Bool {
-        let meta = try? await shell.metadataAtPath(displayPath)
+                            opts: OutputOptions) async -> Bool {
+        let meta = try? await Shell.current.metadataAtPath(displayPath)
         guard let meta else {
-            shell.stderr("rg: \(displayPath): No such file or directory\n")
+            Shell.current.stderr("rg: \(displayPath): No such file or directory\n")
             return false
         }
         if meta.kind == .directory {
             var any = false
             await walk(displayPath: displayPath,
                        absolutePath: absolutePath,
-                       globs: globs,
-                       shell: shell) { dp, abs in
+                       globs: globs) { dp, abs in
                 let r = await searchFile(displayPath: dp,
                                          absolutePath: abs,
                                          matcher: matcher,
-                                         opts: opts,
-                                         shell: shell)
+                                         opts: opts)
                 if r { any = true }
                 return !(opts.quiet && any)
             }
@@ -227,8 +220,7 @@ public struct RgCommand: ParsableBashCommand {
         return await searchFile(displayPath: displayPath,
                                 absolutePath: absolutePath,
                                 matcher: matcher,
-                                opts: opts,
-                                shell: shell)
+                                opts: opts)
     }
 
     /// Recursively visit every file under `absolutePath`, sorted, calling
@@ -237,13 +229,13 @@ public struct RgCommand: ParsableBashCommand {
     private func walk(displayPath: String,
                       absolutePath: String,
                       globs: [GlobRule],
-                      shell: Shell,
+                      
                       visit: (String, String) async -> Bool) async {
         let entries: [String]
         do {
-            entries = try await shell.fileSystem.list(absolutePath)
+            entries = try await Shell.current.fileSystem.list(absolutePath)
         } catch {
-            shell.stderr("rg: \(displayPath): \(error)\n")
+            Shell.current.stderr("rg: \(displayPath): \(error)\n")
             return
         }
         for name in entries.sorted() {
@@ -252,13 +244,13 @@ public struct RgCommand: ParsableBashCommand {
                 .appendingPathComponent(name)
             let childDisplay = (displayPath as NSString)
                 .appendingPathComponent(name)
-            let meta = try? await shell.fileSystem.metadata(childAbs)
+            let meta = try? await Shell.current.fileSystem.metadata(childAbs)
             guard let meta else { continue }
             if meta.kind == .directory {
                 await walk(displayPath: childDisplay,
                            absolutePath: childAbs,
                            globs: globs,
-                           shell: shell,
+                           
                            visit: visit)
             } else {
                 if !Self.passesGlobs(name: name, rules: globs) { continue }
@@ -281,13 +273,12 @@ public struct RgCommand: ParsableBashCommand {
     private func searchFile(displayPath: String,
                             absolutePath: String,
                             matcher: LineMatcher,
-                            opts: OutputOptions,
-                            shell: Shell) async -> Bool {
+                            opts: OutputOptions) async -> Bool {
         let input: InputSource
         do {
-            input = try await shell.openInputPath(displayPath)
+            input = try await Shell.current.openInputPath(displayPath)
         } catch {
-            shell.stderr("rg: \(displayPath): \(error)\n")
+            Shell.current.stderr("rg: \(displayPath): \(error)\n")
             return false
         }
         let needsContext = opts.before > 0 || opts.after > 0
@@ -304,26 +295,26 @@ public struct RgCommand: ParsableBashCommand {
                 matchCount += 1
                 if opts.quiet { return true }
                 if opts.filesWithMatches {
-                    shell.stdout(displayPath + "\n")
+                    Shell.current.stdout(displayPath + "\n")
                     return true
                 }
                 if needsContext, lastEmitted > 0,
                    lineNum - opts.before > lastEmitted + 1 {
-                    shell.stdout("--\n")
+                    Shell.current.stdout("--\n")
                 }
                 for (bn, bl) in beforeBuf.elements where bn > lastEmitted {
                     emit(file: displayPath, lineNum: bn, line: bl,
-                         isMatch: false, opts: opts, shell: shell)
+                         isMatch: false, opts: opts)
                     lastEmitted = bn
                 }
                 emit(file: displayPath, lineNum: lineNum, line: line,
-                     isMatch: true, opts: opts, shell: shell)
+                     isMatch: true, opts: opts)
                 lastEmitted = lineNum
                 afterRemaining = opts.after
                 if matchCount >= opts.maxCount { break }
             } else if afterRemaining > 0 {
                 emit(file: displayPath, lineNum: lineNum, line: line,
-                     isMatch: false, opts: opts, shell: shell)
+                     isMatch: false, opts: opts)
                 lastEmitted = lineNum
                 afterRemaining -= 1
             }
@@ -336,13 +327,12 @@ public struct RgCommand: ParsableBashCommand {
                       lineNum: Int,
                       line: String,
                       isMatch: Bool,
-                      opts: OutputOptions,
-                      shell: Shell) {
+                      opts: OutputOptions) {
         let sep = isMatch ? ":" : "-"
         var out = file + sep
         if opts.lineNumber { out += "\(lineNum)\(sep)" }
         out += line + "\n"
-        shell.stdout(out)
+        Shell.current.stdout(out)
     }
 
     // MARK: Glob rules

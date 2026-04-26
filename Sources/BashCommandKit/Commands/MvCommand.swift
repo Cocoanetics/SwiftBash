@@ -13,33 +13,33 @@ public struct MvCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         guard paths.count >= 2 else {
-            shell.stderr("mv: missing operand\n")
+            Shell.current.stderr("mv: missing operand\n")
             return .failure
         }
         let sources = paths.dropLast()
         let dest = paths.last!
-        let destAbs = shell.resolvePath(dest)
-        let destMeta = try? await shell.fileSystem.metadata(destAbs)
+        let destAbs = Shell.current.resolvePath(dest)
+        let destMeta = try? await Shell.current.fileSystem.metadata(destAbs)
         let destIsDir = destMeta?.kind == .directory
 
         if sources.count > 1 && !destIsDir {
-            shell.stderr("mv: target `\(dest)` is not a directory\n")
+            Shell.current.stderr("mv: target `\(dest)` is not a directory\n")
             return .failure
         }
 
         var hadError = false
         for src in sources {
-            let srcAbs = shell.resolvePath(src)
+            let srcAbs = Shell.current.resolvePath(src)
             let finalDest: String = destIsDir
                 ? (destAbs as NSString).appendingPathComponent(
                     (srcAbs as NSString).lastPathComponent)
                 : destAbs
             do {
-                try await shell.fileSystem.move(from: srcAbs, to: finalDest)
+                try await Shell.current.fileSystem.move(from: srcAbs, to: finalDest)
             } catch {
-                shell.stderr("mv: \(src): \(error)\n")
+                Shell.current.stderr("mv: \(src): \(error)\n")
                 hadError = true
             }
         }

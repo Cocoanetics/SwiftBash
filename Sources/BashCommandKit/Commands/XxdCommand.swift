@@ -25,17 +25,17 @@ public struct XxdCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let data: Data
         if let f = input, f != "-" {
             do {
-                data = try await shell.readDataAtPath(f)
+                data = try await Shell.current.readDataAtPath(f)
             } catch {
-                shell.stderr("xxd: \(f): \(error)\n")
+                Shell.current.stderr("xxd: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            data = await shell.stdin.readAllData()
+            data = await Shell.current.stdin.readAllData()
         }
 
         let bytesPerRow = 16
@@ -44,7 +44,7 @@ public struct XxdCommand: ParsableBashCommand {
         while offset < bytes.count {
             let end = min(offset + bytesPerRow, bytes.count)
             let row = bytes[offset..<end]
-            shell.stdout(Self.format(offset: offset,
+            Shell.current.stdout(Self.format(offset: offset,
                                      row: Array(row),
                                      bytesPerRow: bytesPerRow) + "\n")
             offset = end

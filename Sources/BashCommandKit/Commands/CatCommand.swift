@@ -30,7 +30,7 @@ public struct CatCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var number = false
         var numberNonblank = false
         var squeezeBlank = false
@@ -66,7 +66,7 @@ public struct CatCommand: ParsableBashCommand {
             default: break
             }
             if a.hasPrefix("--") {
-                shell.stderr("cat: unknown option: \(a)\n")
+                Shell.current.stderr("cat: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             if a.hasPrefix("-") && a.count > 1 {
@@ -83,7 +83,7 @@ public struct CatCommand: ParsableBashCommand {
                     case "t": showNonprinting = true; showTabs = true
                     case "u": break
                     default:
-                        shell.stderr("cat: unknown option: -\(c)\n")
+                        Shell.current.stderr("cat: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -98,7 +98,7 @@ public struct CatCommand: ParsableBashCommand {
 
         // Fast path: no transform → stream raw bytes (binary-safe).
         if !needsTransform {
-            return await streamRaw(useFiles, shell: shell)
+            return await streamRaw(useFiles)
         }
 
         // Line-mode transform path.
@@ -109,8 +109,8 @@ public struct CatCommand: ParsableBashCommand {
         for path in useFiles {
             do {
                 let source: InputSource
-                if path == "-" { source = shell.stdin }
-                else { source = try await shell.openInputPath(path) }
+                if path == "-" { source = Shell.current.stdin }
+                else { source = try await Shell.current.openInputPath(path) }
                 for await line in source.lines {
                     let isBlank = line.isEmpty
                     if squeezeBlank && isBlank && prevWasBlank { continue }
@@ -129,40 +129,40 @@ public struct CatCommand: ParsableBashCommand {
                     if showTabs { body = body.replacingOccurrences(of: "\t", with: "^I") }
                     if showNonprinting { body = Self.escapeNonprinting(body) }
                     let suffix = showEnds ? "$" : ""
-                    shell.stdout(prefix + body + suffix + "\n")
+                    Shell.current.stdout(prefix + body + suffix + "\n")
                 }
             } catch FileSystemError.notFound {
-                shell.stderr("cat: \(path): No such file or directory\n")
+                Shell.current.stderr("cat: \(path): No such file or directory\n")
                 hadError = true
             } catch FileSystemError.isADirectory {
-                shell.stderr("cat: \(path): Is a directory\n")
+                Shell.current.stderr("cat: \(path): Is a directory\n")
                 hadError = true
             } catch {
-                shell.stderr("cat: \(path): \(error)\n")
+                Shell.current.stderr("cat: \(path): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
-    private func streamRaw(_ files: [String], shell: Shell) async -> ExitStatus {
+    private func streamRaw(_ files: [String]) async -> ExitStatus {
         var hadError = false
         for path in files {
             if path == "-" {
-                for await chunk in shell.stdin.bytes { shell.stdout(chunk) }
+                for await chunk in Shell.current.stdin.bytes { Shell.current.stdout(chunk) }
                 continue
             }
             do {
-                let source = try await shell.openInputPath(path)
-                for await chunk in source.bytes { shell.stdout(chunk) }
+                let source = try await Shell.current.openInputPath(path)
+                for await chunk in source.bytes { Shell.current.stdout(chunk) }
             } catch FileSystemError.notFound {
-                shell.stderr("cat: \(path): No such file or directory\n")
+                Shell.current.stderr("cat: \(path): No such file or directory\n")
                 hadError = true
             } catch FileSystemError.isADirectory {
-                shell.stderr("cat: \(path): Is a directory\n")
+                Shell.current.stderr("cat: \(path): Is a directory\n")
                 hadError = true
             } catch {
-                shell.stderr("cat: \(path): \(error)\n")
+                Shell.current.stderr("cat: \(path): \(error)\n")
                 hadError = true
             }
         }

@@ -8,16 +8,16 @@ import Foundation
 ///
 /// ```swift
 /// // Whole-string consumer (grep / wc / most text commands):
-/// let text = await shell.stdin.readAllString()
+/// let text = await Shell.current.stdin.readAllString()
 ///
 /// // Bytes, for binary-safe commands (cat / sha256 / hexdump):
-/// let data = await shell.stdin.readAllData()
+/// let data = await Shell.current.stdin.readAllData()
 ///
 /// // Line streaming (tail -f / grep -f a stream):
-/// for await line in shell.stdin.lines { … }
+/// for await line in Shell.current.stdin.lines { … }
 ///
 /// // Raw chunk streaming:
-/// for await chunk in shell.stdin.bytes { … }
+/// for await chunk in Shell.current.stdin.bytes { … }
 /// ```
 public struct InputSource: Sendable {
 

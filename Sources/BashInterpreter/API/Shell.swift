@@ -11,8 +11,8 @@ import BashSyntax
 ///
 /// ```swift
 /// let shell = Shell()
-/// shell.environment["PATH"] = "/usr/bin:/bin"
-/// try await shell.run("echo $PATH")
+/// Shell.current.environment["PATH"] = "/usr/bin:/bin"
+/// try await Shell.current.run("echo $PATH")
 /// ```
 ///
 /// The interpreter is fully async: every `run` is an `await`, and
@@ -229,25 +229,63 @@ public final class Shell: @unchecked Sendable {
 
     var currentSource: String = ""
 
+    // MARK: Task-local current shell
+
+    /// The shell that nested code (commands, expansion, traps) reads
+    /// from. The top-level ``run(_:)`` wraps execution in
+    /// ``Shell/$current.withValue(self)``; subshells push their copy
+    /// the same way. As a result, every option held on a Shell —
+    /// `networkConfig`, `fileSystem`, `commands`, `shoptOptions`,
+    /// `errexit`, `environment`, … — propagates automatically across
+    /// pipeline stages, `(…)` subshells, and child Tasks via Swift's
+    /// `@TaskLocal` propagation.
+    ///
+    /// The default value is a placeholder Shell with empty defaults;
+    /// it should never be observed in practice because every entry
+    /// point binds the real Shell first.
+    @TaskLocal public static var current: Shell = Shell()
+
     // MARK: Subshell factory
 
     /// A fresh `Shell` suitable for running as a pipeline stage or a
-    /// subshell `( … )`. Environment is copied (mutations stay local);
-    /// the command registry is carried over. The caller typically
-    /// assigns fresh `stdin` / `stdout` sinks to wire it into a stream
-    /// channel; by default a subshell inherits the outer stdio.
-    func makeSubshell() -> Shell {
+    /// subshell `( … )`. Every property that should be inherited is
+    /// cloned here — this is the **single place** to update when
+    /// adding a new shell-scoped option.
+    ///
+    /// Mutations on the returned shell don't affect the receiver; the
+    /// two are fully independent value snapshots (with reference-typed
+    /// sinks like `stdout` / `stderr` shared so the subshell's output
+    /// flows to the same destination).
+    public func copy() -> Shell {
         let sub = Shell(environment: environment,
                         stdout: stdout,
                         stderr: stderr,
                         commands: commands,
                         fileSystem: fileSystem)
-        // Carry the network policy across — without this, a pipelined
-        // `curl ... | head -1` loses its allow-list and hits
-        // "no network configured".
+        // Inheritable runtime / configuration. Anything that should
+        // survive into a subshell or pipeline stage gets cloned here.
         sub.networkConfig = networkConfig
         sub.shoptOptions = shoptOptions
+        sub.errexit = errexit
+        sub.pipefail = pipefail
+        sub.nounset = nounset
+        sub.scriptName = scriptName
+        sub.positionalParameters = positionalParameters
+        sub.traps = traps
+        sub.currentSource = currentSource
+        sub.lastExitStatus = lastExitStatus
+        sub.stdin = stdin
         return sub
+    }
+
+    /// Run `body` with this Shell installed as ``Shell/current``.
+    /// Used internally by ``run(_:)`` and by every subshell entry
+    /// point. Public so embedders can do `Shell.current` lookups in
+    /// their own helpers without going through the dispatcher.
+    public func withCurrent<T: Sendable>(
+        _ body: () async throws -> T
+    ) async rethrows -> T {
+        return try await Self.$current.withValue(self) { try await body() }
     }
 }
 

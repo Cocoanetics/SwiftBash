@@ -4,8 +4,13 @@ import Foundation
 /// user-registered extensions conform.
 ///
 /// The shell looks up `argv[0]` in its command registry. If a matching
-/// ``Command`` is found, its ``run(_:shell:)`` is invoked; otherwise the
+/// ``Command`` is found, its ``run(_:)`` is invoked; otherwise the
 /// shell throws ``BashInterpreterError/commandNotFound(_:)``.
+///
+/// Implementations read shell state via ``Shell/current`` — a
+/// `@TaskLocal` that the dispatcher sets to the executing shell
+/// before invoking each command. So `Shell.current.stdout("hi\n")`,
+/// `Shell.current.environment[…]`, etc. all just work.
 ///
 /// Use ``Shell/register(_:)`` to add a struct-based command, or
 /// ``Shell/register(name:_:)`` for a closure-backed one; see
@@ -17,13 +22,12 @@ public protocol Command: Sendable {
     /// Execute the command.
     /// - Parameter argv: Full argument vector; `argv[0]` is the command
     ///   name and `argv[1...]` are its arguments.
-    /// - Parameter shell: The invoking shell; commands read and mutate
-    ///   its `environment` and write to `stdout` / `stderr`.
     /// - Returns: The exit status to record as `$?`.
     ///
-    /// The signature is `async` so commands can `await shell.stdin.lines`
-    /// or similar streaming APIs. Commands that don't await anything can
-    /// still implement the method without any awaits inside — the
-    /// `async` keyword is free if unused.
-    func run(_ argv: [String], shell: Shell) async throws -> ExitStatus
+    /// The signature is `async` so commands can `await
+    /// Shell.current.stdin.lines` or similar streaming APIs. Commands
+    /// that don't await anything can still implement the method
+    /// without any awaits inside — the `async` keyword is free if
+    /// unused.
+    func run(_ argv: [String]) async throws -> ExitStatus
 }

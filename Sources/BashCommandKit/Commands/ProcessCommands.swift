@@ -22,7 +22,7 @@ public struct PsCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var pidFilter: Set<Int32>? = nil
         var columns: [String] = ["pid", "command"]
         var i = 0
@@ -30,14 +30,14 @@ public struct PsCommand: ParsableBashCommand {
             let a = rawArgv[i]
             if a == "-p" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("ps: -p requires PIDs\n"); return ExitStatus(2)
+                    Shell.current.stderr("ps: -p requires PIDs\n"); return ExitStatus(2)
                 }
                 pidFilter = Set(rawArgv[i + 1].split(separator: ",").compactMap { Int32($0) })
                 i += 2; continue
             }
             if a == "-o" {
                 guard i + 1 < rawArgv.count else {
-                    shell.stderr("ps: -o requires COL list\n"); return ExitStatus(2)
+                    Shell.current.stderr("ps: -o requires COL list\n"); return ExitStatus(2)
                 }
                 columns = rawArgv[i + 1]
                     .split(whereSeparator: { $0 == "," || $0 == " " })
@@ -51,7 +51,7 @@ public struct PsCommand: ParsableBashCommand {
                     switch c {
                     case "A", "e", "a", "x": break
                     default:
-                        shell.stderr("ps: unknown option: -\(c)\n")
+                        Shell.current.stderr("ps: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -61,15 +61,15 @@ public struct PsCommand: ParsableBashCommand {
         }
         let procs = ProcessList.allProcesses()
             .filter { pidFilter?.contains($0.pid) ?? true }
-        emit(procs, columns: columns, shell: shell)
+        emit(procs, columns: columns)
         return .success
     }
 
-    private func emit(_ procs: [ProcessInfo_], columns: [String], shell: Shell) {
+    private func emit(_ procs: [ProcessInfo_], columns: [String]) {
         // Header.
-        shell.stdout(columns.map { columnHeader($0) }.joined(separator: " ") + "\n")
+        Shell.current.stdout(columns.map { columnHeader($0) }.joined(separator: " ") + "\n")
         for p in procs {
-            shell.stdout(columns.map { columnValue($0, of: p) }.joined(separator: " ") + "\n")
+            Shell.current.stdout(columns.map { columnValue($0, of: p) }.joined(separator: " ") + "\n")
         }
     }
 
@@ -107,19 +107,19 @@ public struct KillCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var signal: Int32 = SIGTERM
         var pids: [Int32] = []
         var i = 0
         while i < rawArgv.count {
             let a = rawArgv[i]
             if a == "-l" || a == "--list" {
-                listSignals(shell: shell)
+                listSignals()
                 return .success
             }
             if a == "-s" {
                 guard i + 1 < rawArgv.count, let sig = parseSignal(rawArgv[i + 1]) else {
-                    shell.stderr("kill: invalid signal\n"); return ExitStatus(2)
+                    Shell.current.stderr("kill: invalid signal\n"); return ExitStatus(2)
                 }
                 signal = sig; i += 2; continue
             }
@@ -128,7 +128,7 @@ public struct KillCommand: ParsableBashCommand {
                 if let sig = parseSignal(sigPart) {
                     signal = sig
                 } else {
-                    shell.stderr("kill: invalid signal: \(a)\n")
+                    Shell.current.stderr("kill: invalid signal: \(a)\n")
                     return ExitStatus(2)
                 }
                 i += 1; continue
@@ -136,27 +136,27 @@ public struct KillCommand: ParsableBashCommand {
             if let pid = Int32(a) {
                 pids.append(pid)
             } else {
-                shell.stderr("kill: invalid PID: \(a)\n")
+                Shell.current.stderr("kill: invalid PID: \(a)\n")
                 return ExitStatus(2)
             }
             i += 1
         }
         guard !pids.isEmpty else {
-            shell.stderr("kill: usage: kill [-SIG] PID...\n")
+            Shell.current.stderr("kill: usage: kill [-SIG] PID...\n")
             return ExitStatus(2)
         }
         var hadError = false
         for pid in pids {
             if Foundation.kill(pid, signal) != 0 {
                 let msg = String(cString: strerror(errno))
-                shell.stderr("kill: \(pid): \(msg)\n")
+                Shell.current.stderr("kill: \(pid): \(msg)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
-    private func listSignals(shell: Shell) {
+    private func listSignals() {
         let signals: [(String, Int32)] = [
             ("HUP", SIGHUP), ("INT", SIGINT), ("QUIT", SIGQUIT),
             ("ILL", SIGILL), ("TRAP", SIGTRAP), ("ABRT", SIGABRT),
@@ -167,7 +167,7 @@ public struct KillCommand: ParsableBashCommand {
             ("CHLD", SIGCHLD), ("TTIN", SIGTTIN), ("TTOU", SIGTTOU),
             ("USR1", SIGUSR1), ("USR2", SIGUSR2),
         ]
-        shell.stdout(signals.map { "\($0.1)) \($0.0)" }.joined(separator: " ") + "\n")
+        Shell.current.stdout(signals.map { "\($0.1)) \($0.0)" }.joined(separator: " ") + "\n")
     }
 }
 
@@ -185,7 +185,7 @@ public struct PgrepCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var listLong = false
         var fullCommand = false
         var pattern: String? = nil
@@ -200,7 +200,7 @@ public struct PgrepCommand: ParsableBashCommand {
                     case "l": listLong = true
                     case "f": fullCommand = true
                     default:
-                        shell.stderr("pgrep: unknown option: -\(c)\n")
+                        Shell.current.stderr("pgrep: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -209,11 +209,11 @@ public struct PgrepCommand: ParsableBashCommand {
             pattern = a; i += 1
         }
         guard let pat = pattern else {
-            shell.stderr("pgrep: missing pattern\n")
+            Shell.current.stderr("pgrep: missing pattern\n")
             return ExitStatus(2)
         }
         guard let regex = try? NSRegularExpression(pattern: pat) else {
-            shell.stderr("pgrep: invalid pattern\n")
+            Shell.current.stderr("pgrep: invalid pattern\n")
             return ExitStatus(2)
         }
         let matches = ProcessList.allProcesses().filter { p in
@@ -224,9 +224,9 @@ public struct PgrepCommand: ParsableBashCommand {
         }
         for p in matches {
             if listLong {
-                shell.stdout("\(p.pid) \(p.comm)\n")
+                Shell.current.stdout("\(p.pid) \(p.comm)\n")
             } else {
-                shell.stdout("\(p.pid)\n")
+                Shell.current.stdout("\(p.pid)\n")
             }
         }
         return matches.isEmpty ? ExitStatus(1) : .success
@@ -245,7 +245,7 @@ public struct PkillCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var sig: Int32 = SIGTERM
         var fullCommand = false
         var pattern: String? = nil
@@ -255,7 +255,7 @@ public struct PkillCommand: ParsableBashCommand {
             if a == "-f" { fullCommand = true; i += 1; continue }
             if a == "-s" {
                 guard i + 1 < rawArgv.count, let s = parseSignal(rawArgv[i + 1]) else {
-                    shell.stderr("pkill: invalid signal\n"); return ExitStatus(2)
+                    Shell.current.stderr("pkill: invalid signal\n"); return ExitStatus(2)
                 }
                 sig = s; i += 2; continue
             }
@@ -263,17 +263,17 @@ public struct PkillCommand: ParsableBashCommand {
                 let body = String(a.dropFirst())
                 if body == "f" { fullCommand = true; i += 1; continue }
                 if let s = parseSignal(body) { sig = s; i += 1; continue }
-                shell.stderr("pkill: unknown option: \(a)\n")
+                Shell.current.stderr("pkill: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             pattern = a; i += 1
         }
         guard let pat = pattern else {
-            shell.stderr("pkill: missing pattern\n")
+            Shell.current.stderr("pkill: missing pattern\n")
             return ExitStatus(2)
         }
         guard let regex = try? NSRegularExpression(pattern: pat) else {
-            shell.stderr("pkill: invalid pattern\n")
+            Shell.current.stderr("pkill: invalid pattern\n")
             return ExitStatus(2)
         }
         let matches = ProcessList.allProcesses().filter { p in
@@ -285,7 +285,7 @@ public struct PkillCommand: ParsableBashCommand {
         var hadError = false
         for p in matches {
             if Foundation.kill(p.pid, sig) != 0 {
-                shell.stderr("pkill: \(p.pid): \(String(cString: strerror(errno)))\n")
+                Shell.current.stderr("pkill: \(p.pid): \(String(cString: strerror(errno)))\n")
                 hadError = true
             }
         }

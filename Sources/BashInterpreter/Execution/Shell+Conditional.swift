@@ -25,7 +25,7 @@ extension Shell {
             return true
         }
         var ev = ConditionalEvaluator(parts: cleaned)
-        let value = try await ev.parseOr(shell: self)
+        let value = try await ev.parseOr()
         if !ev.isAtEnd {
             throw BashInterpreterError.parameter(
                 "[[: unexpected token at position \(ev.position)")
@@ -82,39 +82,39 @@ private struct ConditionalEvaluator {
 
     // MARK: Grammar
 
-    mutating func parseOr(shell: Shell, skip: Bool = false) async throws -> Bool {
-        var left = try await parseAnd(shell: shell, skip: skip)
+    mutating func parseOr(skip: Bool = false) async throws -> Bool {
+        var left = try await parseAnd(skip: skip)
         while operatorAt(0) == "||" {
             _ = advance()
             // Short-circuit: when the left side is already true, the
             // right side is parsed (to consume tokens) but not
             // evaluated for side-effects.
-            let right = try await parseAnd(shell: shell, skip: skip || left)
+            let right = try await parseAnd(skip: skip || left)
             left = left || right
         }
         return left
     }
 
-    private mutating func parseAnd(shell: Shell, skip: Bool)
+    private mutating func parseAnd(skip: Bool)
         async throws -> Bool
     {
-        var left = try await parseNot(shell: shell, skip: skip)
+        var left = try await parseNot(skip: skip)
         while operatorAt(0) == "&&" {
             _ = advance()
-            let right = try await parseNot(shell: shell, skip: skip || !left)
+            let right = try await parseNot(skip: skip || !left)
             left = left && right
         }
         return left
     }
 
-    private mutating func parseNot(shell: Shell, skip: Bool)
+    private mutating func parseNot(skip: Bool)
         async throws -> Bool
     {
         if isBang(parts[safe: pos]) {
             _ = advance()
-            return !(try await parseNot(shell: shell, skip: skip))
+            return !(try await parseNot(skip: skip))
         }
-        return try await parsePrimary(shell: shell, skip: skip)
+        return try await parsePrimary(skip: skip)
     }
 
     /// `!` arrives either as `.reservedWord("!")` (when the parser
@@ -127,12 +127,12 @@ private struct ConditionalEvaluator {
         return false
     }
 
-    private mutating func parsePrimary(shell: Shell, skip: Bool)
+    private mutating func parsePrimary(skip: Bool)
         async throws -> Bool
     {
         if reservedAt(0) == "(" {
             _ = advance()
-            let inner = try await parseOr(shell: shell, skip: skip)
+            let inner = try await parseOr(skip: skip)
             guard reservedAt(0) == ")" else {
                 throw BashInterpreterError.parameter(
                     "[[: expected `)' to close `('")
@@ -148,7 +148,7 @@ private struct ConditionalEvaluator {
             pos += 3
             if skip { return false }
             return try await evalBinary(
-                lhs: lhsNode, op: opNode, rhs: rhsNode, shell: shell)
+                lhs: lhsNode, op: opNode, rhs: rhsNode)
         }
         if pos + 2 < parts.count,
            let opStr = operatorAtIndex(pos + 1),
@@ -158,8 +158,8 @@ private struct ConditionalEvaluator {
             let rhs = parts[pos + 2]
             pos += 3
             if skip { return false }
-            let l = try await shell.expand(word: lhs)
-            let r = try await shell.expand(word: rhs)
+            let l = try await Shell.current.expand(word: lhs)
+            let r = try await Shell.current.expand(word: rhs)
             return opStr == "<" ? (l < r) : (l > r)
         }
 
@@ -170,7 +170,7 @@ private struct ConditionalEvaluator {
             _ = advance()
             let argNode = advance()!
             if skip { return false }
-            return try await evalUnary(op: opStr, arg: argNode, shell: shell)
+            return try await evalUnary(op: opStr, arg: argNode)
         }
 
         guard let node = advance() else {
@@ -178,7 +178,7 @@ private struct ConditionalEvaluator {
                 "[[: empty expression")
         }
         if skip { return false }
-        let value = try await shell.expand(word: node)
+        let value = try await Shell.current.expand(word: node)
         return !value.isEmpty
     }
 
@@ -211,16 +211,15 @@ private struct ConditionalEvaluator {
 
     // MARK: Operator dispatch
 
-    private func evalUnary(op: String, arg: Node,
-                           shell: Shell) async throws -> Bool
+    private func evalUnary(op: String, arg: Node) async throws -> Bool
     {
-        let value = try await shell.expand(word: arg)
+        let value = try await Shell.current.expand(word: arg)
         switch op {
         case "-z": return value.isEmpty
         case "-n": return !value.isEmpty
         case "-e", "-f", "-d", "-s", "-r", "-w", "-x":
-            let path = shell.resolvePath(value)
-            let m = try? await shell.fileSystem.metadata(path)
+            let path = Shell.current.resolvePath(value)
+            let m = try? await Shell.current.fileSystem.metadata(path)
             switch op {
             case "-e": return m != nil
             case "-f": return m?.kind == .file
@@ -238,23 +237,22 @@ private struct ConditionalEvaluator {
         }
     }
 
-    private func evalBinary(lhs: Node, op: Node, rhs: Node,
-                            shell: Shell) async throws -> Bool
+    private func evalBinary(lhs: Node, op: Node, rhs: Node) async throws -> Bool
     {
         guard case .word(let opStr, _) = op.kind else {
             throw BashInterpreterError.parameter("[[: bad binary operator")
         }
-        let lValue = try await shell.expand(word: lhs)
+        let lValue = try await Shell.current.expand(word: lhs)
 
         switch opStr {
         case "=", "==":
-            return try await matchAsGlob(lhs: lValue, rhs: rhs, shell: shell)
+            return try await matchAsGlob(lhs: lValue, rhs: rhs)
         case "!=":
-            return try await !matchAsGlob(lhs: lValue, rhs: rhs, shell: shell)
+            return try await !matchAsGlob(lhs: lValue, rhs: rhs)
         case "=~":
             // Regex match. Always literal comparison — regex syntax
             // doesn't go through glob.
-            let rValue = try await shell.expand(word: rhs)
+            let rValue = try await Shell.current.expand(word: rhs)
             do {
                 let regex = try NSRegularExpression(pattern: rValue)
                 let range = NSRange(lValue.startIndex..., in: lValue)
@@ -264,7 +262,7 @@ private struct ConditionalEvaluator {
                     "[[: invalid regex `\(rValue)': \(error.localizedDescription)")
             }
         case "-eq", "-ne", "-lt", "-le", "-gt", "-ge":
-            let rValue = try await shell.expand(word: rhs)
+            let rValue = try await Shell.current.expand(word: rhs)
             guard let l = Int64(lValue.trimmingCharacters(in: .whitespaces)),
                   let r = Int64(rValue.trimmingCharacters(in: .whitespaces))
             else {
@@ -281,11 +279,11 @@ private struct ConditionalEvaluator {
             default: return false
             }
         case "-nt", "-ot", "-ef":
-            let rValue = try await shell.expand(word: rhs)
-            let lp = shell.resolvePath(lValue)
-            let rp = shell.resolvePath(rValue)
-            let lm = try? await shell.fileSystem.metadata(lp)
-            let rm = try? await shell.fileSystem.metadata(rp)
+            let rValue = try await Shell.current.expand(word: rhs)
+            let lp = Shell.current.resolvePath(lValue)
+            let rp = Shell.current.resolvePath(rValue)
+            let lm = try? await Shell.current.fileSystem.metadata(lp)
+            let rm = try? await Shell.current.fileSystem.metadata(rp)
             switch opStr {
             case "-nt":
                 guard let l = lm else { return false }
@@ -296,9 +294,9 @@ private struct ConditionalEvaluator {
                 guard let l = lm else { return true }
                 return l.modifiedAt < r.modifiedAt
             case "-ef":
-                let lc = try? await shell.fileSystem.canonicalize(
+                let lc = try? await Shell.current.fileSystem.canonicalize(
                     lp, allowMissing: false)
-                let rc = try? await shell.fileSystem.canonicalize(
+                let rc = try? await Shell.current.fileSystem.canonicalize(
                     rp, allowMissing: false)
                 return lc != nil && lc == rc
             default: return false
@@ -314,8 +312,8 @@ private struct ConditionalEvaluator {
     /// `[[ $x == *.txt ]]` does glob match. The parser strips quote
     /// characters from a word's value but keeps them in the original
     /// source range, so we inspect that.
-    private func rhsIsLiteral(_ node: Node, shell: Shell) -> Bool {
-        let chars = Array(shell.currentSource)
+    private func rhsIsLiteral(_ node: Node) -> Bool {
+        let chars = Array(Shell.current.currentSource)
         let lo = max(0, node.range.lowerBound)
         let hi = min(chars.count, node.range.upperBound)
         for i in lo..<hi {
@@ -330,13 +328,12 @@ private struct ConditionalEvaluator {
     /// unquoted spans treated as glob metacharacters. So `"h"*` is the
     /// literal `h` followed by any chars; `'a*b'` is the literal three
     /// characters; an entirely unquoted `*.txt` is a normal glob.
-    private func matchAsGlob(lhs: String, rhs: Node,
-                             shell: Shell) async throws -> Bool
+    private func matchAsGlob(lhs: String, rhs: Node) async throws -> Bool
     {
-        let pattern = try await buildGlobPattern(rhs: rhs, shell: shell)
+        let pattern = try await buildGlobPattern(rhs: rhs)
         let opts = GlobOptions(
-            extglob: shell.shoptOptions["extglob"] == true,
-            nocase:  shell.shoptOptions["nocasematch"] == true)
+            extglob: Shell.current.shoptOptions["extglob"] == true,
+            nocase:  Shell.current.shoptOptions["nocasematch"] == true)
         return GlobMatcher.match(pattern: pattern, string: lhs, options: opts)
     }
 
@@ -347,8 +344,8 @@ private struct ConditionalEvaluator {
     /// rhs are first resolved (parameter / command sub) then their
     /// expanded value is escaped — bash treats substituted text as
     /// literal in `[[ ]]` patterns.
-    private func buildGlobPattern(rhs: Node, shell: Shell) async throws -> String {
-        let chars = Array(shell.currentSource)
+    private func buildGlobPattern(rhs: Node) async throws -> String {
+        let chars = Array(Shell.current.currentSource)
         let lo = max(0, rhs.range.lowerBound)
         let hi = min(chars.count, rhs.range.upperBound)
         guard lo < hi else { return "" }
@@ -364,7 +361,7 @@ private struct ConditionalEvaluator {
         var i = lo
         while i < hi {
             if let head = queue.first, i == head.range.lowerBound {
-                let value = try await shell.resolve(part: head)
+                let value = try await Shell.current.resolve(part: head)
                 out.append(escapedForGlob(value))
                 i = min(hi, head.range.upperBound)
                 queue.removeFirst()

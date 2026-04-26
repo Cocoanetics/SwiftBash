@@ -9,15 +9,15 @@ import Foundation
 ///
 /// ```swift
 /// // Inside a command:
-/// shell.stdout("hello\n")           // String convenience
-/// shell.stdout(Data([0x00, 0xFF]))  // binary-safe
+/// Shell.current.stdout("hello\n")           // String convenience
+/// Shell.current.stdout(Data([0x00, 0xFF]))  // binary-safe
 ///
 /// // Outside, consume as a stream:
-/// for await chunk in shell.stdout.bytes { … }
+/// for await chunk in Shell.current.stdout.bytes { … }
 ///
 /// // Or drain the whole thing once you know the producer is done:
-/// shell.stdout.finish()
-/// let text = await shell.stdout.readAllString()
+/// Shell.current.stdout.finish()
+/// let text = await Shell.current.stdout.readAllString()
 /// ```
 ///
 /// The `onWrite` hook is called synchronously on every write in
@@ -59,7 +59,7 @@ public final class OutputSink: @unchecked Sendable {
         write(Data(text.utf8))
     }
 
-    /// Terse form — `shell.stdout("hi\n")`.
+    /// Terse form — `Shell.current.stdout("hi\n")`.
     public func callAsFunction(_ data: Data) { write(data) }
     public func callAsFunction(_ text: String) { write(text) }
 

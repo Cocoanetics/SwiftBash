@@ -31,13 +31,13 @@ public struct WcCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         let showAll = !lines && !words && !bytes && !chars
 
         if files.isEmpty {
-            let data = await shell.stdin.readAllData()
+            let data = await Shell.current.stdin.readAllData()
             let counts = compute(data: data)
-            shell.stdout(format(counts: counts, label: nil,
+            Shell.current.stdout(format(counts: counts, label: nil,
                                 showAll: showAll) + "\n")
             return .success
         }
@@ -47,22 +47,22 @@ public struct WcCommand: ParsableBashCommand {
         for path in files {
             do {
                 let data = path == "-"
-                    ? await shell.stdin.readAllData()
-                    : try await shell.readDataAtPath(path)
+                    ? await Shell.current.stdin.readAllData()
+                    : try await Shell.current.readDataAtPath(path)
                 let c = compute(data: data)
                 total.add(c)
-                shell.stdout(format(counts: c, label: path,
+                Shell.current.stdout(format(counts: c, label: path,
                                     showAll: showAll) + "\n")
             } catch FileSystemError.notFound {
-                shell.stderr("wc: \(path): No such file or directory\n")
+                Shell.current.stderr("wc: \(path): No such file or directory\n")
                 hadError = true
             } catch {
-                shell.stderr("wc: \(path): \(error)\n")
+                Shell.current.stderr("wc: \(path): \(error)\n")
                 hadError = true
             }
         }
         if files.count > 1 {
-            shell.stdout(format(counts: total, label: "total",
+            Shell.current.stdout(format(counts: total, label: "total",
                                 showAll: showAll) + "\n")
         }
         return hadError ? .failure : .success

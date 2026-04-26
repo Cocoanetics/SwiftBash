@@ -19,29 +19,29 @@ public struct TrapCommand: Command {
     public let name = "trap"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
 
         if args.isEmpty {
-            for sig in shell.traps.keys.sorted() {
-                shell.stdout(formatTrap(sig: sig, body: shell.traps[sig]!))
+            for sig in Shell.current.traps.keys.sorted() {
+                Shell.current.stdout(formatTrap(sig: sig, body: Shell.current.traps[sig]!))
             }
             return .success
         }
 
         if args[0] == "-l" {
-            shell.stdout(knownSignals.joined(separator: " ") + "\n")
+            Shell.current.stdout(knownSignals.joined(separator: " ") + "\n")
             return .success
         }
 
         if args[0] == "-p" {
             let names = Array(args.dropFirst())
             let toShow: [String] = names.isEmpty
-                ? Array(shell.traps.keys.sorted())
+                ? Array(Shell.current.traps.keys.sorted())
                 : names.map(canonicalize)
             for sig in toShow {
-                if let body = shell.traps[sig] {
-                    shell.stdout(formatTrap(sig: sig, body: body))
+                if let body = Shell.current.traps[sig] {
+                    Shell.current.stdout(formatTrap(sig: sig, body: body))
                 }
             }
             return .success
@@ -52,7 +52,7 @@ public struct TrapCommand: Command {
         //   `''` → ignore (store empty string)
         //   any other text → command to run
         guard args.count >= 2 else {
-            shell.stderr("trap: usage: trap [-lp] [[arg] signal_spec ...]\n")
+            Shell.current.stderr("trap: usage: trap [-lp] [[arg] signal_spec ...]\n")
             return ExitStatus(2)
         }
         let command = args[0]
@@ -61,13 +61,13 @@ public struct TrapCommand: Command {
         for raw in sigSpecs {
             let sig = canonicalize(raw)
             guard isValidSignal(sig) else {
-                shell.stderr("trap: \(raw): invalid signal specification\n")
+                Shell.current.stderr("trap: \(raw): invalid signal specification\n")
                 return ExitStatus(1)
             }
             if command == "-" {
-                shell.traps.removeValue(forKey: sig)
+                Shell.current.traps.removeValue(forKey: sig)
             } else {
-                shell.traps[sig] = command
+                Shell.current.traps[sig] = command
             }
         }
         return .success

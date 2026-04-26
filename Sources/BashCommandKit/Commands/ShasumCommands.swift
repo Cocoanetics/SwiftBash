@@ -21,8 +21,8 @@ public struct Md5sumCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        try await runSum(files: files, displayFor: { $0 ?? "-" }, shell: shell) {
+    public mutating func execute() async throws -> ExitStatus {
+        try await runSum(files: files, displayFor: { $0 ?? "-" }) {
             ShasumHelpers.hex(of: Insecure.MD5.hash(data: $0))
         }
     }
@@ -42,8 +42,8 @@ public struct Sha1sumCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        try await runSum(files: files, displayFor: { $0 ?? "-" }, shell: shell) {
+    public mutating func execute() async throws -> ExitStatus {
+        try await runSum(files: files, displayFor: { $0 ?? "-" }) {
             ShasumHelpers.hex(of: Insecure.SHA1.hash(data: $0))
         }
     }
@@ -63,8 +63,8 @@ public struct Sha256sumCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
-        try await runSum(files: files, displayFor: { $0 ?? "-" }, shell: shell) {
+    public mutating func execute() async throws -> ExitStatus {
+        try await runSum(files: files, displayFor: { $0 ?? "-" }) {
             ShasumHelpers.hex(of: SHA256.hash(data: $0))
         }
     }
@@ -75,21 +75,21 @@ public struct Sha256sumCommand: ParsableBashCommand {
 private func runSum(
     files: [String],
     displayFor: (String?) -> String,
-    shell: Shell,
+    
     hash: (Data) -> String
 ) async throws -> ExitStatus {
     if files.isEmpty {
-        let data = await shell.stdin.readAllData()
-        shell.stdout("\(hash(data))  \(displayFor(nil))\n")
+        let data = await Shell.current.stdin.readAllData()
+        Shell.current.stdout("\(hash(data))  \(displayFor(nil))\n")
         return .success
     }
     var hadError = false
     for f in files {
         do {
-            let data = try await shell.readDataAtPath(f)
-            shell.stdout("\(hash(data))  \(f)\n")
+            let data = try await Shell.current.readDataAtPath(f)
+            Shell.current.stdout("\(hash(data))  \(f)\n")
         } catch {
-            shell.stderr("\(f): \(error)\n")
+            Shell.current.stderr("\(f): \(error)\n")
             hadError = true
         }
     }
@@ -111,7 +111,7 @@ public struct ShasumCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute(shell: Shell) async throws -> ExitStatus {
+    public mutating func execute() async throws -> ExitStatus {
         var algorithm = 1
         var files: [String] = []
 
@@ -125,7 +125,7 @@ public struct ShasumCommand: ParsableBashCommand {
             }
             if a == "-a" || a == "--algorithm" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    shell.stderr("shasum: option requires a numeric argument: \(a)\n")
+                    Shell.current.stderr("shasum: option requires a numeric argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 algorithm = n
@@ -141,22 +141,19 @@ public struct ShasumCommand: ParsableBashCommand {
 
         switch algorithm {
         case 1:
-            return try await runSum(files: files, displayFor: { $0 ?? "-" },
-                                    shell: shell) {
+            return try await runSum(files: files, displayFor: { $0 ?? "-" }) {
                 ShasumHelpers.hex(of: Insecure.SHA1.hash(data: $0))
             }
         case 256:
-            return try await runSum(files: files, displayFor: { $0 ?? "-" },
-                                    shell: shell) {
+            return try await runSum(files: files, displayFor: { $0 ?? "-" }) {
                 ShasumHelpers.hex(of: SHA256.hash(data: $0))
             }
         case 512:
-            return try await runSum(files: files, displayFor: { $0 ?? "-" },
-                                    shell: shell) {
+            return try await runSum(files: files, displayFor: { $0 ?? "-" }) {
                 ShasumHelpers.hex(of: SHA512.hash(data: $0))
             }
         default:
-            shell.stderr("shasum: unsupported algorithm: \(algorithm)\n")
+            Shell.current.stderr("shasum: unsupported algorithm: \(algorithm)\n")
             return ExitStatus(2)
         }
     }

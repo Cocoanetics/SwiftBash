@@ -25,7 +25,7 @@ public struct PrintfCommand: Command {
     public let name = "printf"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         var i = 1
         var assignTo: String? = nil
 
@@ -33,7 +33,7 @@ public struct PrintfCommand: Command {
             let a = argv[i]
             if a == "-v" {
                 guard i + 1 < argv.count else {
-                    shell.stderr("printf: -v: option requires an argument\n")
+                    Shell.current.stderr("printf: -v: option requires an argument\n")
                     return ExitStatus(2)
                 }
                 assignTo = argv[i + 1]
@@ -47,7 +47,7 @@ public struct PrintfCommand: Command {
         }
 
         guard i < argv.count else {
-            shell.stderr("printf: usage: printf [-v var] format [arguments]\n")
+            Shell.current.stderr("printf: usage: printf [-v var] format [arguments]\n")
             return ExitStatus(2)
         }
 
@@ -67,9 +67,9 @@ public struct PrintfCommand: Command {
         } while argIdx < args.count
 
         if let assignTo {
-            shell.environment[assignTo] = output
+            Shell.current.environment[assignTo] = output
         } else {
-            shell.stdout(output)
+            Shell.current.stdout(output)
         }
         return .success
     }

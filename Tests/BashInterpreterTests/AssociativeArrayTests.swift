@@ -59,10 +59,10 @@ import Testing
         // Dict ordering isn't stable, so we just check the SET of
         // keys via a custom collector command.
         let cap = makeShell()
-        cap.shell.register(name: "collect") { argv, shell in
+        cap.shell.register(name: "collect") { argv in
             let keys = Set(argv.dropFirst())
             let sorted = keys.sorted()
-            shell.stdout(sorted.joined(separator: ",") + "\n")
+            Shell.current.stdout(sorted.joined(separator: ",") + "\n")
             return .success
         }
         try await cap.shell.run("""
@@ -77,8 +77,8 @@ import Testing
 
     @Test func keysCountMatchesInsertions() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "argc") { argv, shell in
-            shell.stdout("\(argv.count - 1)\n")
+        cap.shell.register(name: "argc") { argv in
+            Shell.current.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run("""
@@ -95,8 +95,8 @@ import Testing
 
     @Test func valuesCountMatchesInsertions() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "argc") { argv, shell in
-            shell.stdout("\(argv.count - 1)\n")
+        cap.shell.register(name: "argc") { argv in
+            Shell.current.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run("""
@@ -150,8 +150,8 @@ import Testing
 
     @Test func valuesFedThroughCommand() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "join") { argv, shell in
-            shell.stdout(argv.dropFirst().sorted().joined(separator: ",") + "\n")
+        cap.shell.register(name: "join") { argv in
+            Shell.current.stdout(argv.dropFirst().sorted().joined(separator: ",") + "\n")
             return .success
         }
         try await cap.shell.run("""

@@ -16,11 +16,11 @@ public struct SetCommand: Command {
     public let name = "set"
     public init() {}
 
-    public func run(_ argv: [String], shell: Shell) async throws -> ExitStatus {
+    public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
         if args.isEmpty {
-            for (i, value) in shell.positionalParameters.enumerated() {
-                shell.stdout("\(i + 1)=\(value)\n")
+            for (i, value) in Shell.current.positionalParameters.enumerated() {
+                Shell.current.stdout("\(i + 1)=\(value)\n")
             }
             return .success
         }
@@ -29,18 +29,18 @@ public struct SetCommand: Command {
         while i < args.count {
             let a = args[i]
             if a == "--" {
-                shell.positionalParameters = Array(args[(i + 1)...])
+                Shell.current.positionalParameters = Array(args[(i + 1)...])
                 return .success
             }
             // `-o NAME` / `+o NAME`
             if a == "-o" || a == "+o" {
                 guard i + 1 < args.count else {
-                    shell.stderr("set: \(a): option name required\n")
+                    Shell.current.stderr("set: \(a): option name required\n")
                     return ExitStatus(2)
                 }
                 let on = (a == "-o")
-                if let err = applyLongOption(args[i + 1], on: on, shell: shell) {
-                    shell.stderr(err)
+                if let err = applyLongOption(args[i + 1], on: on) {
+                    Shell.current.stderr(err)
                     return ExitStatus(2)
                 }
                 i += 2
@@ -50,8 +50,8 @@ public struct SetCommand: Command {
             if (a.hasPrefix("-") || a.hasPrefix("+")), a.count >= 2 {
                 let on = a.hasPrefix("-")
                 for ch in a.dropFirst() {
-                    if let err = applyShortFlag(ch, on: on, shell: shell) {
-                        shell.stderr(err)
+                    if let err = applyShortFlag(ch, on: on) {
+                        Shell.current.stderr(err)
                         return ExitStatus(2)
                     }
                 }
@@ -60,7 +60,7 @@ public struct SetCommand: Command {
             }
             // Anything else: bash treats `set arg1 arg2` as setting
             // positional parameters (POSIX). Match that.
-            shell.positionalParameters = Array(args[i...])
+            Shell.current.positionalParameters = Array(args[i...])
             return .success
         }
         return .success
@@ -68,11 +68,10 @@ public struct SetCommand: Command {
 
     /// Apply a single short-flag character. Returns an error string on
     /// unknown flags, `nil` on success.
-    private func applyShortFlag(_ ch: Character, on: Bool,
-                                shell: Shell) -> String? {
+    private func applyShortFlag(_ ch: Character, on: Bool) -> String? {
         switch ch {
-        case "e": shell.errexit = on
-        case "u": shell.nounset = on
+        case "e": Shell.current.errexit = on
+        case "u": Shell.current.nounset = on
         default:
             return "set: -\(ch): invalid option\n"
         }
@@ -80,12 +79,11 @@ public struct SetCommand: Command {
     }
 
     /// Apply a long option name (`-o NAME` / `+o NAME`).
-    private func applyLongOption(_ name: String, on: Bool,
-                                 shell: Shell) -> String? {
+    private func applyLongOption(_ name: String, on: Bool) -> String? {
         switch name {
-        case "errexit":  shell.errexit = on
-        case "pipefail": shell.pipefail = on
-        case "nounset":  shell.nounset = on
+        case "errexit":  Shell.current.errexit = on
+        case "pipefail": Shell.current.pipefail = on
+        case "nounset":  Shell.current.nounset = on
         default:
             return "set: -o: invalid option name: \(name)\n"
         }
