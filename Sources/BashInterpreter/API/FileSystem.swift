@@ -133,7 +133,7 @@ public extension FileSystem {
             onWrite: { data in buffer.append(data) },
             onFinish: {
                 let data = buffer.drain()
-                guard !data.isEmpty || append == false else { return }
+                guard !data.isEmpty || !append else { return }
                 // Fire-and-forget: file systems using this fallback
                 // don't expose per-chunk streaming anyway.
                 let toAppend: Data = data

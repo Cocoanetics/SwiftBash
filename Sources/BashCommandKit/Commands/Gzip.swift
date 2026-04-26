@@ -5,138 +5,6 @@ import Foundation
 
 // MARK: - gzip
 
-/// `gzip [-c] [-d] [FILE...]` — compress files using the gzip format.
-///
-/// Default behaviour (per BSD/GNU `gzip`):
-/// - Without `-c`: each FILE is replaced by `FILE.gz`; stdin → stdout
-///   when no FILEs are given.
-/// - With `-c`: results stream to stdout instead of replacing files.
-/// - With `-d` (or invoked as `gunzip`): decompress instead, replacing
-///   `FILE.gz` with `FILE` (or stripping any other suffix).
-///
-/// Wraps Apple's `Compression` framework (raw DEFLATE via
-/// `COMPRESSION_ZLIB`) with a hand-coded gzip header / trailer. CRC32
-/// is computed in pure Swift so we don't pull in `zlib`.
-public struct GzipCommand: ParsableBashCommand {
-    public static let configuration = CommandConfiguration(
-        commandName: "gzip",
-        abstract: "Compress (or `-d` decompress) using gzip."
-    )
-
-    @Flag(name: [.customShort("c"), .customLong("stdout")],
-          help: "Write output to stdout instead of replacing files.")
-    public var toStdout: Bool = false
-
-    @Flag(name: [.customShort("d"), .customLong("decompress")],
-          help: "Decompress instead of compressing.")
-    public var decompress: Bool = false
-
-    @Argument(help: "Files to (de)compress. Reads stdin if empty.")
-    public var files: [String] = []
-
-    public init() {}
-
-    public mutating func execute() async throws -> ExitStatus {
-        try await runGzip(decompress: decompress,
-                          toStdout: toStdout,
-                          files: files,
-                          commandName: "gzip")
-    }
-}
-
-// MARK: - gunzip
-
-/// `gunzip [-c] [FILE...]` — decompress gzip-format files. Same as
-/// `gzip -d`. See ``GzipCommand`` for the implementation.
-public struct GunzipCommand: ParsableBashCommand {
-    public static let configuration = CommandConfiguration(
-        commandName: "gunzip",
-        abstract: "Decompress gzip-format files."
-    )
-
-    @Flag(name: [.customShort("c"), .customLong("stdout")],
-          help: "Write output to stdout instead of replacing files.")
-    public var toStdout: Bool = false
-
-    @Argument(help: "Files to decompress. Reads stdin if empty.")
-    public var files: [String] = []
-
-    public init() {}
-
-    public mutating func execute() async throws -> ExitStatus {
-        try await runGzip(decompress: true,
-                          toStdout: toStdout,
-                          files: files,
-                          commandName: "gunzip")
-    }
-}
-
-// MARK: - shared driver
-
-private func runGzip(decompress: Bool,
-                     toStdout: Bool,
-                     files: [String],
-                     commandName: String) async throws -> ExitStatus {
-    if files.isEmpty {
-        let input = await Shell.current.stdin.readAllData()
-        do {
-            let output = decompress
-                ? try Gzip.decode(input)
-                : Gzip.encode(input)
-            Shell.current.stdout(output)
-        } catch let err as Gzip.Error {
-            Shell.current.stderr("\(commandName): \(err)\n")
-            return .failure
-        }
-        return .success
-    }
-
-    var hadError = false
-    for f in files {
-        let data: Data
-        do {
-            data = try await Shell.current.readDataAtPath(f)
-        } catch {
-            Shell.current.stderr("\(commandName): \(f): \(error)\n")
-            hadError = true
-            continue
-        }
-        let output: Data
-        do {
-            output = decompress ? try Gzip.decode(data) : Gzip.encode(data)
-        } catch let err as Gzip.Error {
-            Shell.current.stderr("\(commandName): \(f): \(err)\n")
-            hadError = true
-            continue
-        } catch {
-            Shell.current.stderr("\(commandName): \(f): \(error)\n")
-            hadError = true
-            continue
-        }
-
-        if toStdout {
-            Shell.current.stdout(output)
-        } else {
-            // File replacement: write the new path, remove the old.
-            let target = decompress
-                ? Gzip.strippedSuffix(f)
-                : f + ".gz"
-            do {
-                try await Shell.current.writeData(
-                    output, toPath: target, append: false)
-                try await Shell.current.fileSystem.remove(
-                    Shell.current.resolvePath(f), recursive: false)
-            } catch {
-                Shell.current.stderr("\(commandName): \(f): \(error)\n")
-                hadError = true
-            }
-        }
-    }
-    return hadError ? .failure : .success
-}
-
-// MARK: - codec
-
 /// Tiny gzip codec: header / trailer in pure Swift, DEFLATE body via
 /// `Compression.compression_{encode,decode}_buffer` (one-shot,
 /// in-memory). Big files (>4 GiB) aren't supported because gzip's
@@ -311,3 +179,71 @@ enum Gzip {
         return crc ^ 0xFFFFFFFF
     }
 }
+func runGzip(decompress: Bool,
+                     toStdout: Bool,
+                     files: [String],
+                     commandName: String) async throws -> ExitStatus {
+    if files.isEmpty {
+        let input = await Shell.current.stdin.readAllData()
+        do {
+            let output = decompress
+                ? try Gzip.decode(input)
+                : Gzip.encode(input)
+            Shell.current.stdout(output)
+        } catch let err as Gzip.Error {
+            Shell.current.stderr("\(commandName): \(err)\n")
+            return .failure
+        }
+        return .success
+    }
+
+    var hadError = false
+    for f in files {
+        let data: Data
+        do {
+            data = try await Shell.current.readDataAtPath(f)
+        } catch {
+            Shell.current.stderr("\(commandName): \(f): \(error)\n")
+            hadError = true
+            continue
+        }
+        let output: Data
+        do {
+            output = decompress ? try Gzip.decode(data) : Gzip.encode(data)
+        } catch let err as Gzip.Error {
+            Shell.current.stderr("\(commandName): \(f): \(err)\n")
+            hadError = true
+            continue
+        } catch {
+            Shell.current.stderr("\(commandName): \(f): \(error)\n")
+            hadError = true
+            continue
+        }
+
+        if toStdout {
+            Shell.current.stdout(output)
+        } else {
+            // File replacement: write the new path, remove the old.
+            let target = decompress
+                ? Gzip.strippedSuffix(f)
+                : f + ".gz"
+            do {
+                try await Shell.current.writeData(
+                    output, toPath: target, append: false)
+                try await Shell.current.fileSystem.remove(
+                    Shell.current.resolvePath(f), recursive: false)
+            } catch {
+                Shell.current.stderr("\(commandName): \(f): \(error)\n")
+                hadError = true
+            }
+        }
+    }
+    return hadError ? .failure : .success
+}
+
+// MARK: - codec
+
+/// Tiny gzip codec: header / trailer in pure Swift, DEFLATE body via
+/// `Compression.compression_{encode,decode}_buffer` (one-shot,
+/// in-memory). Big files (>4 GiB) aren't supported because gzip's
+

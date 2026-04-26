@@ -31,7 +31,7 @@ enum AwkBuiltins {
             if args.isEmpty { return .number(0) }
             return .number(cos(try AwkExpressions.eval(ctx, args[0]).asNumber))
         case "atan2":
-            let y = args.count > 0 ? try AwkExpressions.eval(ctx, args[0]).asNumber : 0
+            let y = !args.isEmpty ? try AwkExpressions.eval(ctx, args[0]).asNumber : 0
             let x = args.count > 1 ? try AwkExpressions.eval(ctx, args[1]).asNumber : 0
             return .number(atan2(y, x))
         case "log":

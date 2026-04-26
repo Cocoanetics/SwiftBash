@@ -1220,7 +1220,7 @@ enum JqBuiltins {
                         for j in 0..<nArr.count {
                             if i + j >= arr.count || !JqValue.jqEqual(arr[i + j], nArr[j]) { ok = false; break }
                         }
-                        if ok && nArr.count > 0 { return .number(Double(i)) }
+                        if ok && !nArr.isEmpty { return .number(Double(i)) }
                     }
                     return .null
                 case (.array(let arr), _):

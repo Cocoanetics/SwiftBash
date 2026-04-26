@@ -1,7 +1,7 @@
 import Foundation
 
 /// `let EXPR…` — evaluate each ARG as a bash arithmetic expression in
-/// the current Shell.current. Assignments inside the expression (`x=5`,
+/// the current shell. Assignments inside the expression (`x=5`,
 /// `((x++))`-style) take effect on shell variables.
 ///
 /// Exit status: 0 if the *last* expression evaluated to non-zero, 1 if

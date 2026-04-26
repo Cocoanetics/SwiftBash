@@ -9,8 +9,8 @@ import Foundation
 ///         "hello \(argv.dropFirst().joined(separator: " "))\n")
 ///     return .success
 /// }
-/// Shell.current.register(greet)
-/// try Shell.current.run("greet world")   // → hello world
+/// shell.register(greet)
+/// try shell.run("greet world")   // → hello world
 /// ```
 ///
 /// The closure reads shell state via ``Shell/current`` (a `@TaskLocal`

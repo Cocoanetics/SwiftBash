@@ -2,7 +2,7 @@ import Foundation
 import BashSyntax
 
 /// `eval [ARG…]` — concatenate ARGs with spaces and execute the result
-/// as bash code in the *current* Shell.current. Variables, functions, and
+/// as bash code in the *current* shell. Variables, functions, and
 /// directory state set by the eval'd code persist.
 ///
 /// Mirrors `source`'s in-shell execution but without reading a file or

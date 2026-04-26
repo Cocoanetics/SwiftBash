@@ -32,8 +32,8 @@ import BashInterpreter
 /// }
 ///
 /// let shell = Shell()
-/// Shell.current.register(Greet.self)
-/// try Shell.current.run("greet --loud oliver")   // → HELLO OLIVER
+/// shell.register(Greet.self)
+/// try shell.run("greet --loud oliver")   // → HELLO OLIVER
 /// ```
 ///
 /// Implementations read shell state via ``Shell/current`` (the

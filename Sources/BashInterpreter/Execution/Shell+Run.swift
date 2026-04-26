@@ -273,7 +273,7 @@ extension Shell {
     }
 
     /// Fire the `DEBUG` trap if registered. Called before each simple
-    /// command. The trap body is evaluated in the current Shell.current.
+    /// command. The trap body is evaluated in the current shell.
     func fireDebugTrap() async throws {
         guard let body = traps["DEBUG"], !runningTraps.contains("DEBUG") else { return }
         runningTraps.insert("DEBUG")

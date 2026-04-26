@@ -2,7 +2,7 @@ import Foundation
 import BashSyntax
 
 /// `source PATH [ARGS…]` (also spelled `.`) — read and execute the
-/// file's contents in the *current* Shell.current. Variables and function
+/// file's contents in the *current* shell. Variables and function
 /// definitions made by the sourced script persist.
 ///
 /// Extra args become the sourced script's positional parameters

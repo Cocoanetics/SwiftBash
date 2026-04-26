@@ -11,8 +11,8 @@ import BashSyntax
 ///
 /// ```swift
 /// let shell = Shell()
-/// Shell.current.environment["PATH"] = "/usr/bin:/bin"
-/// try await Shell.current.run("echo $PATH")
+/// shell.environment["PATH"] = "/usr/bin:/bin"
+/// try await shell.run("echo $PATH")
 /// ```
 ///
 /// The interpreter is fully async: every `run` is an `await`, and
