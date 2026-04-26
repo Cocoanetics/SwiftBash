@@ -465,22 +465,26 @@ try shell.run("""
 
 ## What's not implemented yet
 
-- Subprocess execution. Target is iOS; every command runs in-process
+- **Subprocess execution.** Target is iOS; every command runs in-process
   as a registered `Command` (we never call `Process` / `fork` / `exec`).
-- File / fd redirections (`> out`, `< in`, `<<<`, heredocs). Parser
-  accepts them; the interpreter throws on them.
-- Subshell environment isolation — `( X=inner )` currently leaks `X`
-  out because there's no subprocess boundary yet.
-- `for VAR; do … done` (implicit positional parameters).
-- Process substitution `<(…)`, `>(…)`, and here-strings `<<<`.
-- Filename globbing (`*.sh` expanding to matching files) and word
-  splitting on `$IFS`.
-- Command substitution and arithmetic inside the "word" of a
-  parameter operator (e.g. `${var:-$(date)}` or `${var:-$((1+2))}`);
-  simple `$name`/`${…}` interpolation works.
+  Background `&` runs foreground; job control (`bg`/`fg`/`jobs`) is out
+  of scope.
+- **Real `/dev/fd/N` process substitution.** `<(cmd)` and `>(cmd)` work
+  via temp files in the configured filesystem. Visible behaviour matches
+  bash; performance for very large streams will differ.
 
-These are the natural next increments; the skeleton gives each of them
-a concrete place to land.
+## Bash 4.x semantics, not 3.2
+
+SwiftBash targets **bash 4.x semantics** (case conversion, `${arr[-1]}`,
+`declare -A`, `mapfile`, `globstar`, padded `{01..05}`, …) — not the
+bash 3.2 (2007) that ships as `/bin/bash` on macOS. When you see a
+difference between SwiftBash and the macOS-shipped `bash`, install a
+current bash (`brew install bash`) and SwiftBash almost always agrees
+with it.
+
+See [Docs/BashVersionConformance.md](Docs/BashVersionConformance.md)
+for the full catalogue of features where this matters, with
+side-by-side examples.
 
 ## CLI: `swift-bash`
 
