@@ -49,7 +49,8 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch visible .hidden")
         try await cap.shell.run("ls -a")
-        #expect(cap.stdout == ".hidden\nvisible\n")
+        // POSIX ls -a includes . and ..
+        #expect(cap.stdout == ".\n..\n.hidden\nvisible\n")
     }
 
     @Test func lsOnMissingPathFails() async throws {

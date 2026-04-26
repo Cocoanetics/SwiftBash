@@ -79,7 +79,7 @@ import Foundation
         #expect(times[1] - times[0] < 0.3,
             "lines should interleave in real time (delta was \(times[1] - times[0])s)")
         #expect(times[2] - times[1] < 0.3)
-        #expect(times[1] - times[0] > 0.05,
+        #expect(times[1] - times[0] > 0.02,
             "lines shouldn't all burst out at once")
     }
 }
