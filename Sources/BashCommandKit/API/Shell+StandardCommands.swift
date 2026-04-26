@@ -94,6 +94,7 @@ extension Shell {
         register(StringsCommand.self)
         register(ColumnCommand.self)
         register(YqCommand.self)
+        register(DuCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
