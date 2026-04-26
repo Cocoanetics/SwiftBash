@@ -83,6 +83,9 @@ extension Shell {
         register(XargsCommand.self)
         register(SplitCommand.self)
         register(JoinCommand.self)
+        register(ExpandCommand.self)
+        register(UnexpandCommand.self)
+        register(FoldCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
