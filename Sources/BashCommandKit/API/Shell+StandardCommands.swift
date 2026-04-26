@@ -90,6 +90,9 @@ extension Shell {
         register(ReadlinkCommand.self)
         register(LnCommand.self)
         register(ChmodCommand.self)
+        register(TreeCommand.self)
+        register(StringsCommand.self)
+        register(ColumnCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
