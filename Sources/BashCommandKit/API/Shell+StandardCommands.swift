@@ -98,6 +98,11 @@ extension Shell {
         register(TimeCommand())
         register(TimeoutCommand())
         register(TarCommand.self)
+        register(UnameCommand.self)
+        register(IdCommand.self)
+        register(DfCommand.self)
+        register(CmpCommand.self)
+        register(NohupCommand())
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
