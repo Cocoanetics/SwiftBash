@@ -32,7 +32,67 @@ extension Shell {
     /// clause).
     func expandToArgs(word node: Node) async throws -> [String] {
         let fragments = try await collectArgFragments(word: node)
-        return assembleArgs(fragments)
+        let assembled = assembleArgs(fragments)
+        return braceExpandIfWordHasUnquotedBraces(node: node, args: assembled)
+    }
+
+    /// Brace-expand `args` only when the *source* of `node` contains an
+    /// unquoted brace pattern. This guards against expanding braces that
+    /// arrived inside quoted JSON / regex literals where bash would not
+    /// expand them either.
+    func braceExpandIfWordHasUnquotedBraces(
+        node: Node, args: [String]
+    ) -> [String] {
+        let chars = Array(currentSource)
+        let lo = max(0, node.range.lowerBound)
+        let hi = min(chars.count, node.range.upperBound)
+        guard lo < hi else { return args }
+        guard hasUnquotedBracePattern(chars, lo: lo, hi: hi) else {
+            return args
+        }
+        return args.flatMap { BraceExpansion.expand($0) }
+    }
+
+    private func hasUnquotedBracePattern(_ chars: [Character],
+                                         lo: Int, hi: Int) -> Bool
+    {
+        var i = lo
+        var inSingle = false
+        var inDouble = false
+        var braceStart: Int? = nil
+        var sawDelim = false
+        var depth = 0
+        while i < hi {
+            let c = chars[i]
+            if c == "\\", i + 1 < hi {
+                i += 2; continue
+            }
+            if !inDouble, c == "'" { inSingle.toggle(); i += 1; continue }
+            if !inSingle, c == "\"" { inDouble.toggle(); i += 1; continue }
+            if inSingle || inDouble {
+                i += 1; continue
+            }
+            if c == "{" {
+                if depth == 0 { braceStart = i; sawDelim = false }
+                depth += 1
+            } else if c == "}" {
+                if depth > 0 {
+                    depth -= 1
+                    if depth == 0, braceStart != nil, sawDelim {
+                        return true
+                    }
+                }
+            } else if depth == 1 {
+                // A top-level comma, or `..` between braces, qualifies
+                // the pair as a brace expansion candidate.
+                if c == "," { sawDelim = true }
+                else if c == ".", i + 1 < hi, chars[i + 1] == "." {
+                    sawDelim = true
+                }
+            }
+            i += 1
+        }
+        return false
     }
 
     /// First half of argv expansion: walk the word and resolve every
@@ -273,9 +333,16 @@ extension Shell {
                 i += 1
                 if i < hi {
                     let next = chars[i]
-                    if inDoubleQuote, !"$`\"\\\n".contains(next) {
+                    // POSIX line continuation: `\<newline>` removes both
+                    // characters. Applies outside single quotes and even
+                    // inside double quotes.
+                    if next == "\n" {
+                        i += 1
+                        continue
+                    }
+                    if inDoubleQuote, !"$`\"\\".contains(next) {
                         // Inside "..." backslash only escapes the meta
-                        // chars `$ ` " \ \n`; everywhere else `\X` stays
+                        // chars `$ ` " \`; everywhere else `\X` stays
                         // as two characters (e.g. `\n` inside a dquoted
                         // word fed to `printf`).
                         literalBuf.append(c)

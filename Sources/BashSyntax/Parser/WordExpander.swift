@@ -197,7 +197,7 @@ struct WordExpander {
                 i += 1
                 continue
             }
-            if c == "'" {
+            if c == "'", !inDouble {
                 // Copy contents verbatim up to the closing '.
                 var j = i + 1
                 while j < chars.count, chars[j] != "'" {

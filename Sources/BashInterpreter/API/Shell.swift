@@ -153,6 +153,7 @@ public final class Shell: @unchecked Sendable {
             ExportCommand(),
             UnsetCommand(),
             ExitCommand(),
+            EvalCommand(),
             BreakCommand(),
             ContinueCommand(),
             SetCommand(),

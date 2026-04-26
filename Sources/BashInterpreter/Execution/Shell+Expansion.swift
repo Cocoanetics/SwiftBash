@@ -27,6 +27,7 @@ extension Shell {
         var queue = parts.sorted { $0.range.lowerBound < $1.range.lowerBound }
         var result = ""
         var i = lo
+        var inDouble = false
 
         while i < hi {
             if let head = queue.first, i == head.range.lowerBound {
@@ -37,7 +38,7 @@ extension Shell {
             }
             let c = chars[i]
 
-            if c == "'" {
+            if c == "'", !inDouble {
                 i += 1
                 while i < hi, chars[i] != "'" {
                     result.append(chars[i])
@@ -47,12 +48,20 @@ extension Shell {
                 continue
             }
             if c == "\"" {
+                inDouble.toggle()
                 i += 1
                 continue
             }
             if c == "\\" {
                 i += 1
                 if i < hi {
+                    // POSIX: `\<newline>` is a line continuation — both
+                    // characters are removed. Without this skip the
+                    // newline would be re-emitted as a literal byte.
+                    if chars[i] == "\n" {
+                        i += 1
+                        continue
+                    }
                     result.append(chars[i])
                     i += 1
                 }

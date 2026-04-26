@@ -370,11 +370,17 @@ extension Shell {
             throw error
         }
 
-        // Step 3 + 4: field splitting (uses scoped $IFS) then globbing.
+        // Step 3 + 4: field splitting (uses scoped $IFS), brace
+        // expansion, then globbing. Brace expansion is gated on the
+        // word's source so quoted braces (`'{a,b}'`, JSON literals)
+        // pass through untouched.
         var argv: [String] = []
         do {
             for (node, frags) in wordFragments {
-                for arg in assembleArgs(frags) {
+                let assembled = assembleArgs(frags)
+                let braced = braceExpandIfWordHasUnquotedBraces(
+                    node: node, args: assembled)
+                for arg in braced {
                     argv.append(contentsOf: try await globExpand(
                         arg, originalWord: node))
                 }
@@ -397,7 +403,14 @@ extension Shell {
         let result: ExitStatus
         do {
             guard let command = commands[argv[0]] else {
-                throw BashInterpreterError.commandNotFound(argv[0])
+                // Match bash: report to stderr, return 127, do not abort
+                // the script. Callers chain on `cmd || …`, `command -v`,
+                // etc., and rely on $? observability.
+                stderr("\(argv[0]): command not found\n")
+                restoreScope()
+                restoreRedirects()
+                await drainProcessSubs(from: procSubFrame)
+                return ExitStatus(127)
             }
             result = try await command.run(argv, shell: self)
         } catch {

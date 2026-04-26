@@ -104,10 +104,27 @@ public final class Tokenizer {
 
     // MARK: - Core reader
 
+    /// Advance past every `\<newline>` pair at the cursor. POSIX treats
+    /// these as line continuations — they exist only at the lexical
+    /// layer and never appear in tokens.
+    private func skipLineContinuations() {
+        while peek() == "\\", peek(offset: 1) == "\n" {
+            index += 2
+        }
+    }
+
     private func readTokenInternal() throws -> Token {
-        // skip blanks
-        while let c = peek(), SyntaxClass.isBlank(c) {
-            _ = getc()
+        // Drop any line continuations at the cursor, then skip blanks.
+        // Repeat: a continuation may sit between blanks (`\\<NL>` then
+        // more spaces then another `\\<NL>`), and a blank may sit before
+        // a continuation.
+        while true {
+            skipLineContinuations()
+            if let c = peek(), SyntaxClass.isBlank(c) {
+                _ = getc()
+                continue
+            }
+            break
         }
 
         // comments: swallow until newline (but don't consume it)
@@ -291,13 +308,21 @@ public final class Tokenizer {
 
             let cd = delimiters.last // current delimiter (from nested parse)
 
+            // Line continuation: `\<NL>` is removed silently mid-word
+            // (POSIX), so `a\<NL>b` tokenises to a single word `ab`.
+            if c == "\\", peek(offset: 1) == "\n" {
+                index += 2
+                continue
+            }
+
             if c == "\\" {
-                // Look at next char; if it's a newline, it's consumed implicitly
-                // by getc() already (line continuation). Otherwise include both.
-                _ = getc() // consume the backslash
+                // Pass `removeQuotedNewline: false` so we consume only the
+                // backslash itself; otherwise getc would silently swallow
+                // the trailing `\n` AND the next character, dropping bytes.
+                _ = getc(removeQuotedNewline: false)
                 if let next = peek() {
                     if next == "\n" {
-                        _ = getc() // skip escaped newline
+                        _ = getc(removeQuotedNewline: false)
                         continue
                     }
                     // Inside single quotes we wouldn't be here at all; for
@@ -896,8 +921,10 @@ public final class Tokenizer {
                                                range: bodyStart..<bodyEnd)
                     break
                 }
-                // Include the original (un-stripped) line + newline in body
-                body.append(line)
+                // For `<<-` the leading tabs are stripped from the body
+                // line as well as the delimiter check (POSIX). Plain
+                // `<<` keeps the line verbatim.
+                body.append(hh.stripTabs ? stripped : line)
                 body.append("\n")
                 if eof {
                     hh.bodyRange = bodyStart..<index

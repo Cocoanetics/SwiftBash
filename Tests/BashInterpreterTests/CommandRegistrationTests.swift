@@ -78,14 +78,9 @@ import Testing
         #expect(removed != nil)
         #expect(removed?.name == "once")
 
-        let err = await #expect(throws: BashInterpreterError.self) {
-            try await cap.shell.run("once")
-        }
-        guard case .commandNotFound(let name) = err else {
-            Issue.record("got \(String(describing: err))")
-            return
-        }
-        #expect(name == "once")
+        try await cap.shell.run("once")
+        #expect(cap.shell.lastExitStatus.code == 127)
+        #expect(cap.stderr.contains("once: command not found"))
     }
 
     @Test func unregisterReturnsNilIfMissing() {
@@ -145,10 +140,9 @@ import Testing
     @Test func initWithEmptyRegistryOnlyRunsExplicitlyRegistered() async throws {
         let cap = CapturingShell()
         cap.shell.commands = [:]
-        // Even `echo` is gone now.
-        await #expect(throws: (any Error).self) {
-            try await cap.shell.run("echo hi")
-        }
+        // Even `echo` is gone now — must report not-found and return 127.
+        try await cap.shell.run("echo hi")
+        #expect(cap.shell.lastExitStatus.code == 127)
 
         // Register something and verify only it works.
         cap.shell.register(name: "hi") { _, shell in

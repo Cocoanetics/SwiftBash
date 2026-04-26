@@ -358,6 +358,10 @@ extension Shell {
     /// assignments, `cd`, `unset`, and `export` inside don't leak out.
     /// stdout/stderr/stdin/commands/fileSystem are inherited, so
     /// output, redirection, and command lookup work normally.
+    ///
+    /// `exit N` inside the subshell terminates only the subshell — the
+    /// status is observable via `$?` in the parent. We catch the
+    /// ``ShellExit`` sentinel here so it doesn't unwind the parent run.
     private func executeSubshellGroup(list: [Node]) async throws -> ExitStatus {
         let sub = makeSubshell()
         sub.stdin = stdin
@@ -365,12 +369,17 @@ extension Shell {
         sub.lastExitStatus = lastExitStatus
 
         var last = ExitStatus.success
-        for node in list {
-            if case .reservedWord = node.kind { continue }
-            last = try await sub.execute(node)
-            sub.lastExitStatus = last
+        do {
+            for node in list {
+                if case .reservedWord = node.kind { continue }
+                last = try await sub.execute(node)
+                sub.lastExitStatus = last
+            }
+        } catch let exit as ShellExit {
+            // Subshell-scoped exit: capture the status and let the
+            // parent see it as `$?` without terminating its own run.
+            last = exit.status
         }
-        // The exit status — but NOT the env mutations — propagates back.
         lastExitStatus = last
         return last
     }

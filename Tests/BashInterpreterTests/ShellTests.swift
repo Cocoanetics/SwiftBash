@@ -19,16 +19,13 @@ import Testing
         #expect(cap.stdout == "")
     }
 
-    @Test func commandNotFoundThrows() async {
+    @Test func commandNotFoundReturns127() async throws {
+        // Bash behaviour: print to stderr, set $? = 127, keep going.
+        // The script must not abort, so chained `cmd || …` works.
         let cap = CapturingShell()
-        let err = await #expect(throws: BashInterpreterError.self) {
-            try await cap.shell.run("nosuchcommand")
-        }
-        guard case .commandNotFound(let name) = err else {
-            Issue.record("expected commandNotFound, got \(String(describing: err))")
-            return
-        }
-        #expect(name == "nosuchcommand")
+        try await cap.shell.run("nosuchcommand")
+        #expect(cap.shell.lastExitStatus.code == 127)
+        #expect(cap.stderr.contains("nosuchcommand: command not found"))
     }
 
     @Test func lastExitStatusTracksCommands() async throws {

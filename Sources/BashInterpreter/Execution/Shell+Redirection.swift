@@ -77,8 +77,13 @@ extension Shell {
             let target = try await expand(word: output)
             stdin = try await openInputPath(target)
 
-        case "<<":
+        case "<<", "<<-":
             // Heredoc. The parser captures the body as `.heredoc(value:)`.
+            // For `<<-` the parser already stripped leading tabs from
+            // each body line (and the closing-delimiter line) before
+            // attaching the body, so this case can treat the two forms
+            // identically.
+            //
             // If the delimiter was *quoted* (`<<'EOF'`, `<<"EOF"`, or
             // `<<\EOF`) the body is fed verbatim; otherwise it's
             // expanded the same way the inside of a double-quoted

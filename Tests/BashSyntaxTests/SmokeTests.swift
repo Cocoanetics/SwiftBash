@@ -39,6 +39,35 @@ import Testing
         #expect(tokens == ["a", "b", "\n"])
     }
 
+    // MARK: Line continuation
+
+    @Test func lineContinuationBetweenWords() throws {
+        let tokens = try BashSyntax.split("echo a \\\nb")
+        #expect(tokens == ["echo", "a", "b"])
+    }
+
+    @Test func lineContinuationGluesWordHalves() throws {
+        let tokens = try BashSyntax.split("echo a\\\nb")
+        #expect(tokens == ["echo", "ab"])
+    }
+
+    @Test func lineContinuationInsidePipeline() throws {
+        let tokens = try BashSyntax.split("echo a \\\n| cat")
+        #expect(tokens == ["echo", "a", "|", "cat"])
+    }
+
+    // MARK: Quote nesting
+
+    @Test func singleQuotesInsideDoubleQuotesAreLiteral() throws {
+        let tokens = try BashSyntax.split(#"echo "a 'b' c""#)
+        #expect(tokens == ["echo", "a 'b' c"])
+    }
+
+    @Test func doubleQuotesInsideSingleQuotesAreLiteral() throws {
+        let tokens = try BashSyntax.split(#"echo 'a "b" c'"#)
+        #expect(tokens == ["echo", #"a "b" c"#])
+    }
+
     @Test func topLevelAndAnd() throws {
         let node = try BashSyntax.parseSingle("true && cat <(echo $(echo foo))")
         guard case .list(let parts) = node.kind else {
