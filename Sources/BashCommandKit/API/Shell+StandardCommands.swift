@@ -97,6 +97,7 @@ extension Shell {
         register(DuCommand.self)
         register(TimeCommand())
         register(TimeoutCommand())
+        register(TarCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
