@@ -27,6 +27,18 @@ struct ExecCommand: AsyncParsableCommand {
         abstract: "Execute a bash script via the SwiftBash interpreter."
     )
 
+    @Option(name: .long,
+            help: ArgumentHelp(
+                "Confine the script to a sandboxed view of HOST_DIR. "
+                + "The host directory is mounted at the virtual --workspace "
+                + "path (default /batch); writes are kept in memory and "
+                + "never touch disk. Paths outside the mount return ENOENT."))
+    var sandbox: String?
+
+    @Option(name: .long,
+            help: "Virtual mount point for --sandbox. Default: /batch.")
+    var workspace: String = "/batch"
+
     @Argument(help: "Path to a bash script file.")
     var scriptPath: String
 
@@ -37,7 +49,26 @@ struct ExecCommand: AsyncParsableCommand {
     func run() async throws {
         let source = try Self.readScript(at: scriptPath)
 
-        let shell = Shell(environment: .current())
+        var environment = Environment.current()
+        let fileSystem: FileSystem
+        if let sandboxRoot = sandbox {
+            do {
+                fileSystem = try SandboxedOverlayFileSystem(.init(
+                    root: sandboxRoot,
+                    mountPoint: workspace))
+            } catch let err as FileSystemError {
+                throw CLIError("--sandbox: \(err.description)")
+            }
+            // Drop the host's PWD; the script sees only the virtual mount.
+            environment.workingDirectory = workspace
+            environment["PWD"] = workspace
+            environment["OLDPWD"] = nil
+            environment["TMPDIR"] = "/tmp"
+        } else {
+            fileSystem = RealFileSystem()
+        }
+
+        let shell = Shell(environment: environment, fileSystem: fileSystem)
         shell.registerStandardCommands()
         shell.scriptName = scriptPath
         shell.positionalParameters = scriptArgs
