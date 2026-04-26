@@ -77,6 +77,7 @@ extension Shell {
         register(DiffCommand.self)
         register(GzipCommand.self)
         register(GunzipCommand.self)
+        register(JqCommand.self)
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
