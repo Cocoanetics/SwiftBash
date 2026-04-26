@@ -66,8 +66,21 @@ import Foundation
         let cap = makeShell()
         cap.shell.stdin = .string("a\n")
         let status = try await cap.shell.run("nl -b z")
-        #expect(status == .failure)
+        // POSIX usage-error exit (2), not generic 1.
+        #expect(status == ExitStatus(2))
         #expect(cap.stderr.contains("invalid body numbering style"))
+    }
+
+    @Test func combinedShortFlag() async throws {
+        let cap = makeShell()
+        cap.shell.stdin = .string("a\n\nb\n")
+        try await cap.shell.run("nl -ba")
+        // -ba should number all lines including the blank one.
+        let lines = cap.stdout.split(separator: "\n").map(String.init)
+        #expect(lines.count == 3)
+        #expect(lines[0].contains("1"))
+        #expect(lines[1].contains("2"))
+        #expect(lines[2].contains("3"))
     }
 
     // MARK: file mode
