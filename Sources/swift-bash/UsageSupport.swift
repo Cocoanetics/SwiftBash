@@ -133,6 +133,18 @@ enum UsageReportPrinter {
 }
 
 enum UsageSupport {
+    /// Tool names that LLM agents (Codex, Claude, …) call *through*
+    /// bash but that aren't real POSIX utilities — they're the
+    /// agent's own in-process helpers being shelled to. Excluded
+    /// from the coverage report because we'd never implement them
+    /// and they otherwise dominate the "missing commands" list.
+    ///
+    /// Add to this list when you spot a new agent-internal tool
+    /// being invoked via `bash -lc "<tool> …"`.
+    static let agentInternalCommands: Set<String> = [
+        "apply_patch", "applypatch",   // Codex file-edit helper
+    ]
+
     static func sessionFiles(rootPath: String) -> [URL] {
         let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
         guard let enumerator = FileManager.default.enumerator(
@@ -212,7 +224,17 @@ enum UsageSupport {
                 for node in nodes {
                     node.walk(&collector)
                 }
-                invocations.append(contentsOf: collector.invocations)
+                // Filter out agent-internal tool calls. Codex shells out
+                // to `apply_patch` (its in-process file-editing helper)
+                // by piping a heredoc into a bash invocation; the parser
+                // correctly sees it as a bash command, but it isn't a
+                // POSIX utility we'd ever implement and including it
+                // pollutes the coverage report with hundreds of "missing"
+                // rows for what's really one Codex tool.
+                let filtered = collector.invocations.filter {
+                    !Self.agentInternalCommands.contains($0.command)
+                }
+                invocations.append(contentsOf: filtered)
             } catch {
                 parseFailureCount += 1
             }
