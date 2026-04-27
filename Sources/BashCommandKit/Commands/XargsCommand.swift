@@ -141,6 +141,9 @@ public struct XargsCommand: ParsableBashCommand {
 
         var lastStatus: ExitStatus = .success
         for argv in invocations {
+            // `xargs -n1 huge-list cmd` runs N invocations; honour
+            // cancellation between them so kill -TERM lands.
+            try Task.checkCancellation()
             let line = argv.map(shellQuote).joined(separator: " ")
             if verbose { Shell.current.stderr(line + "\n") }
             do {

@@ -36,7 +36,9 @@ public actor ProcessTable {
 
     private var nextPID: Int32
     private var entries: [Int32: Entry] = [:]
-    private var tasks: [Int32: Task<ExitStatus, Error>] = [:]
+    /// Internal Tasks store the outcome (status + state) directly so
+    /// errors never need to escape the Task boundary.
+    private var tasks: [Int32: Task<TaskOutcome, Never>] = [:]
     /// Most-recently-spawned PID — what `$!` resolves to.
     public private(set) var lastBackgroundPID: Int32? = nil
 
@@ -60,24 +62,38 @@ public actor ProcessTable {
         nextPID += 1
         entries[pid] = Entry(pid: pid, command: command,
                              startedAt: Date(), state: .running)
-        let task = Task<ExitStatus, Error> { try await body() }
+        // Wrap the body in an internal `Task<…, Never>` so errors
+        // never escape. If a thrown error reached the unstructured
+        // Task's value, Swift's runtime would log it to stderr as a
+        // stray "Error: CancellationError()". Bottling the result as
+        // a (status, state) pair keeps that quiet.
+        let task = Task<TaskOutcome, Never> {
+            do {
+                let s = try await body()
+                return TaskOutcome(status: s, state: .exited(s))
+            } catch is CancellationError {
+                return TaskOutcome(status: ExitStatus(143), state: .cancelled)
+            } catch {
+                return TaskOutcome(
+                    status: ExitStatus(1),
+                    state: .failed(message: String(describing: error)))
+            }
+        }
         tasks[pid] = task
         lastBackgroundPID = pid
-        // Detached completion observer — flips state when the Task
-        // finishes so `ps` reflects "exited" without needing a `wait`.
+        // Completion observer — flips entry state when the Task ends
+        // so `ps` reports "exited" / "cancelled" without needing
+        // `wait`.
         Task { [weak self] in
-            let result: Entry.State
-            do {
-                let status = try await task.value
-                result = .exited(status)
-            } catch is CancellationError {
-                result = .cancelled
-            } catch {
-                result = .failed(message: String(describing: error))
-            }
-            await self?.markFinished(pid: pid, state: result)
+            let outcome = await task.value
+            await self?.markFinished(pid: pid, state: outcome.state)
         }
         return pid
+    }
+
+    private struct TaskOutcome: Sendable {
+        let status: ExitStatus
+        let state: Entry.State
     }
 
     /// Await the Task at `pid`; returns its exit status, or the status
@@ -93,9 +109,7 @@ public actor ProcessTable {
             }
         }
         guard let task = tasks[pid] else { return nil }
-        do { return try await task.value }
-        catch is CancellationError { return ExitStatus(143) }
-        catch { return ExitStatus(1) }
+        return await task.value.status
     }
 
     /// Wait for every still-running entry. Returns the LAST awaited

@@ -48,6 +48,7 @@ public struct StringsCommand: ParsableBashCommand {
         let inputs = files.isEmpty ? ["-"] : files
         var hadError = false
         for f in inputs {
+            try Task.checkCancellation()
             do {
                 let data: Data
                 if f == "-" { data = await Shell.current.stdin.readAllData() }

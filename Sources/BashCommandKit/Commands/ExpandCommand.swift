@@ -60,6 +60,7 @@ public struct ExpandCommand: ParsableBashCommand {
         let inputs = files.isEmpty ? ["-"] : files
         var hadError = false
         for f in inputs {
+            try Task.checkCancellation()
             do {
                 let text: String
                 if f == "-" { text = await Shell.current.stdin.readAllString() }

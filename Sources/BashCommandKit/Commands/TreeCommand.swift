@@ -77,6 +77,9 @@ public struct TreeCommand: ParsableBashCommand {
                       maxDepth: Int?, showHidden: Bool, dirsOnly: Bool,
                       fullPath: Bool, displayPath: String,
                       dirCount: inout Int, fileCount: inout Int) async {
+        // Honour cooperative cancel — the walk is non-throwing, so we
+        // can't use checkCancellation; bail explicitly.
+        if Task.isCancelled { return }
         if let m = maxDepth, depth > m { return }
         var entries = (try? await Shell.current.fileSystem.list(dir)) ?? []
         if !showHidden { entries = entries.filter { !$0.hasPrefix(".") } }

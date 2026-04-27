@@ -26,10 +26,12 @@ public struct TacCommand: ParsableBashCommand {
         }
         var hadError = false
         for f in files {
+            try Task.checkCancellation()
             do {
                 let data = try await Shell.current.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 for line in SortCommand.splitLines(text).reversed() {
+                    try Task.checkCancellation()
                     Shell.current.stdout(line + "\n")
                 }
             } catch {

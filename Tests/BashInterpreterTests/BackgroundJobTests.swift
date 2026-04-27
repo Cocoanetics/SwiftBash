@@ -97,4 +97,59 @@ import Foundation
             """)
         #expect(cap.stdout.contains("x=outer"))
     }
+
+    // MARK: Cancellation throughout commands
+
+    @Test func killCancelsLongRunningSleep() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            sleep 5 &
+            sleep 0.05
+            kill $!
+            wait $!
+            echo "rc=$?"
+            """)
+        // 128 + SIGTERM = 143; cooperative cancel via Task.sleep.
+        #expect(cap.stdout.contains("rc=143"))
+    }
+
+    @Test func killCancelsLongRunningSeq() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            seq 1 1000000000 > /dev/null &
+            sleep 0.05
+            kill $!
+            wait $!
+            echo "rc=$?"
+            """)
+        // The cancellation point inside SeqCommand's generator loop
+        // catches the cancel and unwinds within microseconds rather
+        // than running all billion iterations.
+        #expect(cap.stdout.contains("rc=143"))
+    }
+
+    @Test func killCancelsBusyShellLoop() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("""
+            (while true; do :; done) &
+            sleep 0.05
+            kill $!
+            wait $!
+            echo "rc=$?"
+            """)
+        #expect(cap.stdout.contains("rc=143"))
+    }
+
+    @Test func cancelDoesNotEmitStrayErrorMessage() async throws {
+        // Regression: ParsableCommandBridge used to translate a
+        // CancellationError thrown from a parsed command into
+        // ArgumentParser's "Error: …" diagnostic and route it to
+        // stderr. Make sure cancelled background jobs stay quiet.
+        let cap = makeShell()
+        try await cap.shell.run("""
+            sleep 5 & sleep 0.05; kill $!; wait $!
+            """)
+        #expect(!cap.stderr.contains("Error: CancellationError"),
+                "stderr leaked Swift Concurrency error: \(cap.stderr)")
+    }
 }

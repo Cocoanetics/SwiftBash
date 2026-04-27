@@ -100,6 +100,10 @@ public struct SeqCommand: ParsableBashCommand {
         var v = first
         let ascending = step > 0
         while (ascending && v <= last + 1e-9) || (!ascending && v >= last - 1e-9) {
+            // Pure-CPU loop on a user-controlled count; honour
+            // cancellation every iteration so `seq 1 1000000000` &
+            // `kill $!` actually stops.
+            try Task.checkCancellation()
             values.append(format(v))
             v += step
         }

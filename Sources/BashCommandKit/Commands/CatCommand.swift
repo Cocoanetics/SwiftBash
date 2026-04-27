@@ -148,6 +148,7 @@ public struct CatCommand: ParsableBashCommand {
     private func streamRaw(_ files: [String]) async -> ExitStatus {
         var hadError = false
         for path in files {
+            if Task.isCancelled { return .failure }
             if path == "-" {
                 for await chunk in Shell.current.stdin.bytes { Shell.current.stdout(chunk) }
                 continue

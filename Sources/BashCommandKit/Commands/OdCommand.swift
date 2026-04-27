@@ -52,6 +52,7 @@ public struct OdCommand: ParsableBashCommand {
         let bytes = [UInt8](data)
         var offset = 0
         while offset < bytes.count {
+            try Task.checkCancellation()
             let end = min(offset + 16, bytes.count)
             Shell.current.stdout(format(offset: offset,
                                 row: Array(bytes[offset..<end]),

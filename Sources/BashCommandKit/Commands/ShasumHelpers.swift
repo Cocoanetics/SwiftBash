@@ -25,6 +25,9 @@ func runSum(
     }
     var hadError = false
     for f in files {
+        // `md5sum *.bin` over a thousand files: yield to the executor
+        // so a kill from the parent shell can land between files.
+        try Task.checkCancellation()
         do {
             let data = try await Shell.current.readDataAtPath(f)
             Shell.current.stdout("\(hash(data))  \(f)\n")

@@ -286,14 +286,21 @@ extension Shell {
         let sub = copy()
         let label = nodeCommandLabel(node)
         return await processTable.spawn(command: label) {
-            try await sub.withCurrent {
-                do {
-                    return try await sub.execute(node)
-                } catch is ShellExit {
-                    // `exit N` inside a background job ends the JOB,
-                    // not the parent shell.
-                    return sub.lastExitStatus
+            do {
+                return try await sub.withCurrent {
+                    do {
+                        return try await sub.execute(node)
+                    } catch is ShellExit {
+                        // `exit N` inside a background job ends the
+                        // JOB, not the parent shell.
+                        return sub.lastExitStatus
+                    }
                 }
+            } catch is CancellationError {
+                // The Task got `kill`'d. Return cleanly with the
+                // bash-style 128 + SIGTERM exit code so `wait $!`
+                // sees 143 and the error doesn't leak past the table.
+                return ExitStatus(143)
             }
         }
     }

@@ -239,6 +239,9 @@ public struct AwkCommand: ParsableBashCommand {
     private func processLines(interp: AwkInterpreter) throws {
         let ctx = interp.ctx
         while ctx.lineIndex < ctx.lines.count - 1 {
+            // Per-record cancellation check — `awk` over a huge file
+            // can be aborted mid-stream.
+            try Task.checkCancellation()
             ctx.lineIndex += 1
             try interp.executeLine(ctx.lines[ctx.lineIndex])
             if ctx.shouldExit || ctx.shouldNextFile { break }

@@ -137,6 +137,7 @@ public struct SortCommand: ParsableBashCommand {
             for await line in Shell.current.stdin.lines { lines.append(line) }
         } else {
             for f in files {
+                try Task.checkCancellation()
                 do {
                     let data = try await Shell.current.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)

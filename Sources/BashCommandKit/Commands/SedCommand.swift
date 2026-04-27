@@ -98,6 +98,7 @@ public struct SedCommand: ParsableBashCommand {
                 return ExitStatus(2)
             }
             for f in files {
+                try Task.checkCancellation()
                 if f == "-" { continue }
                 do {
                     let data = try await Shell.current.readDataAtPath(f)

@@ -14,6 +14,13 @@ struct ParsableCommandBridge<Parsed: ParsableBashCommand>: Command {
         do {
             var parsed = try Parsed.parse(args)
             return try await parsed.execute()
+        } catch is CancellationError {
+            // Cooperative cancellation must propagate so the
+            // dispatcher / process table records the job as cancelled.
+            // ArgumentParser's `fullMessage(for:)` doesn't know what
+            // CancellationError is and would render it as a stray
+            // "Error: CancellationError()" usage diagnostic.
+            throw CancellationError()
         } catch {
             // ArgumentParser uses the error type to convey both real
             // usage errors *and* clean non-error exits like `--help`.

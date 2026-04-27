@@ -149,6 +149,7 @@ public struct TarCommand: ParsableBashCommand {
 
     private func emitEntry(name: String, abs: String, into data: inout Data,
                            verbose: Bool) async throws {
+        try Task.checkCancellation()
         guard let meta = try await Shell.current.fileSystem.metadata(abs) else {
             throw FileSystemError.notFound(name)
         }

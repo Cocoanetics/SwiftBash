@@ -199,6 +199,7 @@ func runGzip(decompress: Bool,
 
     var hadError = false
     for f in files {
+        try Task.checkCancellation()
         let data: Data
         do {
             data = try await Shell.current.readDataAtPath(f)

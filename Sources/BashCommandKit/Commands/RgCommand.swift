@@ -118,6 +118,7 @@ public struct RgCommand: ParsableBashCommand {
         // --files mode: walk and print, no matching.
         if listFiles {
             for path in paths {
+                try Task.checkCancellation()
                 let abs = Shell.current.resolvePath(path)
                 await listOne(displayPath: path,
                               absolutePath: abs,
@@ -154,6 +155,7 @@ public struct RgCommand: ParsableBashCommand {
 
         var anyMatched = false
         for path in paths {
+            try Task.checkCancellation()
             let abs = Shell.current.resolvePath(path)
             let r = await searchPath(displayPath: path,
                                      absolutePath: abs,

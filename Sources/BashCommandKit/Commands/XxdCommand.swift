@@ -42,6 +42,9 @@ public struct XxdCommand: ParsableBashCommand {
         var offset = 0
         let bytes = [UInt8](data)
         while offset < bytes.count {
+            // Per-row check — for a 1 GiB hex dump (~67M rows) this
+            // means cancellation lands within microseconds.
+            try Task.checkCancellation()
             let end = min(offset + bytesPerRow, bytes.count)
             let row = bytes[offset..<end]
             Shell.current.stdout(Self.format(offset: offset,

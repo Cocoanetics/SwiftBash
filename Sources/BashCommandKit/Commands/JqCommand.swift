@@ -273,6 +273,9 @@ public struct JqCommand: ParsableBashCommand {
 
         var allOutputs: [JqValue] = []
         for v in values {
+            // jq processes one value per loop; for big stream inputs
+            // (`jq . huge.ndjson`) this is the place to interrupt.
+            try Task.checkCancellation()
             do {
                 let ctx2 = JqContext(env: env)
                 ctx2.vars = sharedVars

@@ -102,9 +102,9 @@ struct ExecCommand: AsyncParsableCommand {
         }
 
         let shell = Shell(environment: environment, fileSystem: fileSystem)
-        Shell.current.registerStandardCommands()
-        Shell.current.scriptName = scriptPath
-        Shell.current.positionalParameters = scriptArgs
+        shell.registerStandardCommands()
+        shell.scriptName = scriptPath
+        shell.positionalParameters = scriptArgs
 
         // Configure network access. Defaults remain `nil` (deny-all)
         // unless the user passed at least one --allow-url, opted into
@@ -123,7 +123,7 @@ struct ExecCommand: AsyncParsableCommand {
                 }
                 methods.insert(m)
             }
-            Shell.current.networkConfig = NetworkConfig(
+            shell.networkConfig = NetworkConfig(
                 allowedURLPrefixes: allowUrl.map { AllowedURLEntry($0) },
                 allowedMethods: methods,
                 dangerouslyAllowFullInternetAccess: dangerousFullNetwork,
@@ -135,11 +135,15 @@ struct ExecCommand: AsyncParsableCommand {
 
         let status: ExitStatus
         do {
-            status = try await Shell.current.run(source)
+            status = try await shell.run(source)
         } catch let err as BashInterpreterError {
             throw CLIError(err.description)
         } catch let err as BashSyntaxError {
             throw CLIError(err.description)
+        } catch is CancellationError {
+            // Top-level cancel (rare; usually scoped to a job) → exit
+            // with bash's 128 + SIGTERM convention.
+            throw ExitCode(143)
         }
         // Propagate the script's exit code back through ArgumentParser.
         throw ExitCode(status.code)

@@ -83,6 +83,7 @@ public struct DuCommand: ParsableBashCommand {
 
     private func walk(displayPath: String, abs: String, depth: Int,
                       unit: Unit, maxDepth: Int?, allFiles: Bool, summarize: Bool) async throws -> Int64 {
+        try Task.checkCancellation()
         guard let meta = try await Shell.current.fileSystem.metadata(abs) else {
             throw FileSystemError.notFound(abs)
         }

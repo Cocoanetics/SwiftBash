@@ -104,6 +104,9 @@ public struct FindCommand: Command {
                       absolutePath: String,
                       depth: Int,
                       ctx: EvalContext) async throws {
+        // Per-entry cancellation check — `find /` against a huge tree
+        // becomes interruptible.
+        try Task.checkCancellation()
         let meta: FileMetadata?
         do {
             meta = try await Shell.current.fileSystem.metadata(absolutePath)

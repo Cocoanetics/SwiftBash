@@ -49,6 +49,7 @@ public struct Md5Command: ParsableBashCommand {
         }
         var hadError = false
         for f in files {
+            try Task.checkCancellation()
             do {
                 let data = try await Shell.current.readDataAtPath(f)
                 let h = Self.hex(of: data)
