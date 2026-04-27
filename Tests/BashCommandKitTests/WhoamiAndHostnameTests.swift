@@ -5,32 +5,71 @@ import Foundation
 
 @Suite struct WhoamiAndHostnameTests {
 
-    // MARK: whoami
+    // MARK: whoami — synthetic by default
 
-    @Test func whoamiPrintsNonEmpty() async throws {
+    @Test func whoamiSyntheticByDefault() async throws {
         let cap = CapturingShell()
         cap.shell.register(WhoamiCommand.self)
         try await cap.shell.run("whoami")
         let name = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(!name.isEmpty)
-        #expect(name == ProcessInfo.processInfo.userName)
+        // Default `Shell.hostInfo` is `.synthetic`; the real host's
+        // user name is never queried.
+        #expect(name == HostInfo.synthetic.userName)
+        #expect(name == "user")
+    }
+
+    @Test func whoamiCustomHostInfo() async throws {
+        let cap = CapturingShell()
+        cap.shell.register(WhoamiCommand.self)
+        cap.shell.hostInfo.userName = "alice"
+        try await cap.shell.run("whoami")
+        #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "alice")
     }
 
     @Test func whoamiUsableInCommandSubstitution() async throws {
         let cap = CapturingShell()
         cap.shell.register(WhoamiCommand.self)
         try await cap.shell.run(#"U=$(whoami); echo "hello $U""#)
-        #expect(cap.stdout.hasPrefix("hello "), "\(cap.stdout)")
+        #expect(cap.stdout == "hello user\n")
     }
 
-    // MARK: hostname
+    // MARK: hostname — synthetic by default
 
-    @Test func hostnamePrintsNonEmpty() async throws {
+    @Test func hostnameSyntheticByDefault() async throws {
         let cap = CapturingShell()
         cap.shell.register(HostnameCommand.self)
         try await cap.shell.run("hostname")
         let host = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(!host.isEmpty)
-        #expect(host == ProcessInfo.processInfo.hostName)
+        #expect(host == HostInfo.synthetic.hostName)
+        #expect(host == "sandbox")
+    }
+
+    @Test func hostnameCustomHostInfo() async throws {
+        let cap = CapturingShell()
+        cap.shell.register(HostnameCommand.self)
+        cap.shell.hostInfo.hostName = "myhost"
+        try await cap.shell.run("hostname")
+        #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "myhost")
+    }
+
+    // MARK: HostInfo.real() opt-in
+
+    @Test func realHostInfoMatchesProcessInfo() async throws {
+        let real = HostInfo.real()
+        // Sanity: `.real()` does query the host.
+        #expect(real.userName == ProcessInfo.processInfo.userName)
+        #expect(!real.hostName.isEmpty)
+        #expect(real.uid > 0)
+    }
+
+    @Test func realHostInfoFlowsToWhoami() async throws {
+        let cap = CapturingShell()
+        cap.shell.register(WhoamiCommand.self)
+        cap.shell.hostInfo = .real()
+        try await cap.shell.run("whoami")
+        #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == ProcessInfo.processInfo.userName)
     }
 }

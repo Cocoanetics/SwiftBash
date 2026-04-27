@@ -247,8 +247,13 @@ public struct TarCommand: ParsableBashCommand {
         guard let raw = await readArchiveData(archive: archive) else {
             return .failure
         }
+        // Routes every write through the shell's filesystem — never
+        // FileManager.default — so a sandboxed shell can extract into
+        // its overlay and the host disk stays untouched.
+        let fs = Shell.current.fileSystem
         var pos = 0
         while pos + 512 <= raw.count {
+            try? Task.checkCancellation()
             let hdr = raw.subdata(in: pos..<(pos + 512))
             if hdr.allSatisfy({ $0 == 0 }) { break }
             pos += 512
@@ -257,23 +262,17 @@ public struct TarCommand: ParsableBashCommand {
             let dest = (cwd as NSString).appendingPathComponent(entry.name)
             switch entry.type {
             case "5":
-                // directory
-                try? FileManager.default.createDirectory(
-                    atPath: dest, withIntermediateDirectories: true,
-                    attributes: [.posixPermissions: entry.mode])
+                try? await fs.createDirectory(dest, intermediates: true)
+                try? await fs.chmod(dest, mode: UInt16(entry.mode))
             case "2":
-                // symlink
-                try? FileManager.default.removeItem(atPath: dest)
-                try? FileManager.default.createSymbolicLink(
-                    atPath: dest, withDestinationPath: entry.linkName)
+                try? await fs.remove(dest, recursive: false)
+                try? await fs.symlink(target: entry.linkName, at: dest)
             default:
                 let body = raw.subdata(in: pos..<min(pos + Int(entry.size), raw.count))
                 let parent = (dest as NSString).deletingLastPathComponent
-                try? FileManager.default.createDirectory(
-                    atPath: parent, withIntermediateDirectories: true)
-                try? body.write(to: URL(fileURLWithPath: dest))
-                try? FileManager.default.setAttributes(
-                    [.posixPermissions: entry.mode], ofItemAtPath: dest)
+                try? await fs.createDirectory(parent, intermediates: true)
+                try? await fs.writeData(body, to: dest, append: false)
+                try? await fs.chmod(dest, mode: UInt16(entry.mode))
                 pos += Int(entry.size)
                 let pad = 512 - Int(entry.size) % 512
                 if pad < 512 { pos += pad }

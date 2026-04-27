@@ -51,9 +51,34 @@ public struct Environment: Hashable, Sendable {
     }
 
     /// A snapshot of the host process's environment and cwd.
+    /// Use only when the embedder genuinely wants the host's vars
+    /// surfaced to the script — typically the `swift-bash exec` CLI
+    /// in non-sandbox mode.
     public static func current() -> Environment {
         Environment(variables: ProcessInfo.processInfo.environment,
                     workingDirectory: FileManager.default.currentDirectoryPath)
+    }
+
+    /// A minimal environment that exposes nothing about the host.
+    /// Pre-populated with the small set of variables most scripts
+    /// expect to find (using ``HostInfo/synthetic``-aligned values).
+    /// Cwd defaults to `"/"`; callers usually override.
+    public static func synthetic(
+        hostInfo: HostInfo = .synthetic,
+        workingDirectory: String = "/"
+    ) -> Environment {
+        let vars: [String: String] = [
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/\(hostInfo.userName)",
+            "USER": hostInfo.userName,
+            "LOGNAME": hostInfo.userName,
+            "SHELL": "/bin/sh",
+            "TERM": "dumb",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        ]
+        return Environment(variables: vars,
+                           workingDirectory: workingDirectory)
     }
 }
 

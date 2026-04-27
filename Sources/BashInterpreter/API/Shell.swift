@@ -98,6 +98,13 @@ public final class Shell: @unchecked Sendable {
     /// `$$` — this shell's virtual PID. Synthetic, not the host's.
     public var virtualPID: Int32 = 1
 
+    /// Identity reported by `whoami`, `hostname`, `id`, `uname`,
+    /// `df`, and any other host-identity-disclosing command. Default
+    /// is ``HostInfo/synthetic`` — leaks nothing. Embedders that
+    /// genuinely want the running machine's identity assign
+    /// ``HostInfo/real()``.
+    public var hostInfo: HostInfo = .synthetic
+
     /// `set -e` / `set -o errexit` — when `true`, the shell exits as
     /// soon as a command returns a non-zero status, except inside a
     /// "checked" context tracked via ``errexitGuard``.
@@ -290,6 +297,7 @@ public final class Shell: @unchecked Sendable {
         // Reference-share, not clone.
         sub.processTable = processTable
         sub.virtualPID = virtualPID
+        sub.hostInfo = hostInfo
         return sub
     }
 

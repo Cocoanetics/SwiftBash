@@ -12,7 +12,9 @@ public struct WhoamiCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout(ProcessInfo.processInfo.userName + "\n")
+        // Read from the shell's `HostInfo` (synthetic by default).
+        // Never queries the host process for the real user name.
+        Shell.current.stdout(Shell.current.hostInfo.userName + "\n")
         return .success
     }
 }

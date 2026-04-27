@@ -82,8 +82,13 @@ struct ExecCommand: AsyncParsableCommand {
     func run() async throws {
         let source = try Self.readScript(at: scriptPath)
 
-        var environment = Environment.current()
+        // Sandbox mode: scrub every host-leaking source. Synthetic
+        // identity, minimal env, overlay filesystem, deny-by-default
+        // network. Non-sandbox mode: real host info + real env so the
+        // user's own scripts behave the way they expect.
+        let environment: Environment
         let fileSystem: FileSystem
+        let hostInfo: HostInfo
         if let sandboxRoot = sandbox {
             do {
                 fileSystem = try SandboxedOverlayFileSystem(.init(
@@ -92,16 +97,20 @@ struct ExecCommand: AsyncParsableCommand {
             } catch let err as FileSystemError {
                 throw CLIError("--sandbox: \(err.description)")
             }
-            // Drop the host's PWD; the script sees only the virtual mount.
-            environment.workingDirectory = workspace
-            environment["PWD"] = workspace
-            environment["OLDPWD"] = nil
-            environment["TMPDIR"] = "/tmp"
+            hostInfo = .synthetic
+            var env = Environment.synthetic(hostInfo: hostInfo,
+                                            workingDirectory: workspace)
+            env["PWD"] = workspace
+            env["TMPDIR"] = "/tmp"
+            environment = env
         } else {
             fileSystem = RealFileSystem()
+            hostInfo = .real()
+            environment = Environment.current()
         }
 
         let shell = Shell(environment: environment, fileSystem: fileSystem)
+        shell.hostInfo = hostInfo
         shell.registerStandardCommands()
         shell.scriptName = scriptPath
         shell.positionalParameters = scriptArgs

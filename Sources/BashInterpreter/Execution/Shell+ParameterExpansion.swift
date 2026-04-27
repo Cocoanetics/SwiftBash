@@ -140,7 +140,7 @@ extension Shell {
         // Special parameters first.
         switch name {
         case "?": return "\(lastExitStatus.code)"
-        case "$": return "\(getpid())"
+        case "$": return "\(virtualPID)"
         case "#": return "\(positionalParameters.count)"
         case "0": return scriptName
         case "@", "*":

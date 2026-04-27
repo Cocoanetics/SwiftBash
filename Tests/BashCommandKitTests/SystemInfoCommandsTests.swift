@@ -50,7 +50,8 @@ import Foundation
         let cap = makeShell()
         try await cap.shell.run("id -un")
         let s = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(s == ProcessInfo.processInfo.userName)
+        // Synthetic by default — never the real host's user name.
+        #expect(s == "user")
     }
 
     @Test func dfDefault() async throws {
