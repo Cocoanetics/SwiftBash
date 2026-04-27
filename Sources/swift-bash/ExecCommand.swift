@@ -100,6 +100,12 @@ struct ExecCommand: AsyncParsableCommand {
             hostInfo = .synthetic
             var env = Environment.synthetic(hostInfo: hostInfo,
                                             workingDirectory: workspace)
+            // The sandbox is the user's home: scripts running here
+            // are the agent's "session", and the workspace IS where
+            // their files live. This makes `cd` (no arg) and `~`
+            // both land at the workspace, and gives `mktemp -t foo`
+            // and similar HOME-relative idioms a sensible answer.
+            env["HOME"] = workspace
             env["PWD"] = workspace
             env["TMPDIR"] = "/tmp"
             environment = env
