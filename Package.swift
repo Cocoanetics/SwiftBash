@@ -35,13 +35,29 @@ let package = Package(
             name: "CZlib",
             path: "Sources/CZlib"
         ),
+        // Same pattern for `<sys/xattr.h>` — the extended-attribute
+        // syscalls. Linux's stock Swift Glibc module doesn't surface
+        // them; this systemLibrary fills the gap. Header-only, no
+        // separate library to link (xattr lives in libc itself).
+        .systemLibrary(
+            name: "CXattr",
+            path: "Sources/CXattr"
+        ),
         .target(
             name: "BashSyntax",
             path: "Sources/BashSyntax"
         ),
         .target(
             name: "BashInterpreter",
-            dependencies: ["BashSyntax"],
+            dependencies: [
+                "BashSyntax",
+                // CXattr is only consumed by RealFileSystem on
+                // non-Apple platforms. Conditional dep so Apple
+                // builds don't pull the systemLibrary in (Apple
+                // already gets the xattr functions via Darwin).
+                .target(name: "CXattr",
+                        condition: .when(platforms: [.linux])),
+            ],
             path: "Sources/BashInterpreter"
         ),
         .target(

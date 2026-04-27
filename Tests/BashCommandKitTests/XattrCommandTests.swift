@@ -3,12 +3,6 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-// xattrs require Apple's extended-attribute syscalls; on Linux,
-// `<sys/xattr.h>` symbols aren't surfaced by Swift's default Glibc
-// module, so RealFileSystem falls through to the protocol's xattr
-// no-ops. Skip the matching tests there until we vendor the C shim.
-#if canImport(Darwin)
-
 @Suite struct XattrCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
@@ -70,5 +64,3 @@ import Foundation
         #expect(cap.stdout.contains("hello"))
     }
 }
-
-#endif

@@ -1,0 +1,13 @@
+// systemLibrary module that surfaces the host's `<sys/xattr.h>`
+// to Swift. Used by ``RealFileSystem`` only on non-Apple
+// platforms — Apple's Glibc-equivalent module already imports
+// the xattr functions via `Darwin`, but Linux's stock Swift
+// Glibc module doesn't include `<sys/xattr.h>`.
+//
+// No `link` directive — the xattr functions are part of libc
+// itself on every supported host (glibc on Linux, libSystem on
+// Apple); they don't live in a separate library.
+module CXattr [system] {
+    header "shim.h"
+    export *
+}
