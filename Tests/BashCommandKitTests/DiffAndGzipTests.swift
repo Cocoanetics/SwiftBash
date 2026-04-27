@@ -143,6 +143,11 @@ import Foundation
     }
 
     // MARK: gzip / gunzip
+    //
+    // Skipped on Linux: gzip / gunzip wrap Apple's `Compression`
+    // framework which doesn't ship there. Once we vendor a zlib
+    // shim, drop the canImport guard.
+    #if canImport(Compression)
 
     @Test func gzipRoundTripStdin() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
@@ -220,4 +225,6 @@ import Foundation
         try await cap.shell.run("gzip -c p | gunzip -c")
         #expect(cap.stdout == payload)
     }
+
+    #endif // canImport(Compression)
 }
