@@ -48,7 +48,14 @@ public enum PrivateIP {
     private static func resolveSync(_ hostname: String) throws -> [String] {
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
+        // Linux's Glibc imports SOCK_STREAM as the enum value
+        // `__socket_type.SOCK_STREAM`; addrinfo.ai_socktype wants
+        // Int32. Darwin imports it as a raw Int32 already.
+        #if canImport(Darwin)
         hints.ai_socktype = SOCK_STREAM
+        #else
+        hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+        #endif
         var info: UnsafeMutablePointer<addrinfo>? = nil
         let rc = hostname.withCString { name in
             getaddrinfo(name, nil, &hints, &info)
@@ -56,10 +63,12 @@ public enum PrivateIP {
         defer { if let info { freeaddrinfo(info) } }
         if rc != 0 {
             // EAI_NONAME / EAI_NODATA: nothing to check, no rebinding risk.
+            // EAI_NODATA was removed from POSIX in 2008; Linux's headers
+            // don't define it any more, so guard it on Darwin only.
             #if canImport(Darwin)
             if rc == EAI_NONAME || rc == EAI_NODATA { return [] }
             #else
-            if rc == EAI_NONAME || rc == EAI_NODATA { return [] }
+            if rc == EAI_NONAME { return [] }
             #endif
             let msg = String(cString: gai_strerror(rc))
             throw NetworkError.transport(message: "DNS resolution failed: \(msg)")
@@ -90,7 +99,11 @@ public enum PrivateIP {
                              nil, 0,
                              NI_NUMERICHOST)
         if rc != 0 { return nil }
-        return String(cString: buf)
+        // Truncate at the trailing NUL and decode as UTF-8 (the
+        // deprecated `String(cString: array)` initializer scans for
+        // the NUL itself).
+        let bytes = buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     // MARK: IPv4 ranges

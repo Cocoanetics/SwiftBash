@@ -795,11 +795,17 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         case S_IFLNK: kind = .symlink
         default: kind = .other
         }
+        // Linux's `struct stat` spells the timespec field `st_mtim`
+        // (no `spec` suffix); Darwin uses `st_mtimespec`. Equivalent.
+        #if canImport(Darwin)
+        let mtimeSec = TimeInterval(st.st_mtimespec.tv_sec)
+        #else
+        let mtimeSec = TimeInterval(st.st_mtim.tv_sec)
+        #endif
         return FileMetadata(
             kind: kind,
             size: Int64(st.st_size),
-            modifiedAt: Date(timeIntervalSince1970:
-                                TimeInterval(st.st_mtimespec.tv_sec)),
+            modifiedAt: Date(timeIntervalSince1970: mtimeSec),
             mode: UInt16(st.st_mode & 0o7777),
             uid: UInt32(st.st_uid),
             gid: UInt32(st.st_gid),
@@ -860,7 +866,14 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         var buf = [Int8](repeating: 0, count: Int(PATH_MAX))
         let ok = path.withCString { p -> Bool in
             buf.withUnsafeMutableBufferPointer { bp in
-                Darwin.realpath(p, bp.baseAddress) != nil
+                // POSIX realpath: was `Darwin.realpath` (Darwin
+                // qualifier doesn't compile on Linux). Unqualified
+                // resolves through whichever libc was imported.
+                #if canImport(Darwin)
+                return Darwin.realpath(p, bp.baseAddress) != nil
+                #else
+                return Glibc.realpath(p, bp.baseAddress) != nil
+                #endif
             }
         }
         if !ok { return nil }

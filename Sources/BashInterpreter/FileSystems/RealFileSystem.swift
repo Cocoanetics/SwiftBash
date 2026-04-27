@@ -34,10 +34,11 @@ public struct RealFileSystem: FileSystem {
             var buf = [Int8](repeating: 0, count: 4096)
             let n = path.withCString { p in
                 buf.withUnsafeMutableBufferPointer { bp in
-                    // POSIX `readlink`. We had `Darwin.readlink` here
-                    // for clarity; the `Self.libcReadlink` shim works
-                    // on both Darwin and Glibc.
-                    Self.libcReadlink(p, bp.baseAddress, bp.count)
+                    // POSIX `readlink`. Linux's Glibc imports it
+                    // with non-optional pointer parameters; force-
+                    // unwrap `bp.baseAddress` (the buffer is
+                    // non-empty by construction so it's never nil).
+                    Self.libcReadlink(p, bp.baseAddress!, bp.count)
                 }
             }
             if n > 0 {
@@ -465,65 +466,20 @@ public extension RealFileSystem {
         }
     }
 
-    #elseif canImport(Glibc)
-
-    func listXattrs(_ path: String) async throws -> [String] {
-        let needed = path.withCString { listxattr($0, nil, 0) }
-        if needed < 0 { throw fsError(op: "listxattr", path: path) }
-        if needed == 0 { return [] }
-        var buf = [Int8](repeating: 0, count: needed)
-        let written = path.withCString { p in
-            buf.withUnsafeMutableBufferPointer { bp in
-                listxattr(p, bp.baseAddress, needed)
-            }
-        }
-        if written < 0 { throw fsError(op: "listxattr", path: path) }
-        return Self.parseXattrNameList(buf, length: written)
-    }
-
-    func getXattr(_ path: String, name: String) async throws -> Data {
-        let needed = path.withCString { p in
-            name.withCString { n in getxattr(p, n, nil, 0) }
-        }
-        if needed < 0 { throw fsError(op: "getxattr", path: path) }
-        if needed == 0 { return Data() }
-        var buf = [UInt8](repeating: 0, count: needed)
-        let written = path.withCString { p in
-            name.withCString { n in
-                buf.withUnsafeMutableBufferPointer { bp in
-                    getxattr(p, n, bp.baseAddress, needed)
-                }
-            }
-        }
-        if written < 0 { throw fsError(op: "getxattr", path: path) }
-        return Data(buf.prefix(written))
-    }
-
-    func setXattr(_ path: String, name: String, value: Data) async throws {
-        let r = path.withCString { p in
-            name.withCString { n in
-                value.withUnsafeBytes { vb in
-                    setxattr(p, n, vb.baseAddress, value.count, 0)
-                }
-            }
-        }
-        if r < 0 { throw fsError(op: "setxattr", path: path) }
-    }
-
-    func removeXattr(_ path: String, name: String) async throws {
-        let r = path.withCString { p in
-            name.withCString { n in removexattr(p, n) }
-        }
-        // ENODATA (61 on Linux) means "no such attribute" — silent no-op.
-        if r < 0 && errno != 61 {
-            throw fsError(op: "removexattr", path: path)
-        }
-    }
-
+    // Linux's `<sys/xattr.h>` symbols (`getxattr`, `setxattr`,
+    // `listxattr`, `removexattr`) aren't surfaced by Swift's default
+    // Glibc module. Implementing them would require either a tiny C
+    // shim target or reaching into a custom modulemap. For now we
+    // fall through to ``FileSystem``'s protocol defaults on Linux:
+    // metadata still works, the file just has no extended attributes
+    // visible. Most scripts don't use xattrs anyway. (Linux xattr
+    // support is the obvious follow-up.)
     #endif
 
+    #if canImport(Darwin)
     /// Split the NUL-separated name list returned by `listxattr` into
-    /// a `[String]`. Same parsing on both platforms.
+    /// a `[String]`. Used only on Darwin (Linux currently falls
+    /// through to the protocol's default xattr no-ops).
     private static func parseXattrNameList(_ buf: [Int8], length: Int) -> [String] {
         var names: [String] = []
         var i = 0
@@ -538,6 +494,7 @@ public extension RealFileSystem {
         }
         return names
     }
+    #endif
 }
 
 private func fsError(op: String, path: String) -> FileSystemError {
