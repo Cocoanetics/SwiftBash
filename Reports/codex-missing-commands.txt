@@ -1,0 +1,457 @@
+Source: Codex
+Scanned 138 session file(s).
+Found 7533 bash tool call(s) containing 7533 script payload(s).
+Parsed 7530 script(s) into 8679 command invocation(s).
+Skipped 3 script(s) that did not parse cleanly.
+
+Coverage
+  Weighted: 1649/8679 invocations (19.0%)
+  Unique:   20/68 commands (29.4%)
+
+Top Commands
+  2608	missing	sed
+  1941	missing	rg
+  842	missing	apply_patch
+  466	missing	swift
+  366	missing	git
+  260	missing	python3
+  128	missing	find
+  104	missing	curl
+  91	missing	xcodebuild
+  35	missing	xargs
+  25	missing	xcrun
+  19	missing	sort
+  16	missing	axe
+  14	missing	perl
+  14	missing	uniq
+  13	missing	applypatch
+  11	missing	python
+  9	missing	swiftc
+  9	missing	tee
+  7	missing	plutil
+  4	missing	PlistBuddy
+  4	missing	fd
+  4	missing	open
+  3	missing	awk
+  3	missing	base64
+  3	missing	pnpm
+  3	missing	sips
+  3	missing	strings
+  2	missing	atos
+  2	missing	committer
+  2	missing	mdls
+  2	missing	osascript
+  2	missing	xcode-select
+  1	missing	bash
+  1	missing	bundle
+  1	missing	cmp
+  1	missing	defaults
+  1	missing	diff
+  1	missing	file
+  1	missing	jq
+  1	missing	page-ad9c3d43a6022860.js
+  1	missing	readlink
+  1	missing	simctl
+  1	missing	stat
+  1	missing	swiftformat
+  1	missing	unzip
+  1	missing	with-locale
+  1	missing	xmllint
+
+Top Commands With Options
+  2607	missing	sed [-n]
+  1194	missing	rg [-n]
+  183	missing	rg [-n -n]
+  116	missing	git [-sb]
+  84	missing	swift [--filter]
+  70	missing	curl [-s]
+  70	missing	rg [-n -g]
+  42	missing	find [-name -print]
+  40	missing	rg [-n -g*.swift]
+  35	missing	find [-name -print0]
+  28	missing	git [--]
+  28	missing	git [--short]
+  26	missing	rg [-g*.swift]
+  25	missing	rg [-n -n -g]
+  24	missing	find [-name]
+  23	missing	git [--stat]
+  23	missing	rg [--files -g]
+  23	missing	xargs [-c]
+  20	missing	rg [-n -S]
+  19	missing	xcodebuild [-workspace -scheme -destination]
+  16	missing	rg [--files]
+  14	missing	perl [-0ne]
+  13	missing	find [-maxdepth -type]
+  13	missing	uniq [-c]
+  12	missing	curl [-I]
+  12	missing	rg [-i]
+  12	missing	xargs [-r]
+  12	missing	xcodebuild [-project -scheme -sdk -destination]
+  11	missing	xcodebuild [-scheme -destination]
+  10	missing	xcrun [--show-sdk-path --sdk]
+  9	missing	axe [--udid]
+  9	missing	rg [-g*.swift -n]
+  9	missing	xcodebuild [-project -scheme -configuration -destination]
+  7	missing	curl [-Ls]
+  7	missing	git [--git-dir]
+  7	missing	rg [-l]
+  6	missing	plutil [-p]
+  6	missing	rg [--files -g -g]
+  6	missing	xcodebuild [-scheme -project -configuration]
+  6	missing	xcodebuild [-scheme -sdk -destination]
+  5	missing	rg [-n -n -g*]
+  5	missing	rg [-n -n -g*.swift]
+  5	missing	rg [-q]
+  5	missing	sort [-u]
+  5	missing	xcodebuild [-list -project]
+  5	missing	xcodebuild [-workspace -scheme -showBuildSettings]
+  4	missing	PlistBuddy [-c]
+  4	missing	curl [-s -o]
+  4	missing	find [-maxdepth -type -name]
+  4	missing	swift [-e]
+  4	missing	xcrun [-sdk -target -typecheck]
+  3	missing	curl [-Ls --compressed -A]
+  3	missing	find [-type]
+  3	missing	git [-m]
+  3	missing	git [-s]
+  3	missing	rg [--files -g -g -g]
+  3	missing	rg [-n -g*]
+  3	missing	rg [-n -l]
+  3	missing	sips [-z --out]
+  3	missing	xcodebuild [-project -scheme -destination -quiet]
+  3	missing	xcodebuild [-scheme -sdk -destination -derivedDataPath]
+  3	missing	xcodebuild [-scheme -sdk -destination -quiet]
+  3	missing	xcrun [-target -sdk -typecheck]
+  2	missing	atos [-arch -o -l]
+  2	missing	axe [--help]
+  2	missing	curl [-L]
+  2	missing	curl [-L -o]
+  2	missing	curl [-s -o -w]
+  2	missing	find [-maxdepth -name]
+  2	missing	find [-maxdepth -name -print]
+  2	missing	git [--git-dir -r --name-only]
+  2	missing	git [--tags]
+  2	missing	git [-b]
+  2	missing	mdls [-name]
+  2	missing	osascript [-e]
+  2	missing	rg [--glob]
+  2	missing	rg [--line-number]
+  2	missing	rg [--type]
+  2	missing	rg [-FX- -n]
+  2	missing	rg [-g*Annotation*.swift]
+  2	missing	rg [-n -g -n]
+  2	missing	rg [-n -g*.pbxproj]
+  2	missing	rg [-n -g*.ts]
+  2	missing	rg [-n -i]
+  2	missing	rg [-n -n -n -n]
+  2	missing	swift [--help]
+  2	missing	swift [--target]
+  2	missing	swift [-I -L -e]
+  2	missing	swiftc [-typecheck]
+  2	missing	xcode-select [-p]
+  2	missing	xcodebuild [-project -scheme -destination]
+  2	missing	xcrun [--sdk --show-sdk-path]
+  1	missing	axe [--device-id]
+  1	missing	axe [--udid --button]
+  1	missing	axe [--udid --format]
+  1	missing	axe [--udid --text]
+  1	missing	bash [-lc]
+  1	missing	cmp [-s]
+  1	missing	curl [-Ls --compressed]
+  1	missing	curl [-s -A]
+  1	missing	diff [-u]
+  1	missing	fd [-t]
+  1	missing	find [-name -maxdepth]
+  1	missing	find [-path]
+  1	missing	find [-type -name]
+  1	missing	git [--depth]
+  1	missing	git [--hard]
+  1	missing	git [--heads]
+  1	missing	git [--name-only]
+  1	missing	git [--oneline]
+  1	missing	git [--show-toplevel]
+  1	missing	git [--source=HEAD --]
+  1	missing	git [--theirs]
+  1	missing	git [-n --]
+  1	missing	jq [-r]
+  1	missing	plutil [-convert -o]
+  1	missing	python [-m]
+  1	missing	python3 [-m --user]
+  1	missing	rg [--]
+  1	missing	rg [--files -g -g -g -g -g]
+  1	missing	rg [--files -g -g -g -g -g -g]
+  1	missing	rg [--files -g*.png -g*.jpg -g*.jpeg]
+  1	missing	rg [--files -g*PartsSearchResult*.swift]
+  1	missing	rg [--files -g*Submission*.swift]
+  1	missing	rg [--files -gAnnotationLayersViewModel.swift]
+  1	missing	rg [--files -gColorSearchToken.swift]
+  1	missing	rg [--files -gSubmissionViewController.*]
+  1	missing	rg [-A5 -B5]
+  1	missing	rg [-g -n]
+  1	missing	rg [-g*]
+  1	missing	rg [-g*.h]
+  1	missing	rg [-g*.storyboard -n]
+  1	missing	rg [-g*.swift -g*.m]
+  1	missing	rg [-g*Drawing*]
+  1	missing	rg [-g*Part*]
+  1	missing	rg [-i -n]
+  1	missing	rg [-in]
+  1	missing	rg [-m1]
+  1	missing	rg [-n --hidden]
+  1	missing	rg [-n --swift]
+  1	missing	rg [-n --type-add]
+  1	missing	rg [-n -C5]
+  1	missing	rg [-n -R]
+  1	missing	rg [-n -g -g -g -g -g --files]
+  1	missing	rg [-n -g*.js]
+  1	missing	rg [-n -g*.swift -n]
+  1	missing	rg [-n -g*.swift -n -n]
+  1	missing	rg [-n -g*.ts -g*.js]
+  1	missing	rg [-n -g*Annotation*]
+  1	missing	rg [-n -n -g -g]
+  1	missing	rg [-n -n -g -g -g -g]
+  1	missing	rg [-ni -g]
+  1	missing	sed [-n -n]
+  1	missing	swift [--json-output --trails-output --markdown-output --verbose]
+  1	missing	swift [--list]
+  1	missing	swift [--package-path]
+  1	missing	swift [--type]
+  1	missing	swift [--type --name]
+  1	missing	swift [-I -I -L]
+  1	missing	swiftc [-typecheck -sdk -target]
+  1	missing	swiftformat [--?]
+  1	missing	unzip [-q]
+  1	missing	xcodebuild [-help]
+  1	missing	xcodebuild [-list]
+  1	missing	xcodebuild [-list -workspace]
+  1	missing	xcodebuild [-project -scheme -configuration]
+  1	missing	xcodebuild [-project -scheme -destination -configuration]
+  1	missing	xcodebuild [-scheme -configuration -destination]
+  1	missing	xcodebuild [-scheme -resolvePackageDependencies]
+  1	missing	xcrun [-print-module -module-to-print -sdk]
+  1	missing	xcrun [-sdk]
+  1	missing	xmllint [--format]
+
+Top Missing Commands
+  2608	missing	sed
+  1941	missing	rg
+  842	missing	apply_patch
+  466	missing	swift
+  366	missing	git
+  260	missing	python3
+  128	missing	find
+  104	missing	curl
+  91	missing	xcodebuild
+  35	missing	xargs
+  25	missing	xcrun
+  19	missing	sort
+  16	missing	axe
+  14	missing	perl
+  14	missing	uniq
+  13	missing	applypatch
+  11	missing	python
+  9	missing	swiftc
+  9	missing	tee
+  7	missing	plutil
+  4	missing	PlistBuddy
+  4	missing	fd
+  4	missing	open
+  3	missing	awk
+  3	missing	base64
+  3	missing	pnpm
+  3	missing	sips
+  3	missing	strings
+  2	missing	atos
+  2	missing	committer
+  2	missing	mdls
+  2	missing	osascript
+  2	missing	xcode-select
+  1	missing	bash
+  1	missing	bundle
+  1	missing	cmp
+  1	missing	defaults
+  1	missing	diff
+  1	missing	file
+  1	missing	jq
+  1	missing	page-ad9c3d43a6022860.js
+  1	missing	readlink
+  1	missing	simctl
+  1	missing	stat
+  1	missing	swiftformat
+  1	missing	unzip
+  1	missing	with-locale
+  1	missing	xmllint
+
+Top Missing Commands With Options
+  2607	missing	sed [-n]
+  1194	missing	rg [-n]
+  183	missing	rg [-n -n]
+  116	missing	git [-sb]
+  84	missing	swift [--filter]
+  70	missing	curl [-s]
+  70	missing	rg [-n -g]
+  42	missing	find [-name -print]
+  40	missing	rg [-n -g*.swift]
+  35	missing	find [-name -print0]
+  28	missing	git [--]
+  28	missing	git [--short]
+  26	missing	rg [-g*.swift]
+  25	missing	rg [-n -n -g]
+  24	missing	find [-name]
+  23	missing	git [--stat]
+  23	missing	rg [--files -g]
+  23	missing	xargs [-c]
+  20	missing	rg [-n -S]
+  19	missing	xcodebuild [-workspace -scheme -destination]
+  16	missing	rg [--files]
+  14	missing	perl [-0ne]
+  13	missing	find [-maxdepth -type]
+  13	missing	uniq [-c]
+  12	missing	curl [-I]
+  12	missing	rg [-i]
+  12	missing	xargs [-r]
+  12	missing	xcodebuild [-project -scheme -sdk -destination]
+  11	missing	xcodebuild [-scheme -destination]
+  10	missing	xcrun [--show-sdk-path --sdk]
+  9	missing	axe [--udid]
+  9	missing	rg [-g*.swift -n]
+  9	missing	xcodebuild [-project -scheme -configuration -destination]
+  7	missing	curl [-Ls]
+  7	missing	git [--git-dir]
+  7	missing	rg [-l]
+  6	missing	plutil [-p]
+  6	missing	rg [--files -g -g]
+  6	missing	xcodebuild [-scheme -project -configuration]
+  6	missing	xcodebuild [-scheme -sdk -destination]
+  5	missing	rg [-n -n -g*]
+  5	missing	rg [-n -n -g*.swift]
+  5	missing	rg [-q]
+  5	missing	sort [-u]
+  5	missing	xcodebuild [-list -project]
+  5	missing	xcodebuild [-workspace -scheme -showBuildSettings]
+  4	missing	PlistBuddy [-c]
+  4	missing	curl [-s -o]
+  4	missing	find [-maxdepth -type -name]
+  4	missing	swift [-e]
+  4	missing	xcrun [-sdk -target -typecheck]
+  3	missing	curl [-Ls --compressed -A]
+  3	missing	find [-type]
+  3	missing	git [-m]
+  3	missing	git [-s]
+  3	missing	rg [--files -g -g -g]
+  3	missing	rg [-n -g*]
+  3	missing	rg [-n -l]
+  3	missing	sips [-z --out]
+  3	missing	xcodebuild [-project -scheme -destination -quiet]
+  3	missing	xcodebuild [-scheme -sdk -destination -derivedDataPath]
+  3	missing	xcodebuild [-scheme -sdk -destination -quiet]
+  3	missing	xcrun [-target -sdk -typecheck]
+  2	missing	atos [-arch -o -l]
+  2	missing	axe [--help]
+  2	missing	curl [-L]
+  2	missing	curl [-L -o]
+  2	missing	curl [-s -o -w]
+  2	missing	find [-maxdepth -name]
+  2	missing	find [-maxdepth -name -print]
+  2	missing	git [--git-dir -r --name-only]
+  2	missing	git [--tags]
+  2	missing	git [-b]
+  2	missing	mdls [-name]
+  2	missing	osascript [-e]
+  2	missing	rg [--glob]
+  2	missing	rg [--line-number]
+  2	missing	rg [--type]
+  2	missing	rg [-FX- -n]
+  2	missing	rg [-g*Annotation*.swift]
+  2	missing	rg [-n -g -n]
+  2	missing	rg [-n -g*.pbxproj]
+  2	missing	rg [-n -g*.ts]
+  2	missing	rg [-n -i]
+  2	missing	rg [-n -n -n -n]
+  2	missing	swift [--help]
+  2	missing	swift [--target]
+  2	missing	swift [-I -L -e]
+  2	missing	swiftc [-typecheck]
+  2	missing	xcode-select [-p]
+  2	missing	xcodebuild [-project -scheme -destination]
+  2	missing	xcrun [--sdk --show-sdk-path]
+  1	missing	axe [--device-id]
+  1	missing	axe [--udid --button]
+  1	missing	axe [--udid --format]
+  1	missing	axe [--udid --text]
+  1	missing	bash [-lc]
+  1	missing	cmp [-s]
+  1	missing	curl [-Ls --compressed]
+  1	missing	curl [-s -A]
+  1	missing	diff [-u]
+  1	missing	fd [-t]
+  1	missing	find [-name -maxdepth]
+  1	missing	find [-path]
+  1	missing	find [-type -name]
+  1	missing	git [--depth]
+  1	missing	git [--hard]
+  1	missing	git [--heads]
+  1	missing	git [--name-only]
+  1	missing	git [--oneline]
+  1	missing	git [--show-toplevel]
+  1	missing	git [--source=HEAD --]
+  1	missing	git [--theirs]
+  1	missing	git [-n --]
+  1	missing	jq [-r]
+  1	missing	plutil [-convert -o]
+  1	missing	python [-m]
+  1	missing	python3 [-m --user]
+  1	missing	rg [--]
+  1	missing	rg [--files -g -g -g -g -g]
+  1	missing	rg [--files -g -g -g -g -g -g]
+  1	missing	rg [--files -g*.png -g*.jpg -g*.jpeg]
+  1	missing	rg [--files -g*PartsSearchResult*.swift]
+  1	missing	rg [--files -g*Submission*.swift]
+  1	missing	rg [--files -gAnnotationLayersViewModel.swift]
+  1	missing	rg [--files -gColorSearchToken.swift]
+  1	missing	rg [--files -gSubmissionViewController.*]
+  1	missing	rg [-A5 -B5]
+  1	missing	rg [-g -n]
+  1	missing	rg [-g*]
+  1	missing	rg [-g*.h]
+  1	missing	rg [-g*.storyboard -n]
+  1	missing	rg [-g*.swift -g*.m]
+  1	missing	rg [-g*Drawing*]
+  1	missing	rg [-g*Part*]
+  1	missing	rg [-i -n]
+  1	missing	rg [-in]
+  1	missing	rg [-m1]
+  1	missing	rg [-n --hidden]
+  1	missing	rg [-n --swift]
+  1	missing	rg [-n --type-add]
+  1	missing	rg [-n -C5]
+  1	missing	rg [-n -R]
+  1	missing	rg [-n -g -g -g -g -g --files]
+  1	missing	rg [-n -g*.js]
+  1	missing	rg [-n -g*.swift -n]
+  1	missing	rg [-n -g*.swift -n -n]
+  1	missing	rg [-n -g*.ts -g*.js]
+  1	missing	rg [-n -g*Annotation*]
+  1	missing	rg [-n -n -g -g]
+  1	missing	rg [-n -n -g -g -g -g]
+  1	missing	rg [-ni -g]
+  1	missing	sed [-n -n]
+  1	missing	swift [--json-output --trails-output --markdown-output --verbose]
+  1	missing	swift [--list]
+  1	missing	swift [--package-path]
+  1	missing	swift [--type]
+  1	missing	swift [--type --name]
+  1	missing	swift [-I -I -L]
+  1	missing	swiftc [-typecheck -sdk -target]
+  1	missing	swiftformat [--?]
+  1	missing	unzip [-q]
+  1	missing	xcodebuild [-help]
+  1	missing	xcodebuild [-list]
+  1	missing	xcodebuild [-list -workspace]
+  1	missing	xcodebuild [-project -scheme -configuration]
+  1	missing	xcodebuild [-project -scheme -destination -configuration]
+  1	missing	xcodebuild [-scheme -configuration -destination]
+  1	missing	xcodebuild [-scheme -resolvePackageDependencies]
+  1	missing	xcrun [-print-module -module-to-print -sdk]
+  1	missing	xcrun [-sdk]
+  1	missing	xmllint [--format]
