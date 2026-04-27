@@ -94,8 +94,16 @@ public struct HostInfo: Sendable, Equatable {
     /// own machine and expects `whoami` to print their login name.
     public static func real() -> HostInfo {
         let info = ProcessInfo.processInfo
+        // `ProcessInfo.userName` and `fullUserName` are macOS-only —
+        // iOS / tvOS / watchOS don't expose them. Fall back to the
+        // POSIX uid → name lookup, then to a generic "user".
+        #if os(macOS)
         let user = info.userName
         let full = info.fullUserName.isEmpty ? user : info.fullUserName
+        #else
+        let user = passwdUserName(uid: UInt32(getuid())) ?? "user"
+        let full = user
+        #endif
         let host = info.hostName
         let uid = UInt32(getuid())
         let gid = UInt32(getgid())
@@ -126,6 +134,14 @@ public struct HostInfo: Sendable, Equatable {
     private static func realGroupName(for gid: UInt32) -> String? {
         guard let entry = getgrgid(gid_t(gid)) else { return nil }
         return String(cString: entry.pointee.gr_name)
+    }
+
+    /// Resolve a uid to a login name via `getpwuid(3)`. Used on
+    /// non-macOS Apple platforms where `ProcessInfo.userName` isn't
+    /// available.
+    private static func passwdUserName(uid: UInt32) -> String? {
+        guard let entry = getpwuid(uid_t(uid)) else { return nil }
+        return String(cString: entry.pointee.pw_name)
     }
 
     private static func realUname() -> (String, String, String, String, String) {
