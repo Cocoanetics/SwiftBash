@@ -35,10 +35,10 @@ public enum BinCatalog {
 
         // /bin — the small set of commands macOS keeps in /bin.
         for name in [
-            "cat", "chmod", "cp", "date", "dd", "df", "echo", "expr",
-            "hostname", "kill", "link", "ln", "ls", "mkdir", "mv",
-            "ps", "pwd", "realpath", "rm", "rmdir", "sleep", "stty",
-            "sync", "test", "[", "unlink",
+            "bash", "cat", "chmod", "cp", "dash", "date", "dd", "df",
+            "echo", "expr", "hostname", "kill", "link", "ln", "ls",
+            "mkdir", "mv", "ps", "pwd", "realpath", "rm", "rmdir",
+            "sh", "sleep", "stty", "sync", "test", "[", "unlink",
         ] { m[name] = "/bin/\(name)" }
 
         // /usr/bin — everything else we ship that would normally be

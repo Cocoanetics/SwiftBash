@@ -218,6 +218,14 @@ public final class Shell: @unchecked Sendable {
         self._fileSystem = (fileSystem is VirtualBinFileSystem)
             ? fileSystem
             : VirtualBinFileSystem(backing: fileSystem)
+        // Advertise the running interpreter to scripts that probe bash
+        // version. These describe SwiftBash itself, not anything the
+        // caller's environment should be able to override — the only
+        // useful answer is "you're running under SwiftBash 4.x-target".
+        self.environment.variables["BASH"] = SwiftBashVersion.bashPath
+        self.environment.variables["BASH_VERSION"] = SwiftBashVersion.bashVersion
+        self.environment.arrays["BASH_VERSINFO"] = BashArray(
+            dense: SwiftBashVersion.bashVersionInfo)
     }
 
     // MARK: Default registry
@@ -255,6 +263,9 @@ public final class Shell: @unchecked Sendable {
             PrintfCommand(),
             TrapCommand(),
             GetoptsCommand(),
+            BashCommand(name: "bash"),
+            BashCommand(name: "sh"),
+            BashCommand(name: "dash"),
         ]
         var dict: [String: Command] = [:]
         for b in all { dict[b.name] = b }
