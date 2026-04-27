@@ -89,4 +89,28 @@ import Foundation
         // Last line never executes.
         #expect(out == "7\n")
     }
+
+    // MARK: ; statement separator
+
+    @Test func semicolonSeparatedStatementsOnOneLine() async throws {
+        // The canonical bc one-liner: assign scale, then evaluate.
+        let out = try await bc("scale=4; 22/7\n")
+        #expect(out == "3.1428\n")
+    }
+
+    @Test func semicolonChainPrintsEachExprResult() async throws {
+        let out = try await bc("2+2; 3*3; 4^2\n")
+        #expect(out == "4\n9\n16\n")
+    }
+
+    @Test func semicolonAssignmentsThenExpression() async throws {
+        let out = try await bc("x=10; y=20; x+y\n")
+        #expect(out == "30\n")
+    }
+
+    @Test func semicolonHaltStops() async throws {
+        // halt before further statements → none of them execute.
+        let out = try await bc("3+3; halt; 99\n")
+        #expect(out == "6\n")
+    }
 }

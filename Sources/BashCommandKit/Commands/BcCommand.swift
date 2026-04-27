@@ -94,17 +94,23 @@ public struct BcCommand: ParsableBashCommand {
             i = text.index(after: i)
         }
         for raw in stripped.components(separatedBy: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty { continue }
-            if line == "quit" || line == "halt" { return .success }
-            do {
-                if let result = try Bc.evalLine(line, ctx: &ctx) {
-                    Shell.current.stdout(Bc.format(result, scale: ctx.scale) + "\n")
+            // Real bc accepts multiple statements per line separated
+            // by `;` (e.g. `scale=4; 22/7`). Split here so each
+            // statement reaches `evalLine` independently.
+            for stmt in raw.split(separator: ";", omittingEmptySubsequences: true) {
+                let line = stmt.trimmingCharacters(in: .whitespaces)
+                if line.isEmpty { continue }
+                if line == "quit" || line == "halt" { return .success }
+                do {
+                    if let result = try Bc.evalLine(line, ctx: &ctx) {
+                        Shell.current.stdout(
+                            Bc.format(result, scale: ctx.scale) + "\n")
+                    }
+                } catch let e as Bc.Error {
+                    Shell.current.stderr("bc: \(e.message)\n")
+                } catch {
+                    Shell.current.stderr("bc: \(error)\n")
                 }
-            } catch let e as Bc.Error {
-                Shell.current.stderr("bc: \(e.message)\n")
-            } catch {
-                Shell.current.stderr("bc: \(error)\n")
             }
         }
         return nil
