@@ -1,15 +1,20 @@
 import ArgumentParser
 import BashInterpreter
 
-/// `which NAME...` — for each NAME, print `/builtin/<name>` if a
-/// command of that name is registered on the shell, else exit non-zero.
+/// `which NAME...` — for each NAME, print where the shell would
+/// resolve it.
 ///
-/// Differs from real `which` in that we have no `$PATH`-walking story
-/// (yet). Every registered command lives in a synthetic `/builtin/`
-/// namespace; that's what we print so output looks path-shaped.
+/// Output format mirrors what a real macOS install reports:
+/// - For a registered command that has a binary shadow path
+///   (`cat`, `ls`, `grep`, …) — print the full `/bin/<name>` or
+///   `/usr/bin/<name>` path, the same string `ls /bin` would show.
+/// - For a registered command that's a pure shell built-in (`cd`,
+///   `export`, `eval`, `declare`, …) — print
+///   `<name>: shell built-in command`.
+/// - For an unknown name — print nothing and contribute a non-zero
+///   exit, matching `/usr/bin/which` semantics.
 ///
-/// Exit status: 0 if all NAMEs are registered, 1 otherwise (matching
-/// `which`'s convention on Linux/macOS).
+/// Exit status: 0 if every NAME resolved, 1 otherwise.
 public struct WhichCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "which",
@@ -28,10 +33,14 @@ public struct WhichCommand: ParsableBashCommand {
         }
         var missing = false
         for name in names {
-            if Shell.current.commands[name] != nil {
-                Shell.current.stdout("/builtin/\(name)\n")
-            } else {
+            guard Shell.current.commands[name] != nil else {
                 missing = true
+                continue
+            }
+            if let path = BinCatalog.knownPaths[name] {
+                Shell.current.stdout("\(path)\n")
+            } else {
+                Shell.current.stdout("\(name): shell built-in command\n")
             }
         }
         return missing ? .failure : .success

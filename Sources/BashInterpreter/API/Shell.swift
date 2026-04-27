@@ -43,7 +43,22 @@ public final class Shell: @unchecked Sendable {
     /// The filesystem the shell reads and writes through. Defaults to
     /// ``RealFileSystem`` (the host's real `FileManager`). Swap in
     /// `InMemoryFileSystem` or similar to sandbox scripts.
-    public var fileSystem: FileSystem
+    ///
+    /// Whatever is assigned is automatically wrapped in
+    /// ``VirtualBinFileSystem`` so `/bin`, `/usr/bin`, and
+    /// `/usr/local/bin` always reflect this shell's command registry
+    /// rather than whatever the host might (or might not) have at
+    /// those paths. Wrapping is idempotent — assigning a fileSystem
+    /// that's already a ``VirtualBinFileSystem`` doesn't double-wrap.
+    public var fileSystem: FileSystem {
+        get { _fileSystem }
+        set {
+            _fileSystem = (newValue is VirtualBinFileSystem)
+                ? newValue
+                : VirtualBinFileSystem(backing: newValue)
+        }
+    }
+    private var _fileSystem: FileSystem
 
     /// Positional parameters — `$1` is `positionalParameters[0]`, etc.
     /// Set this directly, or use `set -- a b c` from a script. The
@@ -198,7 +213,11 @@ public final class Shell: @unchecked Sendable {
         self.stdout = stdout ?? .forwarding(to: FileHandle.standardOutput)
         self.stderr = stderr ?? .forwarding(to: FileHandle.standardError)
         self.commands = commands
-        self.fileSystem = fileSystem
+        // Initialise the underlying storage directly to go through the
+        // wrap-if-needed setter logic exactly once.
+        self._fileSystem = (fileSystem is VirtualBinFileSystem)
+            ? fileSystem
+            : VirtualBinFileSystem(backing: fileSystem)
     }
 
     // MARK: Default registry

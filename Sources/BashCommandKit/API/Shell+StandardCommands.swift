@@ -112,6 +112,14 @@ extension Shell {
         register(PgrepCommand.self)
         register(PkillCommand.self)
 
+        // Small POSIX utilities — easy wins on the FileSystem layer.
+        register(MktempCommand.self)
+        register(TruncateCommand.self)
+        register(GroupsCommand.self)
+        register(LinkCommand.self)
+        register(UnlinkCommand.self)
+        register(YesCommand.self)
+
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
         // works correctly inside subshells too, and avoids reference

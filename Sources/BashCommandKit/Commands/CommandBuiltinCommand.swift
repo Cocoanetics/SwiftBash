@@ -35,10 +35,17 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
         if lookup {
             var missing = false
             for name in names {
-                if Shell.current.commands[name] != nil {
-                    Shell.current.stdout("\(name)\n")
-                } else {
+                guard Shell.current.commands[name] != nil else {
                     missing = true
+                    continue
+                }
+                // bash `command -v` prints the resolved path for
+                // file-shadowed commands and just the name for
+                // built-ins, exactly matching `which` shape.
+                if let path = BinCatalog.knownPaths[name] {
+                    Shell.current.stdout("\(path)\n")
+                } else {
+                    Shell.current.stdout("\(name)\n")
                 }
             }
             return missing ? .failure : .success

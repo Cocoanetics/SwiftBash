@@ -176,10 +176,21 @@ import Foundation
 
     // MARK: which / type / command -v
 
-    @Test func whichReportsBuiltinPath() async throws {
+    @Test func whichReportsBinaryShadowPath() async throws {
+        // `echo` is a bash built-in that *also* ships as /bin/echo on
+        // macOS. Our `which` reports the shadow path so the result
+        // looks identical to /usr/bin/which on a real system.
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("which echo")
-        #expect(cap.stdout == "/builtin/echo\n")
+        #expect(cap.stdout == "/bin/echo\n")
+    }
+
+    @Test func whichReportsShellBuiltinForPureBuiltin() async throws {
+        // `cd` has no /bin/cd file on macOS — it's purely a shell
+        // built-in. `which cd` says so explicitly.
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("which cd")
+        #expect(cap.stdout == "cd: shell built-in command\n")
     }
 
     @Test func whichExitsNonZeroForUnknown() async throws {
@@ -189,16 +200,28 @@ import Foundation
         #expect(cap.stdout == "")
     }
 
-    @Test func typeReportsBuiltin() async throws {
+    @Test func typeReportsBinaryShadowPath() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("type echo")
-        #expect(cap.stdout == "echo is a shell builtin\n")
+        #expect(cap.stdout == "echo is /bin/echo\n")
     }
 
-    @Test func commandDashVPrintsName() async throws {
+    @Test func typeReportsShellBuiltinForPureBuiltin() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("type cd")
+        #expect(cap.stdout == "cd is a shell builtin\n")
+    }
+
+    @Test func commandDashVPrintsBinaryPath() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("command -v echo")
-        #expect(cap.stdout == "echo\n")
+        #expect(cap.stdout == "/bin/echo\n")
+    }
+
+    @Test func commandDashVPrintsBuiltinName() async throws {
+        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("command -v cd")
+        #expect(cap.stdout == "cd\n")
     }
 
     @Test func commandDashVSilentOnUnknown() async throws {
