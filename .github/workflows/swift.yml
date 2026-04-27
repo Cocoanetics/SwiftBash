@@ -42,15 +42,12 @@ jobs:
             build
 
   build-linux:
-    # Linux: full build + test. One small system requirement —
-    # `zlib1g-dev` (the libz development headers) — needed by the
-    # CZlib system-library target that gzip / gunzip wrap. The
-    # runtime libz is preinstalled on Ubuntu; only the headers
-    # need adding for SwiftPM compilation.
-    #
-    # Remaining limitation: extended attributes are no-op on Linux
-    # (the `<sys/xattr.h>` symbols aren't in Swift's default Glibc
-    # module). XattrCommandTests is `#if canImport(Darwin)`-gated.
+    # Linux: full build + test, parity with Apple platforms.
+    # Only system requirement is `zlib1g-dev` for CZlib's modulemap
+    # (the runtime libz is preinstalled). xattr functions resolve
+    # through the local CXattr systemLibrary target — no extra apt
+    # install needed; `<sys/xattr.h>` ships in the standard Linux
+    # libc-dev set that swiftlang/swift's container already has.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
