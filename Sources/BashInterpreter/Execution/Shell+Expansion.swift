@@ -158,8 +158,14 @@ extension Shell {
     func resolveParameter(_ body: String) async throws -> String {
         switch body {
         case "?": return "\(lastExitStatus.code)"
-        case "$": return "\(getpid())"
-        case "!": return "0"
+        case "$": return "\(virtualPID)"
+        case "!":
+            // PID of the most recent background command, or empty if
+            // none has been spawned in this shell tree yet.
+            if let pid = await processTable.lastBackgroundPID {
+                return "\(pid)"
+            }
+            return ""
         case "#": return "\(positionalParameters.count)"
         case "0": return scriptName
         case "@", "*":

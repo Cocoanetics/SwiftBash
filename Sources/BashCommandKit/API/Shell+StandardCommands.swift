@@ -104,7 +104,6 @@ extension Shell {
         register(IdCommand.self)
         register(DfCommand.self)
         register(CmpCommand.self)
-        register(NohupCommand())
         register(BcCommand.self)
         register(XattrCommand.self)
         register(PatchCommand.self)

@@ -89,6 +89,15 @@ public final class Shell: @unchecked Sendable {
     /// ``NetworkConfig/allowedURLPrefixes`` entries.
     public var networkConfig: NetworkConfig? = nil
 
+    /// Virtual process table — `&` background jobs and the four
+    /// `ps`/`kill`/`pgrep`/`pkill` commands all operate against this
+    /// in-memory table. There is intentionally no path to the host's
+    /// real process table.
+    public var processTable: ProcessTable = ProcessTable()
+
+    /// `$$` — this shell's virtual PID. Synthetic, not the host's.
+    public var virtualPID: Int32 = 1
+
     /// `set -e` / `set -o errexit` — when `true`, the shell exits as
     /// soon as a command returns a non-zero status, except inside a
     /// "checked" context tracked via ``errexitGuard``.
@@ -201,6 +210,7 @@ public final class Shell: @unchecked Sendable {
             EvalCommand(),
             LetCommand(),
             ShoptCommand(),
+            WaitCommand(),
             MapfileCommand(name: "mapfile"),
             MapfileCommand(name: "readarray"),
             BreakCommand(),
@@ -275,6 +285,11 @@ public final class Shell: @unchecked Sendable {
         sub.currentSource = currentSource
         sub.lastExitStatus = lastExitStatus
         sub.stdin = stdin
+        // Background jobs spawned in a subshell stay registered in
+        // the *parent's* table so the parent's `wait` can see them.
+        // Reference-share, not clone.
+        sub.processTable = processTable
+        sub.virtualPID = virtualPID
         return sub
     }
 

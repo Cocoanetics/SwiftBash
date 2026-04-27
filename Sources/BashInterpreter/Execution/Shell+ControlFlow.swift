@@ -77,6 +77,11 @@ extension Shell {
         var iterations = 0
         let maxIterations = 1_000_000 // guard against runaway loops
         loop: while true {
+            // Cooperative cancel point — lets `kill PID` against this
+            // backgrounded loop actually stop. CancellationError unwinds
+            // up to the spawning Task, which records the entry as
+            // `.cancelled`.
+            try Task.checkCancellation()
             errexitGuard += 1
             let condStatus: ExitStatus
             do { condStatus = try await execute(cond) }
@@ -190,6 +195,7 @@ extension Shell {
 
         var last = ExitStatus.success
         loop: while true {
+            try Task.checkCancellation()
             if !condExpr.isEmpty {
                 errexitGuard += 1
                 let v: Int64
@@ -225,6 +231,7 @@ extension Shell {
     {
         var last = ExitStatus.success
         loop: for value in values {
+            try Task.checkCancellation()
             environment[varName] = value
             do {
                 last = try await execute(body)

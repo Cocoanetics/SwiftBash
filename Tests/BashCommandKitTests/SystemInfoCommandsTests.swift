@@ -104,10 +104,4 @@ import Foundation
         #expect(cap.stdout == "")
     }
 
-    @Test func nohupRunsCommand() async throws {
-        let cap = makeShell()
-        try await cap.shell.run("nohup echo hi")
-        #expect(cap.stdout == "hi\n")
-        #expect(cap.stderr.contains("nohup.out"))
-    }
 }

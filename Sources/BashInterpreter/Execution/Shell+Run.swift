@@ -197,6 +197,18 @@ extension Shell {
                 i += 1
                 continue
             }
+            // `cmd &`: peek the next operator. If it's `&`, spawn the
+            // command as a virtual background job in the process table,
+            // set `$!` to the new PID, and don't await — the shell
+            // moves on immediately with status = 0.
+            if isBackgroundedAt(parts: parts, from: i + 1) {
+                let pid = await spawnBackground(node: node)
+                environment["!"] = "\(pid)"
+                status = .success
+                lastExitStatus = status
+                i += 1
+                continue
+            }
             // Bash's errexit rule: a failing command does NOT trigger
             // errexit if it's the LHS of `&&`/`||`. Look ahead one
             // operator to detect that and run the command under a
@@ -255,6 +267,45 @@ extension Shell {
     private func skipRhsOfShortCircuit(parts: [Node], from: Int) -> Int {
         guard from < parts.count else { return parts.count }
         return from + 1
+    }
+
+    /// `true` if the operator at `from` is `&` — meaning the command
+    /// at `from - 1` should run as a background job.
+    private func isBackgroundedAt(parts: [Node], from: Int) -> Bool {
+        guard from < parts.count,
+              case .operator("&") = parts[from].kind
+        else { return false }
+        return true
+    }
+
+    /// Spawn `node` in a fresh subshell on the process table, return
+    /// the assigned virtual PID. Errors thrown by the body are caught
+    /// inside the Task and recorded as the entry's exit state — they
+    /// never propagate back to the parent here.
+    private func spawnBackground(node: Node) async -> Int32 {
+        let sub = copy()
+        let label = nodeCommandLabel(node)
+        return await processTable.spawn(command: label) {
+            try await sub.withCurrent {
+                do {
+                    return try await sub.execute(node)
+                } catch is ShellExit {
+                    // `exit N` inside a background job ends the JOB,
+                    // not the parent shell.
+                    return sub.lastExitStatus
+                }
+            }
+        }
+    }
+
+    /// Cheap label for a node — what `ps` / `jobs` shows for the entry.
+    /// Falls back to the source slice; gives `?` if there's nothing.
+    private func nodeCommandLabel(_ node: Node) -> String {
+        let chars = Array(currentSource)
+        let lo = max(0, node.range.lowerBound)
+        let hi = min(chars.count, node.range.upperBound)
+        guard lo < hi else { return "?" }
+        return String(chars[lo..<hi]).trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: Trap firing
