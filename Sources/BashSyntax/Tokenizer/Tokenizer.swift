@@ -41,6 +41,33 @@ public final class Tokenizer {
     /// for a future enhancement.
     private var inExtglobPattern = false
     private var openBraces = 0
+    /// True when the leading word of the current command was one of
+    /// bash's "assignment built-ins" — `declare`, `typeset`, `local`,
+    /// `readonly`, `export`. While set, every subsequent argv element
+    /// of that command is parsed with assignment-style tokenization so
+    /// `declare -a a=(1 2 3)` recognizes `a=` as an assignment word and
+    /// the parser folds the `(…)` items into an `arrayAssignment` node.
+    /// Cleared at command boundaries (`;`, `\n`, `&&`, `||`, `|`, `&`,
+    /// `(`, `)`, `{`, `}`, `;;`).
+    private var inDeclarationContext: Bool = false
+
+    /// Words that, when they lead a command, switch the tokenizer
+    /// into ``inDeclarationContext`` for the rest of that command.
+    private static let assignmentBuiltins: Set<String> = [
+        "declare", "typeset", "local", "readonly", "export",
+    ]
+
+    /// Tokens that close out a command and reset
+    /// ``inDeclarationContext``. Subset of ``TokenType/commandStartTypes``
+    /// — assignment-words and reserved keywords like `then`/`do` are
+    /// *not* boundaries; they continue the current command (or
+    /// introduce a follow-on body within a compound construct).
+    private static let commandBoundaryTypes: Set<TokenType> = [
+        .semicolon, .newline,
+        .andAnd, .orOr, .bar, .barAnd, .ampersand,
+        .semiSemi, .semiAnd, .semiSemiAnd,
+        .leftParen, .rightParen, .leftCurly, .rightCurly,
+    ]
 
     public init(_ source: String) {
         self.source = source
@@ -82,6 +109,20 @@ public final class Tokenizer {
     /// Returns the next token in the stream; subsequent calls advance.
     public func nextToken() throws -> Token {
         let token = try readTokenInternal()
+        // Update the assignment-built-in context BEFORE rotating the
+        // history — we need to consult `lastReadToken` (still the
+        // *previous* token) to know whether this one was emitted at
+        // command position.
+        let atCommandStart = lastReadToken.map {
+            TokenType.commandStartTypes.contains($0.type)
+        } ?? true
+        if atCommandStart, token.type == .word,
+           Self.assignmentBuiltins.contains(token.value)
+        {
+            inDeclarationContext = true
+        } else if Self.commandBoundaryTypes.contains(token.type) {
+            inDeclarationContext = false
+        }
         // Track the last three tokens for reserved-word / assignment decisions.
         twoTokensAgo = tokenBeforeThat
         tokenBeforeThat = lastReadToken
@@ -865,8 +906,14 @@ public final class Tokenizer {
     }
 
     private func assignmentAcceptable() -> Bool {
-        // Accept only at command position (the same contexts that allow reserved words).
-        return reservedWordAcceptable()
+        // Normal case: only at command position (where reserved words
+        // would also be acceptable).
+        if reservedWordAcceptable() { return true }
+        // Bash exception: arguments to the assignment-built-ins
+        // (`declare`, `typeset`, `local`, `readonly`, `export`) are
+        // also tokenized as assignment-style. Keeps `declare -a a=(…)`
+        // and `local x=1 y=2` parsing the way real bash does.
+        return inDeclarationContext
     }
 
     private func assignmentPrefixLength(in s: String) -> Int? {

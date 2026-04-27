@@ -3,6 +3,32 @@ import BashSyntax
 
 extension Shell {
 
+    /// Names of bash's "assignment built-ins" — commands whose argv
+    /// elements that look like `name=value` are processed as proper
+    /// declarations by the command itself, *not* treated as scoped
+    /// prefix assignments. Used by ``executeSimpleCommand`` to route
+    /// assignment-words to argv when the command word matches.
+    static let assignmentBuiltinNames: Set<String> = [
+        "declare", "typeset", "local", "readonly", "export",
+    ]
+
+    /// Parse a `[key]=value` pair as it appears inside an
+    /// associative-array literal `declare -A m=([k]=v …)`. Returns
+    /// `(key, value)` or `nil` when the input doesn't have that shape.
+    func parseKeyedAssignment(_ raw: String) -> (key: String, value: String)? {
+        // Permit empty values (`[k]=`) and values containing further
+        // `=` (`[url]=https://x?a=b`).
+        guard raw.hasPrefix("["),
+              let closeBracket = raw.firstIndex(of: "]"),
+              raw.index(after: closeBracket) < raw.endIndex,
+              raw[raw.index(after: closeBracket)] == "="
+        else { return nil }
+        let key = String(raw[raw.index(after: raw.startIndex)..<closeBracket])
+        let valueStart = raw.index(closeBracket, offsetBy: 2)
+        let value = String(raw[valueStart...])
+        return (key, value)
+    }
+
     // MARK: Public entry points
 
     /// Parse and execute a bash source string. Returns the exit status of
@@ -361,6 +387,52 @@ extension Shell {
         var wordFragments: [(node: Node, fragments: [WordFragment])] = []
         var redirects: [Node] = []
 
+        // Pre-pass: locate the command word and decide whether it's an
+        // "assignment built-in" (declare / typeset / local / readonly /
+        // export). For those, parts after the command word that LOOK
+        // like assignments (`x=1`, `arr=(…)`, `arr[i]=v`) are not
+        // prefix assignments — they're arguments processed by the
+        // built-in itself. Without this rule `declare x=1` would set
+        // `x` only for `declare`'s own (no-op) duration.
+        let commandWordIndex: Int? = {
+            for (idx, part) in parts.enumerated() {
+                if case .word = part.kind { return idx }
+            }
+            return nil
+        }()
+        let isAssignmentBuiltin: Bool = {
+            guard let idx = commandWordIndex,
+                  case .word = parts[idx].kind
+            else { return false }
+            // Look at the literal source text of the command word —
+            // assignment built-ins are never reached via expansion in
+            // realistic scripts, and we need this decision before any
+            // expansion runs.
+            let raw = String(parts[idx].source(from: currentSource))
+            return Self.assignmentBuiltinNames.contains(raw)
+        }()
+        // For `declare -A name=(…)` the items inside `(…)` are
+        // `[key]=value` pairs, not dense values. Detect the `-A` flag
+        // by scanning the .word parts that follow the command word
+        // and precede any arrayAssignment.
+        let declareAssociativeMode: Bool = {
+            guard isAssignmentBuiltin, let cmdIdx = commandWordIndex
+            else { return false }
+            for part in parts[(cmdIdx + 1)...] {
+                if case .arrayAssignment = part.kind { break }
+                if case .word = part.kind {
+                    let raw = String(part.source(from: currentSource))
+                    // Handle merged flags (`-Ar`, `-rA`).
+                    if raw.hasPrefix("-"), !raw.hasPrefix("--"),
+                       raw.contains("A")
+                    {
+                        return true
+                    }
+                }
+            }
+            return false
+        }()
+
         // Bash word expansion order:
         // 1. Substitution (parameter / command / arithmetic) on
         //    assignment values AND command words — *all using the
@@ -375,10 +447,18 @@ extension Shell {
         // 5. Run the command.
         // 6. Restore.
         do {
-            for part in parts {
+            for (idx, part) in parts.enumerated() {
+                let pastCommandWord = commandWordIndex.map { idx > $0 } ?? false
+                let routeAsArg = isAssignmentBuiltin && pastCommandWord
                 switch part.kind {
                 case .assignment:
                     let expanded = try await expand(word: part)
+                    if routeAsArg {
+                        // Hand the literal `name=value` string to the
+                        // built-in as a regular argv element.
+                        wordFragments.append((part, [.literal(expanded)]))
+                        break
+                    }
                     if let eq = expanded.firstIndex(of: "=") {
                         let lhs = String(expanded[..<eq])
                         let value = String(
@@ -401,6 +481,23 @@ extension Shell {
                     for item in items {
                         values.append(try await expand(word: item))
                     }
+                    if routeAsArg && declareAssociativeMode {
+                        // `declare -A m=([k1]=v1 [k2]=v2)` — items are
+                        // keyed pairs. Drop into the associative table.
+                        var dict = append
+                            ? (environment.associativeArrays[name] ?? [:])
+                            : [String: String]()
+                        for raw in values {
+                            if let (key, value) = parseKeyedAssignment(raw) {
+                                dict[key] = value
+                            }
+                        }
+                        environment.associativeArrays[name] = dict
+                        environment.arrays.removeValue(forKey: name)
+                        environment.variables.removeValue(forKey: name)
+                        wordFragments.append((part, [.literal(name)]))
+                        break
+                    }
                     if append {
                         var existing = environment.arrays[name] ?? BashArray()
                         existing.append(values)
@@ -409,6 +506,14 @@ extension Shell {
                         environment.arrays[name] = BashArray(dense: values)
                     }
                     environment.variables.removeValue(forKey: name)
+                    // Even when this is `declare -a a=(…)` we don't
+                    // also pass the value through argv — the array is
+                    // registered above; declare's only remaining job
+                    // is the type flag, which it does with an empty
+                    // value field on the matching `name` arg.
+                    if routeAsArg {
+                        wordFragments.append((part, [.literal(name)]))
+                    }
                 case .word:
                     let frags = try await collectArgFragments(word: part)
                     wordFragments.append((part, frags))
