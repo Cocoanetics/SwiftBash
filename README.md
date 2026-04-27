@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Docs/SwiftBash.jpg" alt="SwiftBash — a Bash interpreter written in Swift" width="100%">
+</p>
+
 # SwiftBash
 
 A pure-Swift, sandboxed bash interpreter that drops into any Mac or
