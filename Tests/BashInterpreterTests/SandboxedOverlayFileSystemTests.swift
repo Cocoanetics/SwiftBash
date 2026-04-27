@@ -221,6 +221,52 @@ import Foundation
         }
     }
 
+    @Test func escapeSymlinkHiddenFromListing() async throws {
+        // Listing must agree with reachability: if `metadata("/batch/X")`
+        // returns nil because X is a symlink pointing outside the
+        // sandbox, then `list("/batch")` must not include "X" either.
+        // Otherwise scripts could enumerate host filenames via `ls`
+        // even though they can't read them.
+        let root = Self.makeTempDir(); defer { cleanup(root) }
+        let outside = NSTemporaryDirectory()
+            + "outside-\(UUID().uuidString).txt"
+        try "leaked".write(toFile: outside,
+                           atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: outside) }
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/escape-link",
+            withDestinationPath: outside)
+        // Plant a real file alongside, to make sure the escape filter
+        // doesn't accidentally drop legitimate entries.
+        try "ok".write(toFile: root + "/keep.txt",
+                       atomically: true, encoding: .utf8)
+
+        let fs = try makeFs(root: root)
+        let entries = try await fs.list("/batch")
+        #expect(entries.contains("keep.txt"),
+                "regular files must still be listed")
+        #expect(!entries.contains("escape-link"),
+                "escape symlink leaked into listing: \(entries)")
+    }
+
+    @Test func brokenSymlinkHiddenFromListing() async throws {
+        // A dangling symlink (`/batch/dangling -> /nonexistent`) is
+        // unreachable in every other API; it must not show up in
+        // `ls` either.
+        let root = Self.makeTempDir(); defer { cleanup(root) }
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/dangling",
+            withDestinationPath: "/tmp/does-not-exist-\(UUID())")
+        try "real".write(toFile: root + "/visible",
+                         atomically: true, encoding: .utf8)
+
+        let fs = try makeFs(root: root)
+        let entries = try await fs.list("/batch")
+        #expect(entries.contains("visible"))
+        #expect(!entries.contains("dangling"),
+                "dangling symlink leaked into listing: \(entries)")
+    }
+
     @Test func brokenSymlinkLeafLooksMissingAndWriteStaysInOverlay() async throws {
         let root = Self.makeTempDir(); defer { cleanup(root) }
         // Symlink to a non-existent file *outside* root. We must not

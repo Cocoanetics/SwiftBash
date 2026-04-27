@@ -190,14 +190,29 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
                     throw fsError(.notADirectory, virtualPath: path)
                 }
             }
-            // Collect host children (if mapped).
+            // Collect host children (if mapped). Filter out any child
+            // whose own resolution would fail the sandbox confinement
+            // or symlink-guard checks — otherwise a host-side symlink
+            // pointing outside the root would be visible by name in
+            // `ls` even though `cat` / `stat` on it report missing.
+            // Listing must agree with reachability.
             var entries: Set<String> = []
             if let canonical = resolveRealPath(forVirtual: normalized) {
                 exists = true
                 if let real = try? FileManager.default
                     .contentsOfDirectory(atPath: canonical)
                 {
-                    for name in real { entries.insert(name) }
+                    let childPrefix = normalized == "/"
+                        ? "/" : normalized + "/"
+                    for name in real {
+                        // Skip "." / ".." defensively; FileManager
+                        // doesn't return them but be explicit.
+                        if name == "." || name == ".." { continue }
+                        let virtualChild = childPrefix + name
+                        if resolveRealPath(forVirtual: virtualChild) != nil {
+                            entries.insert(name)
+                        }
+                    }
                 }
             }
             if !exists {
