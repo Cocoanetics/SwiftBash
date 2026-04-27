@@ -34,14 +34,32 @@ public struct RmdirCommand: ParsableBashCommand {
         for path in paths {
             if !(await removeOne(path)) { hadError = true }
             if parents, !hadError {
-                var p = (path as NSString).deletingLastPathComponent
+                var p = Self.parentPath(path)
                 while !p.isEmpty, p != "." , p != "/" {
                     if !(await removeOne(p)) { break }
-                    p = (p as NSString).deletingLastPathComponent
+                    p = Self.parentPath(p)
                 }
             }
         }
         return hadError ? .failure : .success
+    }
+
+    /// Pure-Swift `dirname`-style parent path. Use this rather than
+    /// `NSString.deletingLastPathComponent`, which has surfaced a
+    /// SIGILL trap on swift-corelibs-foundation in recursive call
+    /// patterns. We don't actually need NSString here — it's a
+    /// 10-line string split.
+    static func parentPath(_ path: String) -> String {
+        if path.isEmpty { return "" }
+        if path == "/" { return "/" }
+        // Drop trailing slashes (preserve a bare leading "/").
+        var s = path
+        while s.count > 1, s.hasSuffix("/") { s.removeLast() }
+        guard let i = s.lastIndex(of: "/") else {
+            return ""             // single component → no parent
+        }
+        if i == s.startIndex { return "/" }   // e.g. "/a" → "/"
+        return String(s[..<i])
     }
 
     /// Remove a single directory; reports stderr on failure and returns
