@@ -131,8 +131,16 @@ public struct LsCommand: ParsableBashCommand {
         }
 
         if all {
-            entries.insert(Entry(name: "..", meta: nil), at: 0)
-            entries.insert(Entry(name: ".", meta: nil), at: 0)
+            // `.` is the directory itself; `..` is its parent. Stat
+            // both so the long listing reports the right kind / mode
+            // / mtime instead of falling back to file defaults.
+            let dotMeta = (try? await Shell.current.fileSystem.metadata(fullPath))
+                ?? nil
+            let parentPath = (fullPath as NSString).deletingLastPathComponent
+            let dotDotMeta = (try? await Shell.current.fileSystem
+                .metadata(parentPath.isEmpty ? "/" : parentPath)) ?? nil
+            entries.insert(Entry(name: "..", meta: dotDotMeta), at: 0)
+            entries.insert(Entry(name: ".", meta: dotMeta), at: 0)
         }
 
         sort(&entries)
@@ -198,14 +206,24 @@ public struct LsCommand: ParsableBashCommand {
     }
 
     private func formatLong(_ e: Entry) -> String {
+        let host = Shell.current.hostInfo
         let kind = e.meta?.kind ?? .file
-        let mode: String
-        switch kind {
-        case .directory: mode = "drwxr-xr-x"
-        case .symlink: mode = "lrwxr-xr-x"
-        case .other: mode = "?rwxr-xr-x"
-        case .file: mode = "-rw-r--r--"
-        }
+        // Real permission bits from FileMetadata.mode, formatted as
+        // bash-style `rwxrw-r--`. Falls back to defaults only when
+        // metadata is unavailable.
+        let modeBits = e.meta?.mode ?? (kind == .directory ? 0o755 : 0o644)
+        let mode = formatMode(kind: kind, bits: modeBits)
+
+        let nlinks = e.meta?.linkCount ?? 1
+
+        // Owner / group from synthetic-by-default `HostInfo`. Looking
+        // up names per uid/gid would require a passwd-database
+        // abstraction; for now the names track `hostInfo`'s and the
+        // numeric ownership lives in `meta.uid` / `.gid` for callers
+        // that want it.
+        let owner = host.userName
+        let group = host.groupName
+
         let size = e.meta?.size ?? 0
         let sizeStr = humanReadable
             ? humanSize(size).leftPad(width: 5)
@@ -215,17 +233,60 @@ public struct LsCommand: ParsableBashCommand {
         if classify {
             switch kind {
             case .directory: suffix = "/"
-            case .symlink: suffix = "@"
-            default: suffix = ""
+            case .symlink:   suffix = "@"
+            default:         suffix = ""
             }
         } else {
             suffix = ""
         }
-        var line = "\(mode) 1 user user \(sizeStr) \(formatDate(mtime)) \(e.name)\(suffix)"
+        var line = "\(mode) \(nlinks) \(owner) \(group)"
+            + " \(sizeStr) \(formatDate(mtime)) \(e.name)\(suffix)"
         if kind == .symlink, let t = e.meta?.symlinkTarget {
             line += " -> \(t)"
         }
         return line
+    }
+
+    /// Format `mode` (low 12 bits of POSIX permission flags) as the
+    /// 10-character bash-style string: `<kind><rwx><rwx><rwx>`.
+    /// Honours setuid (`s`/`S`), setgid (`s`/`S`), and sticky bit
+    /// (`t`/`T`).
+    private func formatMode(kind: FileMetadata.Kind, bits: UInt16) -> String {
+        let kindCh: Character
+        switch kind {
+        case .directory: kindCh = "d"
+        case .symlink:   kindCh = "l"
+        case .file:      kindCh = "-"
+        case .other:     kindCh = "?"
+        }
+        // Owner/group/other rwx triples.
+        let owner = rwxTriple(
+            r: bits & 0o400, w: bits & 0o200, x: bits & 0o100,
+            extra: bits & 0o4000, extraOnChar: "s", extraOffChar: "S")
+        let group = rwxTriple(
+            r: bits & 0o040, w: bits & 0o020, x: bits & 0o010,
+            extra: bits & 0o2000, extraOnChar: "s", extraOffChar: "S")
+        let other = rwxTriple(
+            r: bits & 0o004, w: bits & 0o002, x: bits & 0o001,
+            extra: bits & 0o1000, extraOnChar: "t", extraOffChar: "T")
+        return String(kindCh) + owner + group + other
+    }
+
+    private func rwxTriple(r: UInt16, w: UInt16, x: UInt16,
+                           extra: UInt16,
+                           extraOnChar: Character,
+                           extraOffChar: Character) -> String {
+        var out = ""
+        out.append(r != 0 ? "r" : "-")
+        out.append(w != 0 ? "w" : "-")
+        if extra != 0 {
+            // setuid/setgid/sticky takes the x position; case toggles
+            // on whether the underlying execute bit is set.
+            out.append(x != 0 ? extraOnChar : extraOffChar)
+        } else {
+            out.append(x != 0 ? "x" : "-")
+        }
+        return out
     }
 
     private func humanSize(_ bytes: Int64) -> String {

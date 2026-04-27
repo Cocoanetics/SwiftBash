@@ -86,11 +86,17 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         var gid: UInt32
         var mtime: Date
         var xattrs: [String: Data]
-        init(kind: MemKind, mode: UInt16, mtime: Date = Date()) {
+        init(kind: MemKind, mode: UInt16, mtime: Date = Date(),
+             uid: UInt32 = 1000, gid: UInt32 = 1000)
+        {
             self.kind = kind
             self.mode = mode
-            self.uid = UInt32(getuid())
-            self.gid = UInt32(getgid())
+            // Default owner matches `HostInfo.synthetic`. Never call
+            // `getuid()` / `getgid()` here — doing so would leak the
+            // host's real uid through `stat` even when the rest of the
+            // shell reports synthetic identity.
+            self.uid = uid
+            self.gid = gid
             self.mtime = mtime
             self.xattrs = [:]
         }

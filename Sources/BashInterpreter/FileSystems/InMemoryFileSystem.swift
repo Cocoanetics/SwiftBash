@@ -33,13 +33,21 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         var uid: UInt32
         var gid: UInt32
         var xattrs: [String: Data]
-        init(kind: Kind, mode: UInt16? = nil) {
+        init(kind: Kind, mode: UInt16? = nil,
+             uid: UInt32 = 1000, gid: UInt32 = 1000)
+        {
             self.kind = kind
             if let m = mode { self.mode = m }
             else if case .directory = kind { self.mode = 0o755 }
             else { self.mode = 0o644 }
-            self.uid = UInt32(getuid())
-            self.gid = UInt32(getgid())
+            // Default owner matches `HostInfo.synthetic` (1000/1000).
+            // We deliberately do NOT call `getuid()` / `getgid()` —
+            // doing so would let `stat foo` reveal the real host uid
+            // even when the rest of the shell reports synthetic
+            // identity. Embedders that want host owners assign
+            // `node.uid = …` after construction.
+            self.uid = uid
+            self.gid = gid
             self.xattrs = [:]
         }
     }

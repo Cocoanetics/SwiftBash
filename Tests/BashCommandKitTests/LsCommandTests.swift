@@ -55,7 +55,44 @@ import Foundation
         try await cap.shell.run("echo abc > f.txt; ls -l")
         #expect(cap.stdout.contains("total"))
         #expect(cap.stdout.contains("f.txt"))
+        // The file inherits the real-fs default umask (often 0644).
+        #expect(cap.stdout.contains("-rw-"))
+    }
+
+    @Test func lsLongReflectsActualModeBits() async throws {
+        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        try await cap.shell.run(
+            "touch a.txt; chmod 700 a.txt; touch b.txt; chmod 644 b.txt; ls -l")
+        #expect(cap.stdout.contains("-rwx------"))
         #expect(cap.stdout.contains("-rw-r--r--"))
+    }
+
+    @Test func lsLongOwnerComesFromHostInfo() async throws {
+        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        cap.shell.hostInfo.userName = "alice"
+        cap.shell.hostInfo.groupName = "researchers"
+        try await cap.shell.run("touch f.txt; ls -l f.txt")
+        #expect(cap.stdout.contains("alice researchers"))
+    }
+
+    @Test func lsLaShowsDotAndDotDotAsDirectories() async throws {
+        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        try await cap.shell.run("ls -la")
+        // Both `.` and `..` rendered with directory mode (`d…`),
+        // not file mode (`-…`).
+        let lines = cap.stdout.split(separator: "\n").map(String.init)
+        let dot = lines.first { $0.hasSuffix(" .") || $0.hasSuffix(" ./") }
+        let dotDot = lines.first { $0.hasSuffix(" ..") || $0.hasSuffix(" ../") }
+        #expect(dot?.first == "d", "`.` not rendered as directory: \(dot ?? "nil")")
+        #expect(dotDot?.first == "d", "`..` not rendered as directory: \(dotDot ?? "nil")")
+    }
+
+    @Test func lsLongShowsStickyBitOnDir() async throws {
+        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        try await cap.shell.run("mkdir tmp; chmod 1777 tmp; ls -la")
+        // `chmod 1777 tmp` → drwxrwxrwt (sticky bit + rwx for everyone).
+        #expect(cap.stdout.contains("drwxrwxrwt"),
+                "expected sticky-bit dir, got: \(cap.stdout)")
     }
 
     @Test func lsClassify() async throws {
