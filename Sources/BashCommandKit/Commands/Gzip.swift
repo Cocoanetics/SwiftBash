@@ -1,14 +1,14 @@
-#if canImport(Compression)
 import ArgumentParser
 import BashInterpreter
-import Compression
+import CZlib
 import Foundation
 
 // MARK: - gzip
 
 /// Tiny gzip codec: header / trailer in pure Swift, DEFLATE body via
-/// `Compression.compression_{encode,decode}_buffer` (one-shot,
-/// in-memory). Big files (>4 GiB) aren't supported because gzip's
+/// the host's zlib (`deflate` / `inflate` from `<zlib.h>`, exposed
+/// through the local `CZlib` systemLibrary target). One-shot,
+/// in-memory. Big files (>4 GiB) aren't supported because gzip's
 /// `ISIZE` field is 32-bit, which we use as the decode buffer hint.
 enum Gzip {
 
@@ -87,26 +87,51 @@ enum Gzip {
         return path + ".out"
     }
 
-    // MARK: DEFLATE wrappers
+    // MARK: DEFLATE wrappers (zlib's `deflate` / `inflate`)
+    //
+    // We pass `windowBits = -15` to both init calls: zlib's "raw"
+    // mode that produces / consumes a bare DEFLATE bitstream, no
+    // zlib (RFC 1950) framing. The gzip header / CRC32 / ISIZE we
+    // generate ourselves above so the bytes match what `gzip -c`
+    // would write.
 
     private static func deflate(_ src: Data) -> Data {
         if src.isEmpty {
-            // compression_encode_buffer returns 0 on empty input; emit
-            // the canonical empty-deflate stream by hand.
+            // zlib produces 3 bytes for empty input (block-of-no-data
+            // marker). Match the canonical 2-byte form gzip emits so
+            // round-trip through gunzip stays compact.
             return Data([0x03, 0x00])
         }
-        let cap = max(64, src.count + 64 + src.count / 100)
+        var stream = z_stream()
+        // -15 windowBits + Z_DEFLATED + default mem level + default
+        // strategy. `deflateInit2_` is the variant that takes
+        // ZLIB_VERSION + sizeof(z_stream) for ABI safety; the macro
+        // form `deflateInit2` isn't available across the C bridge.
+        let initRC = deflateInit2_(
+            &stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
+            -15, 8, Z_DEFAULT_STRATEGY,
+            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard initRC == Z_OK else { return Data() }
+        defer { deflateEnd(&stream) }
+
+        // Cap the destination buffer generously — `deflateBound`
+        // gives the worst-case post-DEFLATE size for any input.
+        // `deflateBound` takes `uLong` (size_t-ish); `src.count` is
+        // already an `Int` which converts directly.
+        let cap = Int(deflateBound(&stream, uLong(src.count)))
         var dst = Data(count: cap)
-        let written = dst.withUnsafeMutableBytes { dstPtr -> Int in
-            src.withUnsafeBytes { srcPtr -> Int in
-                compression_encode_buffer(
-                    dstPtr.bindMemory(to: UInt8.self).baseAddress!, cap,
-                    srcPtr.bindMemory(to: UInt8.self).baseAddress!, src.count,
-                    nil, COMPRESSION_ZLIB)
+        let written = src.withUnsafeBytes { srcPtr -> Int in
+            dst.withUnsafeMutableBytes { dstPtr -> Int in
+                stream.next_in = UnsafeMutablePointer(mutating:
+                    srcPtr.bindMemory(to: Bytef.self).baseAddress!)
+                stream.avail_in = uInt(src.count)
+                stream.next_out = dstPtr.bindMemory(to: Bytef.self).baseAddress!
+                stream.avail_out = uInt(cap)
+                let rc = zlib_deflate(&stream, Z_FINISH)
+                guard rc == Z_STREAM_END else { return 0 }
+                return Int(stream.total_out)
             }
         }
-        // 0 only happens if `cap` was too small. Our generous cap
-        // makes that effectively impossible for in-memory inputs.
         return dst.prefix(written)
     }
 
@@ -115,27 +140,52 @@ enum Gzip {
         if src.isEmpty || (src.count == 2 && src[src.startIndex] == 0x03) {
             return Data()
         }
+        var stream = z_stream()
+        let initRC = inflateInit2_(
+            &stream, -15,
+            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard initRC == Z_OK else { throw Error.inflateFailed }
+        defer { inflateEnd(&stream) }
+
+        // Start at the size hint from the gzip ISIZE field, grow
+        // geometrically if zlib fills the buffer (`ISIZE` is mod 2^32
+        // so very large inputs need multiple expansions).
         var cap = max(expectedSize, 64)
-        // Grow up to a few times if `compression_decode_buffer` fills
-        // the whole buffer (which suggests our hint was too small —
-        // typically because ISIZE was modulo'd for >4 GiB inputs).
-        for _ in 0..<4 {
+        var consumedIn: uInt = 0
+        for _ in 0..<32 {
             var dst = Data(count: cap)
-            let written = dst.withUnsafeMutableBytes { dstPtr -> Int in
-                src.withUnsafeBytes { srcPtr -> Int in
-                    compression_decode_buffer(
-                        dstPtr.bindMemory(to: UInt8.self).baseAddress!, cap,
-                        srcPtr.bindMemory(to: UInt8.self).baseAddress!,
-                        src.count,
-                        nil, COMPRESSION_ZLIB)
+            let result: (rc: Int32, total: Int) = src.withUnsafeBytes { srcPtr in
+                dst.withUnsafeMutableBytes { dstPtr in
+                    stream.next_in = UnsafeMutablePointer(mutating:
+                        srcPtr.bindMemory(to: Bytef.self).baseAddress!
+                            .advanced(by: Int(consumedIn)))
+                    stream.avail_in = uInt(src.count) - consumedIn
+                    stream.next_out = dstPtr.bindMemory(to: Bytef.self).baseAddress!
+                    stream.avail_out = uInt(cap)
+                    let r = zlib_inflate(&stream, Z_NO_FLUSH)
+                    return (r, Int(stream.total_out))
                 }
             }
-            if written > 0, written < cap { return dst.prefix(written) }
-            if written == 0 { throw Error.inflateFailed }
-            cap *= 2
+            switch result.rc {
+            case Z_STREAM_END:
+                return dst.prefix(result.total)
+            case Z_OK, Z_BUF_ERROR:
+                // Need more output space — grow and retry. Track
+                // input consumption so the next pass continues from
+                // the right offset.
+                consumedIn = uInt(src.count) - stream.avail_in
+                cap *= 2
+            default:
+                throw Error.inflateFailed
+            }
         }
         throw Error.inflateFailed
     }
+
+    /// Tiny aliases so the source above doesn't collide with the
+    /// `deflate` / `inflate` static methods on `Gzip` itself.
+    private static let zlib_deflate = CZlib.deflate
+    private static let zlib_inflate = CZlib.inflate
 
     // MARK: Header bytes
 
@@ -242,12 +292,3 @@ func runGzip(decompress: Bool,
     }
     return hadError ? .failure : .success
 }
-
-// MARK: - codec
-
-/// Tiny gzip codec: header / trailer in pure Swift, DEFLATE body via
-/// `Compression.compression_{encode,decode}_buffer` (one-shot,
-/// in-memory). Big files (>4 GiB) aren't supported because gzip's
-
-
-#endif

@@ -26,6 +26,15 @@ let package = Package(
                  from: "3.0.0"),
     ],
     targets: [
+        // Tiny systemLibrary target wrapping the host's zlib so our
+        // gzip / gunzip commands work uniformly on macOS / iOS / Linux
+        // without depending on Apple's Compression framework. Apple
+        // SDKs already ship <zlib.h> + libz; on Linux apt-get
+        // `zlib1g-dev` provides the headers.
+        .systemLibrary(
+            name: "CZlib",
+            path: "Sources/CZlib"
+        ),
         .target(
             name: "BashSyntax",
             path: "Sources/BashSyntax"
@@ -39,6 +48,7 @@ let package = Package(
             name: "BashCommandKit",
             dependencies: [
                 "BashInterpreter",
+                "CZlib",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],

@@ -42,18 +42,21 @@ jobs:
             build
 
   build-linux:
-    # Linux support: full build + test. Two known limitations
-    # currently — neither blocks normal scripts:
-    #   - gzip / gunzip aren't registered (no Compression framework
-    #     on Linux yet; needs a zlib shim).
-    #   - extended attributes are no-op (sys/xattr.h symbols aren't
-    #     in Swift's default Glibc module; needs a tiny C target).
-    # Tests for both are gated with #if canImport(...) and skip on
-    # Linux. Drop the gates when the underlying gaps land.
+    # Linux: full build + test. One small system requirement —
+    # `zlib1g-dev` (the libz development headers) — needed by the
+    # CZlib system-library target that gzip / gunzip wrap. The
+    # runtime libz is preinstalled on Ubuntu; only the headers
+    # need adding for SwiftPM compilation.
+    #
+    # Remaining limitation: extended attributes are no-op on Linux
+    # (the `<sys/xattr.h>` symbols aren't in Swift's default Glibc
+    # module). XattrCommandTests is `#if canImport(Darwin)`-gated.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - name: Install zlib headers
+        run: sudo apt-get install -y zlib1g-dev
       - name: Verify Swift version
         run: swift --version
       - name: Build (Linux)

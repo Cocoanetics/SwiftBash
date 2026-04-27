@@ -1,7 +1,5 @@
-#if canImport(Compression)
 import ArgumentParser
 import BashInterpreter
-import Compression
 import Foundation
 
 // MARK: - gzip
@@ -44,5 +42,3 @@ public struct GzipCommand: ParsableBashCommand {
                           commandName: "gzip")
     }
 }
-
-#endif
