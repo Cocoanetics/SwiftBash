@@ -1,3 +1,4 @@
+#if canImport(Compression)
 import ArgumentParser
 import BashInterpreter
 import Compression
@@ -29,3 +30,5 @@ public struct GunzipCommand: ParsableBashCommand {
                           commandName: "gunzip")
     }
 }
+
+#endif

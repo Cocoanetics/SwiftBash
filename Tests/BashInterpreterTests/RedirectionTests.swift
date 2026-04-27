@@ -274,7 +274,7 @@ import Foundation
 
     @Test func redirectRestoresOnCommandFailure() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        try? await cap.shell.run("nosuchcommand > out.txt")
+        _ = try? await cap.shell.run("nosuchcommand > out.txt")
         try await cap.shell.run("echo after")
         #expect(cap.stdout == "after\n",
                 "stdout restored even after failing command")

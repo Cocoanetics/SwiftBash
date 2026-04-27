@@ -1,6 +1,6 @@
 import ArgumentParser
 import BashInterpreter
-import CryptoKit
+import Crypto
 import Foundation
 
 // MARK: - md5sum

@@ -172,7 +172,7 @@ enum AwkPrintf {
         case "g", "G":
             let n = value.asNumber
             let prec = spec.precision ?? 6
-            var s = String(format: "%.\(prec)\(spec.conv)", n)
+            let s = String(format: "%.\(prec)\(spec.conv)", n)
             return padNumeric(s, spec: spec)
         default:
             return "%" + String(spec.conv)

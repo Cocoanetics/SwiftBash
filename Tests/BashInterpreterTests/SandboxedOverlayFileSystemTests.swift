@@ -37,16 +37,16 @@ import Foundation
 
     // MARK: Construction
 
-    @Test func rejectsMissingRoot() async throws {
-        await #expect(throws: FileSystemError.self) {
+    @Test func rejectsMissingRoot() throws {
+        #expect(throws: FileSystemError.self) {
             _ = try SandboxedOverlayFileSystem(.init(
                 root: "/definitely/not/here/\(UUID())"))
         }
     }
 
-    @Test func rejectsRootMount() async throws {
+    @Test func rejectsRootMount() throws {
         let root = Self.makeTempDir(); defer { cleanup(root) }
-        await #expect(throws: FileSystemError.self) {
+        #expect(throws: FileSystemError.self) {
             _ = try makeFs(root: root, mountPoint: "/")
         }
     }

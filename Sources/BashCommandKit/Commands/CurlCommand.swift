@@ -64,7 +64,7 @@ public struct CurlCommand: ParsableBashCommand {
         var opts = ParsedOptions()
         do {
             opts = try parse(rawArgv)
-        } catch let CurlParseError.missingURL {
+        } catch CurlParseError.missingURL {
             Shell.current.stderr("curl: no URL specified\n")
             return ExitStatus(2)
         } catch let CurlParseError.unknownOption(o) {

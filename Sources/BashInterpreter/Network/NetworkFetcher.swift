@@ -1,4 +1,11 @@
 import Foundation
+#if canImport(FoundationNetworking)
+// Linux Foundation splits networking out into a separate module so
+// `URLSession`, `URLRequest`, `URLSessionTask`, `HTTPURLResponse`,
+// and the matching delegates live there. Apple platforms re-export
+// them from the umbrella `Foundation`.
+import FoundationNetworking
+#endif
 
 /// Low-level fetch primitive — what the ``SecureFetcher`` calls into
 /// after it has validated a request. Exposed as a protocol so tests
@@ -37,7 +44,13 @@ public struct NetworkRequest: Sendable {
 
 /// `URLSession`-backed fetcher. The session is configured to NOT
 /// follow redirects automatically (the secure layer handles them).
-public struct URLSessionFetcher: NetworkFetcher {
+///
+/// `@unchecked Sendable` because Linux's `URLSession` (in
+/// `FoundationNetworking`) doesn't yet declare Sendable conformance.
+/// `URLSession` itself is documented as thread-safe; the fetcher
+/// holds it immutably and only calls `data(for:)` / configuration
+/// readers — no cross-actor mutation.
+public struct URLSessionFetcher: NetworkFetcher, @unchecked Sendable {
 
     private let session: URLSession
 

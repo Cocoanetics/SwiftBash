@@ -77,8 +77,14 @@ extension Shell {
         register(ShasumCommand.self)
         register(CurlCommand.self)
         register(DiffCommand.self)
+        // gzip / gunzip wrap Apple's `Compression` framework, which
+        // doesn't ship on Linux. Register only on platforms that have
+        // it; Linux scripts get "command not found" for these until
+        // we vendor a zlib shim. (See gzip-on-linux follow-up.)
+        #if canImport(Compression)
         register(GzipCommand.self)
         register(GunzipCommand.self)
+        #endif
         register(JqCommand.self)
         register(AwkCommand.self)
         register(ExprCommand.self)

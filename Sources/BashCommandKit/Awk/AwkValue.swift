@@ -71,7 +71,7 @@ public enum AwkValue: Sendable {
     /// leading whitespace, optional sign, digits / dot / exponent.
     /// Returns 0 when no digits are present.
     static func parseLeadingNumber(_ s: String) -> Double {
-        var chars = Array(s)
+        let chars = Array(s)
         var i = 0
         while i < chars.count, chars[i] == " " || chars[i] == "\t" { i += 1 }
         let start = i

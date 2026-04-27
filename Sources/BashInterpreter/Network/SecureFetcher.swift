@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Wraps a ``NetworkFetcher`` with full ``NetworkConfig`` enforcement:
 /// allow-list match, method gating, header transforms, redirect loop

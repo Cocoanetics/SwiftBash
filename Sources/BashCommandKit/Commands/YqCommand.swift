@@ -159,7 +159,7 @@ enum YamlParser {
     static func parse(_ source: String) throws -> JqValue {
         // Strip front-matter or multi-doc markers and comments.
         let text = stripComments(source)
-        var lines = text.components(separatedBy: "\n")
+        let lines = text.components(separatedBy: "\n")
         // Multi-doc: take the first document up to the next `---`.
         var firstDoc: [String] = []
         var i = 0
@@ -182,10 +182,7 @@ enum YamlParser {
         }
         if firstDoc.isEmpty { return .null }
         var p = Parser(lines: firstDoc, line: 0)
-        let v = try p.parseNode(indent: 0)
-        return v
-        // (parameter `lines` accidentally unused; left for future use)
-        _ = lines
+        return try p.parseNode(indent: 0)
     }
 
     static func stripComments(_ s: String) -> String {

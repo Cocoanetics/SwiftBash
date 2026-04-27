@@ -34,7 +34,10 @@ public struct RealFileSystem: FileSystem {
             var buf = [Int8](repeating: 0, count: 4096)
             let n = path.withCString { p in
                 buf.withUnsafeMutableBufferPointer { bp in
-                    Darwin.readlink(p, bp.baseAddress, bp.count)
+                    // POSIX `readlink`. We had `Darwin.readlink` here
+                    // for clarity; the `Self.libcReadlink` shim works
+                    // on both Darwin and Glibc.
+                    Self.libcReadlink(p, bp.baseAddress, bp.count)
                 }
             }
             if n > 0 {
@@ -313,9 +316,18 @@ private extension FileMetadata {
         else if (rawMode & S_IFMT) == S_IFREG  { kind = .file }
         else                                   { kind = .other }
 
+        // Linux's `struct stat` spells the timespec fields without
+        // the trailing `spec` (`st_mtim`, `st_atim`, `st_ctim`); Darwin
+        // appends `spec`. The values are equivalent.
+        #if canImport(Darwin)
         let mtime = Date(timeIntervalSince1970: TimeInterval(s.st_mtimespec.tv_sec))
         let atime = Date(timeIntervalSince1970: TimeInterval(s.st_atimespec.tv_sec))
         let ctime = Date(timeIntervalSince1970: TimeInterval(s.st_ctimespec.tv_sec))
+        #else
+        let mtime = Date(timeIntervalSince1970: TimeInterval(s.st_mtim.tv_sec))
+        let atime = Date(timeIntervalSince1970: TimeInterval(s.st_atim.tv_sec))
+        let ctime = Date(timeIntervalSince1970: TimeInterval(s.st_ctim.tv_sec))
+        #endif
         return FileMetadata(kind: kind,
                             size: Int64(s.st_size),
                             modifiedAt: mtime,
@@ -334,22 +346,25 @@ private extension FileMetadata {
 public extension RealFileSystem {
 
     func chmod(_ path: String, mode: UInt16) async throws {
-        let r = path.withCString { Darwin.chmod($0, mode_t(mode)) }
+        // POSIX `chmod`: unqualified resolves through whichever libc
+        // module was imported up top (Darwin on Apple, Glibc on Linux).
+        // We previously qualified as `Darwin.chmod` for clarity; that
+        // doesn't compile on Linux.
+        let r = path.withCString { Self.libcChmod($0, mode_t(mode)) }
         if r != 0 { throw fsError(op: "chmod", path: path) }
     }
 
     func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
-        // -1 means "leave unchanged" in chown(2).
         let u = uid.map { uid_t($0) } ?? uid_t(bitPattern: -1)
         let g = gid.map { gid_t($0) } ?? gid_t(bitPattern: -1)
-        let r = path.withCString { Darwin.chown($0, u, g) }
+        let r = path.withCString { Self.libcChown($0, u, g) }
         if r != 0 { throw fsError(op: "chown", path: path) }
     }
 
     func symlink(target: String, at linkPath: String) async throws {
         let r = target.withCString { tp in
             linkPath.withCString { lp in
-                Darwin.symlink(tp, lp)
+                Self.libcSymlink(tp, lp)
             }
         }
         if r != 0 { throw fsError(op: "symlink", path: linkPath) }
@@ -358,11 +373,44 @@ public extension RealFileSystem {
     func hardlink(target: String, at linkPath: String) async throws {
         let r = target.withCString { tp in
             linkPath.withCString { lp in
-                Darwin.link(tp, lp)
+                Self.libcLink(tp, lp)
             }
         }
         if r != 0 { throw fsError(op: "link", path: linkPath) }
     }
+
+    /// Tiny per-platform aliases for the POSIX functions whose names
+    /// collide with `FileSystem` protocol methods of the same name.
+    /// Hoisting the call through a static reference lets Swift resolve
+    /// the libc symbol without needing the `Darwin.` / `Glibc.` qualifier
+    /// at every call site.
+    #if canImport(Darwin)
+    private static let libcChmod    = Darwin.chmod
+    private static let libcChown    = Darwin.chown
+    private static let libcSymlink  = Darwin.symlink
+    private static let libcLink     = Darwin.link
+    private static let libcReadlink = Darwin.readlink
+    #else
+    private static let libcChmod    = Glibc.chmod
+    private static let libcChown    = Glibc.chown
+    private static let libcSymlink  = Glibc.symlink
+    private static let libcLink     = Glibc.link
+    private static let libcReadlink = Glibc.readlink
+    #endif
+
+    // Extended attributes have meaningfully different signatures
+    // between Darwin and Linux:
+    //   - Darwin: `getxattr(path, name, value, size, position, options)`
+    //   - Linux:  `getxattr(path, name, value, size)`            (no
+    //             `position` / `options` args)
+    // Each branch below is a faithful wrapper for the host's API.
+    // The cross-platform behaviour is the same: read / write /
+    // remove a named extended attribute on a regular file path,
+    // returning the raw byte content (or empty data for empty
+    // attrs). On platforms that lack any xattr support, fall
+    // through to the protocol's default no-op-ish implementations.
+
+    #if canImport(Darwin)
 
     func listXattrs(_ path: String) async throws -> [String] {
         let needed = path.withCString { listxattr($0, nil, 0, 0) }
@@ -375,18 +423,7 @@ public extension RealFileSystem {
             }
         }
         if written < 0 { throw fsError(op: "listxattr", path: path) }
-        var names: [String] = []
-        var i = 0
-        while i < written {
-            let start = i
-            while i < written, buf[i] != 0 { i += 1 }
-            if i > start {
-                let bytes = (start..<i).map { UInt8(bitPattern: buf[$0]) }
-                names.append(String(decoding: bytes, as: UTF8.self))
-            }
-            i += 1
-        }
-        return names
+        return Self.parseXattrNameList(buf, length: written)
     }
 
     func getXattr(_ path: String, name: String) async throws -> Data {
@@ -426,6 +463,80 @@ public extension RealFileSystem {
         if r < 0 && errno != 93 {
             throw fsError(op: "removexattr", path: path)
         }
+    }
+
+    #elseif canImport(Glibc)
+
+    func listXattrs(_ path: String) async throws -> [String] {
+        let needed = path.withCString { listxattr($0, nil, 0) }
+        if needed < 0 { throw fsError(op: "listxattr", path: path) }
+        if needed == 0 { return [] }
+        var buf = [Int8](repeating: 0, count: needed)
+        let written = path.withCString { p in
+            buf.withUnsafeMutableBufferPointer { bp in
+                listxattr(p, bp.baseAddress, needed)
+            }
+        }
+        if written < 0 { throw fsError(op: "listxattr", path: path) }
+        return Self.parseXattrNameList(buf, length: written)
+    }
+
+    func getXattr(_ path: String, name: String) async throws -> Data {
+        let needed = path.withCString { p in
+            name.withCString { n in getxattr(p, n, nil, 0) }
+        }
+        if needed < 0 { throw fsError(op: "getxattr", path: path) }
+        if needed == 0 { return Data() }
+        var buf = [UInt8](repeating: 0, count: needed)
+        let written = path.withCString { p in
+            name.withCString { n in
+                buf.withUnsafeMutableBufferPointer { bp in
+                    getxattr(p, n, bp.baseAddress, needed)
+                }
+            }
+        }
+        if written < 0 { throw fsError(op: "getxattr", path: path) }
+        return Data(buf.prefix(written))
+    }
+
+    func setXattr(_ path: String, name: String, value: Data) async throws {
+        let r = path.withCString { p in
+            name.withCString { n in
+                value.withUnsafeBytes { vb in
+                    setxattr(p, n, vb.baseAddress, value.count, 0)
+                }
+            }
+        }
+        if r < 0 { throw fsError(op: "setxattr", path: path) }
+    }
+
+    func removeXattr(_ path: String, name: String) async throws {
+        let r = path.withCString { p in
+            name.withCString { n in removexattr(p, n) }
+        }
+        // ENODATA (61 on Linux) means "no such attribute" — silent no-op.
+        if r < 0 && errno != 61 {
+            throw fsError(op: "removexattr", path: path)
+        }
+    }
+
+    #endif
+
+    /// Split the NUL-separated name list returned by `listxattr` into
+    /// a `[String]`. Same parsing on both platforms.
+    private static func parseXattrNameList(_ buf: [Int8], length: Int) -> [String] {
+        var names: [String] = []
+        var i = 0
+        while i < length {
+            let start = i
+            while i < length, buf[i] != 0 { i += 1 }
+            if i > start {
+                let bytes = (start..<i).map { UInt8(bitPattern: buf[$0]) }
+                names.append(String(decoding: bytes, as: UTF8.self))
+            }
+            i += 1
+        }
+        return names
     }
 }
 

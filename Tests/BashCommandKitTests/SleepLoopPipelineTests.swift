@@ -49,6 +49,31 @@ import Foundation
             "producer should be cancelled after head takes 2 lines; took \(elapsed)s")
     }
 
+    /// Mirrors the real-world `until [ "$(gh run view ... -q .status)" = "completed" ]; do sleep N; done && echo done`
+    /// poll pattern: an external command is sampled in a command-substitution, its
+    /// output is compared with `[ ... = ... ]`, the loop exits when the condition
+    /// matches, and `&&` chains a follow-up. Uses a fake `status` command that
+    /// flips to `completed` on its third call so the loop iterates a known number
+    /// of times.
+    @Test func untilPollsStatusCommandUntilCompleted() async throws {
+        let cap = CapturingShell()
+        cap.shell.register(SleepCommand.self)
+
+        let counter = CallCounter()
+        cap.shell.register(name: "status") { _ in
+            let n = counter.increment()
+            Shell.current.stdout(n >= 3 ? "completed\n" : "running\n")
+            return .success
+        }
+
+        try await cap.shell.run("""
+            until [ "$(status)" = "completed" ]; do sleep 0.01; done && echo done
+            """)
+
+        #expect(cap.stdout == "done\n")
+        #expect(counter.value == 3)
+    }
+
     /// The consumer observes each produced line as it's produced —
     /// verifying that `sleep` between yields doesn't hold up the
     /// downstream stage.
@@ -85,6 +110,22 @@ import Foundation
 }
 
 // MARK: helpers
+
+private final class CallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+
+    func increment() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        n += 1
+        return n
+    }
+
+    var value: Int {
+        lock.lock(); defer { lock.unlock() }
+        return n
+    }
+}
 
 private final class LineArrivalRecorder: @unchecked Sendable {
     private let lock = NSLock()

@@ -61,7 +61,7 @@ import Foundation
     @Test func sizeWithSuffix() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         // 1K size unit
-        try FileManager.default.createFile(
+        FileManager.default.createFile(
             atPath: dir + "/big",
             contents: Data(repeating: 0x41, count: 3072))
         try await cap.shell.run("split -b 1K big")

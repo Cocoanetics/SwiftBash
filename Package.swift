@@ -18,6 +18,12 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser",
                  from: "1.3.0"),
+        // swift-crypto exposes the same API as CryptoKit and works on
+        // Linux. On Apple platforms it transparently re-exports the
+        // built-in CryptoKit, so importing `Crypto` is the
+        // cross-platform spelling.
+        .package(url: "https://github.com/apple/swift-crypto",
+                 from: "3.0.0"),
     ],
     targets: [
         .target(
@@ -34,6 +40,7 @@ let package = Package(
             dependencies: [
                 "BashInterpreter",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ],
             path: "Sources/BashCommandKit"
         ),

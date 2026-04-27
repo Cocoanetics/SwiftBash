@@ -186,10 +186,15 @@ enum UsageSupport {
     }
 
     static func supportedCommandCoverage() -> Set<String> {
-        let builtinCommands = Set(Shell.defaultCommands().keys)
+        // Construct a fresh shell, register the kit's standard
+        // commands directly on it, and union with the language
+        // built-ins to get the full set of names a real script can
+        // call. (Earlier this read `Shell.current` which is the
+        // never-bound placeholder — bug; the registration ran on the
+        // wrong shell and the local was unused, hence the warning.)
         let shell = Shell()
-        Shell.current.registerStandardCommands()
-        return builtinCommands.union(Shell.current.commands.keys)
+        shell.registerStandardCommands()
+        return Set(Shell.defaultCommands().keys).union(shell.commands.keys)
     }
 
     static func rowComparator(_ lhs: UsageRow, _ rhs: UsageRow) -> Bool {

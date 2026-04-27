@@ -85,8 +85,12 @@ public struct DateCommand: ParsableBashCommand {
         }
 
         var buffer = [CChar](repeating: 0, count: 4096)
-        _ = strftime(&buffer, buffer.count, format, &broken)
-        Shell.current.stdout(String(cString: buffer) + "\n")
+        let written = strftime(&buffer, buffer.count, format, &broken)
+        // Truncate to the actual byte count strftime produced and
+        // decode as UTF-8 (the deprecated `String(cString: array)`
+        // variant scans for NUL itself).
+        let bytes = (0..<written).map { UInt8(bitPattern: buffer[$0]) }
+        Shell.current.stdout(String(decoding: bytes, as: UTF8.self) + "\n")
         return .success
     }
 }

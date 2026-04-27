@@ -1,6 +1,6 @@
 import ArgumentParser
 import BashInterpreter
-import CryptoKit
+import Crypto
 import Foundation
 
 /// `md5 [-q] [-s STRING] [FILE...]` — print the MD5 digest of each

@@ -248,7 +248,7 @@ public struct PatchCommand: ParsableBashCommand {
         var offset = 0
         for hunk in hunks {
             let h = reverse ? reversedHunk(hunk) : hunk
-            var idx = h.oldStart - 1 + offset
+            let idx = h.oldStart - 1 + offset
             // Sanity-check: the lines we expect to remove or pass
             // through should match the file at this position.
             var contextChecked = 0

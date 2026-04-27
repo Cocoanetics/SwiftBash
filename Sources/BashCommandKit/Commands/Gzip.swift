@@ -1,3 +1,4 @@
+#if canImport(Compression)
 import ArgumentParser
 import BashInterpreter
 import Compression
@@ -248,3 +249,5 @@ func runGzip(decompress: Bool,
 /// `Compression.compression_{encode,decode}_buffer` (one-shot,
 /// in-memory). Big files (>4 GiB) aren't supported because gzip's
 
+
+#endif
