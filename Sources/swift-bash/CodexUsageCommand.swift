@@ -12,7 +12,7 @@ struct CodexUsageCommand: ParsableCommand {
 
     @Option(name: [.short, .long],
             help: "Root directory to scan for session logs.")
-    var root: String = "/Users/oliver/.codex/sessions"
+    var root: String = "~/.codex/sessions"
 
     @Option(name: .long,
             help: "Only include bash scripts containing this text before parsing.")
@@ -35,7 +35,11 @@ struct CodexUsageCommand: ParsableCommand {
     }
 
     func run() throws {
-        let analyzer = CodexUsageAnalyzer(rootPath: root, contains: contains)
+        // Expand `~` against the host's home so the default works
+        // for any user without baking a username into the binary.
+        let resolvedRoot = (root as NSString).expandingTildeInPath
+        let analyzer = CodexUsageAnalyzer(rootPath: resolvedRoot,
+                                          contains: contains)
         let report = try analyzer.run()
         UsageReportPrinter.print(report, top: top, minCount: minCount, missingOnly: missingOnly)
     }

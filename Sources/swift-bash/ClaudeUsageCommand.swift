@@ -12,7 +12,7 @@ struct ClaudeUsageCommand: ParsableCommand {
 
     @Option(name: [.short, .long],
             help: "Root directory to scan for Claude project logs.")
-    var root: String = "/Users/oliver/.claude/projects"
+    var root: String = "~/.claude/projects"
 
     @Option(name: .long,
             help: "Only include bash scripts containing this text before parsing.")
@@ -35,7 +35,11 @@ struct ClaudeUsageCommand: ParsableCommand {
     }
 
     func run() throws {
-        let analyzer = ClaudeUsageAnalyzer(rootPath: root, contains: contains)
+        // Expand `~` against the host's home so the default works
+        // for any user without baking a username into the binary.
+        let resolvedRoot = (root as NSString).expandingTildeInPath
+        let analyzer = ClaudeUsageAnalyzer(rootPath: resolvedRoot,
+                                           contains: contains)
         let report = try analyzer.run()
         UsageReportPrinter.print(report, top: top, minCount: minCount, missingOnly: missingOnly)
     }
