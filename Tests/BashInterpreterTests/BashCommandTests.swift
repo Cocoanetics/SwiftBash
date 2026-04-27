@@ -156,15 +156,10 @@ import Foundation
     }
 
     @Test func bashVersinfoExposedToScript() async throws {
-        // Common script-side gate on bash 4+ features. Real scripts
-        // typically write `(( BASH_VERSINFO[0] >= 4 ))` (which our
-        // arithmetic parser doesn't yet accept inside `((…))`); the
-        // expansion-based form below is equivalent and both reach
-        // the same `BASH_VERSINFO` array we set.
+        // The canonical way scripts gate on bash 4+ features.
         let cap = CapturingShell()
         try await cap.shell.run(#"""
-            major=${BASH_VERSINFO[0]}
-            if [ "$major" -ge 4 ]; then
+            if (( BASH_VERSINFO[0] >= 4 )); then
               echo "modern bash"
             else
               echo "old bash"

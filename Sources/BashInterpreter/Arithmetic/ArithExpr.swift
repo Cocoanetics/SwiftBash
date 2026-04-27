@@ -5,11 +5,19 @@ public indirect enum ArithExpr: Hashable, Sendable {
     case int(Int64)
     case variable(String)
 
+    /// `name[index]` — read an indexed array element. The index is
+    /// itself an arithmetic expression so `arr[i+1]` works.
+    case arrayIndex(name: String, index: ArithExpr)
+
     case unary(UnaryOp, ArithExpr)
 
     /// Pre-/post-fix inc/dec applied to a bare variable reference.
     case prefix(IncDec, name: String)
     case postfix(IncDec, name: String)
+
+    /// Pre-/post-fix inc/dec on `arr[index]`.
+    case prefixIndexed(IncDec, name: String, index: ArithExpr)
+    case postfixIndexed(IncDec, name: String, index: ArithExpr)
 
     case binary(BinaryOp, ArithExpr, ArithExpr)
 
@@ -18,6 +26,10 @@ public indirect enum ArithExpr: Hashable, Sendable {
 
     /// `name op= rhs` (including plain `=`)
     case assign(name: String, op: AssignOp, rhs: ArithExpr)
+
+    /// `name[index] op= rhs` — assignment to an array slot.
+    case assignIndex(name: String, index: ArithExpr,
+                     op: AssignOp, rhs: ArithExpr)
 
     /// Comma-separated sequence: evaluate each, return the last.
     case sequence([ArithExpr])

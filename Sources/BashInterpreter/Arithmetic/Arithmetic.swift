@@ -26,19 +26,28 @@ public enum Arithmetic {
     /// Evaluate a bash arithmetic expression.
     ///
     /// - Parameters:
-    ///   - source: The raw expression body (no outer `((` / `))`).
-    ///   - get:    Reads the raw string value of a shell variable; `nil`
-    ///             if unset. Unset variables evaluate as 0.
-    ///   - set:    Writes back the new integer value of a variable
-    ///             (called once per `=`, `++`, `--`, compound assign).
+    ///   - source:     The raw expression body (no outer `((` / `))`).
+    ///   - get:        Reads the raw string value of a shell variable;
+    ///                 `nil` if unset. Unset variables evaluate as 0.
+    ///   - set:        Writes back the new integer value of a variable
+    ///                 (called once per `=`, `++`, `--`, compound assign).
+    ///   - getIndexed: Reads `arr[index]` from an array variable. `nil`
+    ///                 → use the bare-name fallback (which yields 0 for
+    ///                 every index, matching bash for unset arrays).
+    ///   - setIndexed: Writes `arr[index] = value`. `nil` → indexed
+    ///                 assignment throws ``ArithError/invalidAssignmentTarget``.
     /// - Returns: The final `Int64` value of the expression.
     public static func evaluate(
         _ source: String,
         get: @escaping (String) -> String?,
-        set: @escaping (String, Int64) -> Void
+        set: @escaping (String, Int64) -> Void,
+        getIndexed: ((String, Int64) -> String?)? = nil,
+        setIndexed: ((String, Int64, Int64) -> Void)? = nil
     ) throws -> Int64 {
         let expr = try ArithParser().parse(source)
-        let evaluator = Evaluator(get: get, set: set)
+        let evaluator = Evaluator(
+            get: get, set: set,
+            getIndexed: getIndexed, setIndexed: setIndexed)
         return try evaluator.eval(expr, depth: 0)
     }
 
@@ -52,6 +61,8 @@ public enum Arithmetic {
     struct Evaluator {
         let get: (String) -> String?
         let set: (String, Int64) -> Void
+        let getIndexed: ((String, Int64) -> String?)?
+        let setIndexed: ((String, Int64, Int64) -> Void)?
 
         func eval(_ e: ArithExpr, depth: Int) throws -> Int64 {
             switch e {
@@ -60,6 +71,10 @@ public enum Arithmetic {
 
             case .variable(let name):
                 return try resolveVariable(name, depth: depth)
+
+            case .arrayIndex(let name, let indexExpr):
+                let idx = try eval(indexExpr, depth: depth)
+                return try resolveIndexed(name: name, index: idx, depth: depth)
 
             case .unary(let op, let operand):
                 let v = try eval(operand, depth: depth)
@@ -82,6 +97,26 @@ public enum Arithmetic {
                 set(name, new)
                 return old
 
+            case .prefixIndexed(let op, let name, let indexExpr):
+                let idx = try eval(indexExpr, depth: depth)
+                let old = try resolveIndexed(name: name, index: idx, depth: depth)
+                let new = (op == .inc) ? old &+ 1 : old &- 1
+                guard let setIndexed = setIndexed else {
+                    throw ArithError.invalidAssignmentTarget
+                }
+                setIndexed(name, idx, new)
+                return new
+
+            case .postfixIndexed(let op, let name, let indexExpr):
+                let idx = try eval(indexExpr, depth: depth)
+                let old = try resolveIndexed(name: name, index: idx, depth: depth)
+                let new = (op == .inc) ? old &+ 1 : old &- 1
+                guard let setIndexed = setIndexed else {
+                    throw ArithError.invalidAssignmentTarget
+                }
+                setIndexed(name, idx, new)
+                return old
+
             case .binary(let op, let lhs, let rhs):
                 return try applyBinary(op, lhs: lhs, rhs: rhs, depth: depth)
 
@@ -101,6 +136,28 @@ public enum Arithmetic {
                     newValue = rv
                 }
                 set(name, newValue)
+                return newValue
+
+            case .assignIndex(let name, let indexExpr, let op, let rhs):
+                guard let setIndexed = setIndexed else {
+                    throw ArithError.invalidAssignmentTarget
+                }
+                // Evaluate the index *before* the rhs — bash's
+                // left-to-right rule. Important when the rhs has side
+                // effects: `arr[i++] = ++j` reads i once for the slot.
+                let idx = try eval(indexExpr, depth: depth)
+                let rv = try eval(rhs, depth: depth)
+                let newValue: Int64
+                if let binOp = op.pairedBinary {
+                    let current = try resolveIndexed(
+                        name: name, index: idx, depth: depth)
+                    newValue = try applyBinary(binOp,
+                                               leftValue: current,
+                                               rightValue: rv)
+                } else {
+                    newValue = rv
+                }
+                setIndexed(name, idx, newValue)
                 return newValue
 
             case .sequence(let parts):
@@ -171,6 +228,33 @@ public enum Arithmetic {
         }
 
         // MARK: Variable resolution
+
+        /// Resolve `arr[index]` to an Int64. If the host didn't supply
+        /// a `getIndexed` closure, indexing falls back to bare-name
+        /// lookup of `name` — which yields 0 for arrays per bash's
+        /// convention (a bare reference returns index 0; for a totally
+        /// unset name we still get 0). Non-numeric string contents go
+        /// through the same recursive-evaluation path as scalars.
+        func resolveIndexed(name: String, index: Int64,
+                            depth: Int) throws -> Int64
+        {
+            guard depth < Arithmetic.maxRecursionDepth else {
+                throw ArithError.recursionLimit
+            }
+            let raw: String?
+            if let getIndexed = getIndexed {
+                raw = getIndexed(name, index)
+            } else {
+                // Fallback: index 0 of a bare array reads the same as
+                // a scalar `name`; any other index reads as 0.
+                raw = (index == 0) ? get(name) : nil
+            }
+            guard let value = raw, !value.isEmpty else { return 0 }
+            let trimmed = value.trimmingCharacters(in: .whitespaces)
+            if let n = parseIntLiteral(trimmed) { return n }
+            let subExpr = try ArithParser().parse(trimmed)
+            return try eval(subExpr, depth: depth + 1)
+        }
 
         /// Resolve a variable name to an Int64. Unset variables evaluate
         /// as 0. Non-numeric string values are recursively parsed and

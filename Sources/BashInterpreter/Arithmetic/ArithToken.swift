@@ -35,6 +35,9 @@ public enum ArithToken: Hashable, Sendable {
     // Grouping / separator
     case lParen, rParen, comma
 
+    // Array indexing — `arr[expr]` inside `((…))`.
+    case lBracket, rBracket
+
     case eof
 
     /// A human-readable rendering used in error messages.
@@ -82,6 +85,8 @@ public enum ArithToken: Hashable, Sendable {
         case .lParen: return "("
         case .rParen: return ")"
         case .comma: return ","
+        case .lBracket: return "["
+        case .rBracket: return "]"
         case .eof: return "<eof>"
         }
     }

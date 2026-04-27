@@ -34,6 +34,41 @@ extension Shell {
             },
             set: { [weak self] name, value in
                 self?.environment.variables[name] = String(value)
+            },
+            getIndexed: { [environment] name, index in
+                // Associative arrays index by stringified key; integer
+                // indices on those happen to round-trip (`m[0]` reads
+                // key "0"). Bash itself follows the same convention
+                // when an associative array slot is read inside `((…))`.
+                if let dict = environment.associativeArrays[name] {
+                    return dict[String(index)]
+                }
+                if let arr = environment.arrays[name] {
+                    return arr[Int(index)]
+                }
+                // Mimic bash: a bare scalar `name` is treated as the
+                // sole element at index 0; reads at other indices on a
+                // scalar yield the empty string (→ 0).
+                if index == 0 {
+                    return environment.variables[name]
+                }
+                return nil
+            },
+            setIndexed: { [weak self] name, index, value in
+                guard let self = self else { return }
+                let stringValue = String(value)
+                if self.environment.associativeArrays[name] != nil {
+                    self.environment.associativeArrays[name]?[
+                        String(index)] = stringValue
+                    return
+                }
+                // Promote a scalar to an array if needed — bash does
+                // the same when you assign `a[2]=x` to a name that
+                // was previously a scalar `a=foo`.
+                var arr = self.environment.arrays[name] ?? BashArray()
+                arr[Int(index)] = stringValue
+                self.environment.arrays[name] = arr
+                self.environment.variables.removeValue(forKey: name)
             }
         )
     }

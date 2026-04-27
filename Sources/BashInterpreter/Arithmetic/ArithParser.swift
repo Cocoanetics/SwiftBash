@@ -120,11 +120,15 @@ public struct ArithParser {
             // Postfix `++` / `--` — consume and wrap; don't recurse.
             if tok == .plusPlus || tok == .minusMinus {
                 state.advance()
-                guard case .variable(let name) = left else {
+                let op: ArithExpr.IncDec = (tok == .plusPlus) ? .inc : .dec
+                switch left {
+                case .variable(let name):
+                    left = .postfix(op, name: name)
+                case .arrayIndex(let name, let index):
+                    left = .postfixIndexed(op, name: name, index: index)
+                default:
                     throw ArithError.invalidAssignmentTarget
                 }
-                let op: ArithExpr.IncDec = (tok == .plusPlus) ? .inc : .dec
-                left = .postfix(op, name: name)
                 continue
             }
 
@@ -141,14 +145,20 @@ public struct ArithParser {
                 continue
             }
 
-            // Assignment (single or compound).
+            // Assignment (single or compound) — LHS may be a bare
+            // variable or an indexed `arr[i]`.
             if let assignOp = assignmentOp(for: tok) {
                 state.advance()
-                guard case .variable(let name) = left else {
+                let right = try parseExpression(minBP: bp.rbp, state: &state)
+                switch left {
+                case .variable(let name):
+                    left = .assign(name: name, op: assignOp, rhs: right)
+                case .arrayIndex(let name, let index):
+                    left = .assignIndex(name: name, index: index,
+                                        op: assignOp, rhs: right)
+                default:
                     throw ArithError.invalidAssignmentTarget
                 }
-                let right = try parseExpression(minBP: bp.rbp, state: &state)
-                left = .assign(name: name, op: assignOp, rhs: right)
                 continue
             }
 
@@ -180,6 +190,16 @@ public struct ArithParser {
         case .int(let n):
             return .int(n)
         case .ident(let name):
+            // `name[index]` — read array element.
+            if state.peek() == .lBracket {
+                state.advance()
+                let index = try parseExpression(minBP: 0, state: &state)
+                guard state.peek() == .rBracket else {
+                    throw ArithError.unexpectedToken(state.peek().description)
+                }
+                state.advance()
+                return .arrayIndex(name: name, index: index)
+            }
             return .variable(name)
         case .lParen:
             let inner = try parseExpression(minBP: 0, state: &state)
@@ -201,18 +221,26 @@ public struct ArithParser {
             let operand = try parseExpression(minBP: Self.UNARY, state: &state)
             return .unary(.bitwiseNot, operand)
         case .plusPlus:
-            // Prefix `++x` — operand must be a plain variable.
+            // Prefix `++x` or `++arr[i]` — operand must be an l-value.
             let operand = try parseExpression(minBP: Self.UNARY, state: &state)
-            guard case .variable(let name) = operand else {
+            switch operand {
+            case .variable(let name):
+                return .prefix(.inc, name: name)
+            case .arrayIndex(let name, let index):
+                return .prefixIndexed(.inc, name: name, index: index)
+            default:
                 throw ArithError.invalidAssignmentTarget
             }
-            return .prefix(.inc, name: name)
         case .minusMinus:
             let operand = try parseExpression(minBP: Self.UNARY, state: &state)
-            guard case .variable(let name) = operand else {
+            switch operand {
+            case .variable(let name):
+                return .prefix(.dec, name: name)
+            case .arrayIndex(let name, let index):
+                return .prefixIndexed(.dec, name: name, index: index)
+            default:
                 throw ArithError.invalidAssignmentTarget
             }
-            return .prefix(.dec, name: name)
         case .eof:
             throw ArithError.unexpectedEnd
         default:

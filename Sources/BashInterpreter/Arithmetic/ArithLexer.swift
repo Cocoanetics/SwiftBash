@@ -282,6 +282,10 @@ public enum ArithLexer {
                 advance(); return .rParen
             case ",":
                 advance(); return .comma
+            case "[":
+                advance(); return .lBracket
+            case "]":
+                advance(); return .rBracket
             default:
                 throw ArithError.unexpectedCharacter(c, position: index)
             }
