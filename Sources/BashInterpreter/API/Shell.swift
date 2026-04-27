@@ -118,7 +118,23 @@ public final class Shell: @unchecked Sendable {
     /// is ``HostInfo/synthetic`` — leaks nothing. Embedders that
     /// genuinely want the running machine's identity assign
     /// ``HostInfo/real()``.
-    public var hostInfo: HostInfo = .synthetic
+    ///
+    /// Setting this also re-syncs the matching environment variables
+    /// (`$HOSTNAME`, `$USER`, `$LOGNAME`, `$HOME`, `$HOSTTYPE`,
+    /// `$MACHTYPE`) so `whoami`'s answer and `$USER`'s value never
+    /// disagree. If you want to preserve a custom override (e.g. you
+    /// set `HOSTNAME=foo` deliberately), assign it AFTER setting
+    /// `hostInfo`.
+    public var hostInfo: HostInfo = .synthetic {
+        didSet {
+            environment.variables["HOSTNAME"] = hostInfo.hostName
+            environment.variables["USER"] = hostInfo.userName
+            environment.variables["LOGNAME"] = hostInfo.userName
+            environment.variables["HOSTTYPE"] = hostInfo.machine
+            environment.variables["MACHTYPE"] =
+                "\(hostInfo.machine)-apple-\(hostInfo.kernelName.lowercased())"
+        }
+    }
 
     /// `set -e` / `set -o errexit` — when `true`, the shell exits as
     /// soon as a command returns a non-zero status, except inside a
@@ -226,6 +242,56 @@ public final class Shell: @unchecked Sendable {
         self.environment.variables["BASH_VERSION"] = SwiftBashVersion.bashVersion
         self.environment.arrays["BASH_VERSINFO"] = BashArray(
             dense: SwiftBashVersion.bashVersionInfo)
+        // Sensible "I am a real bash session" defaults for the
+        // variables a bash shell normally sets at startup but that
+        // a parent process *doesn't* pass down. Without these, a
+        // script's `[ -n "$IFS" ]`, `getopts`-without-init, and
+        // platform sniffs (`case $OSTYPE in linux*) … esac`) would
+        // hit unexpected empty values. Anything the caller already
+        // set in the supplied Environment wins.
+        for (key, value) in Self.runtimeEnvDefaults() {
+            if self.environment.variables[key] == nil {
+                self.environment.variables[key] = value
+            }
+        }
+        // PWD tracks the shell's logical cwd. Initialise from
+        // `workingDirectory` if the caller didn't supply one.
+        if self.environment.variables["PWD"] == nil {
+            self.environment.variables["PWD"] = self.environment.workingDirectory
+        }
+    }
+
+    /// Default values for environment variables a real bash shell sets
+    /// at startup. Applied in ``init(environment:stdout:stderr:commands:fileSystem:)``
+    /// only when the supplied environment doesn't already provide a
+    /// value — caller's choice always wins.
+    private static func runtimeEnvDefaults() -> [(String, String)] {
+        // Use synthetic-aligned defaults rather than introspecting
+        // the host: `Shell()` should leak nothing about the machine
+        // it's running on. Embedders that want real values either
+        // pass `Environment.current()` (which keeps inherited PATH
+        // / HOME / TERM / …) or assign `Shell.hostInfo = .real()`
+        // and re-set the relevant variables themselves.
+        return [
+            ("PATH",      "/usr/bin:/bin"),
+            ("HOME",      "/home/\(HostInfo.synthetic.userName)"),
+            ("USER",      HostInfo.synthetic.userName),
+            ("LOGNAME",   HostInfo.synthetic.userName),
+            ("HOSTNAME",  HostInfo.synthetic.hostName),
+            ("SHELL",     "/bin/bash"),
+            ("TERM",      "dumb"),
+            ("LANG",      "C.UTF-8"),
+            ("LC_ALL",    "C.UTF-8"),
+            ("IFS",       " \t\n"),
+            ("OPTIND",    "1"),
+            ("OSTYPE",    "darwin"),
+            ("MACHTYPE",  "\(HostInfo.synthetic.machine)-apple-darwin"),
+            ("HOSTTYPE",  HostInfo.synthetic.machine),
+            ("PS1",       #"\s-\v\$ "#),
+            ("PS2",       "> "),
+            ("PS4",       "+ "),
+            ("SHLVL",     "1"),
+        ]
     }
 
     // MARK: Default registry

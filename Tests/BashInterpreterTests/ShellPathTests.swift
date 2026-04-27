@@ -32,8 +32,13 @@ import Testing
     }
 
     @Test func bareTildeWithoutHomeReturnsVerbatim() {
+        // Shell.init now seeds HOME with a synthetic default, so we
+        // have to explicitly clear it to simulate a no-HOME shell —
+        // a state that's mainly hit when the embedder strips it
+        // intentionally.
         let shell = Shell(stdout: .discard, stderr: .discard)
         shell.environment.workingDirectory = "/"
+        shell.environment.variables.removeValue(forKey: "HOME")
         #expect(shell.resolvePath("~") == "/~")
     }
 }
