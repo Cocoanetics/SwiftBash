@@ -12,3 +12,7 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Claude Code internal state — local-only worktrees, settings,
+# session tasks. Not part of the project.
+.claude/
