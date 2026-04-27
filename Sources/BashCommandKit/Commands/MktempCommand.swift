@@ -95,16 +95,21 @@ public struct MktempCommand: ParsableBashCommand {
     }
 
     /// Replace the trailing run of `X` characters with a random
-    /// alphanumeric suffix of the same length. `mktemp` requires at
-    /// least 3 trailing Xs; we accept any count ≥ 1 and treat 0 as
+    /// suffix of the same length. `mktemp` requires at least 3
+    /// trailing Xs; we accept any count ≥ 1 and treat 0 as
     /// "no substitution needed".
+    ///
+    /// The replacement alphabet deliberately omits `X` so the
+    /// substitution can be detected by the absence of `X` in the
+    /// trailing run — matches what the BSD/GNU `mktemp` binaries
+    /// produce in practice and keeps the round-trip test stable.
     static func replacingX(in template: String) -> String {
         var chars = Array(template)
         var n = 0
         while n < chars.count, chars[chars.count - 1 - n] == "X" { n += 1 }
         guard n > 0 else { return template }
-        let alphabet = Array("0123456789abcdefghijklmnopqrstuvwxyz" +
-                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        let alphabet = Array("0123456789abcdefghijklmnopqrstuvwyz" +
+                             "ABCDEFGHIJKLMNOPQRSTUVWYZ")
         for i in (chars.count - n)..<chars.count {
             chars[i] = alphabet.randomElement()!
         }
