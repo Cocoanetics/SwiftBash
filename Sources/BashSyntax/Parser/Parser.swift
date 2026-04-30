@@ -583,7 +583,7 @@ public final class Parser {
     /// `name+=(items …)`. The `nameToken` is the assignment word
     /// like `arr=` or `arr+=`.
     private func parseArrayAssignment(nameToken: Token) throws -> Node {
-        let lp = try expect(.leftParen, "'('")
+        _ = try expect(.leftParen, "'('")
         var items: [Node] = []
         try skipNewlines()
         while peek().type != .rightParen, peek().type != .eof {

@@ -94,6 +94,7 @@ public struct HostInfo: Sendable, Equatable {
     /// own machine and expects `whoami` to print their login name.
     public static func real() -> HostInfo {
         let info = ProcessInfo.processInfo
+        #if !os(Windows)
         // `ProcessInfo.userName` and `fullUserName` are macOS-only —
         // iOS / tvOS / watchOS don't expose them. Fall back to the
         // POSIX uid → name lookup, then to a generic "user".
@@ -129,8 +130,26 @@ public struct HostInfo: Sendable, Equatable {
             kernelVersion: version,
             machine: machine,
             nodeName: node)
+        #else
+        let host = info.hostName
+        let user = info.userName.isEmpty ? "user" : info.userName
+        return HostInfo(
+            userName: user,
+            fullUserName: user,
+            hostName: host,
+            uid: 1000,
+            gid: 1000,
+            groups: [1000],
+            groupName: "users",
+            kernelName: "Windows",
+            kernelRelease: "",
+            kernelVersion: "",
+            machine: "x86_64",
+            nodeName: host)
+        #endif
     }
 
+    #if !os(Windows)
     private static func realGroupName(for gid: UInt32) -> String? {
         guard let entry = getgrgid(gid_t(gid)) else { return nil }
         return String(cString: entry.pointee.gr_name)
@@ -169,4 +188,5 @@ public struct HostInfo: Sendable, Equatable {
             }
         }
     }
+    #endif
 }

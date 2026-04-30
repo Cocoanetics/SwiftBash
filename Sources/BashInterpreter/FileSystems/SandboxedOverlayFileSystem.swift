@@ -1,5 +1,7 @@
 import Foundation
 
+#if !os(Windows)
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -908,3 +910,5 @@ private func readAll(fd: Int32) -> Data {
     }
     return data
 }
+
+#endif

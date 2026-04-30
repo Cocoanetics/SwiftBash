@@ -28,6 +28,7 @@ public struct RealFileSystem: FileSystem {
     /// `kind == .directory`. Returns `nil` if the path (or a broken
     /// symlink's target) doesn't exist.
     public func metadata(_ path: String) async throws -> FileMetadata? {
+        #if !os(Windows)
         // lstat first to detect symlinks and capture their target.
         var lst = stat()
         let lstatOK = path.withCString { lstat($0, &lst) } == 0
@@ -62,6 +63,27 @@ public struct RealFileSystem: FileSystem {
             return nil
         }
         return FileMetadata.fromStat(st, symlinkTarget: symlinkTarget)
+        #else
+        guard let attrs = try? fm.attributesOfItem(atPath: path) else {
+            return nil
+        }
+        let kind: FileMetadata.Kind
+        switch attrs[.type] as? FileAttributeType {
+        case .typeDirectory?: kind = .directory
+        case .typeRegular?:   kind = .file
+        case .typeSymbolicLink?: kind = .symlink
+        default:              kind = .other
+        }
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        let mtime = (attrs[.modificationDate] as? Date) ?? Date(timeIntervalSince1970: 0)
+        return FileMetadata(kind: kind,
+                            size: size,
+                            modifiedAt: mtime,
+                            mode: 0o644,
+                            uid: 0,
+                            gid: 0,
+                            linkCount: 1)
+        #endif
     }
 
     public func list(_ path: String) async throws -> [String] {
@@ -311,6 +333,7 @@ final class FileHandleBox: @unchecked Sendable {
     }
 }
 
+#if !os(Windows)
 private extension FileMetadata {
     static func fromStat(_ s: stat, symlinkTarget: String? = nil) -> FileMetadata {
         let kind: Kind
@@ -344,9 +367,11 @@ private extension FileMetadata {
                             createdAt: ctime)
     }
 }
+#endif
 
 // MARK: - Permissions / links / xattrs
 
+#if !os(Windows)
 public extension RealFileSystem {
 
     func chmod(_ path: String, mode: UInt16) async throws {
@@ -555,3 +580,4 @@ private func fsError(op: String, path: String) -> FileSystemError {
     if errno == EACCES || errno == EPERM { return .permissionDenied(path) }
     return .io("\(op) \(path) failed: \(msg)")
 }
+#endif

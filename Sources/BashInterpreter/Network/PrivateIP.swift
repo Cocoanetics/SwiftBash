@@ -40,11 +40,16 @@ public enum PrivateIP {
     /// `EAI_NONAME`/`EAI_NODATA` (which return `[]`, since "no such
     /// host" can't pose a rebinding risk).
     public static func resolve(_ hostname: String) async throws -> [String] {
+        #if os(Windows)
+        return []
+        #else
         return try await Task.detached(priority: .utility) {
             try resolveSync(hostname)
         }.value
+        #endif
     }
 
+    #if !os(Windows)
     private static func resolveSync(_ hostname: String) throws -> [String] {
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
@@ -105,6 +110,7 @@ public enum PrivateIP {
         let bytes = buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
         return String(decoding: bytes, as: UTF8.self)
     }
+    #endif
 
     // MARK: IPv4 ranges
 
@@ -145,6 +151,9 @@ public enum PrivateIP {
     /// Parse an IPv6 literal (with optional `%zone`) into 16 bytes.
     /// Accepts the `::`-compressed and `::ffff:1.2.3.4` forms.
     static func parseIPv6(_ raw: String) -> [UInt8]? {
+        #if os(Windows)
+        return nil
+        #else
         // Strip zone identifier `%...`.
         let s = raw.split(separator: "%").first.map(String.init) ?? raw
         var hints = addrinfo()
@@ -160,6 +169,7 @@ public enum PrivateIP {
         return withUnsafeBytes(of: &addr) { buf in
             Array(buf)
         }
+        #endif
     }
 
     /// Reject IPv6 ULAs (`fc00::/7`), link-local (`fe80::/10`),
