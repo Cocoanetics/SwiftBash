@@ -171,7 +171,7 @@ public struct RealFileSystem: FileSystem {
         }
         // Append mode.
         if !fm.fileExists(atPath: path) {
-            fm.createFile(atPath: path, contents: nil)
+            _ = fm.createFile(atPath: path, contents: nil)
         }
         let handle: FileHandle
         do {

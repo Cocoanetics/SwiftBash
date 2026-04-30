@@ -1,9 +1,13 @@
 import ArgumentParser
 import BashInterpreter
-import CZlib
 import Foundation
+#if !os(Windows)
+import CZlib
+#endif
 
 // MARK: - gzip
+
+#if !os(Windows)
 
 /// Tiny gzip codec: header / trailer in pure Swift, DEFLATE body via
 /// the host's zlib (`deflate` / `inflate` from `<zlib.h>`, exposed
@@ -292,3 +296,15 @@ func runGzip(decompress: Bool,
     }
     return hadError ? .failure : .success
 }
+
+#else
+
+func runGzip(decompress: Bool,
+             toStdout: Bool,
+             files: [String],
+             commandName: String) async throws -> ExitStatus {
+    Shell.current.stderr("\(commandName): not supported on Windows\n")
+    return .failure
+}
+
+#endif
