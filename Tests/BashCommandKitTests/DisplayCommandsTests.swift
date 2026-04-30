@@ -18,8 +18,8 @@ import Foundation
     @Test func treeBasic() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try FileManager.default.createDirectory(atPath: dir + "/sub", withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: dir + "/a", contents: Data())
-        FileManager.default.createFile(atPath: dir + "/sub/b", contents: Data())
+        _ = FileManager.default.createFile(atPath: dir + "/a", contents: Data())
+        _ = FileManager.default.createFile(atPath: dir + "/sub/b", contents: Data())
         try await cap.shell.run("tree .")
         #expect(cap.stdout.contains(".\n"))
         #expect(cap.stdout.contains("├── a"))

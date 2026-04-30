@@ -33,7 +33,7 @@ import Foundation
 
     @Test func chmodChangesPermissions() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
-        FileManager.default.createFile(atPath: dir + "/f", contents: Data())
+        _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dir + "/f")
         try await cap.shell.run("chmod 755 f")
         let attrs = try FileManager.default.attributesOfItem(atPath: dir + "/f")

@@ -48,7 +48,7 @@ import Foundation
 
     @Test func permExact() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        FileManager.default.createFile(atPath: dir + "/f", contents: Data())
+        _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o644], ofItemAtPath: dir + "/f")
         try await cap.shell.run("find . -perm 644 -type f")
@@ -57,7 +57,7 @@ import Foundation
 
     @Test func permAllOf() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        FileManager.default.createFile(atPath: dir + "/f", contents: Data())
+        _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: dir + "/f")
         try await cap.shell.run("find . -perm -700 -type f")
@@ -67,7 +67,7 @@ import Foundation
 
     @Test func permAnyOf() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        FileManager.default.createFile(atPath: dir + "/f", contents: Data())
+        _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600], ofItemAtPath: dir + "/f")
         try await cap.shell.run("find . -perm /111 -type f")

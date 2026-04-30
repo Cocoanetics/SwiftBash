@@ -74,6 +74,7 @@ import Foundation
         #expect(matches == 1, "expected HH:MM:SS, got \(trimmed)")
     }
 
+    #if !os(Windows)
     @Test func unixTimestampSpecifier() async throws {
         let cap = makeShell()
         let before = Int(Date().timeIntervalSince1970)
@@ -87,6 +88,7 @@ import Foundation
         #expect(printed >= before)
         #expect(printed <= after + 1)
     }
+    #endif
 
     // MARK: --utc
 

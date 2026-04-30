@@ -133,7 +133,7 @@ import Foundation
     @Test func lsHumanReadable() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         // Create a file > 1K (2048 bytes of 'A').
-        FileManager.default.createFile(
+        _ = FileManager.default.createFile(
             atPath: dir + "/big",
             contents: Data(repeating: 0x41, count: 2048))
         try await cap.shell.run("ls -lh big")

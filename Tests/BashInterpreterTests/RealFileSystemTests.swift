@@ -55,7 +55,7 @@ import Foundation
     @Test func listReturnsEntries() async throws {
         let root = Self.makeTempDir(); defer { cleanup(root) }
         for name in ["a", "b", "c"] {
-            FileManager.default.createFile(
+            _ = FileManager.default.createFile(
                 atPath: (root as NSString).appendingPathComponent(name),
                 contents: nil)
         }
@@ -198,7 +198,7 @@ import Foundation
     @Test func removeFile() async throws {
         let root = Self.makeTempDir(); defer { cleanup(root) }
         let p = (root as NSString).appendingPathComponent("gone.txt")
-        FileManager.default.createFile(atPath: p, contents: Data())
+        _ = FileManager.default.createFile(atPath: p, contents: Data())
 
         let fs = RealFileSystem()
         try await fs.remove(p, recursive: false)
@@ -211,7 +211,7 @@ import Foundation
         let sub = (root as NSString).appendingPathComponent("sub")
         try FileManager.default.createDirectory(
             atPath: sub, withIntermediateDirectories: false)
-        FileManager.default.createFile(
+        _ = FileManager.default.createFile(
             atPath: (sub as NSString).appendingPathComponent("file"),
             contents: Data())
 
