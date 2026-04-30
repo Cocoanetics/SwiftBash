@@ -1,5 +1,25 @@
 import Foundation
 
+#if os(Windows)
+let SIGHUP:  Int32 = 1
+let SIGQUIT: Int32 = 3
+let SIGTRAP: Int32 = 5
+let SIGKILL: Int32 = 9
+let SIGBUS:  Int32 = 10
+let SIGUSR1: Int32 = 30
+let SIGUSR2: Int32 = 31
+let SIGSYS:  Int32 = 12
+let SIGPIPE: Int32 = 13
+let SIGALRM: Int32 = 14
+let SIGURG:  Int32 = 16
+let SIGSTOP: Int32 = 17
+let SIGTSTP: Int32 = 18
+let SIGCONT: Int32 = 19
+let SIGCHLD: Int32 = 20
+let SIGTTIN: Int32 = 21
+let SIGTTOU: Int32 = 22
+#endif
+
 /// Parse a signal name (with or without the `SIG` prefix) or a numeric
 /// signal value into the corresponding signal number. Used by `kill`
 /// and `pkill` to interpret `-TERM` / `-9` / `-SIGINT` arguments.

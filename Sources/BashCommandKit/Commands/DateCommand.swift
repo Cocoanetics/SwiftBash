@@ -78,11 +78,19 @@ public struct DateCommand: ParsableBashCommand {
 
         var epoch = time_t(Date().timeIntervalSince1970)
         var broken = tm()
+        #if os(Windows)
+        if utc {
+            _ = gmtime_s(&broken, &epoch)
+        } else {
+            _ = localtime_s(&broken, &epoch)
+        }
+        #else
         if utc {
             _ = gmtime_r(&epoch, &broken)
         } else {
             _ = localtime_r(&epoch, &broken)
         }
+        #endif
 
         var buffer = [CChar](repeating: 0, count: 4096)
         let written = strftime(&buffer, buffer.count, format, &broken)

@@ -19,7 +19,7 @@ import Foundation
     }
 
     private func makeFile(_ path: String, in dir: String) {
-        FileManager.default.createFile(
+        _ = FileManager.default.createFile(
             atPath: (dir as NSString).appendingPathComponent(path),
             contents: nil)
     }
