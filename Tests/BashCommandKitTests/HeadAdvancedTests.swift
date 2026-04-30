@@ -36,6 +36,7 @@ import Foundation
         #expect(cap.stdout == "abcdefg")
     }
 
+    #if !os(Windows)
     @Test func headMultipleFilesPrintsHeaders() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "head-\(UUID())"
@@ -49,7 +50,9 @@ import Foundation
         #expect(cap.stdout.contains("a1"))
         #expect(cap.stdout.contains("b1"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func headQuietSuppressesHeaders() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "head-q-\(UUID())"
@@ -60,6 +63,7 @@ import Foundation
         try await cap.shell.run("head -q -n 1 \(dir)/x \(dir)/y")
         #expect(cap.stdout == "a\nb\n")
     }
+    #endif
 
     @Test func headVerboseAddsHeader() async throws {
         let cap = makeShell()

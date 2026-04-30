@@ -43,12 +43,14 @@ import Foundation
         #expect(meta == nil)
     }
 
+    #if !os(Windows)
     @Test func metadataFollowsSymlink() async throws {
         // /tmp is a symlink to /private/tmp on macOS — follows to a dir.
         let fs = RealFileSystem()
         let meta = try await fs.metadata("/tmp")
         #expect(meta?.kind == .directory)
     }
+    #endif
 
     // MARK: list
 
@@ -267,11 +269,13 @@ import Foundation
 
     // MARK: canonicalize
 
+    #if !os(Windows)
     @Test func canonicalizeResolvesDotDot() async throws {
         let fs = RealFileSystem()
         let resolved = try await fs.canonicalize("/usr/bin/..", allowMissing: false)
         #expect(resolved == "/usr")
     }
+    #endif
 
     @Test func canonicalizeMissingThrowsUnlessAllowed() async throws {
         let fs = RealFileSystem()

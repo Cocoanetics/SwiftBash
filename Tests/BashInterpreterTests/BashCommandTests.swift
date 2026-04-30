@@ -52,6 +52,7 @@ import Foundation
 
     // MARK: bash FILE [args…]
 
+    #if !os(Windows)
     @Test func bashRunsScriptFile() async throws {
         let cap = CapturingShell()
         let dir = NSTemporaryDirectory() + "bash-test-\(UUID())"
@@ -65,7 +66,9 @@ import Foundation
         try await cap.shell.run("bash \(path) hello")
         #expect(cap.stdout == "from-file: hello\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func bashStripsShebangFromScriptFile() async throws {
         // A script file starting with `#!/usr/bin/env bash` would
         // otherwise be parsed as a comment, but let's make sure we
@@ -82,6 +85,7 @@ import Foundation
         try await cap.shell.run("bash \(path)")
         #expect(cap.stdout == "post-shebang\n")
     }
+    #endif
 
     @Test func bashMissingFileExits127() async throws {
         let cap = CapturingShell()

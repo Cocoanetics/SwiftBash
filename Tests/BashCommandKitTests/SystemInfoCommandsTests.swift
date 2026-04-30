@@ -69,6 +69,7 @@ import Foundation
         #expect(body.contains("G") || body.contains("M") || body.contains("K") || body.contains("T"))
     }
 
+    #if !os(Windows)
     @Test func cmpEqual() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "cmp-\(UUID())"
@@ -80,7 +81,9 @@ import Foundation
         #expect(status == .success)
         #expect(cap.stdout == "")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func cmpDifferent() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "cmp-\(UUID())"
@@ -92,7 +95,9 @@ import Foundation
         #expect(status == ExitStatus(1))
         #expect(cap.stdout.contains("differ"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func cmpSilent() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "cmp-\(UUID())"
@@ -104,5 +109,6 @@ import Foundation
         #expect(status == ExitStatus(1))
         #expect(cap.stdout == "")
     }
+    #endif
 
 }

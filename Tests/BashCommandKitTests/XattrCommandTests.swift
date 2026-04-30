@@ -15,6 +15,7 @@ import Foundation
     }
     private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
 
+    #if !os(Windows)
     @Test func writeAndList() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
@@ -22,7 +23,9 @@ import Foundation
         try await cap.shell.run("xattr f")
         #expect(cap.stdout.contains("user.tag"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func writeAndPrint() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
@@ -30,7 +33,9 @@ import Foundation
         try await cap.shell.run("xattr -p user.color f")
         #expect(cap.stdout == "blue\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func deleteAttribute() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
@@ -41,6 +46,7 @@ import Foundation
         #expect(!cap.stdout.contains("user.a"))
         #expect(cap.stdout.contains("user.b"))
     }
+    #endif
 
     @Test func clearAll() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
@@ -55,6 +61,7 @@ import Foundation
         #expect(!cap.stdout.contains("user.b"))
     }
 
+    #if !os(Windows)
     @Test func longFormatShowsValues() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
@@ -63,4 +70,5 @@ import Foundation
         #expect(cap.stdout.contains("user.tag"))
         #expect(cap.stdout.contains("hello"))
     }
+    #endif
 }

@@ -59,6 +59,7 @@ import Foundation
         #expect(cap.stdout.contains("-rw-"))
     }
 
+    #if !os(Windows)
     @Test func lsLongReflectsActualModeBits() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run(
@@ -66,6 +67,7 @@ import Foundation
         #expect(cap.stdout.contains("-rwx------"))
         #expect(cap.stdout.contains("-rw-r--r--"))
     }
+    #endif
 
     @Test func lsLongOwnerComesFromHostInfo() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
@@ -87,6 +89,7 @@ import Foundation
         #expect(dotDot?.first == "d", "`..` not rendered as directory: \(dotDot ?? "nil")")
     }
 
+    #if !os(Windows)
     @Test func lsLongShowsStickyBitOnDir() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir tmp; chmod 1777 tmp; ls -la")
@@ -94,6 +97,7 @@ import Foundation
         #expect(cap.stdout.contains("drwxrwxrwt"),
                 "expected sticky-bit dir, got: \(cap.stdout)")
     }
+    #endif
 
     @Test func lsClassify() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }

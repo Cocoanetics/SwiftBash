@@ -55,6 +55,7 @@ import Foundation
         #expect(cap.stdout.contains("f"))
     }
 
+    #if !os(Windows)
     @Test func permAllOf() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
@@ -64,6 +65,7 @@ import Foundation
         // 755 has all bits in 700 set
         #expect(cap.stdout.contains("f"))
     }
+    #endif
 
     @Test func permAnyOf() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }

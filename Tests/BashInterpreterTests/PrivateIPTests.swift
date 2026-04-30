@@ -62,25 +62,33 @@ import Testing
 
     // MARK: IPv6
 
+    #if !os(Windows)
     @Test func loopbackAndUnspecifiedIPv6() {
         #expect(PrivateIP.isPrivate(host: "::1"))
         #expect(PrivateIP.isPrivate(host: "::"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func ulaIPv6Private() {
         #expect(PrivateIP.isPrivate(host: "fc00::1"))
         #expect(PrivateIP.isPrivate(host: "fd12:3456:789a::1"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func linkLocalIPv6Private() {
         #expect(PrivateIP.isPrivate(host: "fe80::1"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func ipv4MappedPrivateAddress() {
         // ::ffff:127.0.0.1 — IPv4-mapped form of loopback.
         #expect(PrivateIP.isPrivate(host: "::ffff:127.0.0.1"))
         #expect(PrivateIP.isPrivate(host: "::ffff:10.0.0.1"))
     }
+    #endif
 
     @Test func publicIPv6NotPrivate() {
         // Google DNS over IPv6.

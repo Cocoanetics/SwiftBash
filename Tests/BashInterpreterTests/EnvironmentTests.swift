@@ -17,12 +17,14 @@ import Testing
         #expect(env["X"] == nil)
     }
 
+    #if !os(Windows)
     @Test func currentLoadsFromProcess() {
         let env = Environment.current()
         // PATH is essentially always present on macOS/Linux.
         #expect(env["PATH"] != nil)
         #expect(!env.workingDirectory.isEmpty)
     }
+    #endif
 
     @Test func shellReadsEnvironmentDictionary() async throws {
         let cap = CapturingShell(environment:

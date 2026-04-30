@@ -11,6 +11,7 @@ import Foundation
         return cap
     }
 
+    #if !os(Windows)
     @Test func resolvesExistingAbsolutePath() async throws {
         let cap = makeShell()
         try await cap.shell.run("realpath /tmp")
@@ -18,7 +19,9 @@ import Foundation
         // On macOS /tmp is a symlink to /private/tmp — we resolve symlinks.
         #expect(out == "/tmp" || out == "/private/tmp", "got `\(out)`")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func normalisesDotDot() async throws {
         // Use a non-symlinked path so we don't need to care about
         // macOS's /tmp → /private/tmp symlink.
@@ -26,6 +29,7 @@ import Foundation
         try await cap.shell.run("realpath /usr/bin/..")
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "/usr")
     }
+    #endif
 
     @Test func missingPathFailsByDefault() async throws {
         let cap = makeShell()

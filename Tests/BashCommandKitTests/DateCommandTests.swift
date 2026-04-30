@@ -92,6 +92,7 @@ import Foundation
 
     // MARK: --utc
 
+    #if !os(Windows)
     @Test func utcFlagUsesGmtTimezone() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"date -u -f "%Z""#)
@@ -100,6 +101,7 @@ import Foundation
         let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(tz == "UTC" || tz == "GMT", "got timezone `\(tz)`")
     }
+    #endif
 
     @Test func utcAndLocalCanDifferInHours() async throws {
         // This is only a meaningful test when the testing machine is not
@@ -121,12 +123,14 @@ import Foundation
         #expect(cap.stdout == "hi\n")
     }
 
+    #if !os(Windows)
     @Test func shortUtcFlag() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"date -u -f "%Z""#)
         let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(tz == "UTC" || tz == "GMT", "got `\(tz)`")
     }
+    #endif
 
     // MARK: Interaction with the shell
 

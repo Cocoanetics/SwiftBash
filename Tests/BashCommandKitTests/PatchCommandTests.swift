@@ -15,6 +15,7 @@ import Foundation
     }
     private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
 
+    #if !os(Windows)
     @Test func basicPatch() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "alpha\nbeta\ngamma\n".write(toFile: dir + "/f.txt",
@@ -33,7 +34,9 @@ import Foundation
         let updated = try String(contentsOfFile: dir + "/f.txt", encoding: .utf8)
         #expect(updated == "alpha\nBETA\ngamma\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func appendingHunk() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "one\ntwo\n".write(toFile: dir + "/f.txt",
@@ -51,7 +54,9 @@ import Foundation
         let updated = try String(contentsOfFile: dir + "/f.txt", encoding: .utf8)
         #expect(updated == "one\ntwo\nthree\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func reversePatch() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "one\nNEW\ntwo\n".write(toFile: dir + "/f.txt",
@@ -69,6 +74,7 @@ import Foundation
         let updated = try String(contentsOfFile: dir + "/f.txt", encoding: .utf8)
         #expect(updated == "one\ntwo\n")
     }
+    #endif
 
     @Test func dryRunDoesNotWrite() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
@@ -86,6 +92,7 @@ import Foundation
         #expect(unchanged == "x\n")
     }
 
+    #if !os(Windows)
     @Test func patchFromStdin() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "a\nb\nc\n".write(toFile: dir + "/f.txt",
@@ -104,4 +111,5 @@ import Foundation
         let updated = try String(contentsOfFile: dir + "/f.txt", encoding: .utf8)
         #expect(updated == "a\nB\nc\n")
     }
+    #endif
 }

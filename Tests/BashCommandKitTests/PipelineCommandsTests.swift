@@ -26,6 +26,7 @@ import Foundation
         #expect(cap.stdout == "hello\n")
     }
 
+    #if !os(Windows)
     @Test func catReadsFile() async throws {
         let tmp = NSTemporaryDirectory() + "cat-test-\(UUID()).txt"
         try "line1\nline2\n".write(toFile: tmp, atomically: true, encoding: .utf8)
@@ -35,6 +36,7 @@ import Foundation
         try await cap.shell.run("cat \(tmp)")
         #expect(cap.stdout == "line1\nline2\n")
     }
+    #endif
 
     @Test func catMissingFileFails() async throws {
         let cap = makeShell()

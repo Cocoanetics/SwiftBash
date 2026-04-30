@@ -192,6 +192,7 @@ import Foundation
 
     // MARK: Tilde
 
+    #if !os(Windows)
     @Test func tildeResolvesToHome() async throws {
         let r = try await onBoth("""
             echo hi > ~/greeting
@@ -199,6 +200,7 @@ import Foundation
             """)
         #expect(r.stdout == "hi\n")
     }
+    #endif
 
     // MARK: Pipeline + redirection + globbing
 

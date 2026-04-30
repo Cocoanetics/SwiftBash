@@ -28,6 +28,7 @@ import Testing
 
     // MARK: cd
 
+    #if !os(Windows)
     @Test func cdToTmpUpdatesEnv() async throws {
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
@@ -36,6 +37,7 @@ import Testing
         #expect(cap.shell.environment["PWD"] == "/tmp")
         #expect(cap.shell.environment["OLDPWD"] == "/")
     }
+    #endif
 
     @Test func cdToMissingDirectoryFailsWithStderr() async throws {
         let cap = CapturingShell()
@@ -44,6 +46,7 @@ import Testing
         #expect(cap.stderr.contains("cd"), "\(cap.stderr)")
     }
 
+    #if !os(Windows)
     @Test func cdWithNoArgGoesToHome() async throws {
         let cap = CapturingShell()
         cap.shell.environment["HOME"] = "/tmp"
@@ -51,6 +54,7 @@ import Testing
         try await cap.shell.run("cd")
         #expect(cap.shell.environment.workingDirectory == "/tmp")
     }
+    #endif
 
     @Test func cdDashGoesBackToOldpwd() async throws {
         let cap = CapturingShell()

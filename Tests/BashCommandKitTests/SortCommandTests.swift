@@ -108,6 +108,7 @@ import Foundation
         #expect(cap.stderr.contains("disorder"))
     }
 
+    #if !os(Windows)
     @Test func outputFile() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "sort-out-\(UUID())"
@@ -119,6 +120,7 @@ import Foundation
         let written = try String(contentsOfFile: out, encoding: .utf8)
         #expect(written == "a\nb\n")
     }
+    #endif
 
     @Test func numericReverseCombined() async throws {
         let out = try await sort("1\n10\n2\n", "-rn")

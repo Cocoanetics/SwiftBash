@@ -228,6 +228,7 @@ import Foundation
 
     // MARK: - File I/O
 
+    #if !os(Windows)
     @Test func readFileCommand() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "sed-r-\(UUID())"
@@ -239,7 +240,9 @@ import Foundation
         try await cap.shell.run("printf 'a\\nb\\n' | sed '1r \(path)'")
         #expect(cap.stdout == "a\nfrom-file\nb\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func writeFileCommand() async throws {
         let cap = makeShell()
         let dir = NSTemporaryDirectory() + "sed-w-\(UUID())"
@@ -251,4 +254,5 @@ import Foundation
         let written = try String(contentsOfFile: path, encoding: .utf8)
         #expect(written == "a\n")
     }
+    #endif
 }

@@ -299,10 +299,12 @@ import Foundation
         #expect(readFile("\(dir)/log.txt") == "hi\n")
     }
 
+    #if !os(Windows)
     @Test func redirectTargetCanUseTilde() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         cap.shell.environment["HOME"] = dir
         try await cap.shell.run("echo hi > ~/greeting.txt")
         #expect(readFile("\(dir)/greeting.txt") == "hi\n")
     }
+    #endif
 }

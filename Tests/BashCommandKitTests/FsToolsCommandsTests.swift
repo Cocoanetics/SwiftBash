@@ -31,6 +31,7 @@ import Foundation
         #expect(cap.stdout == "f 2\n")
     }
 
+    #if !os(Windows)
     @Test func chmodChangesPermissions() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
@@ -40,7 +41,9 @@ import Foundation
         let perms = attrs[.posixPermissions] as? Int ?? 0
         #expect(perms == 0o755)
     }
+    #endif
 
+    #if !os(Windows)
     @Test func lnSymbolic() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "data".write(toFile: dir + "/target", atomically: true, encoding: .utf8)
@@ -49,7 +52,9 @@ import Foundation
         let attrs = try FileManager.default.attributesOfItem(atPath: dir + "/link")
         #expect((attrs[.type] as? FileAttributeType) == .typeSymbolicLink)
     }
+    #endif
 
+    #if !os(Windows)
     @Test func readlink() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "data".write(toFile: dir + "/target", atomically: true, encoding: .utf8)
@@ -57,6 +62,7 @@ import Foundation
         try await cap.shell.run("readlink link")
         #expect(cap.stdout == "target\n")
     }
+    #endif
 
     @Test func readlinkFCanonicalize() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }

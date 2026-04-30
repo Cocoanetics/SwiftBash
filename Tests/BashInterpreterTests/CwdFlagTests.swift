@@ -20,6 +20,7 @@ import Foundation
         #expect(cap.stdout == "/var\n")
     }
 
+    #if !os(Windows)
     @Test func pwdDashPResolvesUserSymlink() async throws {
         // Plant a real-fs symlink and verify -P resolves through it.
         // (System symlinks like /var → /private/var are hidden from
@@ -45,6 +46,7 @@ import Foundation
         try await cap2.shell.run("pwd -P")
         #expect(cap2.stdout == "\(real)\n")
     }
+    #endif
 
     @Test func pwdLastFlagWins() async throws {
         let cap = CapturingShell()
@@ -62,6 +64,7 @@ import Foundation
 
     // MARK: cd -L / -P
 
+    #if !os(Windows)
     @Test func cdDashPCanonicalizesAtChdirTime() async throws {
         // Plant a user symlink so the test doesn't depend on system
         // symlinks like /var (which Foundation hides under macOS).
@@ -79,7 +82,9 @@ import Foundation
         #expect(cap.shell.environment["PWD"] == real)
         #expect(cap.shell.environment.workingDirectory == real)
     }
+    #endif
 
+    #if !os(Windows)
     @Test func cdDashLDefaultPreservesSymlinkPath() async throws {
         let dir = NSTemporaryDirectory() + "cd-L-\(UUID())"
         let real = dir + "/real"
@@ -95,7 +100,9 @@ import Foundation
         #expect(cap.shell.environment["PWD"] == link)
         #expect(cap.shell.environment.workingDirectory == link)
     }
+    #endif
 
+    #if !os(Windows)
     @Test func cdDashLAndPSwitchable() async throws {
         let dir = NSTemporaryDirectory() + "cd-L-P-\(UUID())"
         let real = dir + "/real"
@@ -111,6 +118,7 @@ import Foundation
         // Last flag wins → -L → keep symlink path verbatim.
         #expect(cap.shell.environment.workingDirectory == link)
     }
+    #endif
 
     @Test func cdRejectsUnknownFlag() async throws {
         let cap = CapturingShell()
@@ -119,6 +127,7 @@ import Foundation
         #expect(cap.stderr.contains("invalid option"))
     }
 
+    #if !os(Windows)
     @Test func cdDashAfterFlagsStillWorks() async throws {
         // `cd -L -` should switch to OLDPWD (the `-` is a path arg,
         // not a flag, since it follows `--`-style intent of "stop
@@ -129,7 +138,9 @@ import Foundation
         try await cap.shell.run("cd -L -")
         #expect(cap.shell.environment.workingDirectory == "/tmp")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func cdMinusPrintsDestination() async throws {
         // bash prints the destination when you `cd -`, matching the
         // spec but not when you `cd <path>`.
@@ -139,6 +150,7 @@ import Foundation
         try await cap.shell.run("cd -")
         #expect(cap.stdout == "/tmp\n")
     }
+    #endif
 
     @Test func cdNoOldpwdErrors() async throws {
         let cap = CapturingShell()

@@ -54,6 +54,7 @@ import Foundation
         #expect(cap.stdout == "0\n")
     }
 
+    #if !os(Windows)
     @Test func dashLPrintsFilenamesOnly() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hello world\n", to: "a.txt", in: dir)
@@ -62,6 +63,7 @@ import Foundation
         try await cap.shell.run("grep -l hello a.txt b.txt c.txt")
         #expect(cap.stdout == "a.txt\nc.txt\n")
     }
+    #endif
 
     @Test func dashQSuppressesOutput() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
@@ -79,13 +81,16 @@ import Foundation
 
     // MARK: File arguments
 
+    #if !os(Windows)
     @Test func singleFileNoFilenamePrefix() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("alpha\nbeta\ngamma\n", to: "f.txt", in: dir)
         try await cap.shell.run("grep alpha f.txt")
         #expect(cap.stdout == "alpha\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func multipleFilesShowFilenamePrefix() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("alpha\nbeta\n", to: "a.txt", in: dir)
@@ -93,6 +98,7 @@ import Foundation
         try await cap.shell.run("grep alpha a.txt b.txt")
         #expect(cap.stdout == "a.txt:alpha\nb.txt:alpha\n")
     }
+    #endif
 
     @Test func directoryWithoutRecursiveFails() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
@@ -111,6 +117,7 @@ import Foundation
 
     // MARK: -r / --include
 
+    #if !os(Windows)
     @Test func recursiveDescendsIntoDirectories() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hello\n",   to: "src/a.swift", in: dir)
@@ -119,7 +126,9 @@ import Foundation
         try await cap.shell.run("grep -r hello src")
         #expect(cap.stdout == "src/a.swift:hello\nsrc/b.txt:hello\n")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func recursiveWithIncludeFiltersByGlob() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hello\n", to: "src/a.swift",  in: dir)
@@ -132,7 +141,9 @@ import Foundation
 
             """)
     }
+    #endif
 
+    #if !os(Windows)
     @Test func recursiveWithMultipleIncludePatterns() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hit\n", to: "x.swift", in: dir)
@@ -142,6 +153,7 @@ import Foundation
             "grep -r --include=*.swift --include=*.h hit .")
         #expect(cap.stdout == "./x.swift:hit\n./y.h:hit\n")
     }
+    #endif
 
     // MARK: -E (extended regex)
 
@@ -201,10 +213,12 @@ import Foundation
 
     // MARK: Bundled flags
 
+    #if !os(Windows)
     @Test func dashRNBundledWorks() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hello\n", to: "a.txt", in: dir)
         try await cap.shell.run("grep -rn hello .")
         #expect(cap.stdout == "./a.txt:1:hello\n")
     }
+    #endif
 }

@@ -16,6 +16,7 @@ import Foundation
 
     private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
 
+    #if !os(Windows)
     @Test func roundTripFiles() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "alpha".write(toFile: dir + "/a.txt", atomically: true, encoding: .utf8)
@@ -31,7 +32,9 @@ import Foundation
         #expect(a == "alpha")
         #expect(b == "beta")
     }
+    #endif
 
+    #if !os(Windows)
     @Test func listArchive() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/one", atomically: true, encoding: .utf8)
@@ -39,7 +42,9 @@ import Foundation
         try await cap.shell.run("tar -tf x.tar")
         #expect(cap.stdout.contains("one"))
     }
+    #endif
 
+    #if !os(Windows)
     @Test func directoryRoundTrip() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try FileManager.default.createDirectory(atPath: dir + "/sub", withIntermediateDirectories: true)
@@ -50,6 +55,7 @@ import Foundation
         let s = try String(contentsOfFile: dir + "/sub/inner", encoding: .utf8)
         #expect(s == "data")
     }
+    #endif
 
     @Test func verboseOnCreate() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
