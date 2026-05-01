@@ -121,3 +121,7 @@ jobs:
           # The default GitHub Linux runner has ~14 GiB free; the SDK,
           # NDK, and emulator together push past that without cleanup.
           free-disk-space: true
+          # Match the other platforms: tests share process-global state
+          # (Shell.current, processTable) so they must run serially. The
+          # action's `swift test` invocation defaults to parallel.
+          swift-test-flags: "--no-parallel"
