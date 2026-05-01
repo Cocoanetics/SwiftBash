@@ -2,7 +2,6 @@ import Testing
 @testable import BashSyntax
 
 /// Tests that lock down the exact format produced by `dump()`.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct DumpTests {
 
     @Test func nestedSubstitutionsDumpExactly() throws {
@@ -62,4 +61,3 @@ import Testing
         #expect(node.dump(source: src) == expected)
     }
 }
-#endif

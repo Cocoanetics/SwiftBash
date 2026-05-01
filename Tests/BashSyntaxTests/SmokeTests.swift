@@ -1,7 +1,6 @@
 import Testing
 @testable import BashSyntax
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SmokeTests {
 
     @Test func parseSimpleCommand() throws {
@@ -90,4 +89,3 @@ import Testing
         #expect(dump.contains("CommandsubstitutionNode(command="), "\(dump)")
     }
 }
-#endif
