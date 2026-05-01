@@ -2,10 +2,13 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Android)
+import Android
+// `<sys/xattr.h>` symbols aren't surfaced by Swift's stock Android
+// libc module; the local CXattr systemLibrary target fills the gap.
+import CXattr
 #elseif canImport(Bionic)
 import Bionic
-// `<sys/xattr.h>` symbols aren't surfaced by Swift's stock Bionic
-// module; the local CXattr systemLibrary target fills the gap.
 import CXattr
 #elseif canImport(Glibc)
 import Glibc
@@ -408,6 +411,18 @@ public extension RealFileSystem {
     private static let libcSymlink  = Darwin.symlink
     private static let libcLink     = Darwin.link
     private static let libcReadlink = Darwin.readlink
+    #elseif canImport(Android)
+    private static let libcChmod    = Android.chmod
+    private static let libcChown    = Android.chown
+    private static let libcSymlink  = Android.symlink
+    private static let libcLink     = Android.link
+    private static let libcReadlink = Android.readlink
+    #elseif canImport(Bionic)
+    private static let libcChmod    = Bionic.chmod
+    private static let libcChown    = Bionic.chown
+    private static let libcSymlink  = Bionic.symlink
+    private static let libcLink     = Bionic.link
+    private static let libcReadlink = Bionic.readlink
     #else
     private static let libcChmod    = Glibc.chmod
     private static let libcChown    = Glibc.chown
@@ -483,7 +498,7 @@ public extension RealFileSystem {
         }
     }
 
-    #elseif canImport(Glibc) || canImport(Bionic)
+    #elseif canImport(Glibc) || canImport(Bionic) || canImport(Android)
 
     // Linux / Android variants. Same semantics as the Darwin branch but
     // the C signatures take 4 args (no `position` / `options`). The
