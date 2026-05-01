@@ -29,6 +29,10 @@ import WinSDK
         #expect(shell.hostInfo.machine == "arm64")
     }
 
+    // ProcessInfo.userName is macOS / Linux only — iOS / tvOS /
+    // watchOS don't expose it (HostInfo.real() falls back to a
+    // getpwuid lookup there). Gate the two tests that touch it.
+    #if os(macOS) || os(Linux) || os(Android) || os(Windows)
     @Test func syntheticLeaksNoHostStrings() {
         // Sanity: every field in `.synthetic` is a known anonymous
         // value — nothing pulled from ProcessInfo at construction.
@@ -44,15 +48,18 @@ import WinSDK
             #expect(field != real.hostName)
         }
     }
+    #endif
 
     // MARK: real() opt-in
 
+    #if os(macOS) || os(Linux) || os(Android) || os(Windows)
     @Test func realPullsFromProcessInfo() {
         let real = HostInfo.real()
         #expect(real.userName == ProcessInfo.processInfo.userName)
         #expect(real.uid > 0)
         #expect(!real.kernelName.isEmpty)
     }
+    #endif
 
     // MARK: copy() inheritance
 
