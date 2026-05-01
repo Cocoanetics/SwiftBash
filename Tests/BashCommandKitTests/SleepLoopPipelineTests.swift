@@ -146,4 +146,3 @@ private final class LineArrivalRecorder: @unchecked Sendable {
         return arrivalTimes.map { $0.timeIntervalSince(origin) }
     }
 }
-#endif
