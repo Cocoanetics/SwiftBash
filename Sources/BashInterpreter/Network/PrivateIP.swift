@@ -4,6 +4,17 @@ import Foundation
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+
+#if os(Windows)
+/// One-shot Winsock initializer. WSAStartup is reference-counted by
+/// the OS but we only ever call it once per process.
+private let _wsaStartupOnce: Bool = {
+    var data = WSAData()
+    return WSAStartup(0x0202 /* MAKEWORD(2,2) */, &data) == 0
+}()
 #endif
 
 /// Private / loopback / link-local IP detection — used to defend
@@ -40,23 +51,21 @@ public enum PrivateIP {
     /// `EAI_NONAME`/`EAI_NODATA` (which return `[]`, since "no such
     /// host" can't pose a rebinding risk).
     public static func resolve(_ hostname: String) async throws -> [String] {
-        #if os(Windows)
-        return []
-        #else
         return try await Task.detached(priority: .utility) {
             try resolveSync(hostname)
         }.value
-        #endif
     }
 
-    #if !os(Windows)
     private static func resolveSync(_ hostname: String) throws -> [String] {
+        #if os(Windows)
+        _ = _wsaStartupOnce
+        #endif
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
         // Linux's Glibc imports SOCK_STREAM as the enum value
         // `__socket_type.SOCK_STREAM`; addrinfo.ai_socktype wants
-        // Int32. Darwin imports it as a raw Int32 already.
-        #if canImport(Darwin)
+        // Int32. Darwin / WinSDK import it as a raw Int32 already.
+        #if canImport(Darwin) || canImport(WinSDK)
         hints.ai_socktype = SOCK_STREAM
         #else
         hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
@@ -75,8 +84,15 @@ public enum PrivateIP {
             #else
             if rc == EAI_NONAME { return [] }
             #endif
+            #if os(Windows)
+            // Windows gai_strerror returns a wchar_t*. Easier to just
+            // report the numeric code than bridge the wide string.
+            throw NetworkError.transport(
+                message: "DNS resolution failed (WSA \(rc))")
+            #else
             let msg = String(cString: gai_strerror(rc))
             throw NetworkError.transport(message: "DNS resolution failed: \(msg)")
+            #endif
         }
 
         var out: [String] = []
@@ -110,7 +126,6 @@ public enum PrivateIP {
         let bytes = buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
         return String(decoding: bytes, as: UTF8.self)
     }
-    #endif
 
     // MARK: IPv4 ranges
 
@@ -149,27 +164,69 @@ public enum PrivateIP {
     // MARK: IPv6 ranges
 
     /// Parse an IPv6 literal (with optional `%zone`) into 16 bytes.
-    /// Accepts the `::`-compressed and `::ffff:1.2.3.4` forms.
+    /// Accepts the `::`-compressed and `::ffff:1.2.3.4` forms. Pure
+    /// Swift — no platform sockets — so the SSRF lexical check works
+    /// the same way on macOS / Linux / Windows.
     static func parseIPv6(_ raw: String) -> [UInt8]? {
-        #if os(Windows)
-        return nil
-        #else
         // Strip zone identifier `%...`.
         let s = raw.split(separator: "%").first.map(String.init) ?? raw
-        var hints = addrinfo()
-        hints.ai_family = AF_INET6
-        hints.ai_flags = AI_NUMERICHOST
-        var info: UnsafeMutablePointer<addrinfo>? = nil
-        let rc = s.withCString { getaddrinfo($0, nil, &hints, &info) }
-        defer { if let info { freeaddrinfo(info) } }
-        guard rc == 0, let info else { return nil }
-        let sin6 = info.pointee.ai_addr.withMemoryRebound(
-            to: sockaddr_in6.self, capacity: 1) { $0.pointee }
-        var addr = sin6.sin6_addr
-        return withUnsafeBytes(of: &addr) { buf in
-            Array(buf)
+        if s.isEmpty { return nil }
+        // At most one `::` allowed.
+        let doubleColonRanges = s.ranges(of: "::")
+        if doubleColonRanges.count > 1 { return nil }
+
+        let head: [Substring]
+        let tail: [Substring]
+        if let dc = doubleColonRanges.first {
+            let h = s[s.startIndex..<dc.lowerBound]
+            let t = s[dc.upperBound..<s.endIndex]
+            head = h.isEmpty ? [] : h.split(separator: ":", omittingEmptySubsequences: false)
+            tail = t.isEmpty ? [] : t.split(separator: ":", omittingEmptySubsequences: false)
+        } else {
+            head = s.split(separator: ":", omittingEmptySubsequences: false)
+            tail = []
         }
-        #endif
+
+        // Helper: parse one segment (either a 1-4 hex group or, if
+        // it's the very last segment and contains a dot, an embedded
+        // IPv4 literal).
+        func segmentBytes(_ seg: Substring, isLast: Bool) -> [UInt8]? {
+            if isLast, seg.contains(".") {
+                guard let v4 = parseIPv4(String(seg)) else { return nil }
+                return [v4.0, v4.1, v4.2, v4.3]
+            }
+            guard !seg.isEmpty, seg.count <= 4,
+                  seg.allSatisfy({ $0.isHexDigit }),
+                  let v = UInt16(seg, radix: 16)
+            else { return nil }
+            return [UInt8(v >> 8), UInt8(v & 0xff)]
+        }
+
+        var headBytes: [UInt8] = []
+        for (i, seg) in head.enumerated() {
+            let isLast = doubleColonRanges.isEmpty
+                && tail.isEmpty
+                && i == head.count - 1
+            guard let bs = segmentBytes(seg, isLast: isLast) else { return nil }
+            headBytes.append(contentsOf: bs)
+        }
+        var tailBytes: [UInt8] = []
+        for (i, seg) in tail.enumerated() {
+            guard let bs = segmentBytes(seg, isLast: i == tail.count - 1)
+            else { return nil }
+            tailBytes.append(contentsOf: bs)
+        }
+
+        if doubleColonRanges.isEmpty {
+            return headBytes.count == 16 ? headBytes : nil
+        }
+        // `::` present — zero-fill the middle.
+        let total = headBytes.count + tailBytes.count
+        if total > 16 { return nil }
+        var out = headBytes
+        out.append(contentsOf: [UInt8](repeating: 0, count: 16 - total))
+        out.append(contentsOf: tailBytes)
+        return out
     }
 
     /// Reject IPv6 ULAs (`fc00::/7`), link-local (`fe80::/10`),

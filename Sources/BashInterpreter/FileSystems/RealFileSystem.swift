@@ -7,6 +7,8 @@ import Glibc
 // `<sys/xattr.h>` symbols aren't surfaced by Swift's stock Glibc
 // module; the local CXattr systemLibrary target fills the gap.
 import CXattr
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 
 /// A ``FileSystem`` backed by the host process's real filesystem via
@@ -580,4 +582,77 @@ private func fsError(op: String, path: String) -> FileSystemError {
     if errno == EACCES || errno == EPERM { return .permissionDenied(path) }
     return .io("\(op) \(path) failed: \(msg)")
 }
+#endif
+
+#if os(Windows)
+
+public extension RealFileSystem {
+
+    /// Approximate POSIX chmod via `_wchmod`. Windows only honours the
+    /// "owner write" bit (mapped to the FILE_ATTRIBUTE_READONLY flag);
+    /// any mode without `S_IWUSR` (0o200) marks the file read-only,
+    /// otherwise it's writable. Other permission bits have no analog
+    /// in NTFS without touching ACLs.
+    func chmod(_ path: String, mode: UInt16) async throws {
+        let writable = (mode & 0o200) != 0
+        let winMode: Int32 = writable ? (0x0080 | 0x0100) /* _S_IWRITE | _S_IREAD */
+                                      : 0x0100            /* _S_IREAD */
+        let r = path.withCString(encodedAs: UTF16.self) { wp in
+            _wchmod(wp, winMode)
+        }
+        if r != 0 { throw winFsError(op: "chmod", path: path) }
+    }
+
+    /// chown is meaningless on NTFS without ACL manipulation. Match the
+    /// protocol's no-op default: only verify the path exists.
+    func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
+        guard try await metadata(path) != nil else {
+            throw FileSystemError.notFound(path)
+        }
+    }
+
+    /// Symbolic link via `CreateSymbolicLinkW`. Pass
+    /// `SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE` so machines with
+    /// Developer Mode enabled don't need to run elevated.
+    func symlink(target: String, at linkPath: String) async throws {
+        // Decide DIRECTORY vs file by probing the target.
+        let isDir: Bool
+        if let m = try? await metadata(target), m.kind == .directory {
+            isDir = true
+        } else {
+            isDir = false
+        }
+        let dirFlag: DWORD = isDir ? 0x1 : 0x0
+        let allowUnprivileged: DWORD = 0x2
+        let flags = dirFlag | allowUnprivileged
+        let ok = linkPath.withCString(encodedAs: UTF16.self) { lp in
+            target.withCString(encodedAs: UTF16.self) { tp in
+                CreateSymbolicLinkW(lp, tp, flags) != 0
+            }
+        }
+        if !ok { throw winFsError(op: "symlink", path: linkPath) }
+    }
+
+    /// Hard link via `CreateHardLinkW`.
+    func hardlink(target: String, at linkPath: String) async throws {
+        let ok = linkPath.withCString(encodedAs: UTF16.self) { lp in
+            target.withCString(encodedAs: UTF16.self) { tp in
+                CreateHardLinkW(lp, tp, nil)
+            }
+        }
+        if ok == 0 { throw winFsError(op: "link", path: linkPath) }
+    }
+}
+
+private func winFsError(op: String, path: String) -> FileSystemError {
+    let code = GetLastError()
+    if code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND {
+        return .notFound(path)
+    }
+    if code == ERROR_ACCESS_DENIED {
+        return .permissionDenied(path)
+    }
+    return .io("\(op) \(path) failed (Win32 \(code))")
+}
+
 #endif
