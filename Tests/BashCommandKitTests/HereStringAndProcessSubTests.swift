@@ -3,7 +3,6 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct HereStringAndProcessSubTests {
 
     private func makeShell() -> CapturingShell {
@@ -136,4 +135,3 @@ import Foundation
         #expect(cap.stdout == "left\nright\n")
     }
 }
-#endif
