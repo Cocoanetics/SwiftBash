@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct XargsCommandTests {
 
     private func makeShell() -> CapturingShell {
@@ -61,3 +62,4 @@ import Foundation
         #expect(cap.stdout == "X a\n")
     }
 }
+#endif

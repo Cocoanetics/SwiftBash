@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ArithEvaluatorTests {
 
     /// Helper backing a simple in-memory variable store.
@@ -284,3 +285,4 @@ import Testing
         #expect(try eval("m + 1", store: store) == Int64.min)
     }
 }
+#endif

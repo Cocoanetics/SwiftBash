@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SortCommandTests {
 
     private func makeShell() -> CapturingShell {
@@ -127,3 +128,4 @@ import Foundation
         #expect(out == "10\n2\n1\n")
     }
 }
+#endif

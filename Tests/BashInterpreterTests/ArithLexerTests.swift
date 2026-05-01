@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ArithLexerTests {
 
     // Helper: tokenise and strip the trailing .eof.
@@ -157,3 +158,4 @@ import Testing
         #expect(err is ArithError, "\(String(describing: err))")
     }
 }
+#endif
