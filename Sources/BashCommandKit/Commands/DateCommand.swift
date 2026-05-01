@@ -92,13 +92,68 @@ public struct DateCommand: ParsableBashCommand {
         }
         #endif
 
+        // Resolve the conversion specifiers libc handles inconsistently
+        // (`%s` and `%Z`) before calling strftime, so the output is
+        // identical on macOS / Linux / Windows.
+        let resolved = Self.preprocessFormat(format, epoch: epoch, utc: utc)
         var buffer = [CChar](repeating: 0, count: 4096)
-        let written = strftime(&buffer, buffer.count, format, &broken)
+        let written = strftime(&buffer, buffer.count, resolved, &broken)
         // Truncate to the actual byte count strftime produced and
         // decode as UTF-8 (the deprecated `String(cString: array)`
         // variant scans for NUL itself).
         let bytes = (0..<written).map { UInt8(bitPattern: buffer[$0]) }
         Shell.current.stdout(String(decoding: bytes, as: UTF8.self) + "\n")
         return .success
+    }
+
+    /// Pre-substitute `%s` (Unix epoch — ucrt doesn't recognise it,
+    /// crashes via the invalid-parameter handler) and `%Z` (timezone
+    /// abbreviation — ucrt returns the verbose Windows form like
+    /// "Coordinated Universal Time" instead of glibc's "UTC"/"GMT"/"PST")
+    /// with literal text before handing the string to `strftime`. Other
+    /// specifiers and `%%` pass through untouched.
+    static func preprocessFormat(_ format: String,
+                                 epoch: time_t,
+                                 utc: Bool) -> String {
+        let tz: String
+        if utc {
+            tz = "UTC"
+        } else {
+            tz = TimeZone.current.abbreviation() ?? ""
+        }
+        var out = ""
+        out.reserveCapacity(format.count)
+        var i = format.startIndex
+        while i < format.endIndex {
+            let c = format[i]
+            if c != "%" {
+                out.append(c)
+                i = format.index(after: i)
+                continue
+            }
+            let next = format.index(after: i)
+            guard next < format.endIndex else {
+                // Trailing lone `%` — leave for strftime to handle.
+                out.append(c)
+                i = next
+                continue
+            }
+            let nc = format[next]
+            switch nc {
+            case "%":
+                out.append("%%")
+            case "s":
+                out.append("\(epoch)")
+            case "Z":
+                // Escape any `%` in the abbreviation so strftime treats
+                // it literally.
+                out.append(tz.replacingOccurrences(of: "%", with: "%%"))
+            default:
+                out.append(c)
+                out.append(nc)
+            }
+            i = format.index(after: next)
+        }
+        return out
     }
 }

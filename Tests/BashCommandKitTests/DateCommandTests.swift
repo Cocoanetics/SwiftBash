@@ -74,7 +74,6 @@ import Foundation
         #expect(matches == 1, "expected HH:MM:SS, got \(trimmed)")
     }
 
-    #if !os(Windows)
     @Test func unixTimestampSpecifier() async throws {
         let cap = makeShell()
         let before = Int(Date().timeIntervalSince1970)
@@ -88,20 +87,17 @@ import Foundation
         #expect(printed >= before)
         #expect(printed <= after + 1)
     }
-    #endif
 
     // MARK: --utc
 
-    #if !os(Windows)
     @Test func utcFlagUsesGmtTimezone() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"date -u -f "%Z""#)
-        // strftime's %Z for UTC is typically "UTC" or "GMT" depending
-        // on libc; either is acceptable.
+        // %Z is preprocessed before strftime sees it, so the answer is
+        // identical on every platform.
         let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(tz == "UTC" || tz == "GMT", "got timezone `\(tz)`")
     }
-    #endif
 
     @Test func utcAndLocalCanDifferInHours() async throws {
         // This is only a meaningful test when the testing machine is not
@@ -123,14 +119,12 @@ import Foundation
         #expect(cap.stdout == "hi\n")
     }
 
-    #if !os(Windows)
     @Test func shortUtcFlag() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"date -u -f "%Z""#)
         let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(tz == "UTC" || tz == "GMT", "got `\(tz)`")
     }
-    #endif
 
     // MARK: Interaction with the shell
 
