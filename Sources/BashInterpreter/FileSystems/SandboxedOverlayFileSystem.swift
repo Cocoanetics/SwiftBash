@@ -932,6 +932,10 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
                 // resolves through whichever libc was imported.
                 #if canImport(Darwin)
                 return Darwin.realpath(p, bp.baseAddress) != nil
+                #elseif canImport(Android)
+                return Android.realpath(p, bp.baseAddress) != nil
+                #elseif canImport(Bionic)
+                return Bionic.realpath(p, bp.baseAddress) != nil
                 #else
                 return Glibc.realpath(p, bp.baseAddress) != nil
                 #endif
