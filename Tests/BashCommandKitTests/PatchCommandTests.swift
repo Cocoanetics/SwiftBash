@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct PatchCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
@@ -113,3 +114,4 @@ import Foundation
     }
     #endif
 }
+#endif

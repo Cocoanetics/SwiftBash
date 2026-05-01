@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct GlobbingTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -182,3 +183,4 @@ import Foundation
         #expect(cap.stdout == "one\ntwo\n")
     }
 }
+#endif

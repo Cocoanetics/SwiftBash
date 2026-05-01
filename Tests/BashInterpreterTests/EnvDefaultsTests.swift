@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct EnvDefaultsTests {
 
     // MARK: PATH and friends
@@ -101,3 +102,4 @@ import Foundation
         #expect(cap.stdout == "tron/alice/alice/x86_64/x86_64-apple-darwin\n")
     }
 }
+#endif

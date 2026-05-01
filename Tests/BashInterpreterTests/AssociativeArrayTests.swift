@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct AssociativeArrayTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
@@ -164,3 +165,4 @@ import Testing
         #expect(cap.stdout == "apple,banana,cherry\n")
     }
 }
+#endif

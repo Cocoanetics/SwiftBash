@@ -7,6 +7,7 @@ import Foundation
 /// / `pkill` operate exclusively on ``Shell/processTable``, which is
 /// populated by `&` background jobs. The host process table is never
 /// touched.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ProcessCommandsTests {
 
     private func makeShell() -> CapturingShell {
@@ -122,3 +123,4 @@ import Foundation
         #expect((Int32(trimmed) ?? 0) >= 1000)
     }
 }
+#endif

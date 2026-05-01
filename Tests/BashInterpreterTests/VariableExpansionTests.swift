@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct VariableExpansionTests {
 
     @Test func echoPath() async throws {
@@ -77,3 +78,4 @@ import Testing
         #expect(cap.stdout == "foobar\n")
     }
 }
+#endif

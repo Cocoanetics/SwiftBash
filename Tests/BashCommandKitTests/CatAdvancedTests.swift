@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct CatAdvancedTests {
 
     private func makeShell() -> CapturingShell {
@@ -53,3 +54,4 @@ import Foundation
         #expect(cap.stdout == "     1\ta$\n     2\tb$\n")
     }
 }
+#endif

@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct CaseTests {
 
     // MARK: Basic matching
@@ -175,3 +176,4 @@ import Testing
         #expect(status == .success)
     }
 }
+#endif

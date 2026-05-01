@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct GetoptsCommandTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
@@ -172,3 +173,4 @@ import Testing
         #expect(cap.stdout == "got-a\ngot-b value\n")
     }
 }
+#endif

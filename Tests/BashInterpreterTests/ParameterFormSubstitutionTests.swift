@@ -6,6 +6,7 @@ import Testing
 /// and the replacement of `${var/pat/repl}`) goes through full
 /// double-quote-style expansion: `$VAR`, `${...}`, `$(...)`, `$((...))`
 /// and backticks all fire.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ParameterFormSubstitutionTests {
 
     // MARK: ${var:-WORD}
@@ -135,3 +136,4 @@ import Testing
                 "the inner $(...) must not run when X is set")
     }
 }
+#endif

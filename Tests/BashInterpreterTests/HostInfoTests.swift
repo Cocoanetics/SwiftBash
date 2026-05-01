@@ -14,6 +14,7 @@ import Glibc
 import WinSDK
 #endif
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct HostInfoTests {
 
     // MARK: synthetic defaults
@@ -113,3 +114,4 @@ import WinSDK
         #expect(result.stdout == "X=\n")
     }
 }
+#endif

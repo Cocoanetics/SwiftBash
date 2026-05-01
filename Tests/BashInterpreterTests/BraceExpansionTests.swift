@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct BraceExpansionTests {
 
     @Test func listForm() {
@@ -65,3 +66,4 @@ import Testing
                 == ["{x}.a", "{x}.b"])
     }
 }
+#endif

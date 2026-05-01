@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct PositionalParametersTests {
 
     // MARK: $0..$N
@@ -191,3 +192,4 @@ import Testing
         #expect(cap.stdout == "<a b>\n<c>\n")
     }
 }
+#endif

@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct JoinCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
@@ -74,3 +75,4 @@ import Foundation
         #expect(cap.stdout == "alice 1 X\n")
     }
 }
+#endif

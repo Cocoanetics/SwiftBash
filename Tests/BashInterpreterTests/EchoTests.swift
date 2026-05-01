@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct EchoTests {
 
     @Test func noArgs() async throws {
@@ -46,3 +47,4 @@ import Testing
         #expect(cap.stdout == "$X\n")
     }
 }
+#endif

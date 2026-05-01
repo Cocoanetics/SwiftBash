@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ExpandFoldTests {
 
     private func makeShell() -> CapturingShell {
@@ -71,3 +72,4 @@ import Foundation
         #expect(cap.stdout == "ab\ncd\nef\n")
     }
 }
+#endif

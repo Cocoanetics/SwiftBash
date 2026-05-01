@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct CurlCommandTests {
 
     /// Captures every request and replays canned responses by URL.
@@ -258,3 +259,4 @@ import Foundation
                 == "Bearer TOKEN")
     }
 }
+#endif

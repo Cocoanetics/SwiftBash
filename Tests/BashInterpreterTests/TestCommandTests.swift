@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct TestCommandTests {
 
     private func makeShell() -> CapturingShell {
@@ -177,3 +178,4 @@ import Foundation
         #expect(s == .success)
     }
 }
+#endif

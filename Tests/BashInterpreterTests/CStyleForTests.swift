@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct CStyleForTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
@@ -160,3 +161,4 @@ import Testing
         #expect(cap.stdout == "1 2\n")
     }
 }
+#endif

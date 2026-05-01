@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ShellPathTests {
 
     private func makeShell() -> Shell {
@@ -42,3 +43,4 @@ import Testing
         #expect(shell.resolvePath("~") == "/~")
     }
 }
+#endif

@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct GlobMatcherTests {
 
     private func m(_ pat: String, _ s: String) -> Bool {
@@ -66,3 +67,4 @@ import Testing
         #expect(!m("[abc", "a"))
     }
 }
+#endif

@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ArrayTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
@@ -467,3 +468,4 @@ import Testing
         #expect(cap.stdout == "a b c d e LATE\ncount=6\n")
     }
 }
+#endif

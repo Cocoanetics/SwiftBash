@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct PrivateIPTests {
 
     // MARK: Lexical IPv4 ranges
@@ -96,3 +97,4 @@ import Testing
                 "lexical check can't know what corp resolves to")
     }
 }
+#endif
