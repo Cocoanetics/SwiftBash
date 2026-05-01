@@ -124,24 +124,16 @@ import Foundation
     // MARK: link / unlink
 
     // Android's /data/local/tmp rejects link(2) under the emulator's
-    // shell-domain SELinux policy; see lnHardLink for the full
-    // explanation. Record as a known issue so the assertion still
-    // runs but doesn't fail the suite.
+    // shell-domain SELinux policy; see lnHardLink. `withKnownIssue`
+    // ran the body and hung, so skip outright on Android.
+    #if !os(Android)
     @Test func linkCreatesAHardLink() async throws {
         let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
-        try await withKnownIssue("link(2) on /data/local/tmp is SELinux-denied",
-                                 isIntermittent: false) {
-            try await cap.shell.run("echo hi > a; link a b")
-            let data = try await cap.shell.fileSystem.readData(dir + "/b")
-            #expect(String(decoding: data, as: UTF8.self) == "hi\n")
-        } when: {
-            #if os(Android)
-            return true
-            #else
-            return false
-            #endif
-        }
+        try await cap.shell.run("echo hi > a; link a b")
+        let data = try await cap.shell.fileSystem.readData(dir + "/b")
+        #expect(String(decoding: data, as: UTF8.self) == "hi\n")
     }
+    #endif
 
     @Test func unlinkRemovesAFile() async throws {
         let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }

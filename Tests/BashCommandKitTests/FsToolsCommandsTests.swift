@@ -71,28 +71,15 @@ import Foundation
         #expect(cap.stdout.hasSuffix("/real\n"))
     }
 
+    // Android emulator: link(2) on `/data/local/tmp` is rejected
+    // by SELinux for the `shell` domain. Skip outright — the
+    // `withKnownIssue { } when:` form ran the body and hung in CI.
+    #if !os(Android)
     @Test func lnHardLink() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "data".write(toFile: dir + "/src", atomically: true, encoding: .utf8)
-        // Android emulator: link(2) on `/data/local/tmp` is rejected
-        // by SELinux for the `shell` domain (denial:
-        // `denied { link } for ... scontext=u:r:shell:s0
-        // tcontext=u:object_r:shell_data_file:s0 tclass=file`). The
-        // syscall itself works in other Bionic-backed environments,
-        // so this is an emulator-policy artefact rather than a
-        // codebase issue. Record as a known issue so the assertion is
-        // still evaluated (and stderr surfaced) without failing CI.
-        try await withKnownIssue("link(2) on /data/local/tmp is SELinux-denied",
-                                 isIntermittent: false) {
-            try await cap.shell.run("ln src dst")
-            #expect(FileManager.default.fileExists(atPath: dir + "/dst"),
-                    "stderr was: \(cap.stderr)")
-        } when: {
-            #if os(Android)
-            return true
-            #else
-            return false
-            #endif
-        }
+        try await cap.shell.run("ln src dst")
+        #expect(FileManager.default.fileExists(atPath: dir + "/dst"))
     }
+    #endif
 }
