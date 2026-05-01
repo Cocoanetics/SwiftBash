@@ -158,7 +158,7 @@ public struct HostInfo: Sendable, Equatable {
         var bufSize: DWORD = 256
         var buf = [WCHAR](repeating: 0, count: Int(bufSize))
         let ok = buf.withUnsafeMutableBufferPointer { bp -> Bool in
-            GetUserNameW(bp.baseAddress, &bufSize) != 0
+            GetUserNameW(bp.baseAddress, &bufSize)
         }
         guard ok, bufSize > 1 else { return nil }
         // bufSize includes the trailing NUL — drop it.
@@ -170,7 +170,7 @@ public struct HostInfo: Sendable, Equatable {
         var bufSize: DWORD = DWORD(MAX_COMPUTERNAME_LENGTH + 1)
         var buf = [WCHAR](repeating: 0, count: Int(bufSize))
         let ok = buf.withUnsafeMutableBufferPointer { bp -> Bool in
-            GetComputerNameW(bp.baseAddress, &bufSize) != 0
+            GetComputerNameW(bp.baseAddress, &bufSize)
         }
         guard ok, bufSize > 0 else { return nil }
         return String(decoding: buf.prefix(Int(bufSize)), as: UTF16.self)

@@ -576,8 +576,8 @@ extension RealFileSystem {
     static func windowsMetadata(_ path: String) -> FileMetadata? {
         // GetFileAttributesExW first — cheap, doesn't open the file.
         var basic = WIN32_FILE_ATTRIBUTE_DATA()
-        let attrOK = path.withCString(encodedAs: UTF16.self) { wp in
-            GetFileAttributesExW(wp, GetFileExInfoStandard, &basic) != 0
+        let attrOK = path.withCString(encodedAs: UTF16.self) { wp -> Bool in
+            GetFileAttributesExW(wp, GetFileExInfoStandard, &basic)
         }
         if !attrOK { return nil }
 
@@ -631,7 +631,7 @@ extension RealFileSystem {
             if handle != INVALID_HANDLE_VALUE {
                 defer { CloseHandle(handle) }
                 var info = BY_HANDLE_FILE_INFORMATION()
-                if GetFileInformationByHandle(handle, &info) != 0 {
+                if GetFileInformationByHandle(handle, &info) {
                     linkCount = Int(info.nNumberOfLinks)
                 }
             }
@@ -704,8 +704,10 @@ public extension RealFileSystem {
         let dirFlag: DWORD = isDir ? 0x1 : 0x0
         let allowUnprivileged: DWORD = 0x2
         let flags = dirFlag | allowUnprivileged
-        let ok = linkPath.withCString(encodedAs: UTF16.self) { lp in
-            target.withCString(encodedAs: UTF16.self) { tp in
+        let ok = linkPath.withCString(encodedAs: UTF16.self) { lp -> Bool in
+            target.withCString(encodedAs: UTF16.self) { tp -> Bool in
+                // CreateSymbolicLinkW returns BOOLEAN (UCHAR), not BOOL —
+                // compare against 0 explicitly.
                 CreateSymbolicLinkW(lp, tp, flags) != 0
             }
         }
@@ -714,12 +716,12 @@ public extension RealFileSystem {
 
     /// Hard link via `CreateHardLinkW`.
     func hardlink(target: String, at linkPath: String) async throws {
-        let ok = linkPath.withCString(encodedAs: UTF16.self) { lp in
-            target.withCString(encodedAs: UTF16.self) { tp in
+        let ok = linkPath.withCString(encodedAs: UTF16.self) { lp -> Bool in
+            target.withCString(encodedAs: UTF16.self) { tp -> Bool in
                 CreateHardLinkW(lp, tp, nil)
             }
         }
-        if ok == 0 { throw winFsError(op: "link", path: linkPath) }
+        if !ok { throw winFsError(op: "link", path: linkPath) }
     }
 }
 

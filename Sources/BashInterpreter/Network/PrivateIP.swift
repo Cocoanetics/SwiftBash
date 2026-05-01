@@ -115,8 +115,15 @@ public enum PrivateIP {
         _ sa: UnsafePointer<sockaddr>, length: Int
     ) -> String? {
         var buf = [Int8](repeating: 0, count: Int(NI_MAXHOST))
+        // Windows' getnameinfo takes DWORD for the buffer-size args
+        // (POSIX uses socklen_t).
+        #if os(Windows)
+        let bufSize = DWORD(buf.count)
+        #else
+        let bufSize = socklen_t(buf.count)
+        #endif
         let rc = getnameinfo(sa, socklen_t(length),
-                             &buf, socklen_t(buf.count),
+                             &buf, bufSize,
                              nil, 0,
                              NI_NUMERICHOST)
         if rc != 0 { return nil }
