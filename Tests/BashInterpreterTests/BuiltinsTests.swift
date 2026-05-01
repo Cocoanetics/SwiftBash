@@ -28,7 +28,10 @@ import Testing
 
     // MARK: cd
 
-    #if !os(Windows)
+    #if !os(Windows) && !os(Android)
+    // Android lays out tmp as /data/local/tmp and has no /tmp; the
+    // assertion is about cd's bookkeeping, not the path itself, so
+    // skip rather than parameterise the path.
     @Test func cdToTmpUpdatesEnv() async throws {
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
@@ -46,7 +49,7 @@ import Testing
         #expect(cap.stderr.contains("cd"), "\(cap.stderr)")
     }
 
-    #if !os(Windows)
+    #if !os(Windows) && !os(Android)
     @Test func cdWithNoArgGoesToHome() async throws {
         let cap = CapturingShell()
         cap.shell.environment["HOME"] = "/tmp"

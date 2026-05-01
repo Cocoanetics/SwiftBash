@@ -127,7 +127,7 @@ import Foundation
         #expect(cap.stderr.contains("invalid option"))
     }
 
-    #if !os(Windows)
+    #if !os(Windows) && !os(Android)
     @Test func cdDashAfterFlagsStillWorks() async throws {
         // `cd -L -` should switch to OLDPWD (the `-` is a path arg,
         // not a flag, since it follows `--`-style intent of "stop
@@ -140,7 +140,7 @@ import Foundation
     }
     #endif
 
-    #if !os(Windows)
+    #if !os(Windows) && !os(Android)
     @Test func cdMinusPrintsDestination() async throws {
         // bash prints the destination when you `cd -`, matching the
         // spec but not when you `cd <path>`.

@@ -43,9 +43,10 @@ import Foundation
         #expect(meta == nil)
     }
 
-    #if !os(Windows)
+    #if !os(Windows) && !os(Android)
     @Test func metadataFollowsSymlink() async throws {
         // /tmp is a symlink to /private/tmp on macOS — follows to a dir.
+        // Android has no /tmp at all (only /data/local/tmp).
         let fs = RealFileSystem()
         let meta = try await fs.metadata("/tmp")
         #expect(meta?.kind == .directory)
@@ -269,8 +270,10 @@ import Foundation
 
     // MARK: canonicalize
 
-    #if !os(Windows)
+    #if !os(Windows) && !os(Android)
     @Test func canonicalizeResolvesDotDot() async throws {
+        // Android has no /usr — the assertion is about `..` collapsing,
+        // not the path itself, so skip rather than parameterise.
         let fs = RealFileSystem()
         let resolved = try await fs.canonicalize("/usr/bin/..", allowMissing: false)
         #expect(resolved == "/usr")

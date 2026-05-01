@@ -71,6 +71,10 @@ import Foundation
         #expect(cap.stdout.hasSuffix("/real\n"))
     }
 
+    #if !os(Android)
+    // /data/local/tmp on the Android emulator's data partition rejects
+    // link(2), so the assertion is unreachable there. Behaviour itself
+    // is exercised by RealFileSystemTests.
     @Test func lnHardLink() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "data".write(toFile: dir + "/src", atomically: true, encoding: .utf8)
@@ -78,4 +82,5 @@ import Foundation
         // Both should exist as regular files
         #expect(FileManager.default.fileExists(atPath: dir + "/dst"))
     }
+    #endif
 }

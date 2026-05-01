@@ -123,12 +123,15 @@ import Foundation
 
     // MARK: link / unlink
 
+    #if !os(Android)
+    // Android's /data/local/tmp rejects link(2); see lnHardLink.
     @Test func linkCreatesAHardLink() async throws {
         let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo hi > a; link a b")
         let data = try await cap.shell.fileSystem.readData(dir + "/b")
         #expect(String(decoding: data, as: UTF8.self) == "hi\n")
     }
+    #endif
 
     @Test func unlinkRemovesAFile() async throws {
         let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
