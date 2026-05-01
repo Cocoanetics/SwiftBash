@@ -83,7 +83,12 @@ import Foundation
         let result = try await shell.runCapturing("echo $$")
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 == "1")
-        #expect(result.stdout != "\(getpid())\n")
+        #if os(Windows)
+        let realPID = _getpid()
+        #else
+        let realPID = getpid()
+        #endif
+        #expect(result.stdout != "\(realPID)\n")
     }
 
     @Test func unsetEnvVarDoesNotLeak() async throws {
