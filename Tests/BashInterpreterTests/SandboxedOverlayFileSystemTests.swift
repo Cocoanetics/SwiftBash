@@ -370,6 +370,7 @@ import Foundation
 
     // MARK: Misc
 
+    #if !os(Windows)
     @Test func chmodPromotesHostFile() async throws {
         let root = Self.makeTempDir(); defer { cleanup(root) }
         try "x".write(toFile: root + "/p.txt",
@@ -377,13 +378,17 @@ import Foundation
         let fs = try makeFs(root: root)
         try await fs.chmod("/batch/p.txt", mode: 0o600)
         #expect(try await fs.metadata("/batch/p.txt")?.mode == 0o600)
-        // And host file's permissions are NOT changed.
+        // And host file's permissions are NOT changed. (Windows
+        // doesn't have POSIX permission bits; Foundation reports a
+        // synthetic constant for every file there, so this overlay-
+        // isolation check is meaningless on that platform.)
         let attrs = try FileManager.default.attributesOfItem(
             atPath: root + "/p.txt")
         let hostMode = (attrs[.posixPermissions] as? NSNumber)?.uint16Value
         #expect(hostMode != 0o600,
                 "host file permissions were modified — overlay isolation broken")
     }
+    #endif
 
     @Test func canonicalizeNormalizesAndConfines() async throws {
         let root = Self.makeTempDir(); defer { cleanup(root) }
