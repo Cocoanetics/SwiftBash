@@ -8,7 +8,6 @@ import Testing
 ///
 /// Each test uses a custom `args` command that records its argv so we
 /// can assert on the exact list of arguments passed in.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ArgvSplittingTests {
 
     /// `args A B C` prints `[1]A\n[2]B\n[3]C\n` so a test can assert
@@ -214,4 +213,3 @@ import Testing
         #expect(cap.stdout == "[one]\n[two]\n[three]\n")
     }
 }
-#endif

@@ -6,7 +6,6 @@ import Foundation
 /// Demonstrates the "long-running producer feeds a streaming consumer"
 /// pattern you'd want for live-tailing something in an app. Uses
 /// sub-second sleeps so the tests stay fast.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SleepLoopPipelineTests {
 
     /// The literal pattern you'd write for "every 5 s, print the date,
@@ -147,4 +146,3 @@ private final class LineArrivalRecorder: @unchecked Sendable {
         return arrivalTimes.map { $0.timeIntervalSince(origin) }
     }
 }
-#endif

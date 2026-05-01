@@ -3,7 +3,6 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct TarCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
@@ -65,4 +64,3 @@ import Foundation
         #expect(cap.stderr.contains("file"))
     }
 }
-#endif
