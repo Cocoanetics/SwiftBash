@@ -68,7 +68,15 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
-            path: "Sources/BashCommandKit"
+            path: "Sources/BashCommandKit",
+            linkerSettings: [
+                // zlib's library file is named differently per platform —
+                // `libz.{dylib,so}` on Apple/Linux, `zlib.lib` on Windows.
+                .linkedLibrary("z",
+                               .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .linux])),
+                .linkedLibrary("zlib",
+                               .when(platforms: [.windows])),
+            ]
         ),
         .executableTarget(
             name: "swift-bash",

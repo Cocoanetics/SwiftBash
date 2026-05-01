@@ -1,15 +1,16 @@
 // Tiny systemLibrary module that exposes the host's zlib to Swift.
 //
 // macOS / iOS / tvOS / watchOS — the SDK already ships <zlib.h>
-// and `libz.dylib` (used internally by Compression framework, AFC,
-// the codesign tooling, and many other system libraries). The
-// `link "z"` directive picks up the right path automatically.
+// and `libz.dylib`.
+// Linux — `zlib1g` runtime is installed by default on Ubuntu;
+// `zlib1g-dev` (headers) needs to be added to the CI image.
+// Windows — install via `vcpkg install zlib` and set INCLUDE / LIB
+// so clang and the linker can find `zlib.h` and `zlib.lib`.
 //
-// Linux — `zlib1g` (runtime) is installed by default on Ubuntu;
-// `zlib1g-dev` (headers) needs to be added to the CI image and
-// any developer's environment that wants to build the package.
+// The library to link is named differently on each platform
+// (`-lz` vs `zlib.lib`), so the link directive lives in
+// Package.swift's `linkerSettings` instead of in this modulemap.
 module CZlib [system] {
     header "shim.h"
-    link "z"
     export *
 }

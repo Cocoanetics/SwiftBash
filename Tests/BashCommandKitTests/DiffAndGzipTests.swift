@@ -144,16 +144,13 @@ import Foundation
 
     // MARK: gzip / gunzip
 
-    #if !os(Windows)
     @Test func gzipRoundTripStdin() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run(
             "printf 'hello world' | gzip -c | gunzip -c")
         #expect(cap.stdout == "hello world")
     }
-    #endif
 
-    #if !os(Windows)
     @Test func gzipMagicHeader() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("printf 'x' | gzip -c | xxd")
@@ -163,9 +160,7 @@ import Foundation
             .components(separatedBy: "\n").first ?? ""
         #expect(firstLine.contains("1f8b 0800"))
     }
-    #endif
 
-    #if !os(Windows)
     @Test func gzipRepeatingDataIsSmaller() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         // 200 zeroes; deflate compresses runs aggressively. Compressed
@@ -179,9 +174,7 @@ import Foundation
         #expect(n > 0)
         #expect(n < 50)
     }
-    #endif
 
-    #if !os(Windows)
     @Test func gzipReplacesFileByDefault() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         write("hello\n", to: "in.txt", in: dir)
@@ -195,7 +188,6 @@ import Foundation
         try await cap.shell.run("gunzip -c in.txt.gz")
         #expect(cap.stdout.hasSuffix("hello\n"))
     }
-    #endif
 
     @Test func gunzipReplacesFileByDefault() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
@@ -218,7 +210,6 @@ import Foundation
 
     // MARK: round-trip via Foundation gzip
 
-    #if !os(Windows)
     @Test func gzipOutputDecompressesWithSystemGunzip() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         // Compress with our gzip, then dump bytes via xxd to confirm
@@ -229,5 +220,4 @@ import Foundation
         try await cap.shell.run("gzip -c p | gunzip -c")
         #expect(cap.stdout == payload)
     }
-    #endif
 }

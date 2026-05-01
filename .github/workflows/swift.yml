@@ -75,6 +75,16 @@ jobs:
           swift-version: "6.3.1"
       - name: Verify Swift version
         run: swift --version
+      - name: Install zlib (vcpkg)
+        # vcpkg is preinstalled on windows-latest at C:\vcpkg.
+        # x64-windows-static-md gives us a `zlib.lib` linked against
+        # the dynamic UCRT, which matches Swift's default link mode.
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib --triplet x64-windows-static-md
+          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          "INCLUDE=$base\include;$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIB=$base\lib;$env:LIB"             | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build (Windows)
         run: swift build --build-tests -v
         continue-on-error: true
