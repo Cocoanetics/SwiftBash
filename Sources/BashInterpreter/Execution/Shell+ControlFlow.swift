@@ -101,14 +101,20 @@ extension Shell {
                 }
             }
             iterations += 1
+            // Periodic cooperative yield. Without it, a tight body
+            // (e.g. `i=$((i+1))` with no awaits) keeps the executor
+            // pinned and other tasks — including the one that issued
+            // `kill PID` — never get a chance to run on a single-CPU
+            // host like the Android emulator. Yielding every ~1k
+            // iterations is cheap (one context switch) and ensures
+            // cancellation actually lands.
+            if iterations.isMultiple(of: 1024) {
+                await Task.yield()
+            }
             if iterations > maxIterations {
                 // Runaway-loop guard. If the task is *also* cancelled,
                 // surface that as cancellation (143) rather than as a
-                // generic interpreter error (1) — otherwise a fast host
-                // (e.g. the Android x86_64 emulator) racing the kill
-                // signal against tight `while true` body can hit the
-                // cap before `Task.checkCancellation()` at the top of
-                // the next iteration sees the cancel.
+                // generic interpreter error (1).
                 if Task.isCancelled {
                     throw CancellationError()
                 }
