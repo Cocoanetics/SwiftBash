@@ -1,7 +1,6 @@
 import Testing
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct LoopControlTests {
 
     // MARK: break
@@ -119,4 +118,3 @@ import Testing
         #expect(status == .success)
     }
 }
-#endif

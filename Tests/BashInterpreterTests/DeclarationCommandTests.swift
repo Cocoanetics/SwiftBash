@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct DeclarationCommandTests {
 
     // MARK: declare -a / typeset -a — indexed array literal
@@ -172,4 +171,3 @@ import Foundation
         #expect(cap.stdout == "x=1\nX is still before\n")
     }
 }
-#endif

@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct EchoCommandTests {
 
     private func makeShell() -> (Shell, OutputSink) {
@@ -88,4 +87,3 @@ private final class StringBox: @unchecked Sendable {
     func append(_ s: String) { lock.lock(); defer { lock.unlock() }; value += s }
     func read() -> String { lock.lock(); defer { lock.unlock() }; return value }
 }
-#endif

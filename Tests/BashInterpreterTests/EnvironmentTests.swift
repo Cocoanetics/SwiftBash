@@ -1,7 +1,6 @@
 import Testing
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct EnvironmentTests {
 
     @Test func initWithDictionary() {
@@ -35,4 +34,3 @@ import Testing
         #expect(cap.stdout == "oliver /usr/bin:/bin\n")
     }
 }
-#endif

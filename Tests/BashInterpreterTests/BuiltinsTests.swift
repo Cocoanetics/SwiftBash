@@ -11,7 +11,6 @@ fileprivate let unixTmpDir = "/data/local/tmp"
 fileprivate let unixTmpDir = "/tmp"
 #endif
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct BuiltinsTests {
 
     // MARK: true / false / :
@@ -142,4 +141,3 @@ fileprivate let unixTmpDir = "/tmp"
         #expect(cap.stdout == "")
     }
 }
-#endif

@@ -1,7 +1,6 @@
 import Testing
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ListExecutionTests {
 
     @Test func semicolonRunsBoth() async throws {
@@ -46,4 +45,3 @@ import Testing
         #expect(status == .failure)
     }
 }
-#endif

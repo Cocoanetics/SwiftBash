@@ -11,7 +11,6 @@ fileprivate let unixTmpDir = "/data/local/tmp"
 fileprivate let unixTmpDir = "/tmp"
 #endif
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct CwdFlagTests {
 
     // MARK: pwd -L / -P
@@ -200,4 +199,3 @@ fileprivate let unixTmpDir = "/tmp"
         #expect(cap.stdout.contains("tilde: /batch"))
     }
 }
-#endif

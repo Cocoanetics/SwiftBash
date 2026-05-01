@@ -7,7 +7,6 @@ import Foundation
 /// `/dev/null`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr`. Tested
 /// against `InMemoryFileSystem` so any pass means we're not relying on
 /// the host kernel having actual `/dev` entries.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct DevPathTests {
 
     private func makeShell() -> CapturingShell {
@@ -134,4 +133,3 @@ import Foundation
         #expect(cap.stdout == "done\n")
     }
 }
-#endif

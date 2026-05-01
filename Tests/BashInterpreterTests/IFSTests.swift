@@ -2,7 +2,6 @@ import Testing
 @testable import BashInterpreter
 
 /// Pin the `$IFS`-driven word-splitting rules.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct IFSTests {
 
     private func makeShell() -> CapturingShell {
@@ -172,4 +171,3 @@ import Testing
         #expect(cap.stdout == "[1]a\n[2]b\n[3]c\ncount=3\n")
     }
 }
-#endif

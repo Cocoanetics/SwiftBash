@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct BashCommandTests {
 
     // MARK: --version / --help
@@ -186,4 +185,3 @@ import Foundation
         }
     }
 }
-#endif

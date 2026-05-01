@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct InMemoryFileSystemTests {
 
     // MARK: Seed + read
@@ -345,4 +344,3 @@ import Foundation
         #expect(InMemoryFileSystem.normalizePath("/a/./b/../c") == "/a/c")
     }
 }
-#endif

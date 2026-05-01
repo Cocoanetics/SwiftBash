@@ -1,7 +1,6 @@
 import Testing
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct GroupSubshellTests {
 
     @Test func groupRunsAllCommands() async throws {
@@ -81,4 +80,3 @@ import Testing
         #expect(cap.stdout == "inside\n")
     }
 }
-#endif

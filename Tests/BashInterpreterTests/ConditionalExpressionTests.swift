@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ConditionalExpressionTests {
 
     private func makeShell() -> CapturingShell {
@@ -193,4 +192,3 @@ import Foundation
         #expect(cap.stdout == "0\n1\n2\n")
     }
 }
-#endif
