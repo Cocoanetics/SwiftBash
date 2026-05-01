@@ -2,6 +2,15 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+/// Userland tmp directory that's known to exist on the running host
+/// (Linux/macOS: `/tmp`, Android: `/data/local/tmp`). Used by `cd`
+/// flag tests where the real assertion is the flag-parsing behaviour.
+#if os(Android)
+fileprivate let unixTmpDir = "/data/local/tmp"
+#else
+fileprivate let unixTmpDir = "/tmp"
+#endif
+
 @Suite struct CwdFlagTests {
 
     // MARK: pwd -L / -P
@@ -127,28 +136,28 @@ import Foundation
         #expect(cap.stderr.contains("invalid option"))
     }
 
-    #if !os(Windows) && !os(Android)
+    #if !os(Windows)
     @Test func cdDashAfterFlagsStillWorks() async throws {
         // `cd -L -` should switch to OLDPWD (the `-` is a path arg,
         // not a flag, since it follows `--`-style intent of "stop
         // flag parsing").
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
-        cap.shell.environment["OLDPWD"] = "/tmp"
+        cap.shell.environment["OLDPWD"] = unixTmpDir
         try await cap.shell.run("cd -L -")
-        #expect(cap.shell.environment.workingDirectory == "/tmp")
+        #expect(cap.shell.environment.workingDirectory == unixTmpDir)
     }
     #endif
 
-    #if !os(Windows) && !os(Android)
+    #if !os(Windows)
     @Test func cdMinusPrintsDestination() async throws {
         // bash prints the destination when you `cd -`, matching the
         // spec but not when you `cd <path>`.
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
-        cap.shell.environment["OLDPWD"] = "/tmp"
+        cap.shell.environment["OLDPWD"] = unixTmpDir
         try await cap.shell.run("cd -")
-        #expect(cap.stdout == "/tmp\n")
+        #expect(cap.stdout == "\(unixTmpDir)\n")
     }
     #endif
 

@@ -102,6 +102,16 @@ extension Shell {
             }
             iterations += 1
             if iterations > maxIterations {
+                // Runaway-loop guard. If the task is *also* cancelled,
+                // surface that as cancellation (143) rather than as a
+                // generic interpreter error (1) — otherwise a fast host
+                // (e.g. the Android x86_64 emulator) racing the kill
+                // signal against tight `while true` body can hit the
+                // cap before `Task.checkCancellation()` at the top of
+                // the next iteration sees the cancel.
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
                 throw BashInterpreterError.io(
                     "loop exceeded \(maxIterations) iterations; aborting")
             }

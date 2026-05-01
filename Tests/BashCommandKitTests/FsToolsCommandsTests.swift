@@ -71,16 +71,28 @@ import Foundation
         #expect(cap.stdout.hasSuffix("/real\n"))
     }
 
-    #if !os(Android)
-    // /data/local/tmp on the Android emulator's data partition rejects
-    // link(2), so the assertion is unreachable there. Behaviour itself
-    // is exercised by RealFileSystemTests.
     @Test func lnHardLink() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "data".write(toFile: dir + "/src", atomically: true, encoding: .utf8)
-        try await cap.shell.run("ln src dst")
-        // Both should exist as regular files
-        #expect(FileManager.default.fileExists(atPath: dir + "/dst"))
+        // Android emulator: link(2) on `/data/local/tmp` is rejected
+        // by SELinux for the `shell` domain (denial:
+        // `denied { link } for ... scontext=u:r:shell:s0
+        // tcontext=u:object_r:shell_data_file:s0 tclass=file`). The
+        // syscall itself works in other Bionic-backed environments,
+        // so this is an emulator-policy artefact rather than a
+        // codebase issue. Record as a known issue so the assertion is
+        // still evaluated (and stderr surfaced) without failing CI.
+        try await withKnownIssue("link(2) on /data/local/tmp is SELinux-denied",
+                                 isIntermittent: false) {
+            try await cap.shell.run("ln src dst")
+            #expect(FileManager.default.fileExists(atPath: dir + "/dst"),
+                    "stderr was: \(cap.stderr)")
+        } when: {
+            #if os(Android)
+            return true
+            #else
+            return false
+            #endif
+        }
     }
-    #endif
 }
