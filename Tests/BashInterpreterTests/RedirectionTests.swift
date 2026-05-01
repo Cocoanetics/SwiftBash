@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct RedirectionTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -309,4 +308,3 @@ import Foundation
     }
     #endif
 }
-#endif

@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ProcessTableTests {
 
     // MARK: spawn / wait
@@ -125,4 +124,3 @@ import Foundation
         #expect(last == 51)
     }
 }
-#endif
