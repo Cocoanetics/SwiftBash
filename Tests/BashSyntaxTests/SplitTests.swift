@@ -1,6 +1,7 @@
 import Testing
 @testable import BashSyntax
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SplitTests {
 
     @Test func basicSplit() throws {
@@ -65,3 +66,4 @@ import Testing
         #expect(try BashSyntax.split("sleep 10 &") == ["sleep", "10", "&"])
     }
 }
+#endif

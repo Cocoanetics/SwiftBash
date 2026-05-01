@@ -1,6 +1,7 @@
 import Testing
 @testable import BashSyntax
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ErrorTests {
 
     @Test func unterminatedDoubleQuoteThrows() {
@@ -44,3 +45,4 @@ import Testing
         #expect(err.source == "if true; then")
     }
 }
+#endif

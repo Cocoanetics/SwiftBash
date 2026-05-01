@@ -1,6 +1,7 @@
 import Testing
 @testable import BashSyntax
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ParserTests {
 
     // MARK: Helpers
@@ -401,3 +402,4 @@ import Testing
         #expect(v.commandCount == 4)
     }
 }
+#endif

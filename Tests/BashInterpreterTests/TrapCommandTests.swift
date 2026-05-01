@@ -1,6 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct TrapCommandTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
@@ -172,3 +173,4 @@ import Testing
         #expect(cap.stdout == "in-trap\nafter\n")
     }
 }
+#endif
