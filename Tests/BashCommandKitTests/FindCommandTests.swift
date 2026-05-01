@@ -8,7 +8,6 @@ import Foundation
 ///
 /// Output ordering is deterministic — `FindCommand` sorts directory
 /// entries before recursing — so we can assert on exact strings.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct FindCommandTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -404,4 +403,3 @@ import Foundation
         #expect(cap.stderr.contains("-exec"))
     }
 }
-#endif
