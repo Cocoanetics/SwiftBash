@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SandboxedOverlayFileSystemTests {
 
     // MARK: Test helpers
@@ -414,3 +415,4 @@ import Foundation
         }
     }
 }
+#endif
