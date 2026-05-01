@@ -56,6 +56,10 @@ import Foundation
 
     // MARK: HostInfo.real() opt-in
 
+    // ProcessInfo.userName is unavailable on iOS / tvOS / watchOS;
+    // HostInfo.real() falls back to a getpwuid lookup there. Gate the
+    // two tests that compare against ProcessInfo directly.
+    #if os(macOS) || os(Linux) || os(Android) || os(Windows)
     @Test func realHostInfoMatchesProcessInfo() async throws {
         let real = HostInfo.real()
         // Sanity: `.real()` does query the host.
@@ -72,4 +76,5 @@ import Foundation
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 == ProcessInfo.processInfo.userName)
     }
+    #endif
 }
