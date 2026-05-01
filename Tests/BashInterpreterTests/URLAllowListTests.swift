@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct URLAllowListTests {
 
     // MARK: Origin matching
@@ -172,4 +171,3 @@ import Foundation
             url: "https://api.example.com/x", entry: entry))
     }
 }
-#endif

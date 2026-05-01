@@ -4,7 +4,6 @@ import Testing
 /// Tests for the sequential-buffered pipeline executor. These exercise
 /// just the stock built-ins (no BashCommandKit dependency) — one
 /// closure-based command acts as a tee to prove stdin flows through.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct PipelineTests {
 
     /// Register a tiny test helper: `upper` reads stdin, upper-cases it,
@@ -126,4 +125,3 @@ import Testing
         #expect(cap.stderr == "err\n")
     }
 }
-#endif

@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct VirtualBinFileSystemTests {
 
     // MARK: list /bin and /usr/bin
@@ -149,4 +148,3 @@ import Foundation
         #expect(outer.backing is InMemoryFileSystem)
     }
 }
-#endif

@@ -3,7 +3,6 @@ import Testing
 
 /// End-to-end coverage that `$1`, `$2`, … work inside `$((…))` and
 /// `((…))` — both as the shell expands them via `positionalParameters`.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct PositionalParamsInArithmeticTests {
 
     private func makeShell() -> CapturingShell {
@@ -80,4 +79,3 @@ import Testing
         #expect(cap.stdout == "10\n")
     }
 }
-#endif

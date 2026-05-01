@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SecureFetcherTests {
 
     // MARK: Mock fetcher
@@ -326,4 +325,3 @@ import Foundation
         }
     }
 }
-#endif

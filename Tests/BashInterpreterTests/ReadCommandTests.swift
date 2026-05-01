@@ -1,7 +1,6 @@
 import Testing
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ReadCommandTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
@@ -164,4 +163,3 @@ import Testing
         #expect(cap.stderr == "what? ")
     }
 }
-#endif

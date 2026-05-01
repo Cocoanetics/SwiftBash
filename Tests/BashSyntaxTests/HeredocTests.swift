@@ -1,7 +1,6 @@
 import Testing
 @testable import BashSyntax
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct HeredocTests {
 
     @Test func heredocRedirectParses() throws {
@@ -43,4 +42,3 @@ import Testing
         #expect(parts.last?.kindName == "command")
     }
 }
-#endif

@@ -4,7 +4,6 @@ import Testing
 /// Tests for the `${…}` parameter-expansion operators — drives the
 /// feature through `Shell.run` so both the parser, expansion, and
 /// builtin-invocation paths are exercised together.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ParameterExpansionOpsTests {
 
     // MARK: Plain and length
@@ -278,4 +277,3 @@ import Testing
         #expect(cap.shell.environment["NAME"] == "note.txt")
     }
 }
-#endif

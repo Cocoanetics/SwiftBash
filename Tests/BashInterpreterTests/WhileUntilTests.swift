@@ -1,7 +1,6 @@
 import Testing
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct WhileUntilTests {
 
     // MARK: while
@@ -59,4 +58,3 @@ import Testing
         #expect(cap.shell.environment["sum"] == "6") // 0+1+2+3
     }
 }
-#endif
