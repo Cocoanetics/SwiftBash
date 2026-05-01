@@ -3,7 +3,6 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct WhoamiAndHostnameTests {
 
     // MARK: whoami — synthetic by default
@@ -74,4 +73,3 @@ import Foundation
                 == ProcessInfo.processInfo.userName)
     }
 }
-#endif

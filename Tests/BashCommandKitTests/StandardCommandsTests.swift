@@ -2,7 +2,6 @@ import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct StandardCommandsTests {
 
     @Test func registerAllInOneCall() {
@@ -34,4 +33,3 @@ import Testing
         #expect(cap.stdout == "name=report\ndir=/tmp/data\nsum=1,2,3,4,5\n")
     }
 }
-#endif
