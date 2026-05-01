@@ -66,25 +66,7 @@ public struct RealFileSystem: FileSystem {
         }
         return FileMetadata.fromStat(st, symlinkTarget: symlinkTarget)
         #else
-        guard let attrs = try? fm.attributesOfItem(atPath: path) else {
-            return nil
-        }
-        let kind: FileMetadata.Kind
-        switch attrs[.type] as? FileAttributeType {
-        case .typeDirectory?: kind = .directory
-        case .typeRegular?:   kind = .file
-        case .typeSymbolicLink?: kind = .symlink
-        default:              kind = .other
-        }
-        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-        let mtime = (attrs[.modificationDate] as? Date) ?? Date(timeIntervalSince1970: 0)
-        return FileMetadata(kind: kind,
-                            size: size,
-                            modifiedAt: mtime,
-                            mode: 0o644,
-                            uid: 0,
-                            gid: 0,
-                            linkCount: 1)
+        return Self.windowsMetadata(path)
         #endif
     }
 
@@ -585,6 +567,103 @@ private func fsError(op: String, path: String) -> FileSystemError {
 #endif
 
 #if os(Windows)
+
+extension RealFileSystem {
+
+    /// Win32-backed metadata. Reports symlink target by reading the
+    /// reparse point, atime/ctime via `BY_HANDLE_FILE_INFORMATION`, and
+    /// approximates POSIX mode bits from `FILE_ATTRIBUTE_READONLY`.
+    static func windowsMetadata(_ path: String) -> FileMetadata? {
+        // GetFileAttributesExW first — cheap, doesn't open the file.
+        var basic = WIN32_FILE_ATTRIBUTE_DATA()
+        let attrOK = path.withCString(encodedAs: UTF16.self) { wp in
+            GetFileAttributesExW(wp, GetFileExInfoStandard, &basic) != 0
+        }
+        if !attrOK { return nil }
+
+        let attrs = basic.dwFileAttributes
+        let isDir = (attrs & DWORD(FILE_ATTRIBUTE_DIRECTORY)) != 0
+        let isSym = (attrs & DWORD(FILE_ATTRIBUTE_REPARSE_POINT)) != 0
+        let isReadOnly = (attrs & DWORD(FILE_ATTRIBUTE_READONLY)) != 0
+
+        let kind: FileMetadata.Kind
+        if isSym {
+            kind = .symlink
+        } else if isDir {
+            kind = .directory
+        } else {
+            kind = .file
+        }
+
+        // Approximate POSIX mode: 0o755 for dirs, 0o644 for writable
+        // files, 0o444 for read-only files. Add 0o111 for executable
+        // would require parsing PE headers — skip.
+        let mode: UInt16
+        if isDir {
+            mode = isReadOnly ? 0o555 : 0o755
+        } else {
+            mode = isReadOnly ? 0o444 : 0o644
+        }
+
+        let size = Int64(basic.nFileSizeHigh) << 32 | Int64(basic.nFileSizeLow)
+        let mtime = filetimeToDate(basic.ftLastWriteTime)
+        let ctime = filetimeToDate(basic.ftCreationTime)
+        let atime = filetimeToDate(basic.ftLastAccessTime)
+
+        // Open the file for link-count + symlink target. Skip for dirs
+        // (CreateFileW needs FILE_FLAG_BACKUP_SEMANTICS for them and
+        // the link count is meaningless).
+        var linkCount = 1
+        var symlinkTarget: String? = nil
+        if !isDir {
+            let openFlags: DWORD = isSym
+                ? DWORD(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+                : 0
+            let handle = path.withCString(encodedAs: UTF16.self) { wp in
+                CreateFileW(wp,
+                            0, // no read/write — query only
+                            DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE),
+                            nil,
+                            DWORD(OPEN_EXISTING),
+                            openFlags,
+                            nil)
+            }
+            if handle != INVALID_HANDLE_VALUE {
+                defer { CloseHandle(handle) }
+                var info = BY_HANDLE_FILE_INFORMATION()
+                if GetFileInformationByHandle(handle, &info) != 0 {
+                    linkCount = Int(info.nNumberOfLinks)
+                }
+            }
+        }
+        if isSym {
+            // Foundation knows how to read NTFS reparse points.
+            symlinkTarget = try? FileManager.default
+                .destinationOfSymbolicLink(atPath: path)
+        }
+
+        return FileMetadata(kind: kind,
+                            size: size,
+                            modifiedAt: mtime,
+                            symlinkTarget: symlinkTarget,
+                            mode: mode,
+                            uid: 0,
+                            gid: 0,
+                            linkCount: linkCount,
+                            accessedAt: atime,
+                            createdAt: ctime)
+    }
+
+    /// Convert a Windows `FILETIME` (100-ns ticks since 1601-01-01) to
+    /// a Foundation `Date`.
+    private static func filetimeToDate(_ ft: FILETIME) -> Date {
+        let raw = (UInt64(ft.dwHighDateTime) << 32) | UInt64(ft.dwLowDateTime)
+        // Seconds between 1601-01-01 and 1970-01-01 (Unix epoch).
+        let epochDeltaSeconds: Double = 11_644_473_600
+        let unixSeconds = Double(raw) / 10_000_000.0 - epochDeltaSeconds
+        return Date(timeIntervalSince1970: unixSeconds)
+    }
+}
 
 public extension RealFileSystem {
 

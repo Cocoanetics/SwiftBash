@@ -4,6 +4,8 @@ import Foundation
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 
 /// Snapshot of "who is this host?" — values that `whoami`,
@@ -131,8 +133,9 @@ public struct HostInfo: Sendable, Equatable {
             machine: machine,
             nodeName: node)
         #else
-        let host = info.hostName
-        let user = info.userName.isEmpty ? "user" : info.userName
+        let user = winUserName() ?? (info.userName.isEmpty ? "user" : info.userName)
+        let host = winComputerName() ?? info.hostName
+        let (release, machine) = winKernelInfo()
         return HostInfo(
             userName: user,
             fullUserName: user,
@@ -141,13 +144,58 @@ public struct HostInfo: Sendable, Equatable {
             gid: 1000,
             groups: [1000],
             groupName: "users",
-            kernelName: "Windows",
-            kernelRelease: "",
-            kernelVersion: "",
-            machine: "x86_64",
+            kernelName: "Windows_NT",
+            kernelRelease: release,
+            kernelVersion: release,
+            machine: machine,
             nodeName: host)
         #endif
     }
+
+    #if os(Windows)
+    /// Real Windows account name via `GetUserNameW`.
+    private static func winUserName() -> String? {
+        var bufSize: DWORD = 256
+        var buf = [WCHAR](repeating: 0, count: Int(bufSize))
+        let ok = buf.withUnsafeMutableBufferPointer { bp -> Bool in
+            GetUserNameW(bp.baseAddress, &bufSize) != 0
+        }
+        guard ok, bufSize > 1 else { return nil }
+        // bufSize includes the trailing NUL — drop it.
+        return String(decoding: buf.prefix(Int(bufSize) - 1), as: UTF16.self)
+    }
+
+    /// Real Windows machine name via `GetComputerNameW`.
+    private static func winComputerName() -> String? {
+        var bufSize: DWORD = DWORD(MAX_COMPUTERNAME_LENGTH + 1)
+        var buf = [WCHAR](repeating: 0, count: Int(bufSize))
+        let ok = buf.withUnsafeMutableBufferPointer { bp -> Bool in
+            GetComputerNameW(bp.baseAddress, &bufSize) != 0
+        }
+        guard ok, bufSize > 0 else { return nil }
+        return String(decoding: buf.prefix(Int(bufSize)), as: UTF16.self)
+    }
+
+    /// Kernel release and machine architecture. Release uses the
+    /// Foundation `OperatingSystemVersion` (cheaper than calling
+    /// `RtlGetVersion` and lying-via-AppCompat-shim safe).
+    private static func winKernelInfo() -> (release: String, machine: String) {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let release = "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+
+        var sysInfo = SYSTEM_INFO()
+        GetNativeSystemInfo(&sysInfo)
+        let machine: String
+        switch Int32(sysInfo.wProcessorArchitecture) {
+        case 9 /* PROCESSOR_ARCHITECTURE_AMD64 */:  machine = "x86_64"
+        case 12 /* PROCESSOR_ARCHITECTURE_ARM64 */: machine = "arm64"
+        case 5 /* PROCESSOR_ARCHITECTURE_ARM */:    machine = "arm"
+        case 0 /* PROCESSOR_ARCHITECTURE_INTEL */:  machine = "x86"
+        default: machine = "unknown"
+        }
+        return (release, machine)
+    }
+    #endif
 
     #if !os(Windows)
     private static func realGroupName(for gid: UInt32) -> String? {
