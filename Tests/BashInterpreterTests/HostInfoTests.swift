@@ -2,6 +2,18 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+
 @Suite struct HostInfoTests {
 
     // MARK: synthetic defaults
