@@ -3,7 +3,6 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SortAndUniqTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -104,4 +103,3 @@ import Foundation
         #expect(cap.stdout == "   2 a\n   2 b\n   1 c\n")
     }
 }
-#endif

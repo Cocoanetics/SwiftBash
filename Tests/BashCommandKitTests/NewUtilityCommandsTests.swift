@@ -3,7 +3,6 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct NewUtilityCommandsTests {
 
     private func makeShell() -> CapturingShell {
@@ -185,4 +184,3 @@ import Foundation
         }
     }
 }
-#endif

@@ -2,7 +2,6 @@ import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct EnvCommandTests {
 
     private func makeShell() -> CapturingShell {
@@ -35,4 +34,3 @@ import Testing
         #expect(cap.stdout == "FOO=bar\n")
     }
 }
-#endif

@@ -2,7 +2,6 @@ import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct BasenameCommandTests {
 
     private func makeShell() -> CapturingShell {
@@ -66,4 +65,3 @@ import Testing
         #expect(!cap.stderr.isEmpty)
     }
 }
-#endif

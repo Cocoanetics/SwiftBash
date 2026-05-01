@@ -62,7 +62,6 @@ private struct Nameless: ParsableBashCommand {
 
 // MARK: Tests
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ParsableBashCommandTests {
 
     // MARK: Basic wiring
@@ -201,4 +200,3 @@ private struct Nameless: ParsableBashCommand {
         #expect(cap.shell.environment["GREETING"] == "howdy")
     }
 }
-#endif

@@ -4,7 +4,6 @@ import Foundation
 @testable import BashCommandKit
 
 /// End-to-end tests for `&` background execution and `wait`.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct BackgroundJobTests {
 
     private func makeShell() -> CapturingShell {
@@ -160,4 +159,3 @@ import Foundation
                 "stderr leaked Swift Concurrency error: \(cap.stderr)")
     }
 }
-#endif
