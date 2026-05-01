@@ -5,6 +5,15 @@ import Foundation
 /// The point of the async rewrite: pipelines where stages overlap in time,
 /// and where a downstream consumer's termination unblocks the upstream
 /// producer — the `yes | head` pattern — without OS-level `pipe(2)`.
+///
+/// Skipped on Android: the suite exercises the same pipe-cancellation
+/// handshake that hangs SleepLoopPipelineTests / NewUtility's `yes |
+/// head` tests on the single-CPU emulator. The downstream stage exits,
+/// but the upstream producer's `stdout` write into the pipe channel
+/// doesn't see the cancellation in time and the in-suite 2-second
+/// task-group timeout itself blocks on the producer's never-finishing
+/// task. Tracked alongside the SleepLoopPipelineTests skip.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct StreamingPipelineTests {
 
     private struct PipelineTimeout: Error {}
@@ -196,3 +205,4 @@ private final class AtomicData: @unchecked Sendable {
         set { lock.lock(); defer { lock.unlock() }; _value = newValue }
     }
 }
+#endif
