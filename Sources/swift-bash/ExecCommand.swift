@@ -90,11 +90,6 @@ struct ExecCommand: AsyncParsableCommand {
         let fileSystem: FileSystem
         let hostInfo: HostInfo
         if let sandboxRoot = sandbox {
-            #if os(Windows)
-            _ = sandboxRoot
-            throw CLIError("--sandbox is not supported on Windows")
-            #endif
-            #if !os(Windows)
             do {
                 fileSystem = try SandboxedOverlayFileSystem(.init(
                     root: sandboxRoot,
@@ -114,7 +109,6 @@ struct ExecCommand: AsyncParsableCommand {
             env["PWD"] = workspace
             env["TMPDIR"] = "/tmp"
             environment = env
-            #endif
         } else {
             fileSystem = RealFileSystem()
             hostInfo = .real()
