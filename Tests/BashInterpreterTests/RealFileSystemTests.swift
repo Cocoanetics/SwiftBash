@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct RealFileSystemTests {
 
     /// Fresh temp directory per test, automatically cleaned up.
@@ -308,4 +307,3 @@ import Foundation
         #expect(ok == fake)
     }
 }
-#endif
