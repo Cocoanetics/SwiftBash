@@ -113,9 +113,9 @@ jobs:
     runs-on: ubuntu-latest
     # Tight timeout while bisecting which suite hangs on Android — a
     # passing run needs only seconds of test time after cached SDK +
-    # emulator boot, so 5 minutes is plenty when nothing's stuck.
-    # Bump back up once the offending suite is found and fixed.
-    timeout-minutes: 5
+    # emulator boot. 10 min is comfortable for clean runs as more
+    # suites come back online; bump again once bisect concludes.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - name: Build & Test (Android emulator)
