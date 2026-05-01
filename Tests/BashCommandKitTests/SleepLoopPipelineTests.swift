@@ -6,17 +6,6 @@ import Foundation
 /// Demonstrates the "long-running producer feeds a streaming consumer"
 /// pattern you'd want for live-tailing something in an app. Uses
 /// sub-second sleeps so the tests stay fast.
-///
-/// Skipped on Android: the suite exercises the "for-loop with sleep
-/// piped through a streaming consumer" pattern (`headCancelsSleepingProducer`,
-/// `dateLoopPipedToCat`, `untilPollsStatusCommandUntilCompleted`,
-/// `consumerReceivesLinesAsProduced`), which on the Android x86_64
-/// emulator's single-CPU cooperative pool deadlocks — the producer
-/// busy-loops without yielding back to the consumer's read side, so
-/// pipeline cancellation never propagates and `head -n N` can't
-/// terminate the upstream `for` loop. Same root cause as the `yes |
-/// head` skip in NewUtilityCommandsTests.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SleepLoopPipelineTests {
 
     /// The literal pattern you'd write for "every 5 s, print the date,
