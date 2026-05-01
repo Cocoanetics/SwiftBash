@@ -111,7 +111,14 @@ jobs:
   # the second call a no-op. Keep build + test in one step.
   build-android:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60 min instead of 45: the emulator-backed test phase runs the
+    # whole suite in parallel mode (the action's runner script invokes
+    # the test binary twice — once via the XCTest entry point that
+    # doesn't accept `--no-parallel`, then via swift-testing — so we
+    # can't force serial execution via swift-test-flags). On a single
+    # cooperative-pool CPU with many Task.sleep / kill-wait tests, the
+    # 45 min ceiling was tight on a cold cache.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - name: Build & Test (Android emulator)
@@ -121,7 +128,3 @@ jobs:
           # The default GitHub Linux runner has ~14 GiB free; the SDK,
           # NDK, and emulator together push past that without cleanup.
           free-disk-space: true
-          # Match the other platforms: tests share process-global state
-          # (Shell.current, processTable) so they must run serially. The
-          # action's `swift test` invocation defaults to parallel.
-          swift-test-flags: "--no-parallel"
