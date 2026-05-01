@@ -105,26 +105,19 @@ jobs:
   # the emulator setup needs nested KVM, which only works on the bare
   # ubuntu-* runner image.
   #
-  # Split into two action invocations to surface build vs. test timing
-  # separately in the Actions UI (mirrors the other platforms' pattern).
-  # The second invocation reuses the SDK + NDK + AVD caches the first
-  # populated, so the marginal cost is just the emulator boot + tests.
+  # Single action invocation: the action's emulator + test steps are
+  # gated on `build-package == build-tests == run-tests == 'true'`
+  # (see action.yml), so a split "build first / test second" pair makes
+  # the second call a no-op. Keep build + test in one step.
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - name: Build (Android)
+      - name: Build & Test (Android emulator)
         uses: skiptools/swift-android-action@v2
         with:
           swift-version: "6.3"
           # The default GitHub Linux runner has ~14 GiB free; the SDK,
           # NDK, and emulator together push past that without cleanup.
           free-disk-space: true
-          run-tests: false
-      - name: Test (Android emulator)
-        uses: skiptools/swift-android-action@v2
-        with:
-          swift-version: "6.3"
-          build-package: false
-          build-tests: false
