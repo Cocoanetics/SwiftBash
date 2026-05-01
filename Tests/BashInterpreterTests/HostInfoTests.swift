@@ -14,7 +14,7 @@ import Glibc
 import WinSDK
 #endif
 
-@Suite struct HostInfoTests {
+@Suite(.timeLimit(.minutes(1))) struct HostInfoTests {
 
     // MARK: synthetic defaults
 
@@ -78,7 +78,7 @@ import WinSDK
 /// Comprehensive sandbox-leak verification — runs scripts that try to
 /// observe the host through every channel SwiftBash currently exposes,
 /// and asserts the synthetic values come back instead.
-@Suite struct SandboxLeakAuditTests {
+@Suite(.timeLimit(.minutes(1))) struct SandboxLeakAuditTests {
 
     private func makeSandboxedShell() -> Shell {
         let shell = Shell(

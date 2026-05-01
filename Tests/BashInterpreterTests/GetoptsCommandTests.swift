@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct GetoptsCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct GetoptsCommandTests {
 
     private func makeShell() -> CapturingShell { CapturingShell() }
 

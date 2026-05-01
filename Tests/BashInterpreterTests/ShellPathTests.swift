@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct ShellPathTests {
+@Suite(.timeLimit(.minutes(1))) struct ShellPathTests {
 
     private func makeShell() -> Shell {
         let shell = Shell(stdout: .discard, stderr: .discard)

@@ -3,7 +3,7 @@ import Testing
 
 /// End-to-end coverage that `$1`, `$2`, … work inside `$((…))` and
 /// `((…))` — both as the shell expands them via `positionalParameters`.
-@Suite struct PositionalParamsInArithmeticTests {
+@Suite(.timeLimit(.minutes(1))) struct PositionalParamsInArithmeticTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

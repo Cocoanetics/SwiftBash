@@ -6,7 +6,7 @@ import Testing
 /// re-evaluating via `Arithmetic.evaluate` is clearer; those live in
 /// `ArithEvaluatorTests`. Here we pin down AST shapes that would
 /// regress silently otherwise.
-@Suite struct ArithParserTests {
+@Suite(.timeLimit(.minutes(1))) struct ArithParserTests {
 
     private func parse(_ s: String,
                        sourceLocation: SourceLocation = #_sourceLocation) -> ArithExpr {

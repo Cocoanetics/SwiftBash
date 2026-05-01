@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct ArithLexerTests {
+@Suite(.timeLimit(.minutes(1))) struct ArithLexerTests {
 
     // Helper: tokenise and strip the trailing .eof.
     private func lex(_ s: String,

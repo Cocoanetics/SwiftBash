@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct WhoamiAndHostnameTests {
+@Suite(.timeLimit(.minutes(1))) struct WhoamiAndHostnameTests {
 
     // MARK: whoami — synthetic by default
 

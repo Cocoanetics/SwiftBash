@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct ProcessTableTests {
+@Suite(.timeLimit(.minutes(1))) struct ProcessTableTests {
 
     // MARK: spawn / wait
 

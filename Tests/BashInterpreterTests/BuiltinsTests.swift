@@ -11,7 +11,7 @@ fileprivate let unixTmpDir = "/data/local/tmp"
 fileprivate let unixTmpDir = "/tmp"
 #endif
 
-@Suite struct BuiltinsTests {
+@Suite(.timeLimit(.minutes(1))) struct BuiltinsTests {
 
     // MARK: true / false / :
 

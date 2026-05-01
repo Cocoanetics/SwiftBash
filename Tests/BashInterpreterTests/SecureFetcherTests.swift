@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct SecureFetcherTests {
+@Suite(.timeLimit(.minutes(1))) struct SecureFetcherTests {
 
     // MARK: Mock fetcher
 

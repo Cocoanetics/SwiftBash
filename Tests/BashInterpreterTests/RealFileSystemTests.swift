@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct RealFileSystemTests {
+@Suite(.timeLimit(.minutes(1))) struct RealFileSystemTests {
 
     /// Fresh temp directory per test, automatically cleaned up.
     private static func makeTempDir() -> String {

@@ -2,7 +2,7 @@ import Testing
 @testable import BashInterpreter
 
 /// End-to-end tests that exercise `((…))` and `$((…))` through a `Shell`.
-@Suite struct ArithShellIntegrationTests {
+@Suite(.timeLimit(.minutes(1))) struct ArithShellIntegrationTests {
 
     // MARK: $((…)) in word expansion
 

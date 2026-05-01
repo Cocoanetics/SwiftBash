@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct ArithEvaluatorTests {
+@Suite(.timeLimit(.minutes(1))) struct ArithEvaluatorTests {
 
     /// Helper backing a simple in-memory variable store.
     final class Store {

@@ -62,7 +62,7 @@ private struct Nameless: ParsableBashCommand {
 
 // MARK: Tests
 
-@Suite struct ParsableBashCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct ParsableBashCommandTests {
 
     // MARK: Basic wiring
 

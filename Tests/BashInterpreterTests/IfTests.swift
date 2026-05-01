@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct IfTests {
+@Suite(.timeLimit(.minutes(1))) struct IfTests {
 
     @Test func ifTrueRunsBody() async throws {
         let cap = CapturingShell()

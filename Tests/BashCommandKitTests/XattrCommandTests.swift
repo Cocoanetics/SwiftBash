@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct XattrCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct XattrCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "xattr-\(UUID())"

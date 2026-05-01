@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct VirtualBinFileSystemTests {
+@Suite(.timeLimit(.minutes(1))) struct VirtualBinFileSystemTests {
 
     // MARK: list /bin and /usr/bin
 

@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct GroupSubshellTests {
+@Suite(.timeLimit(.minutes(1))) struct GroupSubshellTests {
 
     @Test func groupRunsAllCommands() async throws {
         let cap = CapturingShell()

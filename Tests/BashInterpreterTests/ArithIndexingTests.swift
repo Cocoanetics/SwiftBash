@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct ArithIndexingTests {
+@Suite(.timeLimit(.minutes(1))) struct ArithIndexingTests {
 
     // MARK: Read indexed
 

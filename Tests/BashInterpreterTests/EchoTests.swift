@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct EchoTests {
+@Suite(.timeLimit(.minutes(1))) struct EchoTests {
 
     @Test func noArgs() async throws {
         let cap = CapturingShell()

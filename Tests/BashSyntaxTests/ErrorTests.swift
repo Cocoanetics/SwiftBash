@@ -1,7 +1,7 @@
 import Testing
 @testable import BashSyntax
 
-@Suite struct ErrorTests {
+@Suite(.timeLimit(.minutes(1))) struct ErrorTests {
 
     @Test func unterminatedDoubleQuoteThrows() {
         let err = #expect(throws: BashSyntaxError.self) {

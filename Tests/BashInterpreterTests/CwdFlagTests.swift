@@ -11,7 +11,7 @@ fileprivate let unixTmpDir = "/data/local/tmp"
 fileprivate let unixTmpDir = "/tmp"
 #endif
 
-@Suite struct CwdFlagTests {
+@Suite(.timeLimit(.minutes(1))) struct CwdFlagTests {
 
     // MARK: pwd -L / -P
 

@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct PrivateIPTests {
+@Suite(.timeLimit(.minutes(1))) struct PrivateIPTests {
 
     // MARK: Lexical IPv4 ranges
 

@@ -6,7 +6,7 @@ import Foundation
 /// Demonstrates the "long-running producer feeds a streaming consumer"
 /// pattern you'd want for live-tailing something in an app. Uses
 /// sub-second sleeps so the tests stay fast.
-@Suite struct SleepLoopPipelineTests {
+@Suite(.timeLimit(.minutes(1))) struct SleepLoopPipelineTests {
 
     /// The literal pattern you'd write for "every 5 s, print the date,
     /// for a minute, piped to a tail-like consumer" — scaled down.

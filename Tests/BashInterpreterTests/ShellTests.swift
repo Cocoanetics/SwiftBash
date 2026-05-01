@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct ShellTests {
+@Suite(.timeLimit(.minutes(1))) struct ShellTests {
 
     // MARK: Basic smoke
 

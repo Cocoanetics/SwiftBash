@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct EnvironmentTests {
+@Suite(.timeLimit(.minutes(1))) struct EnvironmentTests {
 
     @Test func initWithDictionary() {
         let env = Environment(variables: ["FOO": "bar", "BAZ": "qux"])

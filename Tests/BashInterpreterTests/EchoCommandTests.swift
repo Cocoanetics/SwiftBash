@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct EchoCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct EchoCommandTests {
 
     private func makeShell() -> (Shell, OutputSink) {
         let outBox = StringBox()

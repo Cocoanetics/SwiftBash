@@ -5,7 +5,7 @@ import Foundation
 /// The point of the async rewrite: pipelines where stages overlap in time,
 /// and where a downstream consumer's termination unblocks the upstream
 /// producer — the `yes | head` pattern — without OS-level `pipe(2)`.
-@Suite struct StreamingPipelineTests {
+@Suite(.timeLimit(.minutes(1))) struct StreamingPipelineTests {
 
     private struct PipelineTimeout: Error {}
 

@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct GlobMatcherTests {
+@Suite(.timeLimit(.minutes(1))) struct GlobMatcherTests {
 
     private func m(_ pat: String, _ s: String) -> Bool {
         GlobMatcher.match(pattern: pat, string: s)

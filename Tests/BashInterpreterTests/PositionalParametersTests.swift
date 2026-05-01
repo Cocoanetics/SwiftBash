@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct PositionalParametersTests {
+@Suite(.timeLimit(.minutes(1))) struct PositionalParametersTests {
 
     // MARK: $0..$N
 

@@ -8,7 +8,7 @@ import Foundation
 /// `stdout` + `stderr`. This is how we lock down the FileSystem
 /// abstraction: every shell-visible behaviour has to be a pure
 /// function of the FS, not the environment.
-@Suite struct FileSystemPortabilityTests {
+@Suite(.timeLimit(.minutes(1))) struct FileSystemPortabilityTests {
 
     /// Build a shell rooted in a fresh empty cwd on the chosen FS.
     private func makeRealShell() async throws -> (CapturingShell, () -> Void) {

@@ -4,7 +4,7 @@ import Foundation
 @testable import BashCommandKit
 
 /// End-to-end tests for `&` background execution and `wait`.
-@Suite struct BackgroundJobTests {
+@Suite(.timeLimit(.minutes(1))) struct BackgroundJobTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

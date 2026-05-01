@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct VariableExpansionTests {
+@Suite(.timeLimit(.minutes(1))) struct VariableExpansionTests {
 
     @Test func echoPath() async throws {
         let cap = CapturingShell()
