@@ -2,6 +2,11 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Bionic)
+import Bionic
+// `<sys/xattr.h>` symbols aren't surfaced by Swift's stock Bionic
+// module; the local CXattr systemLibrary target fills the gap.
+import CXattr
 #elseif canImport(Glibc)
 import Glibc
 // `<sys/xattr.h>` symbols aren't surfaced by Swift's stock Glibc
@@ -478,10 +483,10 @@ public extension RealFileSystem {
         }
     }
 
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Bionic)
 
-    // Linux variants. Same semantics as the Darwin branch but the
-    // C signatures take 4 args (no `position` / `options`). The
+    // Linux / Android variants. Same semantics as the Darwin branch but
+    // the C signatures take 4 args (no `position` / `options`). The
     // CXattr systemLibrary target wraps `<sys/xattr.h>` so the
     // symbols are in scope.
 
