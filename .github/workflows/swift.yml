@@ -111,14 +111,11 @@ jobs:
   # the second call a no-op. Keep build + test in one step.
   build-android:
     runs-on: ubuntu-latest
-    # 60 min instead of 45: the emulator-backed test phase runs the
-    # whole suite in parallel mode (the action's runner script invokes
-    # the test binary twice — once via the XCTest entry point that
-    # doesn't accept `--no-parallel`, then via swift-testing — so we
-    # can't force serial execution via swift-test-flags). On a single
-    # cooperative-pool CPU with many Task.sleep / kill-wait tests, the
-    # 45 min ceiling was tight on a cold cache.
-    timeout-minutes: 60
+    # Tight timeout while bisecting which suite hangs on Android — a
+    # passing run needs only seconds of test time after cached SDK +
+    # emulator boot, so 5 minutes is plenty when nothing's stuck.
+    # Bump back up once the offending suite is found and fixed.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - name: Build & Test (Android emulator)

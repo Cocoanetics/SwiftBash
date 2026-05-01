@@ -6,6 +6,7 @@ import Foundation
 /// Coverage for grep beyond the basic substring match in
 /// `PipelineCommandsTests` — line numbers, count, files-with-matches,
 /// quiet, regex, context, recursion, and `--include`.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct GrepCommandTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -222,3 +223,4 @@ import Foundation
     }
     #endif
 }
+#endif

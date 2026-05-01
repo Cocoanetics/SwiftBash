@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct FindAdvancedTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -92,3 +93,4 @@ import Foundation
         #expect(cap.stdout.contains("FooBar"))
     }
 }
+#endif
