@@ -162,7 +162,6 @@ import Foundation
 
     // MARK: sandbox HOME-as-workspace
 
-    #if !os(Windows)
     @Test func sandboxedShellHomeMatchesWorkspaceWhenConfiguredThatWay() async throws {
         // Mirrors the CLI's --sandbox setup: HOME points at the
         // workspace, so `cd` (no arg) and `~` both land there.
@@ -190,5 +189,4 @@ import Foundation
         // scripts type. Inside `"…"` it would stay literal.
         #expect(cap.stdout.contains("tilde: /batch"))
     }
-    #endif
 }

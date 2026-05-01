@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-#if !os(Windows)
 @Suite struct SandboxedOverlayFileSystemTests {
 
     // MARK: Test helpers
@@ -410,4 +409,3 @@ import Foundation
         }
     }
 }
-#endif
