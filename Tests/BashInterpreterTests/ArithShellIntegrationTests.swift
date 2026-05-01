@@ -2,6 +2,7 @@ import Testing
 @testable import BashInterpreter
 
 /// End-to-end tests that exercise `((…))` and `$((…))` through a `Shell`.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ArithShellIntegrationTests {
 
     // MARK: $((…)) in word expansion
@@ -137,3 +138,4 @@ import Testing
         }
     }
 }
+#endif

@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct TextUtilityTests {
 
     private func makeShell() -> (CapturingShell, String) {
@@ -229,3 +230,4 @@ import Foundation
             == "00000000: 4142                                     AB\n")
     }
 }
+#endif

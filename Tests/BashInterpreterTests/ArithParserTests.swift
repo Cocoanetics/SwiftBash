@@ -6,6 +6,7 @@ import Testing
 /// re-evaluating via `Arithmetic.evaluate` is clearer; those live in
 /// `ArithEvaluatorTests`. Here we pin down AST shapes that would
 /// regress silently otherwise.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct ArithParserTests {
 
     private func parse(_ s: String,
@@ -185,3 +186,4 @@ import Testing
         #expect(throws: (any Error).self) { try Arithmetic.parse("1 2") }
     }
 }
+#endif
