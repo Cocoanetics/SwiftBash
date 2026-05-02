@@ -69,30 +69,13 @@ extension Shell {
                     sub.stdin = incomingSink.map { InputSource(bytes: $0.bytes) }
                              ?? outerStdin
 
-                    // Run the stage in a child Task so we have a handle
-                    // to cancel from the outgoing-sink termination
-                    // hook. When the *next* stage's iterator dies (it
-                    // broke out of `for await` after taking N lines),
-                    // OutputSink's onConsumerGone fires; cancel us so
-                    // producers that ignore Task.isCancelled in their
-                    // tight write loop are still unwound — bash-style
-                    // SIGPIPE-on-EPIPE.
-                    let work = Task<ExitStatus, Error> {
-                        try await sub.withCurrent {
+                    do {
+                        let result = try await sub.withCurrent {
                             try await sub.execute(stage)
                         }
-                    }
-                    outgoingSink?.setOnConsumerGone { work.cancel() }
-
-                    do {
-                        let result = try await work.value
                         outgoingSink?.finish()
                         return (index, result)
                     } catch is CancellationError {
-                        // Producer cancelled because consumer closed
-                        // its read end. That's bash semantics — exit
-                        // success at the pipeline level (the rightmost
-                        // stage's status already won).
                         outgoingSink?.finish()
                         return (index, .success)
                     } catch {
