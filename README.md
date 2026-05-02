@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="Docs/SwiftScript.jpg" alt="SwiftScript" width="100%">
+</p>
+
+<p align="center">
   <img src="Docs/SwiftBash.jpg" alt="SwiftBash — a Bash interpreter written in Swift" width="100%">
 </p>
 
