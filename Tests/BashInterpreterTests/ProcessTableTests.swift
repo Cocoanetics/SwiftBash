@@ -32,10 +32,11 @@ import Foundation
         #expect(status == nil)
     }
 
-    // Skipped on Android + iOS: the single-CPU emulator/simulator
-    // cooperative pool serialises the three parallel Task.sleep timers,
-    // so elapsed wall time creeps over the 0.295s assertion ceiling.
-    #if !os(Android) && !os(iOS)
+    // Skipped on Android: the single-CPU emulator's cooperative pool
+    // serialises the three parallel Task.sleep timers, so elapsed
+    // wall time creeps over the 0.295s assertion ceiling. iOS
+    // Simulator's pool is multi-threaded and now passes.
+    #if !os(Android)
     @Test func waitAllAwaitsEverything() async {
         let table = ProcessTable()
         let started = Date()
@@ -70,12 +71,12 @@ import Foundation
 
     // MARK: signal / cancellation
 
-    // Skipped on Android + iOS: the spawned cooperative loop pins
-    // the single-CPU emulator/simulator executor — the outer Task that
-    // calls signal() never gets a turn after Task.cancel sets the
-    // flag, so the inner `try Task.checkCancellation()` is never
-    // re-entered and the loop hangs.
-    #if !os(Android) && !os(iOS)
+    // Skipped on Android: the spawned cooperative loop pins the
+    // single-CPU emulator's executor — the outer Task that calls
+    // signal() never gets a turn after Task.cancel sets the flag,
+    // so the inner `try Task.checkCancellation()` is never re-entered
+    // and the loop hangs.
+    #if !os(Android)
     @Test func signalCancelsRunningTask() async {
         let table = ProcessTable()
         let pid = await table.spawn(command: "loop") {
