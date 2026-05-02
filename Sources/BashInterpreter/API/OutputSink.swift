@@ -89,16 +89,12 @@ public final class OutputSink: @unchecked Sendable {
     }
 
     /// Line-by-line iteration — joins chunks across buffer boundaries
-    /// and strips the trailing `\n`. Same cancellation propagation as
-    /// `InputSource.lines`: terminating the outer iterator cancels the
-    /// inner reader so the upstream bytes iteration tears down too.
+    /// and strips the trailing `\n`.
     public var lines: AsyncStream<String> {
-        let upstream = bytes
-        return AsyncStream<String> { continuation in
-            let reader = Task {
+        AsyncStream<String> { continuation in
+            Task {
                 var pending = ""
-                for await chunk in upstream {
-                    if Task.isCancelled { break }
+                for await chunk in bytes {
                     pending += String(decoding: chunk, as: UTF8.self)
                     while let nl = pending.range(of: "\n") {
                         let line = String(pending[..<nl.lowerBound])
@@ -109,7 +105,6 @@ public final class OutputSink: @unchecked Sendable {
                 if !pending.isEmpty { continuation.yield(pending) }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in reader.cancel() }
         }
     }
 
