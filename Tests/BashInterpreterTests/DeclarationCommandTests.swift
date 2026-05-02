@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct DeclarationCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct DeclarationCommandTests {
 
     // MARK: declare -a / typeset -a — indexed array literal
 

@@ -1,7 +1,7 @@
 import Testing
 @testable import BashSyntax
 
-@Suite struct HeredocTests {
+@Suite(.timeLimit(.minutes(1))) struct HeredocTests {
 
     @Test func heredocRedirectParses() throws {
         let src = "cat <<EOF\nhello\nEOF\n"

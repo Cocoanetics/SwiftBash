@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct ListExecutionTests {
+@Suite(.timeLimit(.minutes(1))) struct ListExecutionTests {
 
     @Test func semicolonRunsBoth() async throws {
         let cap = CapturingShell()

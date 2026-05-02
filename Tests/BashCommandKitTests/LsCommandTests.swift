@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct LsCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct LsCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "ls-tests-\(UUID())"

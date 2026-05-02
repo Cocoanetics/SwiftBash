@@ -2,6 +2,10 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
 #elseif canImport(Glibc)
 import Glibc
 #elseif canImport(WinSDK)
@@ -200,7 +204,8 @@ public struct HostInfo: Sendable, Equatable {
     #if !os(Windows)
     private static func realGroupName(for gid: UInt32) -> String? {
         guard let entry = getgrgid(gid_t(gid)) else { return nil }
-        return String(cString: entry.pointee.gr_name)
+        guard let name = entry.pointee.gr_name else { return nil }
+        return String(cString: name)
     }
 
     /// Resolve a uid to a login name via `getpwuid(3)`. Used on
@@ -208,7 +213,8 @@ public struct HostInfo: Sendable, Equatable {
     /// available.
     private static func passwdUserName(uid: UInt32) -> String? {
         guard let entry = getpwuid(uid_t(uid)) else { return nil }
-        return String(cString: entry.pointee.pw_name)
+        guard let name = entry.pointee.pw_name else { return nil }
+        return String(cString: name)
     }
 
     private static func realUname() -> (String, String, String, String, String) {

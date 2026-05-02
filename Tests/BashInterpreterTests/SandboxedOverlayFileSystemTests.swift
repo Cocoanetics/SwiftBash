@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct SandboxedOverlayFileSystemTests {
+@Suite(.timeLimit(.minutes(1))) struct SandboxedOverlayFileSystemTests {
 
     // MARK: Test helpers
 

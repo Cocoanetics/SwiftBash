@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct PatchCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct PatchCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "patch-\(UUID())"

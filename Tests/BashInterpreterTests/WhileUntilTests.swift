@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct WhileUntilTests {
+@Suite(.timeLimit(.minutes(1))) struct WhileUntilTests {
 
     // MARK: while
 

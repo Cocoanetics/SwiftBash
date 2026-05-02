@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct InMemoryFileSystemTests {
+@Suite(.timeLimit(.minutes(1))) struct InMemoryFileSystemTests {
 
     // MARK: Seed + read
 

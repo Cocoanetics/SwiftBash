@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct URLAllowListTests {
+@Suite(.timeLimit(.minutes(1))) struct URLAllowListTests {
 
     // MARK: Origin matching
 

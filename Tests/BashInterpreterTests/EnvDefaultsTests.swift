@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct EnvDefaultsTests {
+@Suite(.timeLimit(.minutes(1))) struct EnvDefaultsTests {
 
     // MARK: PATH and friends
 

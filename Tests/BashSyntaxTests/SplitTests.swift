@@ -1,7 +1,7 @@
 import Testing
 @testable import BashSyntax
 
-@Suite struct SplitTests {
+@Suite(.timeLimit(.minutes(1))) struct SplitTests {
 
     @Test func basicSplit() throws {
         #expect(try BashSyntax.split("a b c") == ["a", "b", "c"])

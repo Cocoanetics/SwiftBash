@@ -75,6 +75,9 @@ extension Shell {
                         }
                         outgoingSink?.finish()
                         return (index, result)
+                    } catch is CancellationError {
+                        outgoingSink?.finish()
+                        return (index, .success)
                     } catch {
                         outgoingSink?.finish()
                         throw error

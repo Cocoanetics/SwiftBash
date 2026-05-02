@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct HeredocExpansionTests {
+@Suite(.timeLimit(.minutes(1))) struct HeredocExpansionTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

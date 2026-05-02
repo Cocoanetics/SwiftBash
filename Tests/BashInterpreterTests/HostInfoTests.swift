@@ -2,7 +2,19 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct HostInfoTests {
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+
+@Suite(.timeLimit(.minutes(1))) struct HostInfoTests {
 
     // MARK: synthetic defaults
 
@@ -17,6 +29,10 @@ import Foundation
         #expect(shell.hostInfo.machine == "arm64")
     }
 
+    // ProcessInfo.userName is macOS / Linux only — iOS / tvOS /
+    // watchOS don't expose it (HostInfo.real() falls back to a
+    // getpwuid lookup there). Gate the two tests that touch it.
+    #if os(macOS) || os(Linux) || os(Android) || os(Windows)
     @Test func syntheticLeaksNoHostStrings() {
         // Sanity: every field in `.synthetic` is a known anonymous
         // value — nothing pulled from ProcessInfo at construction.
@@ -32,15 +48,18 @@ import Foundation
             #expect(field != real.hostName)
         }
     }
+    #endif
 
     // MARK: real() opt-in
 
+    #if os(macOS) || os(Linux) || os(Android) || os(Windows)
     @Test func realPullsFromProcessInfo() {
         let real = HostInfo.real()
         #expect(real.userName == ProcessInfo.processInfo.userName)
         #expect(real.uid > 0)
         #expect(!real.kernelName.isEmpty)
     }
+    #endif
 
     // MARK: copy() inheritance
 
@@ -66,7 +85,7 @@ import Foundation
 /// Comprehensive sandbox-leak verification — runs scripts that try to
 /// observe the host through every channel SwiftBash currently exposes,
 /// and asserts the synthetic values come back instead.
-@Suite struct SandboxLeakAuditTests {
+@Suite(.timeLimit(.minutes(1))) struct SandboxLeakAuditTests {
 
     private func makeSandboxedShell() -> Shell {
         let shell = Shell(

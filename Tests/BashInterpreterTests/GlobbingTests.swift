@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct GlobbingTests {
+@Suite(.timeLimit(.minutes(1))) struct GlobbingTests {
 
     private func makeShell() -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()

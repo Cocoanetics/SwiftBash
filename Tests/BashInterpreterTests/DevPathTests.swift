@@ -7,7 +7,7 @@ import Foundation
 /// `/dev/null`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr`. Tested
 /// against `InMemoryFileSystem` so any pass means we're not relying on
 /// the host kernel having actual `/dev` entries.
-@Suite struct DevPathTests {
+@Suite(.timeLimit(.minutes(1))) struct DevPathTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

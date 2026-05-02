@@ -1,7 +1,7 @@
 import Testing
 @testable import BashSyntax
 
-@Suite struct ArithmeticTests {
+@Suite(.timeLimit(.minutes(1))) struct ArithmeticTests {
 
     // MARK: Standalone `((…))`
 

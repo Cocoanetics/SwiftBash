@@ -18,7 +18,7 @@ private final class DataBox: @unchecked Sendable {
 ///  1. `Shell.runCapturing` — convenience, drains the whole output.
 ///  2. Replacing `shell.stdout` with your own `OutputSink` and
 ///     iterating `bytes` / `lines` concurrently with the run.
-@Suite struct StdoutStreamTests {
+@Suite(.timeLimit(.minutes(1))) struct StdoutStreamTests {
 
     // MARK: runCapturing convenience
 

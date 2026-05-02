@@ -2,7 +2,7 @@ import Testing
 @testable import BashInterpreter
 
 /// Pin the `$IFS`-driven word-splitting rules.
-@Suite struct IFSTests {
+@Suite(.timeLimit(.minutes(1))) struct IFSTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

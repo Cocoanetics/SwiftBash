@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct DuCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct DuCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "du-\(UUID())"

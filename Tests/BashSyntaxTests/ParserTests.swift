@@ -1,7 +1,7 @@
 import Testing
 @testable import BashSyntax
 
-@Suite struct ParserTests {
+@Suite(.timeLimit(.minutes(1))) struct ParserTests {
 
     // MARK: Helpers
 

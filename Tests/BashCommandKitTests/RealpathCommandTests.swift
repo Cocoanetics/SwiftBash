@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct RealpathCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct RealpathCommandTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -13,21 +13,38 @@ import Foundation
 
     #if !os(Windows)
     @Test func resolvesExistingAbsolutePath() async throws {
+        // macOS's /tmp is a symlink to /private/tmp — we resolve
+        // symlinks. Linux's /tmp is a plain directory. Android has no
+        // /tmp; userland tmp is /data/local/tmp.
+        #if os(Android)
+        let input = "/data/local/tmp"
+        let acceptable: Set<String> = ["/data/local/tmp"]
+        #else
+        let input = "/tmp"
+        let acceptable: Set<String> = ["/tmp", "/private/tmp"]
+        #endif
         let cap = makeShell()
-        try await cap.shell.run("realpath /tmp")
+        try await cap.shell.run("realpath \(input)")
         let out = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        // On macOS /tmp is a symlink to /private/tmp — we resolve symlinks.
-        #expect(out == "/tmp" || out == "/private/tmp", "got `\(out)`")
+        #expect(acceptable.contains(out), "got `\(out)`")
     }
     #endif
 
     #if !os(Windows)
     @Test func normalisesDotDot() async throws {
         // Use a non-symlinked path so we don't need to care about
-        // macOS's /tmp → /private/tmp symlink.
+        // macOS's /tmp → /private/tmp symlink. Android has no /usr,
+        // but its read-only /system partition has /system/bin.
+        #if os(Android)
+        let input = "/system/bin/.."
+        let expected = "/system"
+        #else
+        let input = "/usr/bin/.."
+        let expected = "/usr"
+        #endif
         let cap = makeShell()
-        try await cap.shell.run("realpath /usr/bin/..")
-        #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "/usr")
+        try await cap.shell.run("realpath \(input)")
+        #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == expected)
     }
     #endif
 

@@ -2,7 +2,7 @@ import Testing
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct StandardCommandsTests {
+@Suite(.timeLimit(.minutes(1))) struct StandardCommandsTests {
 
     @Test func registerAllInOneCall() {
         let cap = CapturingShell()

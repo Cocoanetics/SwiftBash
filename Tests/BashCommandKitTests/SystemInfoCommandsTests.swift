@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct SystemInfoCommandsTests {
+@Suite(.timeLimit(.minutes(1))) struct SystemInfoCommandsTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

@@ -101,7 +101,23 @@ extension Shell {
                 }
             }
             iterations += 1
+            // Periodic cooperative yield. Without it, a tight body
+            // (e.g. `i=$((i+1))` with no awaits) keeps the executor
+            // pinned and other tasks — including the one that issued
+            // `kill PID` — never get a chance to run on a single-CPU
+            // host like the Android emulator. Yielding every ~1k
+            // iterations is cheap (one context switch) and ensures
+            // cancellation actually lands.
+            if iterations.isMultiple(of: 1024) {
+                await Task.yield()
+            }
             if iterations > maxIterations {
+                // Runaway-loop guard. If the task is *also* cancelled,
+                // surface that as cancellation (143) rather than as a
+                // generic interpreter error (1).
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
                 throw BashInterpreterError.io(
                     "loop exceeded \(maxIterations) iterations; aborting")
             }
@@ -194,8 +210,14 @@ extension Shell {
         }
 
         var last = ExitStatus.success
+        var iterations = 0
         loop: while true {
             try Task.checkCancellation()
+            // Periodic cooperative yield (see runForBody / executeWhile).
+            if iterations.isMultiple(of: 1024) {
+                await Task.yield()
+            }
+            iterations += 1
             if !condExpr.isEmpty {
                 errexitGuard += 1
                 let v: Int64
@@ -230,8 +252,19 @@ extension Shell {
                             body: Node) async throws -> ExitStatus
     {
         var last = ExitStatus.success
+        var iterations = 0
         loop: for value in values {
             try Task.checkCancellation()
+            // Periodic cooperative yield. Mirrors the while-loop guard:
+            // a `for i in $(seq 1 100); do echo $i; sleep 0.1; done | head -n 2`
+            // pipeline can otherwise pin the producer's executor on the
+            // single-CPU Android emulator long enough that the consumer
+            // never gets a turn to read N lines and trigger upstream
+            // cancellation.
+            if iterations.isMultiple(of: 1024) {
+                await Task.yield()
+            }
+            iterations += 1
             environment[varName] = value
             do {
                 last = try await execute(body)

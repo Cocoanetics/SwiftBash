@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct ConditionalExpressionTests {
+@Suite(.timeLimit(.minutes(1))) struct ConditionalExpressionTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

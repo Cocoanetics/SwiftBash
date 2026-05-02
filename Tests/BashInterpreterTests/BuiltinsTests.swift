@@ -1,7 +1,17 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct BuiltinsTests {
+/// Userland tmp directory that's known to exist on the running host.
+/// Linux / macOS have `/tmp`; Android lays it out as `/data/local/tmp`.
+/// Used by tests that exercise `cd` bookkeeping — the assertion is
+/// about shell behaviour, not the path string.
+#if os(Android)
+fileprivate let unixTmpDir = "/data/local/tmp"
+#else
+fileprivate let unixTmpDir = "/tmp"
+#endif
+
+@Suite(.timeLimit(.minutes(1))) struct BuiltinsTests {
 
     // MARK: true / false / :
 
@@ -29,12 +39,16 @@ import Testing
     // MARK: cd
 
     #if !os(Windows)
+    // The test target is "cd updates workingDirectory + PWD + OLDPWD";
+    // it doesn't care which existing directory we cd into. Android has
+    // no /tmp (its userland tmp is /data/local/tmp), so route through a
+    // platform-appropriate path that's actually present.
     @Test func cdToTmpUpdatesEnv() async throws {
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
-        try await cap.shell.run("cd /tmp")
-        #expect(cap.shell.environment.workingDirectory == "/tmp")
-        #expect(cap.shell.environment["PWD"] == "/tmp")
+        try await cap.shell.run("cd \(unixTmpDir)")
+        #expect(cap.shell.environment.workingDirectory == unixTmpDir)
+        #expect(cap.shell.environment["PWD"] == unixTmpDir)
         #expect(cap.shell.environment["OLDPWD"] == "/")
     }
     #endif
@@ -49,17 +63,17 @@ import Testing
     #if !os(Windows)
     @Test func cdWithNoArgGoesToHome() async throws {
         let cap = CapturingShell()
-        cap.shell.environment["HOME"] = "/tmp"
+        cap.shell.environment["HOME"] = unixTmpDir
         cap.shell.environment.workingDirectory = "/"
         try await cap.shell.run("cd")
-        #expect(cap.shell.environment.workingDirectory == "/tmp")
+        #expect(cap.shell.environment.workingDirectory == unixTmpDir)
     }
     #endif
 
     @Test func cdDashGoesBackToOldpwd() async throws {
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
-        try await cap.shell.run("cd /tmp")
+        try await cap.shell.run("cd \(unixTmpDir)")
         try await cap.shell.run("cd -")
         #expect(cap.shell.environment.workingDirectory == "/")
     }

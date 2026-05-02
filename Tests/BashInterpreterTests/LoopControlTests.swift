@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct LoopControlTests {
+@Suite(.timeLimit(.minutes(1))) struct LoopControlTests {
 
     // MARK: break
 

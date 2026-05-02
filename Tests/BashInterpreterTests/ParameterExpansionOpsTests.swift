@@ -4,7 +4,7 @@ import Testing
 /// Tests for the `${…}` parameter-expansion operators — drives the
 /// feature through `Shell.run` so both the parser, expansion, and
 /// builtin-invocation paths are exercised together.
-@Suite struct ParameterExpansionOpsTests {
+@Suite(.timeLimit(.minutes(1))) struct ParameterExpansionOpsTests {
 
     // MARK: Plain and length
 

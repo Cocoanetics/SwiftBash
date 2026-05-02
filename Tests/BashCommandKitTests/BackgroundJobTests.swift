@@ -4,7 +4,7 @@ import Foundation
 @testable import BashCommandKit
 
 /// End-to-end tests for `&` background execution and `wait`.
-@Suite struct BackgroundJobTests {
+@Suite(.timeLimit(.minutes(1))) struct BackgroundJobTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
@@ -32,6 +32,11 @@ import Foundation
         #expect(cap.stdout.contains("finished"))
     }
 
+    // Skipped on Android: the single-CPU emulator's cooperative
+    // scheduler serialises the three Task.sleep timers far enough that
+    // the elapsed-time assertion (< 0.6s for three 0.3s parallel
+    // sleeps) is not reliable.
+    #if !os(Android)
     @Test func parallelFanOutRunsConcurrently() async throws {
         let cap = makeShell()
         let started = Date()
@@ -48,6 +53,7 @@ import Foundation
                 "expected parallel execution, got \(elapsed)s")
         #expect(cap.stdout.contains("all-done"))
     }
+    #endif
 
     @Test func dollarBangResolvesToLastSpawnedPid() async throws {
         let cap = makeShell()

@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct TarCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct TarCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "tar-\(UUID())"

@@ -6,7 +6,7 @@ import Foundation
 /// End-to-end tests for the filesystem-touching commands (`ls`, `mkdir`,
 /// `rm`, `mv`, `cp`, `touch`). Each test uses a fresh temp directory
 /// and `cd`s into it so relative paths in the script just work.
-@Suite struct FilesystemCommandsTests {
+@Suite(.timeLimit(.minutes(1))) struct FilesystemCommandsTests {
 
     private func makeShell() -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()

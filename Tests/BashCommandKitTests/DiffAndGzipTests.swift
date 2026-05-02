@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct DiffAndGzipTests {
+@Suite(.timeLimit(.minutes(1))) struct DiffAndGzipTests {
 
     private func makeShell() -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()

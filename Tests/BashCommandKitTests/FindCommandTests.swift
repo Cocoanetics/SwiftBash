@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Output ordering is deterministic — `FindCommand` sorts directory
 /// entries before recursing — so we can assert on exact strings.
-@Suite struct FindCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct FindCommandTests {
 
     private func makeShell() -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()

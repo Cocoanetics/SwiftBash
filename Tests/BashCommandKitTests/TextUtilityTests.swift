@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct TextUtilityTests {
+@Suite(.timeLimit(.minutes(1))) struct TextUtilityTests {
 
     private func makeShell() -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()

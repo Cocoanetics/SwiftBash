@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct CaseTests {
+@Suite(.timeLimit(.minutes(1))) struct CaseTests {
 
     // MARK: Basic matching
 

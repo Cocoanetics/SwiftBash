@@ -2,7 +2,16 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct CwdFlagTests {
+/// Userland tmp directory that's known to exist on the running host
+/// (Linux/macOS: `/tmp`, Android: `/data/local/tmp`). Used by `cd`
+/// flag tests where the real assertion is the flag-parsing behaviour.
+#if os(Android)
+fileprivate let unixTmpDir = "/data/local/tmp"
+#else
+fileprivate let unixTmpDir = "/tmp"
+#endif
+
+@Suite(.timeLimit(.minutes(1))) struct CwdFlagTests {
 
     // MARK: pwd -L / -P
 
@@ -134,9 +143,9 @@ import Foundation
         // flag parsing").
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
-        cap.shell.environment["OLDPWD"] = "/tmp"
+        cap.shell.environment["OLDPWD"] = unixTmpDir
         try await cap.shell.run("cd -L -")
-        #expect(cap.shell.environment.workingDirectory == "/tmp")
+        #expect(cap.shell.environment.workingDirectory == unixTmpDir)
     }
     #endif
 
@@ -146,9 +155,9 @@ import Foundation
         // spec but not when you `cd <path>`.
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = "/"
-        cap.shell.environment["OLDPWD"] = "/tmp"
+        cap.shell.environment["OLDPWD"] = unixTmpDir
         try await cap.shell.run("cd -")
-        #expect(cap.stdout == "/tmp\n")
+        #expect(cap.stdout == "\(unixTmpDir)\n")
     }
     #endif
 

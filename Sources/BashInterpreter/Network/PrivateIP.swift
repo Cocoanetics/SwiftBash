@@ -2,6 +2,10 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
 #elseif canImport(Glibc)
 import Glibc
 #elseif canImport(WinSDK)
@@ -64,11 +68,12 @@ public enum PrivateIP {
         hints.ai_family = AF_UNSPEC
         // Linux's Glibc imports SOCK_STREAM as the enum value
         // `__socket_type.SOCK_STREAM`; addrinfo.ai_socktype wants
-        // Int32. Darwin / WinSDK import it as a raw Int32 already.
-        #if canImport(Darwin) || canImport(WinSDK)
-        hints.ai_socktype = SOCK_STREAM
-        #else
+        // Int32. Darwin / WinSDK / Android import it as a raw Int32
+        // already.
+        #if canImport(Glibc) && !canImport(Bionic) && !canImport(Android)
         hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+        #else
+        hints.ai_socktype = SOCK_STREAM
         #endif
         var info: UnsafeMutablePointer<addrinfo>? = nil
         let rc = hostname.withCString { name in
@@ -116,9 +121,12 @@ public enum PrivateIP {
     ) -> String? {
         var buf = [Int8](repeating: 0, count: Int(NI_MAXHOST))
         // Windows' getnameinfo takes DWORD for the buffer-size args
-        // (POSIX uses socklen_t).
+        // (POSIX uses socklen_t). Bionic's getnameinfo uses size_t,
+        // which Swift bridges to Int.
         #if os(Windows)
         let bufSize = DWORD(buf.count)
+        #elseif canImport(Bionic) || canImport(Android)
+        let bufSize = buf.count
         #else
         let bufSize = socklen_t(buf.count)
         #endif

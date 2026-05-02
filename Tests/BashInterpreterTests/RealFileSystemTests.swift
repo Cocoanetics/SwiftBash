@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct RealFileSystemTests {
+@Suite(.timeLimit(.minutes(1))) struct RealFileSystemTests {
 
     /// Fresh temp directory per test, automatically cleaned up.
     private static func makeTempDir() -> String {
@@ -46,8 +46,16 @@ import Foundation
     #if !os(Windows)
     @Test func metadataFollowsSymlink() async throws {
         // /tmp is a symlink to /private/tmp on macOS — follows to a dir.
+        // Linux's /tmp is a real directory; Android lays out userland
+        // tmp at /data/local/tmp instead. Either way `metadata` should
+        // see a directory.
+        #if os(Android)
+        let path = "/data/local/tmp"
+        #else
+        let path = "/tmp"
+        #endif
         let fs = RealFileSystem()
-        let meta = try await fs.metadata("/tmp")
+        let meta = try await fs.metadata(path)
         #expect(meta?.kind == .directory)
     }
     #endif
@@ -271,9 +279,21 @@ import Foundation
 
     #if !os(Windows)
     @Test func canonicalizeResolvesDotDot() async throws {
+        // The assertion is about `..` collapsing. Pick a non-symlinked
+        // ancestor that exists on each platform: macOS/Linux have
+        // /usr/bin, Android has /system/bin (its read-only system
+        // partition). Neither path is a symlink so the resolved value
+        // is the parent literally.
+        #if os(Android)
+        let input = "/system/bin/.."
+        let expected = "/system"
+        #else
+        let input = "/usr/bin/.."
+        let expected = "/usr"
+        #endif
         let fs = RealFileSystem()
-        let resolved = try await fs.canonicalize("/usr/bin/..", allowMissing: false)
-        #expect(resolved == "/usr")
+        let resolved = try await fs.canonicalize(input, allowMissing: false)
+        #expect(resolved == expected)
     }
     #endif
 

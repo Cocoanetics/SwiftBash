@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct FunctionTests {
+@Suite(.timeLimit(.minutes(1))) struct FunctionTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

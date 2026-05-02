@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct HereStringAndProcessSubTests {
+@Suite(.timeLimit(.minutes(1))) struct HereStringAndProcessSubTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()

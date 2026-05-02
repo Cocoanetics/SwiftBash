@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct SplitCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct SplitCommandTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "split-\(UUID())"

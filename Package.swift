@@ -55,8 +55,10 @@ let package = Package(
                 // non-Apple platforms. Conditional dep so Apple
                 // builds don't pull the systemLibrary in (Apple
                 // already gets the xattr functions via Darwin).
+                // Android's NDK ships `<sys/xattr.h>` too, so the
+                // same shim works there.
                 .target(name: "CXattr",
-                        condition: .when(platforms: [.linux])),
+                        condition: .when(platforms: [.linux, .android])),
             ],
             path: "Sources/BashInterpreter"
         ),

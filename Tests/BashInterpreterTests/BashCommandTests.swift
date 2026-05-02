@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
-@Suite struct BashCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct BashCommandTests {
 
     // MARK: --version / --help
 

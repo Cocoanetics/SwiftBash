@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct BraceExpansionTests {
+@Suite(.timeLimit(.minutes(1))) struct BraceExpansionTests {
 
     @Test func listForm() {
         #expect(BraceExpansion.expand("{a,b,c}") == ["a", "b", "c"])

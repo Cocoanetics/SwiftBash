@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct CurlCommandTests {
+@Suite(.timeLimit(.minutes(1))) struct CurlCommandTests {
 
     /// Captures every request and replays canned responses by URL.
     final class MockNet: NetworkFetcher, @unchecked Sendable {

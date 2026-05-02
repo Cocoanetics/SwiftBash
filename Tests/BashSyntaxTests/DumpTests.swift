@@ -2,7 +2,7 @@ import Testing
 @testable import BashSyntax
 
 /// Tests that lock down the exact format produced by `dump()`.
-@Suite struct DumpTests {
+@Suite(.timeLimit(.minutes(1))) struct DumpTests {
 
     @Test func nestedSubstitutionsDumpExactly() throws {
         let node = try BashSyntax.parseSingle("true && cat <(echo $(echo foo))")

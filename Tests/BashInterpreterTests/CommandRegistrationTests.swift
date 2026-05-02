@@ -1,7 +1,7 @@
 import Testing
 @testable import BashInterpreter
 
-@Suite struct CommandRegistrationTests {
+@Suite(.timeLimit(.minutes(1))) struct CommandRegistrationTests {
 
     // MARK: Closure-based
 

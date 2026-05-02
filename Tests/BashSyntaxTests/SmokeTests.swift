@@ -1,7 +1,7 @@
 import Testing
 @testable import BashSyntax
 
-@Suite struct SmokeTests {
+@Suite(.timeLimit(.minutes(1))) struct SmokeTests {
 
     @Test func parseSimpleCommand() throws {
         let parts = try BashSyntax.parse("echo hello")

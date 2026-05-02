@@ -3,7 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
-@Suite struct FsToolsCommandsTests {
+@Suite(.timeLimit(.minutes(1))) struct FsToolsCommandsTests {
 
     private func makeShellWithDir() -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "fs-\(UUID())"
@@ -71,11 +71,15 @@ import Foundation
         #expect(cap.stdout.hasSuffix("/real\n"))
     }
 
+    // Android emulator: link(2) on `/data/local/tmp` is rejected
+    // by SELinux for the `shell` domain. Skip outright — the
+    // `withKnownIssue { } when:` form ran the body and hung in CI.
+    #if !os(Android)
     @Test func lnHardLink() async throws {
         let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
         try "data".write(toFile: dir + "/src", atomically: true, encoding: .utf8)
         try await cap.shell.run("ln src dst")
-        // Both should exist as regular files
         #expect(FileManager.default.fileExists(atPath: dir + "/dst"))
     }
+    #endif
 }
