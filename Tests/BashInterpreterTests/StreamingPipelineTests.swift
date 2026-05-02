@@ -6,14 +6,11 @@ import Foundation
 /// and where a downstream consumer's termination unblocks the upstream
 /// producer — the `yes | head` pattern — without OS-level `pipe(2)`.
 ///
-/// Skipped on Android and iOS: the suite exercises a pipe-cancellation
-/// handshake — downstream stage exits, upstream producer's `stdout`
-/// write into the pipe channel must observe the cancellation and unwind.
-/// On the single-CPU Android emulator the producer never sees the
-/// cancel and the in-suite 2-second timeout itself blocks on the
-/// never-finishing task. iOS Simulator hits the same 2s timeout for
-/// the same reason — its xctest runner doesn't give the producer a
-/// preemption point. macOS native + Linux + Windows pass.
+/// Skipped on Android: same Android-specific deadlock as
+/// `SleepLoopPipelineTests` once the lines-stream cancellation chain
+/// is in place. iOS Simulator and macOS native + Linux + Windows now
+/// pass via the InputSource.lines onTermination fix.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct StreamingPipelineTests {
 
     private struct PipelineTimeout: Error {}
@@ -205,3 +202,4 @@ private final class AtomicData: @unchecked Sendable {
         set { lock.lock(); defer { lock.unlock() }; _value = newValue }
     }
 }
+#endif

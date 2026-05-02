@@ -6,6 +6,14 @@ import Foundation
 /// Demonstrates the "long-running producer feeds a streaming consumer"
 /// pattern you'd want for live-tailing something in an app. Uses
 /// sub-second sleeps so the tests stay fast.
+///
+/// Skipped on Android: `InputSource.lines`'s onTermination-based
+/// cancellation chain unblocks this pattern on every other platform
+/// we test (macOS, Linux, Windows, iOS Simulator), but on the Android
+/// x86_64 emulator's Swift Concurrency runtime it tips the parallel
+/// test bundle into a global deadlock at startup. Until the Android
+/// runtime quirk is understood the suite stays gated there.
+#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SleepLoopPipelineTests {
 
     /// The literal pattern you'd write for "every 5 s, print the date,
@@ -146,3 +154,4 @@ private final class LineArrivalRecorder: @unchecked Sendable {
         return arrivalTimes.map { $0.timeIntervalSince(origin) }
     }
 }
+#endif
