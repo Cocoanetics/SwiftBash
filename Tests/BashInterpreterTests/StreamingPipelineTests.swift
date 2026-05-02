@@ -14,7 +14,6 @@ import Foundation
 /// never-finishing task. iOS Simulator hits the same 2s timeout for
 /// the same reason — its xctest runner doesn't give the producer a
 /// preemption point. macOS native + Linux + Windows pass.
-#if !os(Android) && !os(iOS)
 @Suite(.timeLimit(.minutes(1))) struct StreamingPipelineTests {
 
     private struct PipelineTimeout: Error {}
@@ -206,4 +205,3 @@ private final class AtomicData: @unchecked Sendable {
         set { lock.lock(); defer { lock.unlock() }; _value = newValue }
     }
 }
-#endif

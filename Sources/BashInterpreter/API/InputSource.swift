@@ -135,11 +135,23 @@ public struct InputSource: Sendable {
     /// partial line (no trailing newline) is emitted too. Chunks are
     /// re-joined across boundaries so a line that spans multiple
     /// `Data` chunks is delivered intact.
+    ///
+    /// Cancellation: when the *consumer* of `lines` breaks out of its
+    /// for-await loop (e.g., `head -n N` got its N), the AsyncStream's
+    /// iterator deinits and our `onTermination` handler cancels the
+    /// inner reader Task. That tears down the inner `for await chunk
+    /// in bytes` iterator, which in turn fires `OutputSink.onTermination`
+    /// upstream — propagating "consumer is gone" all the way back to
+    /// the producer's task. Without this hop the inner task would keep
+    /// pulling bytes into an invalidated continuation forever, and the
+    /// producer would never see SIGPIPE-equivalent.
     public var lines: AsyncStream<String> {
-        AsyncStream<String> { continuation in
-            Task {
+        let upstream = bytes
+        return AsyncStream<String> { continuation in
+            let reader = Task {
                 var pending = ""
-                for await chunk in bytes {
+                for await chunk in upstream {
+                    if Task.isCancelled { break }
                     pending += String(decoding: chunk, as: UTF8.self)
                     while let nlRange = pending.range(of: "\n") {
                         let line = String(pending[..<nlRange.lowerBound])
@@ -152,6 +164,7 @@ public struct InputSource: Sendable {
                 }
                 continuation.finish()
             }
+            continuation.onTermination = { _ in reader.cancel() }
         }
     }
 }

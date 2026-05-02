@@ -6,16 +6,6 @@ import Foundation
 /// Demonstrates the "long-running producer feeds a streaming consumer"
 /// pattern you'd want for live-tailing something in an app. Uses
 /// sub-second sleeps so the tests stay fast.
-///
-/// Skipped on Android: even after adding cooperative `Task.yield()`
-/// to every shell loop iteration, the streaming pipeline still
-/// deadlocks on the single-CPU emulator. The producer's
-/// `Task.sleep(0.1)` *should* yield to the consumer, but the
-/// upstream-cancellation handshake when `head -n N` exits doesn't
-/// propagate back through our pipe channel before the suite
-/// time-limit fires. Needs a separate fix in the pipeline plumbing
-/// rather than the loop layer; tracked as a known limitation.
-#if !os(Android)
 @Suite(.timeLimit(.minutes(1))) struct SleepLoopPipelineTests {
 
     /// The literal pattern you'd write for "every 5 s, print the date,
@@ -156,4 +146,3 @@ private final class LineArrivalRecorder: @unchecked Sendable {
         return arrivalTimes.map { $0.timeIntervalSince(origin) }
     }
 }
-#endif

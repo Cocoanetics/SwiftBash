@@ -35,6 +35,18 @@ public final class OutputSink: @unchecked Sendable {
     private let onWrite: @Sendable (Data) -> Void
     private let onFinish: @Sendable () -> Void
 
+    /// Set by the AsyncStream's continuation `onTermination` callback —
+    /// fires when the read side's iterator deinits (consumer broke out
+    /// of `for await … in bytes`) or when ``finish()`` is called. The
+    /// pipeline assigns ``onConsumerGone`` so a producer that's still
+    /// busy gets `Task.cancel`'d instead of writing into the void
+    /// forever. Plain `Atomic`-style guarded access — single writer
+    /// (the continuation handler) and at most one reader (the
+    /// pipeline's hookup site).
+    private let stateLock = NSLock()
+    private var _terminated: Bool = false
+    private var _onConsumerGone: (@Sendable () -> Void)?
+
     public init(
         bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy = .unbounded,
         onWrite: @escaping @Sendable (Data) -> Void = { _ in },
@@ -46,6 +58,45 @@ public final class OutputSink: @unchecked Sendable {
         self.continuation = cont
         self.onWrite = onWrite
         self.onFinish = onFinish
+        // Wire the AsyncStream's termination signal — fired both when
+        // the writer calls `finish()` and when the read iterator dies
+        // (e.g., `for await line in bytes { …; if … { break } }`). We
+        // care about the second case for pipe-cancellation: the bash
+        // semantics is "downstream went away ⇒ producer gets SIGPIPE".
+        // We approximate that by cancelling the producer's task, which
+        // lets the wrapping pipeline runner observe it cleanly.
+        cont.onTermination = { [weak self] _ in
+            guard let self else { return }
+            self.stateLock.lock()
+            self._terminated = true
+            let hook = self._onConsumerGone
+            self.stateLock.unlock()
+            hook?()
+        }
+    }
+
+    /// True once the read side has gone away or `finish()` has been
+    /// called. Producers that synthesize their own data without going
+    /// through `Shell.current.stdout(...)` can poll this to avoid
+    /// generating garbage.
+    public var isTerminated: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _terminated
+    }
+
+    /// Install a one-shot hook that fires when the read side terminates
+    /// (typically used by the pipeline runner to cancel the producer
+    /// task). If termination has *already* fired, the hook runs
+    /// immediately so registration order doesn't matter.
+    public func setOnConsumerGone(_ handler: @escaping @Sendable () -> Void) {
+        stateLock.lock()
+        if _terminated {
+            stateLock.unlock()
+            handler()
+            return
+        }
+        _onConsumerGone = handler
+        stateLock.unlock()
     }
 
     // MARK: Writing (from commands)
@@ -89,12 +140,16 @@ public final class OutputSink: @unchecked Sendable {
     }
 
     /// Line-by-line iteration — joins chunks across buffer boundaries
-    /// and strips the trailing `\n`.
+    /// and strips the trailing `\n`. Same cancellation propagation as
+    /// `InputSource.lines`: terminating the outer iterator cancels the
+    /// inner reader so the upstream bytes iteration tears down too.
     public var lines: AsyncStream<String> {
-        AsyncStream<String> { continuation in
-            Task {
+        let upstream = bytes
+        return AsyncStream<String> { continuation in
+            let reader = Task {
                 var pending = ""
-                for await chunk in bytes {
+                for await chunk in upstream {
+                    if Task.isCancelled { break }
                     pending += String(decoding: chunk, as: UTF8.self)
                     while let nl = pending.range(of: "\n") {
                         let line = String(pending[..<nl.lowerBound])
@@ -105,6 +160,7 @@ public final class OutputSink: @unchecked Sendable {
                 if !pending.isEmpty { continuation.yield(pending) }
                 continuation.finish()
             }
+            continuation.onTermination = { _ in reader.cancel() }
         }
     }
 
