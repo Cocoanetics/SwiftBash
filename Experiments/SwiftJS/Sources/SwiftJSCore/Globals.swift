@@ -8,6 +8,19 @@ extension JSRuntime {
         installProcess(argv: argv, env: env)
         installBufferAndEncodingBridges()
         installWebGlobals()
+        installEntryModuleScope()
+    }
+
+    /// Expose `module` and `exports` at the top level so an entry
+    /// script can use ESM-ish `export const` etc. (rewritten to
+    /// `exports.x = ...`) without being run via `require()`. Node
+    /// does the same for entry-point CommonJS scripts.
+    private func installEntryModuleScope() {
+        let module = JSValue(newObjectIn: context)!
+        let exports = JSValue(newObjectIn: context)!
+        module.setObject(exports, forKeyedSubscript: "exports" as NSString)
+        setGlobal("module", module)
+        setGlobal("exports", exports)
     }
 
     // MARK: - console

@@ -365,6 +365,145 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "async-write\n")
     }
 
+    // MARK: - ESM rewriter
+
+    func testEsmExportConst() {
+        let (r, out, _) = runtime()
+        r.run("""
+        export const x = 7;
+        console.log("x =", x, "exports.x =", exports.x);
+        """)
+        XCTAssertEqual(out(), "x = 7 exports.x = 7\n")
+    }
+
+    func testEsmExportFunction() {
+        let (r, out, _) = runtime()
+        r.run("""
+        export function greet(n) { return "hi, " + n; }
+        console.log(greet("world"), typeof exports.greet);
+        """)
+        XCTAssertEqual(out(), "hi, world function\n")
+    }
+
+    func testEsmExportClass() {
+        let (r, out, _) = runtime()
+        r.run("""
+        export class Counter { constructor() { this.n = 0; } inc() { return ++this.n; } }
+        const c = new Counter();
+        console.log(c.inc(), c.inc(), typeof exports.Counter);
+        """)
+        XCTAssertEqual(out(), "1 2 function\n")
+    }
+
+    func testEsmExportDefault() {
+        let (r, out, _) = runtime()
+        r.run("""
+        export default { tag: "v1" };
+        console.log(JSON.stringify(exports.default), exports.__esModule);
+        """)
+        XCTAssertEqual(out(), "{\"tag\":\"v1\"} true\n")
+    }
+
+    func testEsmExportNamedRename() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const x = 10, y = 20;
+        export { x as alpha, y as beta };
+        console.log(exports.alpha, exports.beta);
+        """)
+        XCTAssertEqual(out(), "10 20\n")
+    }
+
+    func testEsmImportNamed() {
+        let (r, out, _) = runtime()
+        r.run("""
+        import { join } from "node:path";
+        console.log(join("a", "b", "c"));
+        """)
+        XCTAssertEqual(out(), "a/b/c\n")
+    }
+
+    func testEsmImportDefault() {
+        let (r, out, _) = runtime()
+        r.run("""
+        import path from "node:path";
+        console.log(path.join("x", "y"));
+        """)
+        XCTAssertEqual(out(), "x/y\n")
+    }
+
+    func testEsmImportNamespace() {
+        let (r, out, _) = runtime()
+        r.run("""
+        import * as fs from "node:fs";
+        console.log(typeof fs.readFileSync, typeof fs.statSync);
+        """)
+        XCTAssertEqual(out(), "function function\n")
+    }
+
+    func testEsmImportCombined() {
+        let (r, out, _) = runtime()
+        r.run("""
+        import path, { join } from "node:path";
+        console.log(typeof path.join, join("p", "q"));
+        """)
+        XCTAssertEqual(out(), "function p/q\n")
+    }
+
+    func testEsmDynamicImport() {
+        let (r, out, _) = runtime()
+        r.run("""
+        import("node:path").then(p => console.log(p.join("d", "e")));
+        """)
+        XCTAssertEqual(out(), "d/e\n")
+    }
+
+    func testEsmMultiFileMjs() throws {
+        let (r, out, _) = runtime()
+        let dir = NSTemporaryDirectory() + "swiftjs-esm-\(UUID().uuidString)/"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        try """
+        export const tag = (s) => `[${s}]`;
+        export default { name: "u" };
+        """.write(toFile: dir + "u.mjs", atomically: true, encoding: .utf8)
+
+        try """
+        import u, { tag } from "./u.mjs";
+        console.log(tag(u.name));
+        """.write(toFile: dir + "main.mjs", atomically: true, encoding: .utf8)
+
+        try r.runFile(dir + "main.mjs")
+        XCTAssertEqual(out(), "[u]\n")
+    }
+
+    func testEsmJsonImport() throws {
+        let (r, out, _) = runtime()
+        let dir = NSTemporaryDirectory() + "swiftjs-json-\(UUID().uuidString)/"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        try #"{"name":"alice","age":30}"#.write(toFile: dir + "data.json", atomically: true, encoding: .utf8)
+        try """
+        const d = require("./data.json");
+        console.log(d.name, d.age);
+        """.write(toFile: dir + "main.js", atomically: true, encoding: .utf8)
+
+        try r.runFile(dir + "main.js")
+        XCTAssertEqual(out(), "alice 30\n")
+    }
+
+    func testEsmNoFalsePositive() {
+        // Strings that *look* like ESM but aren't shouldn't be rewritten.
+        let (r, out, _) = runtime()
+        r.run("""
+        const s = "this string mentions import and export";
+        console.log(s.includes("import"));
+        """)
+        XCTAssertEqual(out(), "true\n")
+    }
+
     // MARK: - util
 
     func testUtilFormat() {

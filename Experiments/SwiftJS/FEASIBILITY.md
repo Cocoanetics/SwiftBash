@@ -36,17 +36,23 @@ Experiments/SwiftJS/
 │   │   ├── Crypto.swift                   # createHash, createHmac,
 │   │   │                                  # randomBytes, randomUUID,
 │   │   │                                  # timingSafeEqual (CryptoKit)
-│   │   └── ChildProcess.swift             # execSync, spawnSync routed
-│   │                                      # through SwiftBash's
-│   │                                      # in-process bash interpreter
+│   │   ├── ChildProcess.swift             # execSync, spawnSync routed
+│   │   │                                  # through SwiftBash's
+│   │   │                                  # in-process bash interpreter
+│   │   └── ESMRewriter.swift              # static `import`/`export`
+│   │                                      # → CommonJS preprocessor
 │   └── swift-js/main.swift                # CLI: file mode, -e, -p
-├── Tests/SwiftJSCoreTests/                 # 35 tests, all passing
+├── Tests/SwiftJSCoreTests/                 # 48 tests, all passing
 └── Examples/
     ├── hello.js                            # shebang demo
     ├── portable.js                         # runs identically on swift-js/node/bun
     ├── async-stress.js                     # nested timers + microtasks
     ├── everything.js                       # cross-runtime parity harness
-    └── bench.js                            # cross-runtime benchmark
+    ├── bench.js                            # cross-runtime benchmark
+    └── esm-app/                            # 3-file ES module app
+        ├── main.mjs
+        ├── Greeter.mjs
+        └── util.mjs
 ```
 
 The runtime is split into four files:
@@ -174,11 +180,59 @@ shell-style Node script touches:
 |---|---|
 | `node:zlib` | small (parent has zlib) |
 | `node:stream` | medium |
-| ES `import` / `import.meta` | ~150 lines (JSC `JSScript.scriptOfType: .module`) |
 | Cipher/Decipher / pbkdf2 / scrypt in `crypto` | small (CryptoKit + a few spins) |
+| Top-level `await` in modules | needs real `JSScript` module support, not exposed in public API |
 | `node:worker_threads` | unclear — JSC's threading is not Node's |
 | Native addons (`*.node`) | impossible |
 | npm `node_modules` package resolution | out of scope |
+
+### ES module syntax (`import` / `export`)
+
+JSC's `evaluateScript` runs in script mode only. The `JSScript`
+class with `SourceType.module` is forward-declared in JSC's
+public headers but the actual class is not shipped — there's no
+public way to evaluate ES modules.
+
+The experiment works around this with a **regex-based rewriter**
+(`Sources/SwiftJSCore/ESMRewriter.swift`) that runs before
+evaluation. It transforms ESM-shape source into the equivalent
+CommonJS:
+
+| ESM | rewritten to |
+|---|---|
+| `import { a, b } from "./x"` | `const { a, b } = require("./x")` |
+| `import { a as b } from "./x"` | `const { a: b } = require("./x")` |
+| `import x from "./y"` | `const x = (() => { const __m = require("./y"); return __m.__esModule ? __m.default : __m; })();` |
+| `import * as ns from "./y"` | `const ns = require("./y")` |
+| `import x, { a } from "./y"` | combined form, default-with-`__esModule` honoured |
+| `import "./side-effect"` | `require("./side-effect")` |
+| `import("./dyn")` (dynamic) | `Promise.resolve(require("./dyn"))` |
+| `import.meta.url` | `("file://" + __filename)` |
+| `export const x = ...` | `const x = exports.x = ...` |
+| `export function foo() {…}` | `const foo = exports.foo = function foo() {…}` |
+| `export class Foo {…}` | `const Foo = exports.Foo = class Foo {…}` |
+| `export default expr` | `exports.__esModule = true; exports.default = expr;` |
+| `export { a, b as c }` | `exports.a = a; exports.c = b;` |
+
+The loader recognises `.js`, `.mjs`, `.cjs`, and `.json` (the
+last loaded as parsed data). `Examples/esm-app/` ships a 3-file
+ES module application (default + named + namespace imports +
+class export + dynamic import + `import.meta.url`) that produces
+**byte-for-byte identical output on swift-js, node, and bun**.
+
+What this approach can't do:
+- **Top-level `await`** — script mode forbids it.
+- `export * from "./x"` (re-export). Niche.
+- `import "./x" assert { type: "json" }`. Niche.
+- 100% correctness on adversarial source (a string literal
+  containing `"export default 1"` will get mangled). The cost of
+  fixing this is pulling in a JS parser, which is out of scope.
+
+Trade-off summary: a regex pass beats waiting on Apple to ship
+`JSScript` to Swift, and covers the forms a person actually
+writes. A real solution would need either (a) Apple to expose the
+module-loading API, or (b) embedding QuickJS-NG, which already
+ships `JS_EvalThis(... JS_EVAL_TYPE_MODULE)`.
 
 For the "JS as a shell-scripting language" target, the surface is
 now complete enough that the **`Examples/everything.js` harness

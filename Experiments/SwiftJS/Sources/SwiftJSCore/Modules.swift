@@ -61,11 +61,16 @@ extension JSRuntime {
             ? spec
             : (basePath as NSString).appendingPathComponent(spec)
 
-        // Append `.js` if no extension and the file doesn't exist.
+        // Try `.js`, `.mjs`, `.cjs`, `.json` if the bare path doesn't
+        // exist (Node's resolution order). `.json` parsed below.
         let fm = FileManager.default
-        if !fm.fileExists(atPath: resolved),
-           fm.fileExists(atPath: resolved + ".js") {
-            resolved += ".js"
+        if !fm.fileExists(atPath: resolved) {
+            for ext in [".js", ".mjs", ".cjs", ".json"] {
+                if fm.fileExists(atPath: resolved + ext) {
+                    resolved += ext
+                    break
+                }
+            }
         }
 
         // Cache check (use the resolved absolute path as the key).
@@ -79,10 +84,24 @@ extension JSRuntime {
             return throwJS("Cannot find module '\(spec)'")
         }
 
+        // .json files load as parsed JSON (Node behaviour).
+        if resolved.hasSuffix(".json") {
+            let parser = context.objectForKeyedSubscript("JSON")!
+            let value = parser.invokeMethod("parse", withArguments: [source])
+            let cache = context.objectForKeyedSubscript("__swiftjs_module_cache")!
+            cache.setObject(value as Any, forKeyedSubscript: resolved as NSString)
+            return value
+        }
+
+        // Rewrite ESM-isms before wrapping so that `.mjs` files (or
+        // `.js` files written in module syntax) work the same as
+        // CommonJS `require`d modules.
+        let rewritten = ESMRewriter.rewrite(source)
+
         // CommonJS wrapper. Note: returns module.exports.
         let wrapped = """
         (function(exports, require, module, __filename, __dirname) {
-        \(source)
+        \(rewritten)
         })
         """
         let url = URL(fileURLWithPath: resolved)

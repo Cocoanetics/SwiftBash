@@ -69,17 +69,21 @@ public final class JSRuntime {
     }
 
     /// Run a JS source string. `name` is used in stack traces.
+    /// ESM `import`/`export` is rewritten to CommonJS before
+    /// evaluation — see `ESMRewriter`.
     @discardableResult
     public func run(_ source: String, name: String = "<anonymous>") -> JSValue? {
         let stripped = stripShebang(source)
+        let rewritten = ESMRewriter.rewrite(stripped)
         let url = URL(fileURLWithPath: name)
-        let result = context.evaluateScript(stripped, withSourceURL: url)
+        let result = context.evaluateScript(rewritten, withSourceURL: url)
         drainPendingWorkIfNeeded()
         return result
     }
 
     /// Run a `.js` file from disk. Honours shebang on the first line
-    /// and sets `__filename`/`__dirname` for that script's scope.
+    /// and sets `__filename`/`__dirname` as globals for the entry
+    /// script (Node's CommonJS contract).
     @discardableResult
     public func runFile(_ path: String) throws -> JSValue? {
         let url = URL(fileURLWithPath: path)
@@ -87,6 +91,13 @@ public final class JSRuntime {
         let prev = currentScriptPath
         currentScriptPath = url.path
         defer { currentScriptPath = prev }
+
+        // Set __filename/__dirname for the top-level script. Inside
+        // require()-loaded modules these are scoped via the CommonJS
+        // wrapper, but the entry script is evaluated at the global
+        // scope so we expose them as globals.
+        setGlobal("__filename", url.path)
+        setGlobal("__dirname", (url.path as NSString).deletingLastPathComponent)
         return run(source, name: url.lastPathComponent)
     }
 
