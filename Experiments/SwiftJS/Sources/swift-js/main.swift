@@ -1,28 +1,61 @@
 import Foundation
 import SwiftJSCore
 
-// Minimal CLI: `swift-js script.js [args...]`. Mirrors `node`'s
-// argv shape so a script with `process.argv[2]` works. If the first
-// argument is `-` or `-e <expr>` we read from stdin / a one-liner.
-let raw = CommandLine.arguments
+// CLI: `swift-js [--sandbox-env] [-e expr | script.js] [args...]`.
+// Mirrors `node`'s argv shape so `process.argv[2]` works.
+//
+// Flags:
+//   --sandbox-env   Hide the host process env. JS sees only the
+//                   minimal Environment.synthetic set (PATH, HOME,
+//                   USER, etc. with placeholder values). Mutations
+//                   stay inside the runtime and are not propagated
+//                   to setenv().
+var raw = CommandLine.arguments
 guard raw.count >= 2 else {
-    FileHandle.standardError.write(Data("usage: swift-js <script.js> [args...]\n".utf8))
-    FileHandle.standardError.write(Data("       swift-js -e <expr>\n".utf8))
+    FileHandle.standardError.write(Data("usage: swift-js [--sandbox-env] <script.js> [args...]\n".utf8))
+    FileHandle.standardError.write(Data("       swift-js [--sandbox-env] -e <expr>\n".utf8))
     exit(2)
 }
-
 let interpreter = raw[0]
+
+// Pull out the optional --sandbox-env flag wherever it appears
+// before the subcommand.
+var sandboxEnv = false
+while raw.count >= 2 && raw[1] == "--sandbox-env" {
+    sandboxEnv = true
+    raw.remove(at: 1)
+}
+
+func makeProvider() -> EnvProvider {
+    if sandboxEnv {
+        // Use SwiftBash's synthetic minimal env — same set the
+        // `swift-bash exec --sandbox` mode exposes.
+        let synthetic: [String: String] = [
+            "PATH":  "/usr/bin:/bin",
+            "HOME":  "/home/user",
+            "USER":  "user",
+            "SHELL": "/bin/sh",
+            "TERM":  "dumb",
+            "LANG":  "C.UTF-8",
+        ]
+        return DictionaryEnvProvider(synthetic)
+    }
+    return OSEnvProvider()
+}
+
 let firstArg = raw[1]
 
-// `-e <expr>` evaluates without printing the result (matches `node -e`).
-// `-p <expr>` evaluates and prints (matches `node -p`).
+// `-e <expr>` evaluates without printing. `-p` evaluates and prints.
 if firstArg == "-e" || firstArg == "-p" {
     guard raw.count >= 3 else {
         FileHandle.standardError.write(Data("swift-js: \(firstArg) requires an expression\n".utf8))
         exit(2)
     }
     let expr = raw[2]
-    let runtime = JSRuntime(argv: [interpreter] + Array(raw.dropFirst(3)))
+    let runtime = JSRuntime(
+        argv: [interpreter] + Array(raw.dropFirst(3)),
+        envProvider: makeProvider()
+    )
     let result = runtime.run(expr, name: "[eval]")
     if firstArg == "-p", runtime.exitCode == 0,
        let result, !result.isUndefined, !result.isNull {
@@ -38,7 +71,7 @@ let scriptArgs = Array(raw.dropFirst(2))
 let absPath = (scriptPath as NSString).expandingTildeInPath
 let argv = [interpreter, absPath] + scriptArgs
 
-let runtime = JSRuntime(argv: argv)
+let runtime = JSRuntime(argv: argv, envProvider: makeProvider())
 do {
     _ = try runtime.runFile(absPath)
 } catch {

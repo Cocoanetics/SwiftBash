@@ -36,9 +36,29 @@ public final class JSRuntime {
     /// that want to inspect state mid-flight.
     public internal(set) var isDraining: Bool = false
 
+    /// The env-provider backing `process.env`. Reads and writes from
+    /// JS go through this. Defaults to ``OSEnvProvider`` (real host
+    /// environment, with mutations propagating to `setenv`).
+    public let envProvider: EnvProvider
+
+    public convenience init(
+        argv: [String] = [],
+        env: [String: String],
+        stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
+        stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
+    ) {
+        // Convenience: pre-frozen dict → DictionaryEnvProvider.
+        self.init(
+            argv: argv,
+            envProvider: DictionaryEnvProvider(env),
+            stdout: stdout,
+            stderr: stderr
+        )
+    }
+
     public init(
         argv: [String] = [],
-        env: [String: String] = ProcessInfo.processInfo.environment,
+        envProvider: EnvProvider = OSEnvProvider(),
         stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
         stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
     ) {
@@ -46,6 +66,7 @@ public final class JSRuntime {
             preconditionFailure("Failed to create JSContext")
         }
         self.context = ctx
+        self.envProvider = envProvider
         self.stdout = stdout
         self.stderr = stderr
 
@@ -62,7 +83,7 @@ public final class JSRuntime {
             if !self.didExit { self.exitCode = 1 }
         }
 
-        installGlobals(argv: argv, env: env)
+        installGlobals(argv: argv)
         installModules()
         installTimers()
         installFetch()

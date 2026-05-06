@@ -3,9 +3,9 @@ import JavaScriptCore
 
 extension JSRuntime {
 
-    func installGlobals(argv: [String], env: [String: String]) {
+    func installGlobals(argv: [String]) {
         installConsole()
-        installProcess(argv: argv, env: env)
+        installProcess(argv: argv)
         installBufferAndEncodingBridges()
         installWebGlobals()
         installEntryModuleScope()
@@ -68,11 +68,57 @@ extension JSRuntime {
 
     // MARK: - process
 
-    private func installProcess(argv: [String], env: [String: String]) {
+    private func installProcess(argv: [String]) {
         let process = JSValue(newObjectIn: context)!
 
         process.setObject(argv, forKeyedSubscript: "argv" as NSString)
-        process.setObject(env, forKeyedSubscript: "env" as NSString)
+
+        // process.env is a JS Proxy that routes every read/write
+        // through the EnvProvider. Setting `process.env.X = "y"`
+        // calls envProvider.set(...), which for OSEnvProvider also
+        // propagates to setenv() so child processes see the change.
+        let envGet: @convention(block) (String) -> Any? = { [weak self] key in
+            self?.envProvider.get(key)
+        }
+        let envSet: @convention(block) (String, JSValue) -> Bool = { [weak self] key, value in
+            if value.isNull || value.isUndefined {
+                self?.envProvider.set(key, nil)
+            } else {
+                self?.envProvider.set(key, value.toString())
+            }
+            return true
+        }
+        let envHas: @convention(block) (String) -> Bool = { [weak self] key in
+            self?.envProvider.get(key) != nil
+        }
+        let envKeys: @convention(block) () -> [String] = { [weak self] in
+            self?.envProvider.allKeys ?? []
+        }
+        let envDel: @convention(block) (String) -> Bool = { [weak self] key in
+            self?.envProvider.set(key, nil)
+            return true
+        }
+        setGlobal("__swiftjs_envGet", block(envGet as AnyObject))
+        setGlobal("__swiftjs_envSet", block(envSet as AnyObject))
+        setGlobal("__swiftjs_envHas", block(envHas as AnyObject))
+        setGlobal("__swiftjs_envKeys", block(envKeys as AnyObject))
+        setGlobal("__swiftjs_envDel", block(envDel as AnyObject))
+
+        let envProxy = context.evaluateScript(#"""
+        new Proxy({}, {
+          get(_, key)            { return globalThis.__swiftjs_envGet(String(key)); },
+          set(_, key, value)     { return globalThis.__swiftjs_envSet(String(key), value); },
+          has(_, key)            { return globalThis.__swiftjs_envHas(String(key)); },
+          deleteProperty(_, key) { return globalThis.__swiftjs_envDel(String(key)); },
+          ownKeys()              { return globalThis.__swiftjs_envKeys(); },
+          getOwnPropertyDescriptor(t, key) {
+            const v = globalThis.__swiftjs_envGet(String(key));
+            return v === undefined ? undefined
+              : { enumerable: true, configurable: true, writable: true, value: v };
+          },
+        });
+        """#)!
+        process.setObject(envProxy, forKeyedSubscript: "env" as NSString)
 
         #if os(macOS)
         process.setObject("darwin", forKeyedSubscript: "platform" as NSString)

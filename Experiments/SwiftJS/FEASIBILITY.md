@@ -39,16 +39,22 @@ Experiments/SwiftJS/
 │   │   ├── ChildProcess.swift             # execSync, spawnSync routed
 │   │   │                                  # through SwiftBash's
 │   │   │                                  # in-process bash interpreter
-│   │   └── ESMRewriter.swift              # static `import`/`export`
-│   │                                      # → CommonJS preprocessor
-│   └── swift-js/main.swift                # CLI: file mode, -e, -p
-├── Tests/SwiftJSCoreTests/                 # 48 tests, all passing
+│   │   ├── ESMRewriter.swift              # static `import`/`export`
+│   │   │                                  # → CommonJS preprocessor
+│   │   └── EnvProvider.swift              # pluggable backing for
+│   │                                      # process.env: OS / dict /
+│   │                                      # SwiftBash Shell-shared
+│   └── swift-js/main.swift                # CLI: file mode, -e, -p,
+│                                          # `--sandbox-env` flag
+├── Tests/SwiftJSCoreTests/                 # 52 tests, all passing
 └── Examples/
     ├── hello.js                            # shebang demo
     ├── portable.js                         # runs identically on swift-js/node/bun
     ├── async-stress.js                     # nested timers + microtasks
     ├── everything.js                       # cross-runtime parity harness
     ├── bench.js                            # cross-runtime benchmark
+    ├── sandbox-env.js                       # demo for --sandbox-env
+    ├── shell-shared-env.swift               # bash↔JS shared env doc
     └── esm-app/                            # 3-file ES module app
         ├── main.mjs
         ├── Greeter.mjs
@@ -316,6 +322,99 @@ The two known optimizations:
 
 Neither optimization is needed for the target use case — they're
 listed for completeness.
+
+## Pluggable `process.env` (sandboxing + bash↔JS shared state)
+
+Out of the box, `process.env` reads the host process's environment
+— same as `node`. But the experiment treats it as a **proxied
+view over a pluggable provider**:
+
+```swift
+public protocol EnvProvider: AnyObject {
+    func get(_ key: String) -> String?
+    func set(_ key: String, _ value: String?)
+    var allKeys: [String] { get }
+}
+```
+
+Three backends ship:
+
+| Backend | Reads from | Mutations propagate to |
+|---|---|---|
+| `OSEnvProvider` (default) | `ProcessInfo.environment` | `setenv()` (child processes see updates) |
+| `DictionaryEnvProvider` | in-memory dict the embedder owns | the dict only |
+| `ShellEnvProvider` | a `SwiftBash.Shell.environment` | the same `Shell` (bash code in that shell sees updates) |
+
+The JS side never sees a frozen snapshot — `process.env` is a
+`Proxy` whose `get`/`set`/`has`/`ownKeys`/`deleteProperty` traps
+each call into Swift. So a `process.env.X = 'y'` actually invokes
+`envProvider.set("X", "y")`, and the next `process.env.X` read
+goes back through `envProvider.get`. Reads are live.
+
+### CLI: `--sandbox-env`
+
+Passing `--sandbox-env` switches the CLI to a `DictionaryEnvProvider`
+pre-populated with the same minimal set `swift-bash exec --sandbox`
+uses (`PATH=/usr/bin:/bin`, `HOME=/home/user`, `USER=user`,
+`SHELL=/bin/sh`, `TERM=dumb`, `LANG=C.UTF-8`). The host's real
+environment — secrets, tokens, the user's actual `$HOME` — is
+invisible to the script.
+
+```bash
+$ SECRET_TOKEN=password "$SWIFTJS" sandbox-env.js
+keys:    AI_AGENT, ANTHROPIC_API_KEY, …, SECRET_TOKEN, …  (49 vars)
+hidden:  password
+
+$ SECRET_TOKEN=password "$SWIFTJS" --sandbox-env sandbox-env.js
+keys:    HOME, LANG, PATH, SHELL, TERM, USER  (6 vars)
+hidden:  <not visible>
+```
+
+This composes naturally with SwiftBash's existing per-axis
+sandboxing (filesystem, network, identity).
+
+### Bash↔JS shared environment
+
+The `ShellEnvProvider` is the genuinely novel angle. A single
+`Shell` instance can be handed to:
+
+1. A bash script run via `Shell.run`
+2. A JS script run via `JSRuntime`
+
+…and they **share state through `Shell.environment`** without
+either touching the host process. A bash command sets a variable;
+JS reads it. JS rewrites it; bash sees the new value. Neither
+escapes to `setenv`.
+
+```swift
+let shell = Shell()
+shell.registerStandardCommands()
+
+// 1. Bash sets a value.
+try await shell.run("MY_TOKEN='from bash'")
+
+// 2. JS reads it via ShellEnvProvider.
+let js = JSRuntime(envProvider: ShellEnvProvider(shell))
+js.run("""
+console.log(process.env.MY_TOKEN);   // → "from bash"
+process.env.MY_TOKEN = 'rewritten';
+process.env.JS_GIFT = 'hello';
+""")
+
+// 3. Bash sees the JS mutations.
+try await shell.run("echo $MY_TOKEN; echo $JS_GIFT")
+// → rewritten
+// → hello
+
+// 4. Host process env is untouched.
+ProcessInfo.processInfo.environment["JS_GIFT"]   // → nil
+```
+
+This is what node/bun/deno can't do: an in-process JS-and-bash
+hybrid where the two scripts trade context through a virtualised
+environment that lives entirely inside one Swift process. Useful
+for: agentic systems where the LLM emits both bash and JS that
+need to coordinate; iOS apps that can't fork; sandboxed plugins.
 
 ### child_process novelty
 

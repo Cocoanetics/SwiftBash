@@ -50,7 +50,11 @@ let package = Package(
         ),
         .testTarget(
             name: "SwiftJSCoreTests",
-            dependencies: ["SwiftJSCore"],
+            dependencies: [
+                "SwiftJSCore",
+                .product(name: "BashInterpreter", package: "SwiftBash"),
+                .product(name: "BashCommandKit", package: "SwiftBash"),
+            ],
             path: "Tests/SwiftJSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

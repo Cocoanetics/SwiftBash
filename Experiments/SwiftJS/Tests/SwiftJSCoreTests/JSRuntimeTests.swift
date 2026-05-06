@@ -1,5 +1,7 @@
 import XCTest
 @testable import SwiftJSCore
+import BashInterpreter
+import BashCommandKit
 
 final class JSRuntimeTests: XCTestCase {
 
@@ -502,6 +504,82 @@ final class JSRuntimeTests: XCTestCase {
         console.log(s.includes("import"));
         """)
         XCTAssertEqual(out(), "true\n")
+    }
+
+    // MARK: - EnvProvider variants
+
+    func testDictionaryEnvProviderRead() {
+        var out = ""
+        let r = JSRuntime(
+            argv: ["swift-js"],
+            envProvider: DictionaryEnvProvider(["TOKEN": "abc", "ROLE": "admin"]),
+            stdout: { out += $0 },
+            stderr: { _ in }
+        )
+        r.run("console.log(process.env.TOKEN, process.env.ROLE, process.env.MISSING ?? 'nil');")
+        XCTAssertEqual(out, "abc admin nil\n")
+    }
+
+    func testDictionaryEnvProviderMutationsStayInRuntime() {
+        var out = ""
+        let provider = DictionaryEnvProvider(["X": "1"])
+        let r = JSRuntime(
+            argv: [], envProvider: provider,
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+        r.run("""
+        process.env.X = 'rewritten';
+        process.env.NEW = 'added';
+        delete process.env.GONE;
+        console.log(process.env.X, process.env.NEW);
+        """)
+        XCTAssertEqual(out, "rewritten added\n")
+        // Mutations are visible on the Swift side too.
+        XCTAssertEqual(provider.get("X"), "rewritten")
+        XCTAssertEqual(provider.get("NEW"), "added")
+    }
+
+    func testEnvProxyEnumeration() {
+        var out = ""
+        let r = JSRuntime(
+            argv: [],
+            envProvider: DictionaryEnvProvider(["A": "1", "B": "2", "C": "3"]),
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+        r.run("""
+        const keys = Object.keys(process.env).sort();
+        console.log(keys.join(','));
+        console.log('A' in process.env, 'Z' in process.env);
+        """)
+        XCTAssertEqual(out, "A,B,C\ntrue false\n")
+    }
+
+    func testShellEnvProviderRoundTrip() async throws {
+        // The novel bit: a JS script and a bash script share an
+        // env via a single Shell instance. Neither touches the
+        // host process environment.
+        let shell = Shell()
+        shell.registerStandardCommands()
+        shell.environment["FROM_BASH"] = "hi"
+        shell.environment["SHARED"] = "v1"
+
+        var out = ""
+        let r = JSRuntime(
+            argv: [], envProvider: ShellEnvProvider(shell),
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+        r.run("""
+        console.log('js sees:', process.env.FROM_BASH, process.env.SHARED);
+        process.env.SHARED = 'v2-from-js';
+        process.env.FROM_JS = 'reply';
+        """)
+        XCTAssertEqual(out, "js sees: hi v1\n")
+
+        // Mutations made by JS are visible to the shell.
+        XCTAssertEqual(shell.environment["SHARED"], "v2-from-js")
+        XCTAssertEqual(shell.environment["FROM_JS"], "reply")
+        // And they did NOT escape to the host process.
+        XCTAssertNil(ProcessInfo.processInfo.environment["FROM_JS"])
     }
 
     // MARK: - util
