@@ -44,8 +44,11 @@ Experiments/SwiftJS/
 │   │   └── EnvProvider.swift              # pluggable backing for
 │   │                                      # process.env: OS / dict /
 │   │                                      # SwiftBash Shell-shared
-│   └── swift-js/main.swift                # CLI: file mode, -e, -p,
-│                                          # `--sandbox-env` flag
+│   └── swift-js/main.swift                # CLI: multi-call binary
+│                                          # (node/bun aliases),
+│                                          # -e/-p/--print/-v,
+│                                          # `--sandbox-env`,
+│                                          # `install` subcommand
 ├── Tests/SwiftJSCoreTests/                 # 52 tests, all passing
 └── Examples/
     ├── hello.js                            # shebang demo
@@ -322,6 +325,59 @@ The two known optimizations:
 
 Neither optimization is needed for the target use case — they're
 listed for completeness.
+
+## Multi-call binary: shadowing `node` and `bun`
+
+The most useful shebang is `#!/usr/bin/env node` — that's what every
+existing JS shell-script is already using, and we don't want to ask
+users to rewrite shebangs to point at a tool they've never heard of.
+
+The CLI is a multi-call binary (busybox style). `argv[0]`'s basename
+selects the personality:
+
+| Invoked as | Behaviour |
+|---|---|
+| `node` / `nodejs` | `node script.js [args]`, `node -e expr`, `node -p expr`, `node -v`, `--version` returns `v22.0.0-swiftjs` |
+| `bun` | `bun script.js`, `bun -e`, `bun --print`, `bun --version` (returns `1.3.0-swiftjs`) |
+| `swift-js` | canonical name, plus `--sandbox-env` and `install` subcommands |
+
+A single `swift-js install [prefix]` lays down three symlinks:
+
+```
+~/.local/bin/swift-js  →  /path/to/swift-js
+~/.local/bin/node      →  /path/to/swift-js
+~/.local/bin/bun       →  /path/to/swift-js
+```
+
+Put `~/.local/bin` first on `PATH` and any existing `.js` file
+that starts with `#!/usr/bin/env node` finds *our* binary, with
+no edits to the script.
+
+```bash
+$ swift-js install ~/.local/bin
+$ which node
+~/.local/bin/node
+$ node --version
+v22.0.0-swiftjs
+
+$ cat hello.js
+#!/usr/bin/env node
+console.log("USER =", process.env.USER, "argv =", process.argv.slice(2));
+
+$ ./hello.js Alice Bob
+USER = oliver argv = [ 'Alice', 'Bob' ]
+```
+
+Identical output between the real `node` and our `swift-js`-as-`node`
+on a typical Node CLI script (verified with `diff` on a `wc -l`
+implementation reading multiple files). Existing scripts work
+unchanged.
+
+This is the answer to the obvious "but why would I write
+`#!/usr/bin/env swift-js` when nobody else has heard of it?"
+question — they wouldn't. They'd write `#!/usr/bin/env node`
+like normal, and the binary takes over node's identity in
+whatever PATH order they prefer.
 
 ## Pluggable `process.env` and `process.argv`
 
