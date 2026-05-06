@@ -3,9 +3,9 @@ import JavaScriptCore
 
 extension JSRuntime {
 
-    func installGlobals(argv: [String]) {
+    func installGlobals() {
         installConsole()
-        installProcess(argv: argv)
+        installProcess()
         installBufferAndEncodingBridges()
         installWebGlobals()
         installEntryModuleScope()
@@ -68,10 +68,16 @@ extension JSRuntime {
 
     // MARK: - process
 
-    private func installProcess(argv: [String]) {
+    private func installProcess() {
         let process = JSValue(newObjectIn: context)!
 
-        process.setObject(argv, forKeyedSubscript: "argv" as NSString)
+        // process.argv: a regular JS Array snapshotted from the
+        // provider. Matches Node — it's a real array, supports
+        // for-of/spread/slice, and mutations are local to the
+        // reference (don't propagate back to the provider).
+        // Embedders that need to update it mid-run can call
+        // ``JSRuntime.refreshArgv()`` to re-sync from the provider.
+        process.setObject(argvProvider.argv(), forKeyedSubscript: "argv" as NSString)
 
         // process.env is a JS Proxy that routes every read/write
         // through the EnvProvider. Setting `process.env.X = "y"`

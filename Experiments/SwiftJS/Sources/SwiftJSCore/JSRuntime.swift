@@ -41,6 +41,10 @@ public final class JSRuntime {
     /// environment, with mutations propagating to `setenv`).
     public let envProvider: EnvProvider
 
+    /// The argv-provider backing `process.argv`. Defaults to a
+    /// frozen ``StaticArgvProvider`` from the init argument.
+    public let argvProvider: ArgvProvider
+
     public convenience init(
         argv: [String] = [],
         env: [String: String],
@@ -49,15 +53,29 @@ public final class JSRuntime {
     ) {
         // Convenience: pre-frozen dict → DictionaryEnvProvider.
         self.init(
-            argv: argv,
+            argvProvider: StaticArgvProvider(argv),
             envProvider: DictionaryEnvProvider(env),
             stdout: stdout,
             stderr: stderr
         )
     }
 
-    public init(
+    public convenience init(
         argv: [String] = [],
+        envProvider: EnvProvider = OSEnvProvider(),
+        stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
+        stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
+    ) {
+        self.init(
+            argvProvider: StaticArgvProvider(argv),
+            envProvider: envProvider,
+            stdout: stdout,
+            stderr: stderr
+        )
+    }
+
+    public init(
+        argvProvider: ArgvProvider,
         envProvider: EnvProvider = OSEnvProvider(),
         stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
         stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
@@ -66,6 +84,7 @@ public final class JSRuntime {
             preconditionFailure("Failed to create JSContext")
         }
         self.context = ctx
+        self.argvProvider = argvProvider
         self.envProvider = envProvider
         self.stdout = stdout
         self.stderr = stderr
@@ -83,7 +102,7 @@ public final class JSRuntime {
             if !self.didExit { self.exitCode = 1 }
         }
 
-        installGlobals(argv: argv)
+        installGlobals()
         installModules()
         installTimers()
         installFetch()
@@ -120,6 +139,16 @@ public final class JSRuntime {
         setGlobal("__filename", url.path)
         setGlobal("__dirname", (url.path as NSString).deletingLastPathComponent)
         return run(source, name: url.lastPathComponent)
+    }
+
+    /// Re-sync `process.argv` from the current `argvProvider` value.
+    /// Useful when a ``ShellArgvProvider``'s positional parameters
+    /// change between `run` calls and a long-lived runtime needs
+    /// the new view.
+    public func refreshArgv() {
+        let process = context.objectForKeyedSubscript("process")!
+        process.setObject(argvProvider.argv(),
+                          forKeyedSubscript: "argv" as NSString)
     }
 
     /// Block until pending timers drain (or `process.exit` is called).

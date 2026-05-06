@@ -89,3 +89,53 @@ public final class ShellEnvProvider: EnvProvider {
         Array(shell.environment.variables.keys)
     }
 }
+
+// MARK: - Argv
+
+/// Provides what JS sees through `process.argv`. The shape
+/// is Node-flavoured: `[interpreter, script, ...userArgs]`.
+///
+///   - ``StaticArgvProvider`` — fixed `[String]` set at startup.
+///                              The default; matches Node.
+///   - ``ShellArgvProvider``  — wraps a SwiftBash ``Shell``'s
+///                              `positionalParameters`.
+///                              `process.argv.slice(2)` on the
+///                              JS side maps to `$1, $2, …` on
+///                              the bash side. Mutations made
+///                              from JS to either end of the
+///                              array are reflected in the shell.
+public protocol ArgvProvider: AnyObject {
+    func argv() -> [String]
+    func setArgv(_ value: [String])
+}
+
+public final class StaticArgvProvider: ArgvProvider {
+    private var storage: [String]
+    public init(_ argv: [String]) { storage = argv }
+    public func argv() -> [String] { storage }
+    public func setArgv(_ value: [String]) { storage = value }
+}
+
+/// argv = [interpreter, script, ...shell.positionalParameters].
+/// Reads are live; writes to argv elements at index >= 2 propagate
+/// back into `shell.positionalParameters`.
+public final class ShellArgvProvider: ArgvProvider {
+    public let shell: Shell
+    /// The first two slots — `argv[0]` (interpreter) and `argv[1]`
+    /// (script path) — aren't bash-positional concepts, so we hold
+    /// them outside the shell.
+    private let interpreter: String
+    private let scriptPath: String
+    public init(_ shell: Shell, interpreter: String = "swift-js", scriptPath: String = "") {
+        self.shell = shell
+        self.interpreter = interpreter
+        self.scriptPath = scriptPath
+    }
+    public func argv() -> [String] {
+        [interpreter, scriptPath] + shell.positionalParameters
+    }
+    public func setArgv(_ value: [String]) {
+        // Anything past argv[2] becomes the new positionals.
+        shell.positionalParameters = Array(value.dropFirst(2))
+    }
+}

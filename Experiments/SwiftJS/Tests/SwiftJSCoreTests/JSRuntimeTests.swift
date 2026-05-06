@@ -554,6 +554,78 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out, "A,B,C\ntrue false\n")
     }
 
+    // MARK: - ArgvProvider variants
+
+    func testStaticArgvProviderDefault() {
+        var out = ""
+        let r = JSRuntime(
+            argvProvider: StaticArgvProvider(["swift-js", "x.js", "alpha", "beta"]),
+            envProvider: DictionaryEnvProvider(),
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+        r.run("console.log(process.argv.length, process.argv[2], process.argv[3]);")
+        XCTAssertEqual(out, "4 alpha beta\n")
+    }
+
+    func testArgvIsRealArray() {
+        var out = ""
+        let r = JSRuntime(
+            argvProvider: StaticArgvProvider(["swift-js", "s", "a", "b", "c"]),
+            envProvider: DictionaryEnvProvider(),
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+        r.run("""
+        console.log(Array.isArray(process.argv));
+        console.log(process.argv.slice(2).join(','));
+        const expanded = [...process.argv].join('|');
+        console.log(expanded);
+        """)
+        XCTAssertEqual(out, "true\na,b,c\nswift-js|s|a|b|c\n")
+    }
+
+    func testShellArgvProviderSeesShellPositionals() async throws {
+        // bash sets $1..$3, JS reads process.argv.slice(2).
+        let shell = Shell()
+        shell.registerStandardCommands()
+        shell.positionalParameters = ["red", "green", "blue"]
+
+        var out = ""
+        let r = JSRuntime(
+            argvProvider: ShellArgvProvider(shell, interpreter: "swift-js", scriptPath: "demo.js"),
+            envProvider: DictionaryEnvProvider(),
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+        r.run("""
+        console.log("argv:", JSON.stringify(process.argv));
+        """)
+        XCTAssertEqual(out,
+            #"argv: ["swift-js","demo.js","red","green","blue"]"# + "\n")
+    }
+
+    func testRefreshArgvAfterShellMutation() {
+        // Long-lived runtime: bash sets new positionals between runs,
+        // JS sees the new values after refreshArgv().
+        let shell = Shell()
+        shell.registerStandardCommands()
+        shell.positionalParameters = ["one"]
+
+        var out = ""
+        let r = JSRuntime(
+            argvProvider: ShellArgvProvider(shell, interpreter: "i", scriptPath: "s"),
+            envProvider: DictionaryEnvProvider(),
+            stdout: { out += $0 }, stderr: { _ in }
+        )
+
+        r.run("console.log(process.argv.slice(2).join(','));")
+        // → "one"
+        shell.positionalParameters = ["two", "three"]
+        r.refreshArgv()
+        r.run("console.log(process.argv.slice(2).join(','));")
+        // → "two,three"
+
+        XCTAssertEqual(out, "one\ntwo,three\n")
+    }
+
     func testShellEnvProviderRoundTrip() async throws {
         // The novel bit: a JS script and a bash script share an
         // env via a single Shell instance. Neither touches the

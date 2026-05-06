@@ -323,7 +323,7 @@ The two known optimizations:
 Neither optimization is needed for the target use case — they're
 listed for completeness.
 
-## Pluggable `process.env` (sandboxing + bash↔JS shared state)
+## Pluggable `process.env` and `process.argv`
 
 Out of the box, `process.env` reads the host process's environment
 — same as `node`. But the experiment treats it as a **proxied
@@ -372,6 +372,51 @@ hidden:  <not visible>
 
 This composes naturally with SwiftBash's existing per-axis
 sandboxing (filesystem, network, identity).
+
+### Same pattern for `process.argv`
+
+`process.argv` follows an identical pluggable model:
+
+```swift
+public protocol ArgvProvider: AnyObject {
+    func argv() -> [String]
+    func setArgv(_ value: [String])
+}
+```
+
+Two backends:
+
+| Backend | argv source |
+|---|---|
+| `StaticArgvProvider` (default) | `[String]` set at init time |
+| `ShellArgvProvider` | `[interpreter, script, ...shell.positionalParameters]` |
+
+`process.argv` is a **regular JS Array** (not a Proxy) — `for-of`,
+`spread`, `slice`, `Array.isArray` all work normally, mutations
+on the JS reference are local. Embedders that need to update it
+between `run` calls can call `JSRuntime.refreshArgv()` to re-snap
+from the provider — useful when bash code has just modified
+`shell.positionalParameters` and the next JS script needs to see
+it.
+
+This means a bash script's `$1, $2, $3` and a JS script's
+`process.argv.slice(2)` map to **the same Swift array** when both
+share a `Shell`:
+
+```swift
+let shell = Shell()
+shell.positionalParameters = ["red", "green", "blue"]
+
+let js = JSRuntime(
+    argvProvider: ShellArgvProvider(shell),
+    envProvider: ShellEnvProvider(shell)
+)
+js.run(\#"console.log(process.argv.slice(2));"\#)
+//  → ["red","green","blue"]
+
+try await shell.run(#"echo "$1 $2 $3""#)
+//  → red green blue
+```
 
 ### Bash↔JS shared environment
 
