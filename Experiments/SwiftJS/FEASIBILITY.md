@@ -58,6 +58,7 @@ Experiments/SwiftJS/
     ├── bench.js                            # cross-runtime benchmark
     ├── sandbox-env.js                       # demo for --sandbox-env
     ├── shell-shared-env.swift               # bash↔JS shared env doc
+    ├── parallel-exec.js                     # concurrent child_process via Tasks
     └── esm-app/                            # 3-file ES module app
         ├── main.mjs
         ├── Greeter.mjs
@@ -535,6 +536,52 @@ between Swift `Command` types, and hands the captured stdout back
 to JS. This is the angle node and bun can't match: a
 sandboxable JS-and-bash hybrid that doesn't touch the OS process
 table.
+
+### Concurrent subprocesses via Swift Tasks
+
+Alongside `execSync`, an async `exec(cmd, opts) → Promise` ships
+that dispatches each call onto its own `Task.detached`. Multiple
+calls run **concurrently inside one OS process** — no fork, just
+Swift Tasks scheduled across the cooperative runtime.
+
+```javascript
+const cp = require('node:child_process');
+
+await Promise.all([
+  cp.exec('sleep 0.1; printf 1'),
+  cp.exec('sleep 0.1; printf 2'),
+  cp.exec('sleep 0.1; printf 3'),
+]);
+//  → ~110 ms wall clock (not 300 ms)
+```
+
+Verified on the demo script:
+
+| | wall clock |
+|---|---:|
+| sequential `await` x3 | 318 ms |
+| `Promise.all` x3 | 107 ms |
+| `Promise.all` x20 | 108 ms |
+| `Promise.all` x20 of `echo` (no sleep) | **2 ms** |
+
+The 20-`echo`-in-2 ms result is the unique angle: 20 bash
+pipelines running concurrently with zero process spawning.
+node and bun would each fork+exec a subshell per call —
+~5–10 ms each at minimum. SwiftJS runs them as Swift Tasks
+calling registered `Command` types directly, so the limit is
+just task-scheduling overhead.
+
+Errors reject with the original `code`, `stdout`, and `stderr`
+attached to the Error so callers can recover cleanly:
+
+```javascript
+try {
+  await cp.exec('exit 7');
+} catch (e) {
+  console.log(e.code);     // → 7
+  console.log(e.stdout);   // → whatever was printed before exit
+}
+```
 
 ## Cross-platform: JavaScriptCore vs QuickJS
 

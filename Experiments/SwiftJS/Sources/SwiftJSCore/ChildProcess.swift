@@ -3,6 +3,14 @@ import JavaScriptCore
 import BashInterpreter
 import BashCommandKit
 
+/// Holder for resolve/reject of an async child_process Promise.
+/// Mirrors the one in Network.swift; access fenced by the main
+/// queue hop in Task.detached's continuation.
+private final class ChildPromiseHandles: @unchecked Sendable {
+    var resolve: JSValue?
+    var reject: JSValue?
+}
+
 extension JSRuntime {
 
     /// Build the `node:child_process` module.
@@ -32,7 +40,150 @@ extension JSRuntime {
         cp.setObject(block(spawnSync as AnyObject),
                      forKeyedSubscript: "spawnSync" as NSString)
 
+        // exec(command, opts?) → Promise<{stdout, stderr, code}>.
+        //
+        // Non-blocking. Each call spawns a Swift Task.detached that
+        // runs an independent BashInterpreter Shell, so N concurrent
+        // exec() calls really do run in parallel — Promise.all([exec,
+        // exec, exec]) of three `sleep 0.1` commands wall-clocks at
+        // ~0.1s, not ~0.3s.
+        let exec: @convention(block) (String, JSValue?) -> JSValue? = { [weak self] cmd, opts in
+            guard let self else { return nil }
+            return self.runChildAsync(command: cmd, opts: opts)
+        }
+        cp.setObject(block(exec as AnyObject),
+                     forKeyedSubscript: "exec" as NSString)
+
         return cp
+    }
+
+    /// Async `exec`. Spawns a detached Task that runs the command
+    /// through SwiftBash's interpreter (or `/bin/sh` if requested).
+    /// Returns a Promise that resolves on success and rejects on
+    /// non-zero exit. A sentinel timer keeps the JSRuntime runloop
+    /// alive until the Promise settles.
+    private func runChildAsync(command: String, opts: JSValue?) -> JSValue {
+        let useHostShell = optsUseHostShell(opts)
+        let ctx = context
+        let handles = ChildPromiseHandles()
+
+        let handler: @convention(block) (JSValue, JSValue) -> Void = { resolve, reject in
+            handles.resolve = resolve
+            handles.reject = reject
+        }
+        let handlerJS = JSValue(object: block(handler as AnyObject), in: ctx)!
+        let promiseClass = ctx.objectForKeyedSubscript("Promise")!
+        let promise = promiseClass.construct(withArguments: [handlerJS])!
+
+        // Sentinel keeps drainPendingWorkIfNeeded looping.
+        let sentinelID = nextTimerID
+        nextTimerID += 1
+        let sentinel = DispatchSource.makeTimerSource(queue: .main)
+        sentinel.schedule(deadline: .distantFuture)
+        sentinel.setEventHandler {}
+        pendingTimers[sentinelID] = sentinel
+        sentinel.resume()
+
+        Task.detached { [weak self] in
+            let result: ChildResult
+            if useHostShell {
+                result = await Self.runHostShellAsync(command: command, args: nil)
+            } else {
+                result = await Self.runBashInterpreterAsync(command: command)
+            }
+            await MainActor.run {
+                guard let self else { return }
+                if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
+                    s.cancel()
+                }
+                if result.status == 0 {
+                    let payload = JSValue(newObjectIn: self.context)!
+                    payload.setObject(result.stdout,
+                                      forKeyedSubscript: "stdout" as NSString)
+                    payload.setObject(result.stderr,
+                                      forKeyedSubscript: "stderr" as NSString)
+                    payload.setObject(result.status,
+                                      forKeyedSubscript: "code" as NSString)
+                    handles.resolve?.call(withArguments: [payload])
+                } else {
+                    let err = JSValue(newErrorFromMessage: "Command failed: \(command)\n\(result.stderr)", in: self.context)!
+                    err.setObject(result.status, forKeyedSubscript: "code" as NSString)
+                    err.setObject(result.stdout, forKeyedSubscript: "stdout" as NSString)
+                    err.setObject(result.stderr, forKeyedSubscript: "stderr" as NSString)
+                    handles.reject?.call(withArguments: [err])
+                }
+            }
+        }
+
+        return promise
+    }
+
+    /// Static async variant of runBashInterpreter — no semaphore,
+    /// returns the result via async/await so multiple instances
+    /// can be in flight at once.
+    private static func runBashInterpreterAsync(command: String) async -> ChildResult {
+        let shell = Shell()
+        shell.registerStandardCommands()
+        shell.stdout = OutputSink()
+        shell.stderr = OutputSink()
+        let stdoutSink = shell.stdout
+        let stderrSink = shell.stderr
+
+        async let outDrain: String = stdoutSink.readAllString()
+        async let errDrain: String = stderrSink.readAllString()
+
+        var status: Int32 = 0
+        var extraErr = ""
+        do {
+            let exit = try await shell.run(command)
+            stdoutSink.finish()
+            stderrSink.finish()
+            status = Int32(exit.code)
+        } catch {
+            stdoutSink.finish()
+            stderrSink.finish()
+            extraErr = String(describing: error) + "\n"
+            status = 1
+        }
+        return await ChildResult(
+            status: status,
+            stdout: outDrain,
+            stderr: extraErr + errDrain
+        )
+    }
+
+    /// Static async variant of runHostShell — uses Process and a
+    /// continuation rather than a blocking `waitUntilExit` so the
+    /// caller doesn't peg a thread.
+    private static func runHostShellAsync(command: String, args: [String]?) async -> ChildResult {
+        await withCheckedContinuation { (cont: CheckedContinuation<ChildResult, Never>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            if let args, !args.isEmpty {
+                process.arguments = ["-c", command + " " + args.map { "\"\($0)\"" }.joined(separator: " ")]
+            } else {
+                process.arguments = ["-c", command]
+            }
+            let outPipe = Pipe(); let errPipe = Pipe()
+            process.standardOutput = outPipe
+            process.standardError  = errPipe
+            process.terminationHandler = { proc in
+                let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                cont.resume(returning: ChildResult(
+                    status: proc.terminationStatus,
+                    stdout: String(decoding: outData, as: UTF8.self),
+                    stderr: String(decoding: errData, as: UTF8.self)
+                ))
+            }
+            do {
+                try process.run()
+            } catch {
+                cont.resume(returning: ChildResult(
+                    status: 127, stdout: "", stderr: error.localizedDescription
+                ))
+            }
+        }
     }
 
     /// `execSync`: run a command line through bash, return stdout.

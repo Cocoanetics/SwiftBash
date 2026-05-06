@@ -340,6 +340,47 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "swift-js\n")
     }
 
+    func testAsyncExecResolvesWithStdout() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        cp.exec('printf "abc"').then(r => console.log('got:', r.stdout, r.code));
+        """)
+        XCTAssertEqual(out(), "got: abc 0\n")
+    }
+
+    func testAsyncExecRejectsOnNonZeroExit() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        cp.exec('exit 7')
+          .then(_ => console.log('unexpected resolve'))
+          .catch(e => console.log('rejected code:', e.code));
+        """)
+        XCTAssertEqual(out(), "rejected code: 7\n")
+    }
+
+    func testAsyncExecParallelism() {
+        // Three concurrent sleeps. Wall time should be ~0.1s, not
+        // ~0.3s — proves Promise.all dispatches them onto separate
+        // Swift Tasks rather than serialising.
+        let (r, out, _) = runtime()
+        let start = Date()
+        r.run("""
+        const cp = require('node:child_process');
+        Promise.all([
+          cp.exec('sleep 0.1; printf 1'),
+          cp.exec('sleep 0.1; printf 2'),
+          cp.exec('sleep 0.1; printf 3'),
+        ]).then(rs => console.log(rs.map(r => r.stdout).join(',')));
+        """)
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertEqual(out(), "1,2,3\n")
+        // Allow a generous upper bound for slow CI; sequential
+        // would be ~300ms, parallel ~100ms.
+        XCTAssertLessThan(elapsed, 0.25, "parallel exec took \(elapsed)s — looks serialised")
+    }
+
     func testSpawnSyncReturnsObject() {
         let (r, out, _) = runtime()
         r.run("""
