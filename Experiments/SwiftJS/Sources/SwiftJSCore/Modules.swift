@@ -135,6 +135,48 @@ extension JSRuntime {
         let urlMod = makeUrlModule()
         cacheBuiltin("url", urlMod)
         cacheBuiltin("node:url", urlMod)
+
+        let cryptoMod = makeCryptoModule()
+        cacheBuiltin("crypto", cryptoMod)
+        cacheBuiltin("node:crypto", cryptoMod)
+
+        let cpMod = makeChildProcessModule()
+        cacheBuiltin("child_process", cpMod)
+        cacheBuiltin("node:child_process", cpMod)
+
+        let fsPromises = makeFsPromisesModule(syncFs: fs)
+        cacheBuiltin("node:fs/promises", fsPromises)
+        cacheBuiltin("fs/promises", fsPromises)
+    }
+
+    /// `node:fs/promises` — async wrappers over the sync fs ops.
+    /// Built in JS so each function returns a real Promise without
+    /// needing a Swift round-trip.
+    private func makeFsPromisesModule(syncFs: JSValue) -> JSValue {
+        // Stash the sync module under a unique global key so the JS
+        // factory can grab it, then build the async surface.
+        let key = "__swiftjs_sync_fs"
+        setGlobal(key, syncFs)
+        let source = #"""
+        (() => {
+          const fs = globalThis.__swiftjs_sync_fs;
+          const wrap = (name) => (...args) => {
+            try { return Promise.resolve(fs[name](...args)); }
+            catch (e) { return Promise.reject(e); }
+          };
+          const out = {};
+          for (const n of [
+            "readFileSync","writeFileSync","appendFileSync",
+            "readdirSync","mkdirSync","rmSync","unlinkSync","statSync",
+          ]) {
+            // Drop the Sync suffix.
+            out[n.replace(/Sync$/, "")] = wrap(n);
+          }
+          delete globalThis.__swiftjs_sync_fs;
+          return out;
+        })()
+        """#
+        return context.evaluateScript(source)!
     }
 
     // MARK: - fs
@@ -143,15 +185,17 @@ extension JSRuntime {
         let fs = JSValue(newObjectIn: context)!
 
         // readFileSync: returns Buffer if no encoding, String otherwise.
-        let readFileSync: @convention(block) (String, JSValue?) -> Any? = { [weak self] path, opts in
+        // No optional trailing arg in the block — read it via
+        // JSContext.currentArguments() instead.
+        let readFileSync: @convention(block) (String) -> Any? = { [weak self] path in
             guard let self else { return nil }
+            let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             do {
                 let data = try Data(contentsOf: URL(fileURLWithPath: path))
                 let encoding = Self.encodingArg(from: opts)
                 if let encoding {
                     return Self.decode(data, encoding: encoding)
                 }
-                // No encoding → Buffer (i.e. our shim's Buffer.from(array)).
                 let bufferCtor = self.context.objectForKeyedSubscript("Buffer")!
                 let bytes = Array(data) as [UInt8]
                 return bufferCtor.invokeMethod("from", withArguments: [bytes])!
@@ -162,21 +206,24 @@ extension JSRuntime {
         fs.setObject(block(readFileSync as AnyObject),
                      forKeyedSubscript: "readFileSync" as NSString)
 
-        let writeFileSync: @convention(block) (String, JSValue, JSValue?) -> Any? = { [weak self] path, value, _ in
-            guard let self else { return nil }
+        // Side-effect-only ops return Void. Returning a JSValue from
+        // an `Any?`-typed block confuses JSC's argument binder when
+        // the JS caller omits trailing optional args.
+        let writeFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
+            guard let self else { return false }
             do {
                 let data = Self.dataForWrite(value)
                 try data.write(to: URL(fileURLWithPath: path))
-                return JSValue(undefinedIn: self.context)
+                return true
             } catch {
-                return self.throwJS(error.localizedDescription)
+                _ = self.throwJS(error.localizedDescription)
+                return false
             }
         }
         fs.setObject(block(writeFileSync as AnyObject),
                      forKeyedSubscript: "writeFileSync" as NSString)
 
-        let appendFileSync: @convention(block) (String, JSValue, JSValue?) -> Any? = { [weak self] path, value, _ in
-            guard let self else { return nil }
+        let appendFileSync: @convention(block) (String, JSValue) -> Bool = { path, value in
             let data = Self.dataForWrite(value)
             let url = URL(fileURLWithPath: path)
             if let handle = try? FileHandle(forWritingTo: url) {
@@ -186,7 +233,7 @@ extension JSRuntime {
             } else {
                 try? data.write(to: url)
             }
-            return JSValue(undefinedIn: self.context)
+            return true
         }
         fs.setObject(block(appendFileSync as AnyObject),
                      forKeyedSubscript: "appendFileSync" as NSString)
@@ -203,31 +250,38 @@ extension JSRuntime {
         fs.setObject(block(readdirSync as AnyObject),
                      forKeyedSubscript: "readdirSync" as NSString)
 
-        let mkdirSync: @convention(block) (String, JSValue?) -> Any? = { [weak self] path, opts in
-            guard let self else { return nil }
+        // Avoid optional trailing-arg blocks: JSC's bridge raises a
+        // spurious "undefined is not an object" on the call
+        // expression when the JS caller omits the optional. Use
+        // `JSContext.currentArguments()` to read variadic args.
+        let mkdirSync: @convention(block) (String) -> Bool = { [weak self] path in
+            guard let self else { return false }
+            let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             let recursive = opts?.objectForKeyedSubscript("recursive")?.toBool() ?? false
             do {
                 try FileManager.default.createDirectory(
                     atPath: path,
                     withIntermediateDirectories: recursive
                 )
-                return JSValue(undefinedIn: self.context)
+                return true
             } catch {
-                return self.throwJS(error.localizedDescription)
+                _ = self.throwJS(error.localizedDescription)
+                return false
             }
         }
         fs.setObject(block(mkdirSync as AnyObject),
                      forKeyedSubscript: "mkdirSync" as NSString)
 
-        let rmSync: @convention(block) (String, JSValue?) -> Any? = { [weak self] path, opts in
-            guard let self else { return nil }
+        let rmSync: @convention(block) (String) -> Bool = { [weak self] path in
+            guard let self else { return false }
+            let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             let force = opts?.objectForKeyedSubscript("force")?.toBool() ?? false
             do {
                 try FileManager.default.removeItem(atPath: path)
-                return JSValue(undefinedIn: self.context)
+                return true
             } catch {
-                if force { return JSValue(undefinedIn: self.context) }
-                return self.throwJS(error.localizedDescription)
+                if !force { _ = self.throwJS(error.localizedDescription) }
+                return false
             }
         }
         fs.setObject(block(rmSync as AnyObject),

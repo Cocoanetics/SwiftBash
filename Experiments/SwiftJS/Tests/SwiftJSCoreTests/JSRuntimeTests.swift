@@ -260,6 +260,111 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertFalse(out().contains("should-not-fire"))
     }
 
+    // MARK: - crypto
+
+    func testCryptoSha256Hex() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const c = require('node:crypto');
+        console.log(c.createHash('sha256').update('hello').digest('hex'));
+        """)
+        XCTAssertEqual(out().trimmingCharacters(in: .whitespacesAndNewlines),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+    }
+
+    func testCryptoHmacChainable() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const c = require('crypto');
+        console.log(c.createHmac('sha256','key').update('hello').digest('hex'));
+        """)
+        XCTAssertEqual(out().trimmingCharacters(in: .whitespacesAndNewlines),
+            "9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b")
+    }
+
+    func testCryptoRandomBytes() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const c = require('node:crypto');
+        const b = c.randomBytes(16);
+        console.log(b.length, Buffer.isBuffer(b), b.toString('hex').length);
+        """)
+        XCTAssertEqual(out(), "16 true 32\n")
+    }
+
+    func testCryptoRandomUUID() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const c = require('node:crypto');
+        const id = c.randomUUID();
+        console.log(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id));
+        """)
+        XCTAssertEqual(out(), "true\n")
+    }
+
+    func testCryptoTimingSafeEqual() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const c = require('node:crypto');
+        console.log(
+          c.timingSafeEqual(Buffer.from('hello'), Buffer.from('hello')),
+          c.timingSafeEqual(Buffer.from('hello'), Buffer.from('world')),
+          c.timingSafeEqual(Buffer.from('h'),     Buffer.from('hi'))
+        );
+        """)
+        XCTAssertEqual(out(), "true false false\n")
+    }
+
+    // MARK: - child_process (BashInterpreter backend)
+
+    func testExecSyncViaBashInterpreter() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        // The pipe and tr both run through SwiftBash's in-process
+        // interpreter — no fork/exec.
+        console.log(cp.execSync('echo hello | tr a-z A-Z').trim());
+        """)
+        XCTAssertEqual(out(), "HELLO\n")
+    }
+
+    func testExecSyncEchoStringRoundTrip() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('child_process');
+        const text = cp.execSync('echo "swift-js"');
+        console.log(text.trim());
+        """)
+        XCTAssertEqual(out(), "swift-js\n")
+    }
+
+    func testSpawnSyncReturnsObject() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('child_process');
+        const r = cp.spawnSync('echo abc');
+        console.log(r.status, Buffer.isBuffer(r.stdout), r.stdout.toString().trim());
+        """)
+        XCTAssertEqual(out(), "0 true abc\n")
+    }
+
+    // MARK: - fs/promises
+
+    func testFsPromisesReadAndWrite() throws {
+        let (r, out, _) = runtime()
+        let tmp = NSTemporaryDirectory() + "swiftjs-fsp-\(UUID().uuidString).txt"
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        r.run(#"""
+        const fs = require('node:fs/promises');
+        (async () => {
+          await fs.writeFile("\#(tmp)", "async-write");
+          const text = await fs.readFile("\#(tmp)", 'utf-8');
+          console.log(text);
+        })();
+        """#)
+        XCTAssertEqual(out(), "async-write\n")
+    }
+
     // MARK: - util
 
     func testUtilFormat() {

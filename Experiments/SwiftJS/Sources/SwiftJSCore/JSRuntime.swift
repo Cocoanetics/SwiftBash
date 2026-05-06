@@ -65,6 +65,7 @@ public final class JSRuntime {
         installGlobals(argv: argv, env: env)
         installModules()
         installTimers()
+        installFetch()
     }
 
     /// Run a JS source string. `name` is used in stack traces.

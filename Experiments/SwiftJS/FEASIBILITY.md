@@ -6,8 +6,8 @@ Apple platforms (using the system JavaScriptCore framework), and
 optionally on Linux / Windows too?
 
 **Short answer**: yes on Apple, easily. The runtime in this
-experiment is ~1000 lines of Swift, builds to a 218 KB release
-binary, and
+experiment is ~1700 lines of Swift across 7 files, builds to an
+8 MB release binary (vs 57 MB for bun, 105 MB for node), and
 runs `node`-shaped scripts with `console`, `process`, `fs`, `path`,
 and `os` modules. Cold-start is faster than `node`. For non-Apple,
 QuickJS-NG is the right backend, but you pay an abstraction layer
@@ -18,6 +18,8 @@ to share the stdlib between engines.
 ```
 Experiments/SwiftJS/
 ├── Package.swift                          # standalone SwiftPM package
+├── Resources/swift-js.entitlements        # JIT entitlement
+├── scripts/codesign-jit.sh                # post-build sign helper
 ├── Sources/
 │   ├── SwiftJSCore/
 │   │   ├── JSRuntime.swift                # context, exception handler, runloop drain
@@ -27,15 +29,24 @@ Experiments/SwiftJS/
 │   │   ├── Modules.swift                  # require() + builtin modules
 │   │   │                                  # (fs, path, os, util, url) +
 │   │   │                                  # CommonJS local-file loader
-│   │   └── Timers.swift                   # setTimeout, setInterval,
-│   │                                      # clearTimeout, clearInterval,
-│   │                                      # setImmediate (DispatchSourceTimer)
+│   │   ├── Timers.swift                   # setTimeout, setInterval,
+│   │   │                                  # clearTimeout, clearInterval,
+│   │   │                                  # setImmediate (DispatchSourceTimer)
+│   │   ├── Network.swift                  # fetch, Headers, Response (URLSession)
+│   │   ├── Crypto.swift                   # createHash, createHmac,
+│   │   │                                  # randomBytes, randomUUID,
+│   │   │                                  # timingSafeEqual (CryptoKit)
+│   │   └── ChildProcess.swift             # execSync, spawnSync routed
+│   │                                      # through SwiftBash's
+│   │                                      # in-process bash interpreter
 │   └── swift-js/main.swift                # CLI: file mode, -e, -p
-├── Tests/SwiftJSCoreTests/                 # 26 tests, all passing
+├── Tests/SwiftJSCoreTests/                 # 35 tests, all passing
 └── Examples/
     ├── hello.js                            # shebang demo
     ├── portable.js                         # runs identically on swift-js/node/bun
-    └── async-stress.js                     # nested timers + microtasks
+    ├── async-stress.js                     # nested timers + microtasks
+    ├── everything.js                       # cross-runtime parity harness
+    └── bench.js                            # cross-runtime benchmark
 ```
 
 The runtime is split into four files:
@@ -64,6 +75,8 @@ The runtime is split into four files:
 - `fs` / `node:fs`: `readFileSync` (Buffer or encoded string),
   `writeFileSync`, `appendFileSync`, `existsSync`, `readdirSync`,
   `mkdirSync({recursive})`, `rmSync`, `unlinkSync`, `statSync`
+- `fs/promises` / `node:fs/promises`: async wrappers over the sync
+  fs ops (`readFile`, `writeFile`, `mkdir`, `rm`, `stat`, …)
 - `path` / `node:path`: full string-API surface (`sep`, `delimiter`,
   `join`, `basename`, `dirname`, `extname`, `isAbsolute`, `resolve`,
   `parse`)
@@ -71,9 +84,25 @@ The runtime is split into four files:
   `arch`, `EOL`
 - `util` / `node:util`: `format` (with `%s %d %j` etc.), `inspect`
 - `url` / `node:url`: `URL`, `fileURLToPath`, `pathToFileURL`
+- `crypto` / `node:crypto`: `createHash` (sha256/sha384/sha512/sha1/md5),
+  `createHmac` (same algorithms), `randomBytes`, `randomUUID`,
+  `timingSafeEqual` — backed by CryptoKit
+- `child_process` / `node:child_process`: `execSync`, `spawnSync` —
+  default backend is **SwiftBash's `BashInterpreter` running
+  in-process**, no `fork`/`exec`. Pass `{ shell: 'host' }` (or set
+  `SWIFTJS_HOST_SHELL=1`) to fall through to Foundation's `Process`
+  on `/bin/sh`.
 - Local files: `require('./helper')` with `.js` auto-extension,
   CommonJS wrapper (`(function(exports,require,module,__filename,__dirname){...})`),
   module cache, circular-require guard
+
+**Network**:
+- `fetch(url, init?) → Promise<Response>`. Backed by `URLSession`.
+  `Response` has `.text()`, `.json()`, `.arrayBuffer()`, `.bytes()`,
+  `.headers` (with `Headers` class), `.ok`, `.status`, `.url`.
+  `init` accepts `method`, `headers`, `body` (string or Uint8Array).
+  In-flight requests register a sentinel timer so the runloop
+  drain keeps the process alive until the response arrives.
 
 **Shebang**: stripped before evaluation, with a `//` placeholder so
 reported line numbers in stack traces still match the file.
@@ -110,54 +139,148 @@ microtask ordering, `setInterval` self-cancellation, and
 propagation, unhandled-throw → exit 1 with stack trace, and Promise
 microtasks all work. Tests: 26/26 passing on macOS 26 / Swift 6.3.
 
-### Performance
-
-| | swift-js -e '1' | node -e '1' | osascript -l JavaScript |
-|---|---|---|---|
-| real time | ~0–10 ms | ~20–30 ms | ~20–30 ms |
-
-JSC is genuinely fast and the launch overhead is dominated by
-process startup, not engine init.
+For full benchmark numbers see [§ Benchmarks](#benchmarks)
+below. Briefly: cold start <1 ms (vs 10–20 ms for node/bun);
+fib(28) and regex parity-or-faster vs node *with the JIT
+entitlement applied*; Buffer/crypto bridge calls 70–100× slower
+than node on tight loops.
 
 ## What's in JSC vs what we built vs what's still missing
 
 JSC ships only the language — typed arrays, Promise, Map/Set,
 Symbol, BigInt, Proxy, Reflect, Intl, WeakRef, Date, JSON, RegExp.
 **Everything platform-shaped is missing.** Confirmed by direct
-introspection: `URL`, `URLSearchParams`, `TextEncoder`, `TextDecoder`,
+introspection: `URL`, `TextEncoder`/`TextDecoder`,
 `queueMicrotask`, `structuredClone`, `crypto`, `atob`, `btoa`,
-`setTimeout`, `console`, `process` — all `undefined` on a fresh
-`JSContext`.
+`setTimeout`, `fetch`, `console`, `process` — all `undefined` on a
+fresh `JSContext`.
 
-This experiment now provides custom Swift-backed implementations
-of the most-used ones (the right-hand column was undefined in JSC):
+This experiment now bridges most of the surface a real-world
+shell-style Node script touches:
 
-| Bridged to Swift | Polyfilled in JS-on-context | Still missing |
-|---|---|---|
-| `console.*`, `process.*`, timers, `Buffer.from/alloc`, UTF-8 encode/decode, base64, hex, fs ops, URL parse | `Buffer` class, `TextEncoder`/`TextDecoder`, `atob`/`btoa`, `URL` constructor, `path` module, `util.format`, CommonJS wrapper, `require()` | `fetch`, `crypto`, `child_process`, ES `import`, npm resolution, streams, `node:fs/promises`, worker threads |
+| Now supported | How |
+|---|---|
+| `console`, `process`, timers, `setImmediate`, `queueMicrotask` | Swift bridges + JS shim |
+| `Buffer`, `TextEncoder`/`Decoder`, `atob`, `btoa` | UTF-8/base64/hex bridged from Swift, classes built in JS on top |
+| `URL`, `URLSearchParams`-equivalent fields | `URLComponents`-backed parser |
+| `node:fs` (sync + promises wrapper) | Foundation `FileManager`/`Data` |
+| `node:path`, `node:os`, `node:util`, `node:url` | Pure JS where possible, Swift for `os.*` |
+| `node:crypto` (createHash/createHmac/randomBytes/randomUUID/timingSafeEqual) | CryptoKit |
+| `node:child_process` (execSync/spawnSync) | **SwiftBash `BashInterpreter` in-process** by default; Foundation `Process` as opt-in fallback |
+| `fetch`, `Response`, `Headers` | URLSession |
+| `require('./local')`, `require('node:foo')` | CommonJS wrapper, module cache, circular guard |
 
-For the "JS as a shell-scripting language with sync fs and JSON"
-target, the current surface is now sufficient — the
-`portable.js` and `wordcount.js` examples are real scripts a person
-might write, and they run identically across `swift-js`, `node`,
-and `bun`.
+| Still missing | Cost to add |
+|---|---|
+| `node:zlib` | small (parent has zlib) |
+| `node:stream` | medium |
+| ES `import` / `import.meta` | ~150 lines (JSC `JSScript.scriptOfType: .module`) |
+| Cipher/Decipher / pbkdf2 / scrypt in `crypto` | small (CryptoKit + a few spins) |
+| `node:worker_threads` | unclear — JSC's threading is not Node's |
+| Native addons (`*.node`) | impossible |
+| npm `node_modules` package resolution | out of scope |
 
-The known holes worth flagging:
-- **`fetch`**: the obvious next addition. URLSession bridge, plus
-  the same `NetworkConfig.allowedURLPrefixes` allow-list pattern
-  the parent `BashCommandKit` already uses for `curl`.
-- **`crypto`**: doable on top of `swift-crypto` (parent already
-  depends on it). `createHash`, `randomBytes` first; cipher later.
-- **`child_process`**: this is where SwiftJS could get interesting —
-  `spawn(...)` could route through `BashInterpreter`, giving you a
-  JS script that pipelines through bash commands without leaving
-  the process. Genuine novelty, fits the SwiftBash thesis.
-- **ES `import` / `import.meta`**: JSC supports modules via
-  `JSScript.scriptOfType: .module` with a loader callback. ~150
-  lines on top of what's there. Out of scope for this experiment.
-- **npm `node_modules` resolution**: nope. Out of scope. Real npm
-  packages call native addons (`*.node`) we will never load. This
-  tool targets *scripts a person writes*, not the npm ecosystem.
+For the "JS as a shell-scripting language" target, the surface is
+now complete enough that the **`Examples/everything.js` harness
+produces byte-for-byte identical output** when run on `swift-js`,
+`node`, and `bun`. See [§ Cross-runtime parity](#cross-runtime-parity).
+
+## Cross-runtime parity
+
+`Examples/everything.js` exercises every layer in one script:
+process/os/path → fs (sync + Buffer) → Buffer/TextEncoder/URL →
+crypto (sha256/md5/hmac/random) → child_process pipeline → util →
+async (timers + microtasks + Promise). Running it on all three
+runtimes:
+
+```bash
+$ swift-js everything.js Oliver > /tmp/sj.txt
+$ node     everything.js Oliver > /tmp/n.txt
+$ bun      everything.js Oliver > /tmp/b.txt
+$ diff /tmp/sj.txt /tmp/n.txt && echo identical
+$ diff /tmp/sj.txt /tmp/b.txt && echo identical
+identical
+identical
+```
+
+Same hashes, same Buffer hex, same URL parse, same microtask order,
+same Promise order, same timer order. The only divergences worth
+calling out:
+- `URL` strips default-port `:443` for https on Node/Bun but not
+  on our `URLComponents`-backed shim (use a non-default port to
+  avoid the divergence).
+- `child_process.execSync` returns `Buffer` by default in Node;
+  ours defaults to a string. Pass `{ encoding: 'utf-8' }` to make
+  it explicit and all three agree.
+
+## Benchmarks
+
+`Examples/bench.js` (release build, M1, JIT entitlement applied
+via `scripts/codesign-jit.sh`):
+
+| operation | swift-js | node v22 | bun v1.3 | swift-js vs node |
+|---|---:|---:|---:|---:|
+| fib(28) (3 runs) | 5 ms | 7 ms | 5 ms | **0.7×** (faster) |
+| JSON.parse (3000 ops) | 1 ms | 1 ms | 1 ms | parity |
+| regex test (300k) | 3 ms | 6 ms | 3 ms | **0.5×** (faster) |
+| fs write+read (3000) | 277 ms | 170 ms | 100 ms | 1.6× slower |
+| Buffer.from utf-8 (30k) | 509 ms | 7 ms | 4 ms | **73× slower** |
+| sha256 hex (30k) | 1316 ms | 18 ms | 12 ms | **73× slower** |
+
+| metric | swift-js | node | bun | deno |
+|---|---:|---:|---:|---:|
+| cold start `-e '0'` | <1 ms | 20 ms | 10 ms | 4 ms |
+| binary size | 8.1 MB | 105 MB | 57 MB | – |
+
+Two clear stories:
+
+**Pure-JS performance is competitive — but only with the JIT
+entitlement.** JavaScriptCore's high-tier JIT (FTL) requires
+`com.apple.security.cs.allow-jit` in the binary's entitlements.
+Without it, JSC falls back to the lower JIT tiers and `fib(30) x5`
+took 280 ms; signed with the entitlement, the same runs in 18 ms.
+SwiftPM's auto-generated ad-hoc signature **does not include JIT
+entitlements** — the included `scripts/codesign-jit.sh` resigns
+the binary with `Resources/swift-js.entitlements`. Once signed,
+swift-js matches or beats node on tight pure-JS loops.
+
+**Bridge crossings dominate when JS↔Swift is on the hot path.**
+Each `Buffer.from(string)` and each `crypto.createHash().update()
+.digest()` chain crosses the JS↔Swift boundary 1–3 times. Node
+and Bun implement these as engine-internal C++, so they're 70–100×
+faster on tight loops. For shell-script-shaped workloads this
+doesn't matter (there's no inner loop on `Buffer.from`); for tight
+data-munging it does.
+
+The two known optimizations:
+- For Buffer: keep `Buffer.from(string)` in pure JS using a
+  manual UTF-8 encoder (avoid the Swift round-trip per call).
+  Trades correctness on edge cases (invalid surrogates) for ~50×.
+- For crypto: expose stateless functions like `crypto.sha256(data)`
+  that do the whole hash in one Swift call, so 30k iterations cost
+  30k bridge crossings instead of 90k. ~10× win.
+
+Neither optimization is needed for the target use case — they're
+listed for completeness.
+
+### child_process novelty
+
+When a JS script does:
+
+```javascript
+const { execSync } = require('node:child_process');
+execSync('printf "alpha\\nbeta\\ngamma\\n" | grep a | wc -l');
+//   →  3
+```
+
+…all three of `printf`, `grep`, and `wc` run **inside the same
+process** as the JavaScript. There is no `fork`, no `exec`, no
+`/bin/sh`. SwiftBash's `Shell` parses the bash, registers the
+standard commands, runs the pipeline as `AsyncStream<Data>`
+between Swift `Command` types, and hands the captured stdout back
+to JS. This is the angle node and bun can't match: a
+sandboxable JS-and-bash hybrid that doesn't touch the OS process
+table.
 
 ## Cross-platform: JavaScriptCore vs QuickJS
 
