@@ -1,56 +1,89 @@
-# SwiftJS — feasibility report
+# SwiftJS
 
-A quick experiment to answer: can we ship a Node-style JavaScript
-executor that runs `#!/usr/bin/env swift-js` shebang scripts on
-Apple platforms (using the system JavaScriptCore framework), and
-optionally on Linux / Windows too?
+A Node-style JavaScript executor built on Apple's
+JavaScriptCore. Drops a `swift-js` binary into your terminal
+that runs `#!/usr/bin/env node` shebang scripts unchanged, and
+ships an embeddable `SwiftJSCore` Swift library for putting a
+JS runtime inside iOS / macOS apps where `fork` is unavailable.
 
-**Short answer**: yes on Apple, easily. The runtime in this
-experiment is ~1700 lines of Swift across 7 files, builds to an
-8 MB release binary (vs 57 MB for bun, 105 MB for node), and
-runs `node`-shaped scripts with `console`, `process`, `fs`, `path`,
-and `os` modules. Cold-start is faster than `node`. For non-Apple,
-QuickJS-NG is the right backend, but you pay an abstraction layer
-to share the stdlib between engines.
+```bash
+$ swift-js install ~/.local/bin
+$ cat hello.js
+#!/usr/bin/env node
+const fs = require('node:fs');
+console.log('lines:', fs.readFileSync('/etc/hosts', 'utf-8').split('\n').length);
+$ chmod +x hello.js && ./hello.js
+lines: 10
+```
 
-## What was built (this branch, Apple-only)
+The runtime is ~1700 lines of Swift across 8 files, builds to
+an 8 MB release binary (vs 57 MB for bun, 105 MB for node), and
+covers the surface real-world Node CLIs touch: `console`,
+`process` (incl. `argv`/`env`/`stdout`/`exitCode`/`pid`),
+`Buffer`, `URL`, `TextEncoder`/`TextDecoder`, `fetch`, timers,
+`Promise`, `AbortController`, `WebAssembly`, `node:fs` (sync +
+promises), `node:path`, `node:os`, `node:util`, `node:url`,
+`node:crypto`, `node:zlib`, `node:assert`, `node:events`,
+`node:querystring`, `node:perf_hooks`, `node:child_process`,
+plus `require()` and ES `import`/`export`. Cold-start is faster
+than `node`. Cross-runtime parity is verified script-by-script
+against `node` and `bun`.
+
+The novel SwiftBash-specific knobs:
+- `child_process` runs through SwiftBash's in-process
+  `BashInterpreter` by default (no fork, sandboxable). The
+  `swift-js` CLI opts into `/bin/sh` so external binaries work
+  the way they do under node.
+- `process.env` and `process.argv` are pluggable per
+  ``EnvProvider`` / ``ArgvProvider``. `--sandbox-env` exposes
+  only a synthetic minimal set; `ShellEnvProvider` lets a JS
+  script and a bash script trade state through a single
+  in-process `Shell.environment` without ever touching the host
+  process env.
+
+For non-Apple platforms (Linux / Windows / Android), every JSC-
+touching `.swift` file is wrapped in `#if canImport(JavaScriptCore)`,
+so the package builds everywhere — non-Apple builds register an
+empty `SwiftJSCore` module and a stub `swift-js` that exits with
+`EX_CONFIG`. Real cross-platform support would mean swapping in
+QuickJS-NG; see [§ Cross-platform: who gets what](#cross-platform-who-gets-what).
+
+## Layout
 
 ```
-Experiments/SwiftJS/
-├── Package.swift                          # standalone SwiftPM package
-├── Resources/swift-js.entitlements        # JIT entitlement
-├── scripts/codesign-jit.sh                # post-build sign helper
-├── Sources/
-│   ├── SwiftJSCore/
-│   │   ├── JSRuntime.swift                # context, exception handler, runloop drain
-│   │   ├── Globals.swift                  # console, process, Buffer,
-│   │   │                                  # TextEncoder/Decoder, atob/btoa,
-│   │   │                                  # URL, queueMicrotask
-│   │   ├── Modules.swift                  # require() + builtin modules
-│   │   │                                  # (fs, path, os, util, url) +
-│   │   │                                  # CommonJS local-file loader
-│   │   ├── Timers.swift                   # setTimeout, setInterval,
-│   │   │                                  # clearTimeout, clearInterval,
-│   │   │                                  # setImmediate (DispatchSourceTimer)
-│   │   ├── Network.swift                  # fetch, Headers, Response (URLSession)
-│   │   ├── Crypto.swift                   # createHash, createHmac,
-│   │   │                                  # randomBytes, randomUUID,
-│   │   │                                  # timingSafeEqual (CryptoKit)
-│   │   ├── ChildProcess.swift             # execSync, spawnSync routed
-│   │   │                                  # through SwiftBash's
-│   │   │                                  # in-process bash interpreter
-│   │   ├── ESMRewriter.swift              # static `import`/`export`
-│   │   │                                  # → CommonJS preprocessor
-│   │   └── EnvProvider.swift              # pluggable backing for
-│   │                                      # process.env: OS / dict /
-│   │                                      # SwiftBash Shell-shared
-│   └── swift-js/main.swift                # CLI: multi-call binary
-│                                          # (node/bun aliases),
-│                                          # -e/-p/--print/-v,
-│                                          # `--sandbox-env`,
-│                                          # `install` subcommand
-├── Tests/SwiftJSCoreTests/                 # 52 tests, all passing
-└── Examples/
+Sources/SwiftJSCore/                       # the runtime library
+│   ├── JSRuntime.swift                # context, exception handler, runloop drain
+│   ├── Globals.swift                  # console, process, Buffer,
+│   │                                  # TextEncoder/Decoder, atob/btoa,
+│   │                                  # URL, queueMicrotask, performance,
+│   │                                  # AbortController, structuredClone
+│   ├── Modules.swift                  # require() + builtin modules
+│   │                                  # (fs, path, os, util, url, assert,
+│   │                                  # events, querystring, perf_hooks)
+│   │                                  # + CommonJS local-file loader
+│   ├── Timers.swift                   # setTimeout, setInterval,
+│   │                                  # clearTimeout, clearInterval,
+│   │                                  # setImmediate (DispatchSourceTimer)
+│   ├── Network.swift                  # fetch, Headers, Response (URLSession,
+│   │                                  # AbortSignal-aware)
+│   ├── Crypto.swift                   # createHash, createHmac,
+│   │                                  # randomBytes, randomUUID,
+│   │                                  # timingSafeEqual (CryptoKit)
+│   ├── Zlib.swift                     # node:zlib (gzip/gunzip/deflate/inflate)
+│   ├── ChildProcess.swift             # execSync/spawnSync/exec, static
+│   │                                  # backend (in-process or /bin/sh)
+│   ├── ESMRewriter.swift              # static `import`/`export`
+│   │                                  # → CommonJS preprocessor
+│   └── EnvProvider.swift              # pluggable backing for
+│                                      # process.env / process.argv
+├── Sources/swift-js/                   # the CLI binary
+│   ├── main.swift                     # multi-call binary
+│   │                                  # (node/bun aliases), -e/-p/--print,
+│   │                                  # --sandbox-env, install subcommand
+│   └── Resources/swift-js.entitlements # JIT entitlement
+├── scripts/codesign-jit.sh             # post-build sign helper
+├── Tests/SwiftJSCoreTests/             # 78 tests, all passing
+└── Examples/SwiftJS/
     ├── hello.js                            # shebang demo
     ├── portable.js                         # runs identically on swift-js/node/bun
     ├── async-stress.js                     # nested timers + microtasks
@@ -770,7 +803,7 @@ compile to (essentially) empty modules and a stub executable.
 ## Status of this branch
 
 `experiment/js-executor`, parallel to `main`. The package lives in
-`Experiments/SwiftJS/` so it doesn't entangle the main `Package.swift`
+`` so it doesn't entangle the main `Package.swift`
 — it builds independently with `swift build` from inside that
 directory. Tests pass on macOS 26 / Swift 6.3.
 

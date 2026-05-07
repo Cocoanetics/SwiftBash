@@ -14,7 +14,14 @@ let package = Package(
         .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
         .library(name: "BashCommandKit", targets: ["BashCommandKit"]),
         .library(name: "CZlib", targets: ["CZlib"]),
+        .library(name: "SwiftJSCore", targets: ["SwiftJSCore"]),
         .executable(name: "swift-bash", targets: ["swift-bash"]),
+        // SwiftJS is a Node-shaped JS runtime built on Apple's
+        // JavaScriptCore. Source files are gated on
+        // `canImport(JavaScriptCore)` so the products register
+        // everywhere but compile to empty modules / a stub binary
+        // on Linux / Windows / Android. See Docs/SwiftJS.md.
+        .executable(name: "swift-js", targets: ["swift-js"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser",
@@ -105,6 +112,48 @@ let package = Package(
             name: "BashCommandKitTests",
             dependencies: ["BashCommandKit"],
             path: "Tests/BashCommandKitTests"
+        ),
+
+        // ---- SwiftJS — JavaScript runtime + CLI ----
+        // Apple-only at the source level (`#if canImport(JavaScriptCore)`).
+        // Targets register on every platform; on non-Apple they
+        // compile to (essentially) empty modules.
+        .target(
+            name: "SwiftJSCore",
+            dependencies: [
+                "BashInterpreter",
+                "BashCommandKit",
+                "CZlib",
+            ],
+            path: "Sources/SwiftJSCore",
+            // The runtime is single-threaded — every JSValue touch
+            // happens on the main queue. Swift 6 strict concurrency
+            // can't prove that statically; the workarounds would
+            // obscure the runtime, so we run in v5 mode.
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [
+                .linkedLibrary("z",
+                               .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .linux])),
+                .linkedLibrary("zlib",
+                               .when(platforms: [.windows])),
+            ]
+        ),
+        .executableTarget(
+            name: "swift-js",
+            dependencies: ["SwiftJSCore"],
+            path: "Sources/swift-js",
+            exclude: ["Resources"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "SwiftJSCoreTests",
+            dependencies: [
+                "SwiftJSCore",
+                "BashInterpreter",
+                "BashCommandKit",
+            ],
+            path: "Tests/SwiftJSCoreTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )

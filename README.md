@@ -39,7 +39,9 @@ try await shell.run("""
 | **`BashSyntax`**       | Available  | Parse bash into a typed AST. Smart tokeniser for shell-aware splitting.    |
 | **`BashInterpreter`**  | Available  | Execute the AST in-process. Streaming pipelines, full bash 4.x semantics.  |
 | **`BashCommandKit`**   | Available  | Catalog of `ls`/`cat`/`grep`/`sed`/`find`/`curl`/… built on Swift Argument Parser. |
+| **`SwiftJSCore`**      | Available (Apple-only) | Node-style JavaScript runtime on JavaScriptCore. `require`, ESM `import`, `node:fs/path/os/crypto/zlib/child_process/…`, `fetch`, `Buffer`, timers, `AbortController`, `WebAssembly`. |
 | **`swift-bash`** (CLI) | Available  | `exec` and `parse` subcommands; sandbox flags for confined execution.       |
+| **`swift-js`** (CLI)   | Available (Apple-only) | Drop-in for `node` — `swift-js install` symlinks `node`/`bun` so existing `#!/usr/bin/env node` scripts run unchanged. |
 
 ## Component docs
 
@@ -49,6 +51,8 @@ try await shell.run("""
   streams, custom commands, built-ins, bash 4.x semantics.
 - **[BashCommandKit](Docs/BashCommandKit.md)** — every shipped
   `ls`/`cat`/`grep`-style command + how to add your own typed ones.
+- **[SwiftJS](Docs/SwiftJS.md)** — Node-style JavaScript runtime on
+  JavaScriptCore. Embeddable + `swift-js` CLI shadow for `node`/`bun`.
 - **[Sandboxing](Docs/Sandboxing.md)** — the four virtualisation axes
   (filesystem, network, processes, identity) and the `--sandbox` flag.
 - **[Networking](Docs/Networking.md)** — `curl`, the URL allow-list,

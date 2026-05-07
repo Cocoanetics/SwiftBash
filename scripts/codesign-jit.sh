@@ -9,7 +9,7 @@ set -euo pipefail
 CONFIG="${1:-release}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$HERE/.build/$CONFIG/swift-js"
-ENT="$HERE/Resources/swift-js.entitlements"
+ENT="$HERE/Sources/swift-js/Resources/swift-js.entitlements"
 
 if [[ ! -x "$BIN" ]]; then
     echo "swift-js binary not found at $BIN — run \`swift build -c $CONFIG\` first." >&2
