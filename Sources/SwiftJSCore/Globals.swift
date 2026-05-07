@@ -103,16 +103,27 @@ extension JSRuntime {
         sentinel.resume()
 
         let fh = FileHandle.standardInput
-        fh.readabilityHandler = { [weak self] handle in
+        // Idempotent teardown shared by the EOF path and the JS-side
+        // `destroy()` hook. Without this, a `for await` loop that
+        // breaks early on `process.stdin` would leave the sentinel
+        // alive and `drainPendingWorkIfNeeded()` would hang waiting
+        // for stdin EOF that never comes.
+        let teardown: @Sendable () -> Void = { [weak self] in
+            fh.readabilityHandler = nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let timer = self.pendingTimers.removeValue(forKey: sentinelID)
+                else { return }
+                timer.cancel()
+            }
+        }
+
+        fh.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty {
-                handle.readabilityHandler = nil
-                DispatchQueue.main.async { [weak self] in
+                teardown()
+                DispatchQueue.main.async {
                     _ = streamJS.invokeMethod("_end", withArguments: [])
-                    if let self,
-                       let timer = self.pendingTimers.removeValue(forKey: sentinelID) {
-                        timer.cancel()
-                    }
                 }
                 return
             }
@@ -125,6 +136,14 @@ extension JSRuntime {
                 _ = streamJS.invokeMethod("_push", withArguments: [buf])
             }
         }
+
+        // Wire the destroy hook so iterator early-exit (or an
+        // explicit `process.stdin.destroy()`) tears the reader down.
+        let destroy: @convention(block) () -> Void = {
+            teardown()
+        }
+        streamJS.setObject(block(destroy as AnyObject),
+                           forKeyedSubscript: "_onDestroy" as NSString)
     }
 
     private func installPerformance() {

@@ -54,15 +54,23 @@ extension JSRuntime {
               super();
               this._buf = [];
               this._ended = false;
+              this._destroyed = false;
               this._mode = "paused";
               this._waiters = [];
+              // _onDestroy(): native-side cleanup hook fired by
+              // destroy(). process.stdin uses it to detach the
+              // FileHandle.readabilityHandler and cancel its sentinel
+              // timer; without it, a `for await … of process.stdin`
+              // loop that breaks early would leave the runloop
+              // pinned waiting for stdin EOF.
+              this._onDestroy = null;
               this.readable = true;
             }
 
             // Called from native code (or from JS in tests). `null`
             // chunks mean EOF.
             _push(chunk) {
-              if (this._ended) return;
+              if (this._ended || this._destroyed) return;
               if (chunk == null) { this._end(); return; }
               if (this._mode === "iter") {
                 if (this._waiters.length > 0) {
@@ -96,15 +104,38 @@ extension JSRuntime {
               this.emit("close");
             }
 
+            // Tear down the stream: drop buffered data, resolve any
+            // pending iterator waiters, fire `_onDestroy` so native
+            // producers can detach. If the stream hadn't already
+            // ended, emit `'close'` (no synthetic `'end'` — node only
+            // emits `'end'` on normal completion). Idempotent.
+            destroy() {
+              if (this._destroyed) return;
+              this._destroyed = true;
+              this._buf = [];
+              while (this._waiters.length > 0) {
+                const r = this._waiters.shift();
+                r({ value: undefined, done: true });
+              }
+              if (this._onDestroy) {
+                try { this._onDestroy(); } catch (_) {}
+              }
+              if (!this._ended) {
+                this._ended = true;
+                this.readable = false;
+                this.emit("close");
+              }
+            }
+
             on(event, fn) {
               super.on(event, fn);
               if (event === "data" && this._mode === "paused") {
                 this._mode = "flowing";
                 while (this._buf.length > 0) this.emit("data", this._buf.shift());
-                if (this._ended) {
-                  this.emit("end");
-                  this.emit("close");
-                }
+                // If the stream had already ended in 'paused' mode,
+                // _end() already emitted end/close — re-emitting here
+                // would double-fire cleanup logic for any listener
+                // that was attached before _end ran.
               }
               return this;
             }
@@ -126,6 +157,9 @@ extension JSRuntime {
               const self = this;
               return {
                 next() {
+                  if (self._destroyed) {
+                    return Promise.resolve({ value: undefined, done: true });
+                  }
                   if (self._buf.length > 0) {
                     return Promise.resolve({ value: self._buf.shift(), done: false });
                   }
@@ -134,7 +168,13 @@ extension JSRuntime {
                   }
                   return new Promise((resolve) => self._waiters.push(resolve));
                 },
+                // for-await early exit (`break` / `return` / `throw`)
+                // funnels through here. Destroy the stream so native
+                // producers can detach and any sentinel timers get
+                // cancelled — otherwise a stdin loop that breaks
+                // early would hang the runtime.
                 return() {
+                  self.destroy();
                   return Promise.resolve({ value: undefined, done: true });
                 },
               };

@@ -1170,6 +1170,57 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "one,two,three\n")
     }
+
+    func testReadableLateDataListenerDoesNotReEmitEnd() {
+        // Regression for #8 review (P2): attaching a `'data'` listener
+        // to a stream that already ended in paused mode used to
+        // re-emit `'end'`/`'close'` — double-firing any earlier
+        // `'end'` or `'close'` listener.
+        let (r, out, _) = runtime()
+        r.run("""
+        const { Readable } = require('node:stream');
+        const s = new Readable();
+        let endCount = 0, closeCount = 0;
+        s.on('end',   () => endCount++);
+        s.on('close', () => closeCount++);
+        // Push + end while still in paused mode — buffered chunk stays.
+        s._push('buf');
+        s._end();
+        // Late 'data' listener: should drain the buffer but NOT
+        // re-emit end/close.
+        const got = [];
+        s.on('data', (c) => got.push(String(c)));
+        console.log('drained:', got.join(','), 'end:', endCount, 'close:', closeCount);
+        """)
+        XCTAssertEqual(out(), "drained: buf end: 1 close: 1\n")
+    }
+
+    func testReadableForAwaitBreakDestroysStream() {
+        // Regression for #8 review (P1): early exit from `for await`
+        // must destroy the stream so native producers can detach.
+        // We observe the `'close'` event firing and verify _onDestroy
+        // ran and subsequent pushes are dropped.
+        let (r, out, _) = runtime()
+        r.run("""
+        const { Readable } = require('node:stream');
+        const s = new Readable();
+        let destroyed = false;
+        s._onDestroy = () => { destroyed = true; };
+        s.on('close', () => console.log('close fired'));
+        // Pre-seed two chunks; the loop only takes the first.
+        s._push('a'); s._push('b');
+        (async () => {
+          for await (const c of s) {
+            console.log('saw', String(c));
+            break;
+          }
+          // Producer keeps trying; new pushes should be dropped.
+          s._push('c');
+          console.log('destroyed:', destroyed);
+        })();
+        """)
+        XCTAssertEqual(out(), "saw a\nclose fired\ndestroyed: true\n")
+    }
 }
 
 #endif
