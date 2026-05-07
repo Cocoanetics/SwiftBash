@@ -1195,6 +1195,26 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "drained: buf end: 1 close: 1\n")
     }
 
+    func testSpawnStdinEndsOnChildExit() {
+        // Regression for #8 review: when the child process closes,
+        // proc.stdin should flip to non-writable. Otherwise user code
+        // that keeps writing leaks bytes (silently dropped on
+        // .hostShell, or growing the AsyncStream buffer on
+        // .inProcess).
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('printf', ['done']);
+        proc.on('close', () => {
+          console.log('writable=' + proc.stdin.writable,
+                      'wroteAfter=' + proc.stdin.write('late'));
+        });
+        """)
+        // After 'close', stdin is no longer writable and write()
+        // returns false instead of pretending the bytes went somewhere.
+        XCTAssertEqual(out(), "writable=false wroteAfter=false\n")
+    }
+
     func testReadableForAwaitBreakDestroysStream() {
         // Regression for #8 review (P1): early exit from `for await`
         // must destroy the stream so native producers can detach.

@@ -208,7 +208,7 @@ extension JSRuntime {
         command: String, args: [String],
         handles: SpawnHandles, sentinelID: Int
     ) {
-        #if os(macOS) || os(Linux) || os(Windows)
+        #if os(macOS) || os(Linux)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", Self.composeCommandLine(command, args: args)]
@@ -352,7 +352,7 @@ extension JSRuntime {
     /// JS-side ``Readable``. Empty Data signals EOF — at which point
     /// we tear down the handler, push a final `_end`, and call
     /// `onEOF` so the caller can sequence the `close` event.
-    #if os(macOS) || os(Linux) || os(Windows)
+    #if os(macOS) || os(Linux)
     private static func installReadabilityHandler(
         on fh: FileHandle,
         target: JSValue?,
@@ -401,6 +401,16 @@ extension JSRuntime {
         if let runtime,
            let timer = runtime.pendingTimers.removeValue(forKey: sentinelID) {
             timer.cancel()
+        }
+        // Close the stdin Writable so its `writable` flag flips to
+        // false and further `write()` calls are no-ops. Without this,
+        // user code that keeps writing after the child exited would
+        // either silently drop bytes into a closed pipe (`.hostShell`)
+        // or grow the stdin AsyncStream buffer unbounded
+        // (`.inProcess`). `Writable.end()` is idempotent, so it's
+        // safe even when the user already called it themselves.
+        if let stdin = handles.stdinS, !stdin.isUndefined, !stdin.isNull {
+            _ = stdin.invokeMethod("end", withArguments: [])
         }
         guard let proc = handles.proc, !proc.isUndefined, !proc.isNull else { return }
         proc.setObject(status, forKeyedSubscript: "exitCode" as NSString)
@@ -545,7 +555,7 @@ extension JSRuntime {
     /// shouldn't be reachable there anyway, but the function still
     /// has to compile.
     private static func runHostShellAsync(command: String, args: [String]?) async -> ChildResult {
-        #if os(macOS) || os(Linux) || os(Windows)
+        #if os(macOS) || os(Linux)
         return await withCheckedContinuation { (cont: CheckedContinuation<ChildResult, Never>) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -688,7 +698,7 @@ extension JSRuntime {
     /// `Process` is unavailable on iOS / tvOS / watchOS (App Sandbox);
     /// gated so the file still compiles on those platforms.
     private func runHostShell(command: String, args: [String]?) -> ChildResult {
-        #if os(macOS) || os(Linux) || os(Windows)
+        #if os(macOS) || os(Linux)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         if let args, !args.isEmpty {
