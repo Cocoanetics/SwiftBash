@@ -38,9 +38,13 @@ extension Shell {
     ///     surface — clone, fetch, pull, push, log, status, diff,
     ///     stash, rebase, cherry-pick, branch, tag, remote, …).
     ///   • **Archives:** `tar`, `zip`, `unzip`.
-    ///   • **Compression family:** `gzip`/`gunzip`/`zcat`,
-    ///     `bzip2`/`bunzip2`/`bzcat`, `xz`/`unxz`/`xzcat`,
-    ///     `zstd`/`unzstd`/`zstdcat`, `lz4`/`unlz4`/`lz4cat`.
+    ///   • **gzip family:** `gzip` / `gunzip` / `zcat` (always —
+    ///     zlib is on every supported platform).
+    ///   • **bzip2 / xz / zstd / lz4 families** — gated to the
+    ///     platforms where the underlying C library is available.
+    ///     The `#if` guards mirror the platform gates SwiftPorts'
+    ///     own command targets carry, so this code compiles
+    ///     identically on every supported OS.
     ///
     /// Per-binary personalities (`gunzip` / `zcat` / `bunzip2` /
     /// etc.) are separate `AsyncParsableCommand` types in
@@ -66,29 +70,41 @@ extension Shell {
         register(ZipCommand.self)
         register(UnzipCommand.self)
 
-        // Compression family — gzip personalities.
+        // gzip personalities — zlib is universally available, no
+        // platform gate.
         register(Gzip.self)
         register(Gunzip.self)
         register(Zcat.self)
 
-        // bzip2 personalities.
+        // bzip2 / zstd — libbz2 / libzstd aren't in the iOS /
+        // tvOS / watchOS / visionOS SDK and aren't in Android's
+        // NDK. SwiftPorts gates these command types behind
+        // `#if os(macOS) || os(Linux) || os(Windows)`; mirror
+        // that gate here.
+        #if os(macOS) || os(Linux) || os(Windows)
         register(Bzip2.self)
         register(Bunzip2.self)
         register(Bzcat.self)
 
-        // xz personalities.
+        register(Zstd.self)
+        register(Unzstd.self)
+        register(Zstdcat.self)
+        #endif
+
+        // xz / lz4 — Apple platforms back these via the
+        // Compression framework (`canImport(Compression)`); Linux
+        // / Windows have system liblzma / liblz4. Android has
+        // neither. SwiftPorts gates the command types behind
+        // `#if canImport(Compression) || os(Linux) || os(Windows)`;
+        // mirror that.
+        #if canImport(Compression) || os(Linux) || os(Windows)
         register(Xz.self)
         register(Unxz.self)
         register(Xzcat.self)
 
-        // zstd personalities.
-        register(Zstd.self)
-        register(Unzstd.self)
-        register(Zstdcat.self)
-
-        // lz4 personalities.
         register(Lz4.self)
         register(Unlz4.self)
         register(Lz4cat.self)
+        #endif
     }
 }

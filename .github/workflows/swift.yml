@@ -18,6 +18,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      # macos-latest currently ships Xcode 16 / Swift 6.1; SwiftPorts
+      # (and its `swift-configuration` dep) declare tools-version 6.2,
+      # so we need a newer Xcode. 26.0 ships Swift 6.2.
+      - name: Select Xcode 26.0
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+      # SwiftPorts' Bzip2Kit / ZstdKit need libbz2 / libzstd from
+      # Homebrew on macOS — they're not in the SDK. xz / lz4 use
+      # `Compression.framework` on Apple platforms, no brew needed.
+      - name: Install C dependencies (Homebrew)
+        run: |
+          for pkg in bzip2 zstd; do
+            brew list --versions "$pkg" >/dev/null 2>&1 \
+              || brew install "$pkg"
+          done
       - name: Verify Swift version
         run: swift --version
       - name: Build (macOS)
@@ -50,17 +66,24 @@ jobs:
 
   build-linux:
     # Linux: full build + test, parity with Apple platforms.
-    # Only system requirement is `zlib1g-dev` for CZlib's modulemap
-    # (the runtime libz is preinstalled). xattr functions resolve
-    # through the local CXattr systemLibrary target — no extra apt
-    # install needed; `<sys/xattr.h>` ships in the standard Linux
-    # libc-dev set that swiftlang/swift's container already has.
+    # System requirements have grown since SwiftBash adopted
+    # SwiftPorts: in addition to `zlib1g-dev`, the Bzip2Kit / XzKit
+    # / ZstdKit / Lz4Kit C shims need their respective dev packages,
+    # and libgit2 (consumed by SwiftPorts' SwiftGit) needs OpenSSL
+    # headers + pkg-config to wire up TLS. xattr functions still
+    # resolve via the local CXattr systemLibrary; `<sys/xattr.h>`
+    # ships in the standard libc-dev set the swiftlang/swift
+    # container already has.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - name: Install zlib headers
-        run: sudo apt-get install -y zlib1g-dev
+      - name: Install C dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config ca-certificates \
+                                  zlib1g-dev libbz2-dev liblzma-dev \
+                                  libzstd-dev liblz4-dev
       - name: Verify Swift version
         run: swift --version
       - name: Build (Linux)
@@ -82,13 +105,17 @@ jobs:
           swift-version: "6.3.1"
       - name: Verify Swift version
         run: swift --version
-      - name: Install zlib (vcpkg)
+      - name: Install C dependencies (vcpkg)
         # vcpkg is preinstalled on windows-latest at C:\vcpkg.
-        # x64-windows-static-md gives us a `zlib.lib` linked against
+        # x64-windows-static-md gives us .lib files linked against
         # the dynamic UCRT, which matches Swift's default link mode.
+        # SwiftPorts' Bzip2Kit / XzKit / ZstdKit / Lz4Kit C shims
+        # are gated to non-Apple-mobile via per-target platforms,
+        # but they DO compile on Windows and need their respective
+        # libs available.
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib --triplet x64-windows-static-md
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib bzip2 liblzma zstd lz4 --triplet x64-windows-static-md
       - name: Build (Windows)
         shell: pwsh
         run: |
