@@ -133,7 +133,20 @@ extension Shell {
         // family. Registered here so a single
         // `registerStandardCommands()` call lights up everything
         // SwiftBash ships out of the box.
+        //
+        // Android: SwiftPorts' transitive C-library graph (libgit2,
+        // BoringSSL, swift-archive, the systemLibrary pkg-config
+        // shims for zlib / liblz4 / libzstd / liblzma / libbz2) emits
+        // unconditional `-lz` / `-ldl` and host-pkg-config search
+        // paths that bleed `/lib/x86_64-linux-gnu/` into ld.lld's
+        // resolver, breaking Bionic libc symbol resolution at link
+        // time. Until SwiftPorts ships proper Android gates, skip
+        // the registration on Android — the SwiftPorts product
+        // dependencies are also platform-gated in Package.swift so
+        // these modules don't even compile here.
+        #if !os(Android)
         registerSwiftPortsCommands()
+        #endif
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —

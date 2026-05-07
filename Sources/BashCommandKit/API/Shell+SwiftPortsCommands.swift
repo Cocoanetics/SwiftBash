@@ -1,4 +1,17 @@
 import BashInterpreter
+
+// Android: SwiftPorts is not yet a supported target — its transitive
+// C-library graph (libgit2, BoringSSL, swift-archive, the
+// pkg-config-driven systemLibrary shims for zlib / lz4 / zstd /
+// lzma / bz2) injects unconditional `-lz` / `-ldl` and host
+// pkg-config search paths that pull `/lib/x86_64-linux-gnu/` onto
+// ld.lld's resolver, breaking Bionic libc symbol resolution. The
+// SwiftPorts product references in Package.swift are gated to
+// non-Android platforms; mirror that gate at the source level so
+// this file's imports don't fail on Android. The companion call
+// site in `Shell+StandardCommands.swift` is gated the same way.
+#if !os(Android)
+
 import Bzip2Command
 import GhCommand
 import GitCommand
@@ -108,3 +121,5 @@ extension Shell {
         #endif
     }
 }
+
+#endif // !os(Android)

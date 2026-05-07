@@ -1,6 +1,18 @@
 // swift-tools-version:6.2
 import PackageDescription
 
+// Platforms where the SwiftPorts dep graph links cleanly. Android
+// is excluded: SwiftPorts pulls in libgit2, BoringSSL,
+// swift-archive, and several pkg-config-driven systemLibrary
+// shims that emit unconditional `-lz` / `-ldl` and host
+// pkg-config paths on Android, which leaks `/lib/x86_64-linux-gnu/`
+// onto ld.lld and breaks Bionic libc symbol resolution. SwiftBash
+// on Android ships without the SwiftPorts CLI surface (bash
+// interpreter + native command catalog still work).
+let swiftPortsPlatforms: [Platform] = [
+    .macOS, .iOS, .tvOS, .watchOS, .visionOS, .linux, .windows,
+]
+
 let package = Package(
     name: "SwiftBash",
     platforms: [
@@ -96,18 +108,41 @@ let package = Package(
                 // via `Shell+SwiftPortsCommands.registerSwiftPortsCommands()`.
                 // Each one reads/writes through `Shell.current`, so
                 // pipes / redirection / `$(...)` capture all just work.
-                .product(name: "JqCommand", package: "SwiftPorts"),
-                .product(name: "GhCommand", package: "SwiftPorts"),
-                .product(name: "GlabCommand", package: "SwiftPorts"),
-                .product(name: "GitCommand", package: "SwiftPorts"),
-                .product(name: "TarCommand", package: "SwiftPorts"),
-                .product(name: "ZipCommand", package: "SwiftPorts"),
-                .product(name: "UnzipCommand", package: "SwiftPorts"),
-                .product(name: "GzipCommand", package: "SwiftPorts"),
-                .product(name: "Bzip2Command", package: "SwiftPorts"),
-                .product(name: "XzCommand", package: "SwiftPorts"),
-                .product(name: "ZstdCommand", package: "SwiftPorts"),
-                .product(name: "Lz4Command", package: "SwiftPorts"),
+                //
+                // Gated off on Android: SwiftPorts' transitive C
+                // graph (libgit2, BoringSSL, swift-archive, the
+                // systemLibrary pkg-config shims) emits
+                // unconditional `-lz` / `-ldl` plus host-pkg-config
+                // search paths on Android, which pulls
+                // `/lib/x86_64-linux-gnu/` onto ld.lld and breaks
+                // Bionic libc symbol resolution at link time. Until
+                // that's resolved upstream, SwiftBash on Android
+                // ships without the SwiftPorts CLIs (the bash
+                // interpreter + native command surface still work).
+                .product(name: "JqCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "GhCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "GlabCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "GitCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "TarCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "ZipCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "UnzipCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "GzipCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "Bzip2Command", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "XzCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "ZstdCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "Lz4Command", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
             ],
             path: "Sources/BashCommandKit"
         ),
@@ -146,7 +181,15 @@ let package = Package(
             dependencies: [
                 "BashInterpreter",
                 "BashCommandKit",
-                .product(name: "GzipKit", package: "SwiftPorts"),
+                // GzipKit backs the `node:zlib` JS module. Same
+                // Android caveat as the SwiftPorts CLIs above —
+                // GzipKit's `CZlib` systemLibrary uses pkgConfig
+                // and bleeds host glibc paths onto Android's link
+                // line. JavaScriptCore is Apple-only anyway, so
+                // SwiftJSCore on non-Apple compiles to a near-empty
+                // module — gating GzipKit off Android is consistent.
+                .product(name: "GzipKit", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
             ],
             path: "Sources/SwiftJSCore",
             // The runtime is single-threaded — every JSValue touch

@@ -1,6 +1,12 @@
 import Foundation
 import BashInterpreter
 
+#if canImport(WinSDK)
+// `_putenv_s` lives in ucrt; WinSDK re-exports it. POSIX
+// `setenv`/`unsetenv` aren't part of MSVCRT.
+import WinSDK
+#endif
+
 /// Provides the values JS sees through `process.env`.
 ///
 /// Three backends ship in this experiment:
@@ -41,11 +47,17 @@ public final class OSEnvProvider: EnvProvider {
         ProcessInfo.processInfo.environment[key]
     }
     public func set(_ key: String, _ value: String?) {
+        #if os(Windows)
+        // ucrt's `_putenv_s(name, "")` is the documented way to
+        // unset; same call shape covers both branches.
+        _ = _putenv_s(key, value ?? "")
+        #else
         if let value {
             setenv(key, value, 1)
         } else {
             unsetenv(key)
         }
+        #endif
     }
     public var allKeys: [String] {
         Array(ProcessInfo.processInfo.environment.keys)
