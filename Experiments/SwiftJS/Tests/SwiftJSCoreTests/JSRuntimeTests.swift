@@ -338,18 +338,36 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "number true number\n")
     }
 
-    func testExecSyncAutoFallbackForExternalBinary() {
-        // `git` isn't in SwiftBash's catalog, so auto-mode should
-        // route this through the host shell. We don't assume any
-        // specific git output — just that execSync didn't throw and
-        // returned something non-empty.
-        let (r, out, _) = runtime()
+    func testInProcessModeFailsOnExternalBinary() {
+        // The default `.inProcess` runtime only knows the SwiftBash
+        // catalog. `git` isn't in it, so execSync must fail rather
+        // than silently fall through to `/bin/sh`.
+        let (r, _, err) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        try { cp.execSync('git --version'); }
+        catch (e) { console.error('threw:', e.message.split(String.raw`\n`)[0]); }
+        """)
+        XCTAssertTrue(err().contains("threw:"))
+    }
+
+    func testHostShellModeRunsExternalBinary() {
+        // A runtime constructed with `.hostShell` matches node:
+        // every call forks /bin/sh, any binary on PATH works.
+        var out = ""
+        let r = JSRuntime(
+            argv: [],
+            envProvider: OSEnvProvider(),
+            childShell: .hostShell,
+            stdout: { out += $0 },
+            stderr: { _ in }
+        )
         r.run("""
         const cp = require('node:child_process');
         const v = cp.execSync('git --version', { encoding: 'utf-8' });
         console.log(v.startsWith('git'));
         """)
-        XCTAssertEqual(out(), "true\n")
+        XCTAssertEqual(out, "true\n")
     }
 
     func testExecSyncEchoStringRoundTrip() {

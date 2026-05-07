@@ -104,7 +104,8 @@ if firstArg == "-e" || firstArg == "-p" || firstArg == "--print" {
     let expr = args[1]
     let runtime = JSRuntime(
         argv: [interpreter] + Array(args.dropFirst(2)),
-        envProvider: makeProvider()
+        envProvider: makeProvider(),
+        childShell: .hostShell
     )
     let result = runtime.run(expr, name: "[eval]")
     let shouldPrint = (firstArg == "-p" || firstArg == "--print")
@@ -121,7 +122,12 @@ let scriptArgs = Array(args.dropFirst())
 let absPath = (scriptPath as NSString).expandingTildeInPath
 let argv = [interpreter, absPath] + scriptArgs
 
-let runtime = JSRuntime(argv: argv, envProvider: makeProvider())
+// CLI runs as a normal Unix process — `child_process` should match
+// node's behaviour and fork/exec the host shell. Embedders that
+// instantiate JSRuntime directly get the default (.inProcess), which
+// stays inside SwiftBash's catalog and never touches the OS.
+let runtime = JSRuntime(argv: argv, envProvider: makeProvider(),
+                        childShell: .hostShell)
 do {
     _ = try runtime.runFile(absPath)
 } catch {

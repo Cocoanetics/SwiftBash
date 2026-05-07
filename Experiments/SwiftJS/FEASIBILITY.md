@@ -547,30 +547,40 @@ to JS. This is the angle node and bun can't match: a
 sandboxable JS-and-bash hybrid that doesn't touch the OS process
 table.
 
-But scripts in the wild also call binaries SwiftBash *doesn't*
-have — `git`, `python3`, `npm`, `curl --some-modern-flag`, custom
-binaries. Refusing those would defeat "node-compatible." So the
-dispatch rule is one line:
+The backend is a **static choice made at runtime construction**,
+not a per-command decision:
 
-> If every command in the line is in SwiftBash's catalog, run
-> through `BashInterpreter`. Otherwise fork `/bin/sh`.
+```swift
+public enum ChildShell { case inProcess, hostShell }
 
-```javascript
-cp.execSync('echo a | grep a | wc -l');   // all SwiftBash → in-process,  ~5 ms
-cp.execSync('git --version');             // not in catalog → /bin/sh,    ~80 ms
-cp.execSync('echo $(uname)');             // substitution → /bin/sh
+JSRuntime(... childShell: .inProcess)   // default for embedders
+JSRuntime(... childShell: .hostShell)   // what the swift-js CLI uses
 ```
 
-We tokenise the command on top-level `|`, `||`, `;`, `&&`, `&`
-(quote-aware), take the first word of each segment, and check it
-against `Shell.commands.keys`. Lines containing `$(...)` or
-backticks short-circuit to `/bin/sh` — we can't verify the inner
-command without parsing.
+| Mode | What `child_process` does | Use case |
+|---|---|---|
+| `.inProcess` (default) | every call goes through `BashInterpreter`. Unknown commands fail with exit 127 the way bash itself does. **No fork, no exec.** | embedded in iOS / macOS app, Swift Playgrounds, sandboxed plugin host — anywhere `fork(2)` is unavailable or undesirable. |
+| `.hostShell` | every call forks `/bin/sh`. Any binary on PATH works (`git`, `python3`, `npm`, custom binaries). Matches node `child_process` semantics. | the `swift-js` CLI binary, since it's already running as a normal Unix process. |
 
-No flags, no env vars, no opt-in. Either you're in our catalog
-or you're not. Scripts that mix both sets of commands transparently
-get fork-and-exec for that line. `process.pid` reports the real
-OS PID either way.
+The `swift-js` executable explicitly opts into `.hostShell` so a
+script with `#!/usr/bin/env node` calling `git status` behaves
+exactly the way it would under real node. An embedder dropping
+`JSRuntime` into an iOS app gets `.inProcess` by default and
+inherits SwiftBash's full sandboxability — the JS can run
+`echo | grep | wc -l` but cannot reach for `git` (which isn't
+in the catalog and can't be reached without `fork`).
+
+No string parsing, no catalog probe, no per-call branching.
+Fewer than ten lines of dispatch:
+
+```swift
+private func pickBackendAndRun(command: String, args: [String]?) -> ChildResult {
+    switch childShell {
+    case .inProcess: return runBashInterpreter(command: command)
+    case .hostShell: return runHostShell(command: command, args: args)
+    }
+}
+```
 
 ### Concurrent subprocesses via Swift Tasks
 

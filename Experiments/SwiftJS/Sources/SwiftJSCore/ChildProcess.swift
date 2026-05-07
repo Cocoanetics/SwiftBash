@@ -66,9 +66,7 @@ extension JSRuntime {
     /// non-zero exit. A sentinel timer keeps the JSRuntime runloop
     /// alive until the Promise settles.
     private func runChildAsync(command: String, opts _: JSValue?) -> JSValue {
-        // Same dispatch as the sync path: in-process if every word
-        // is a SwiftBash command, /bin/sh otherwise.
-        let useHostShell = !commandInOurCatalog(command)
+        let useHostShell = (childShell == .hostShell)
         let ctx = context
         let handles = ChildPromiseHandles()
 
@@ -306,39 +304,16 @@ extension JSRuntime {
         )
     }
 
-    /// Decide between SwiftBash's in-process interpreter and host
-    /// `/bin/sh`. The rule: if every top-level command in the line
-    /// is a registered SwiftBash command, run in-process. Otherwise
-    /// hand off to `/bin/sh` so external binaries (`git`,
-    /// `python3`, …) work the way they do under node.
+    /// Static dispatch on the runtime's configured backend.
+    /// `.inProcess` → BashInterpreter only (unknown commands fail
+    /// like normal bash). `.hostShell` → fork `/bin/sh`.
     private func pickBackendAndRun(command: String, args: [String]?, opts _: JSValue?) -> ChildResult {
-        if let args, !args.isEmpty {
-            // Caller passed argv directly — host shell handles
-            // quoting predictably.
+        switch childShell {
+        case .inProcess:
+            return runBashInterpreter(command: command)
+        case .hostShell:
             return runHostShell(command: command, args: args)
         }
-        return commandInOurCatalog(command)
-            ? runBashInterpreter(command: command)
-            : runHostShell(command: command, args: nil)
-    }
-
-    /// True if every segment of the command line starts with a word
-    /// in `Shell.commands`. Lines with `$(…)` or backticks fall
-    /// through to host shell — we can't verify the inner command is
-    /// safe for in-process without parsing.
-    private func commandInOurCatalog(_ command: String) -> Bool {
-        if command.contains("$(") || command.contains("`") { return false }
-        let scratch = Shell()
-        scratch.registerStandardCommands()
-        let known = Set(scratch.commands.keys)
-        for segment in splitOnShellSeparators(command) {
-            let trimmed = segment.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { continue }
-            let first = trimmed.split(separator: " ", maxSplits: 1)
-                .first.map(String.init) ?? ""
-            if !known.contains(first) { return false }
-        }
-        return true
     }
 
     private func optsEncoding(_ opts: JSValue?) -> String? {
@@ -346,39 +321,6 @@ extension JSRuntime {
               let enc = opts.objectForKeyedSubscript("encoding"),
               enc.isString else { return nil }
         return enc.toString()
-    }
-
-    /// Split a command line on top-level shell separators
-    /// (`|`, `||`, `;`, `&&`, `&`). Quotes are honoured so e.g.
-    /// `echo "a | b"` stays one segment. Naive — doesn't track
-    /// backslash escaping; good enough for the catalog probe.
-    private func splitOnShellSeparators(_ command: String) -> [String] {
-        var out: [String] = []
-        var current = ""
-        var inSingle = false
-        var inDouble = false
-        let chars = Array(command)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "'" && !inDouble { inSingle.toggle(); current.append(c); i += 1; continue }
-            if c == "\"" && !inSingle { inDouble.toggle(); current.append(c); i += 1; continue }
-            if !inSingle && !inDouble {
-                // Two-char separators first.
-                if i + 1 < chars.count {
-                    let two = String(chars[i...i+1])
-                    if two == "&&" || two == "||" {
-                        out.append(current); current = ""; i += 2; continue
-                    }
-                }
-                if c == "|" || c == ";" || c == "&" {
-                    out.append(current); current = ""; i += 1; continue
-                }
-            }
-            current.append(c); i += 1
-        }
-        out.append(current)
-        return out
     }
 
     private func encode(bytes: [UInt8], encoding: String) -> Any? {

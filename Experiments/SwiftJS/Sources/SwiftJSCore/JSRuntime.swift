@@ -51,9 +51,31 @@ public final class JSRuntime {
     /// frozen ``StaticArgvProvider`` from the init argument.
     public let argvProvider: ArgvProvider
 
+    /// Which shell backend `child_process.execSync` / `spawnSync` /
+    /// `exec` route through. Set once at init; the runtime never
+    /// flips between modes.
+    ///
+    ///   - ``.inProcess`` (default) — every call goes through
+    ///     SwiftBash's `BashInterpreter`. Unknown commands fail
+    ///     with exit 127, the way bash itself does. No fork, no
+    ///     exec; works in iOS App Sandbox, Swift Playgrounds,
+    ///     anywhere fork is unavailable.
+    ///
+    ///   - ``.hostShell`` — every call forks `/bin/sh`. Supports
+    ///     any binary on `PATH`, matches node's `child_process`
+    ///     semantics exactly. The right choice when the runtime
+    ///     is itself running as a normal Unix CLI process — which
+    ///     is what the `swift-js` binary uses.
+    public enum ChildShell: Sendable {
+        case inProcess
+        case hostShell
+    }
+    public let childShell: ChildShell
+
     public convenience init(
         argv: [String] = [],
         env: [String: String],
+        childShell: ChildShell = .inProcess,
         stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
         stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
     ) {
@@ -61,6 +83,7 @@ public final class JSRuntime {
         self.init(
             argvProvider: StaticArgvProvider(argv),
             envProvider: DictionaryEnvProvider(env),
+            childShell: childShell,
             stdout: stdout,
             stderr: stderr
         )
@@ -69,12 +92,14 @@ public final class JSRuntime {
     public convenience init(
         argv: [String] = [],
         envProvider: EnvProvider = OSEnvProvider(),
+        childShell: ChildShell = .inProcess,
         stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
         stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
     ) {
         self.init(
             argvProvider: StaticArgvProvider(argv),
             envProvider: envProvider,
+            childShell: childShell,
             stdout: stdout,
             stderr: stderr
         )
@@ -83,6 +108,7 @@ public final class JSRuntime {
     public init(
         argvProvider: ArgvProvider,
         envProvider: EnvProvider = OSEnvProvider(),
+        childShell: ChildShell = .inProcess,
         stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
         stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
     ) {
@@ -92,6 +118,7 @@ public final class JSRuntime {
         self.context = ctx
         self.argvProvider = argvProvider
         self.envProvider = envProvider
+        self.childShell = childShell
         self.stdout = stdout
         self.stderr = stderr
 
