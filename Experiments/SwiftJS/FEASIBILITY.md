@@ -550,40 +550,27 @@ table.
 But scripts in the wild also call binaries SwiftBash *doesn't*
 have — `git`, `python3`, `npm`, `curl --some-modern-flag`, custom
 binaries. Refusing those would defeat "node-compatible." So the
-backend chooser is **`auto` by default**:
+dispatch rule is one line:
+
+> If every command in the line is in SwiftBash's catalog, run
+> through `BashInterpreter`. Otherwise fork `/bin/sh`.
 
 ```javascript
-cp.execSync('echo a | grep a | wc -l');   // every word is a SwiftBash
-                                          // command → runs in-process
-
-cp.execSync('git --version');             // 'git' isn't in our catalog →
-                                          // forks /bin/sh, like node would
+cp.execSync('echo a | grep a | wc -l');   // all SwiftBash → in-process,  ~5 ms
+cp.execSync('git --version');             // not in catalog → /bin/sh,    ~80 ms
+cp.execSync('echo $(uname)');             // substitution → /bin/sh
 ```
 
-The decision is made statically before the run. We tokenise the
-command on top-level `|`, `||`, `;`, `&&`, `&`, take the first
-word of each segment, and check it against `Shell.commands.keys`
-plus the bash builtins/keywords. If anything looks unrecognised
-(or the line uses `$(...)`, `<(...)`, or backticks), the host
-shell handles it. No double-execution, no inconsistent semantics
-across attempts.
+We tokenise the command on top-level `|`, `||`, `;`, `&&`, `&`
+(quote-aware), take the first word of each segment, and check it
+against `Shell.commands.keys`. Lines containing `$(...)` or
+backticks short-circuit to `/bin/sh` — we can't verify the inner
+command without parsing.
 
-Three explicit modes for callers who care:
-
-| `opts.shell` value | Behaviour |
-|---|---|
-| `'auto'` (default) | catalog probe; in-process if all known, host shell otherwise |
-| `'in-process'` | always SwiftBash; missing commands hard-fail with exit 127 |
-| `'host'` | always fork+exec /bin/sh — matches node exactly |
-
-`SWIFTJS_HOST_SHELL=1` env var forces host mode for the whole
-runtime, useful for debugging.
-
-The result: `process.pid`, fork-and-exec semantics, and the
-ability to call any binary on PATH all "just work" out of the
-box — but the speedup and sandboxability of in-process bash kick
-in for free whenever the script uses commands SwiftBash already
-knows.
+No flags, no env vars, no opt-in. Either you're in our catalog
+or you're not. Scripts that mix both sets of commands transparently
+get fork-and-exec for that line. `process.pid` reports the real
+OS PID either way.
 
 ### Concurrent subprocesses via Swift Tasks
 

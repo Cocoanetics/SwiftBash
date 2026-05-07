@@ -352,19 +352,6 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "true\n")
     }
 
-    func testExecSyncForceInProcessRejectsExternalBinary() {
-        // With shell:'in-process' the SwiftBash interpreter alone
-        // serves the request; an unknown command is a hard fail.
-        let (r, _, err) = runtime()
-        r.run("""
-        const cp = require('node:child_process');
-        try { cp.execSync('git --version', { shell: 'in-process' }); console.log('UNEXPECTED'); }
-        catch (e) { console.error('threw:', e.message.split(String.raw`\n`)[0]); }
-        """)
-        XCTAssertTrue(err().contains("threw:"))
-        XCTAssertTrue(err().contains("Command failed: git"))
-    }
-
     func testExecSyncEchoStringRoundTrip() {
         let (r, out, _) = runtime()
         r.run("""
