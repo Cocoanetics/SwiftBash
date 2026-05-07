@@ -13,7 +13,6 @@ let package = Package(
         .library(name: "BashSyntax", targets: ["BashSyntax"]),
         .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
         .library(name: "BashCommandKit", targets: ["BashCommandKit"]),
-        .library(name: "CZlib", targets: ["CZlib"]),
         .library(name: "SwiftJSCore", targets: ["SwiftJSCore"]),
         .executable(name: "swift-bash", targets: ["swift-bash"]),
         // SwiftJS is a Node-shaped JS runtime built on Apple's
@@ -40,21 +39,28 @@ let package = Package(
         // Pinned to `main` until ShellKit ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/ShellKit",
                  branch: "main"),
+        // SwiftPorts ports the standard CLI tool surface — `gh`,
+        // `glab`, `git`, `jq`, `tar`, `zip`/`unzip`, the gzip /
+        // bzip2 / xz / zstd / lz4 compression families — as
+        // AsyncParsableCommand types we register as Bash builtins.
+        // Each command reads/writes through `Shell.current`, so
+        // they participate fully in pipes / redirection / capture.
+        // Pinned to `main` until SwiftPorts ships a tagged release.
+        .package(url: "https://github.com/Cocoanetics/SwiftPorts",
+                 branch: "main"),
     ],
     targets: [
-        // Tiny systemLibrary target wrapping the host's zlib so our
-        // gzip / gunzip commands work uniformly on macOS / iOS / Linux
-        // without depending on Apple's Compression framework. Apple
-        // SDKs already ship <zlib.h> + libz; on Linux apt-get
-        // `zlib1g-dev` provides the headers.
-        .systemLibrary(
-            name: "CZlib",
-            path: "Sources/CZlib"
-        ),
-        // Same pattern for `<sys/xattr.h>` — the extended-attribute
-        // syscalls. Linux's stock Swift Glibc module doesn't surface
-        // them; this systemLibrary fills the gap. Header-only, no
-        // separate library to link (xattr lives in libc itself).
+        // The CZlib systemLibrary that used to live here was deleted
+        // when the in-process gzip / gunzip / tar CLIs moved to
+        // [SwiftPorts](https://github.com/Cocoanetics/SwiftPorts).
+        // SwiftJSCore's `node:zlib` JS module backing now consumes
+        // `GzipKit.Zlib` (with sync variants for the JS-runtime
+        // hook), so SwiftBash no longer needs its own zlib bindings.
+        //
+        // `<sys/xattr.h>` — the extended-attribute syscalls. Linux's
+        // stock Swift Glibc module doesn't surface them; this
+        // systemLibrary fills the gap. Header-only, no separate
+        // library to link (xattr lives in libc itself).
         .systemLibrary(
             name: "CXattr",
             path: "Sources/CXattr"
@@ -83,19 +89,27 @@ let package = Package(
             name: "BashCommandKit",
             dependencies: [
                 "BashInterpreter",
-                "CZlib",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                // SwiftPorts ships these AsyncParsableCommand types
+                // as library products — we register them as builtins
+                // via `Shell+SwiftPortsCommands.registerSwiftPortsCommands()`.
+                // Each one reads/writes through `Shell.current`, so
+                // pipes / redirection / `$(...)` capture all just work.
+                .product(name: "JqCommand", package: "SwiftPorts"),
+                .product(name: "GhCommand", package: "SwiftPorts"),
+                .product(name: "GlabCommand", package: "SwiftPorts"),
+                .product(name: "GitCommand", package: "SwiftPorts"),
+                .product(name: "TarCommand", package: "SwiftPorts"),
+                .product(name: "ZipCommand", package: "SwiftPorts"),
+                .product(name: "UnzipCommand", package: "SwiftPorts"),
+                .product(name: "GzipCommand", package: "SwiftPorts"),
+                .product(name: "Bzip2Command", package: "SwiftPorts"),
+                .product(name: "XzCommand", package: "SwiftPorts"),
+                .product(name: "ZstdCommand", package: "SwiftPorts"),
+                .product(name: "Lz4Command", package: "SwiftPorts"),
             ],
-            path: "Sources/BashCommandKit",
-            linkerSettings: [
-                // zlib's library file is named differently per platform —
-                // `libz.{dylib,so}` on Apple/Linux, `zlib.lib` on Windows.
-                .linkedLibrary("z",
-                               .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .linux])),
-                .linkedLibrary("zlib",
-                               .when(platforms: [.windows])),
-            ]
+            path: "Sources/BashCommandKit"
         ),
         .executableTarget(
             name: "swift-bash",
@@ -132,20 +146,18 @@ let package = Package(
             dependencies: [
                 "BashInterpreter",
                 "BashCommandKit",
-                "CZlib",
+                .product(name: "GzipKit", package: "SwiftPorts"),
             ],
             path: "Sources/SwiftJSCore",
             // The runtime is single-threaded — every JSValue touch
             // happens on the main queue. Swift 6 strict concurrency
             // can't prove that statically; the workarounds would
             // obscure the runtime, so we run in v5 mode.
-            swiftSettings: [.swiftLanguageMode(.v5)],
-            linkerSettings: [
-                .linkedLibrary("z",
-                               .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .linux])),
-                .linkedLibrary("zlib",
-                               .when(platforms: [.windows])),
-            ]
+            //
+            // No `linkedLibrary("z", ...)` here — GzipKit (which
+            // owns the `node:zlib` backing now) carries its own zlib
+            // linkage transitively.
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
             name: "swift-js",
