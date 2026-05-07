@@ -58,7 +58,7 @@ public struct EchoCommand: Command {
 
         let joined = pieces.joined(separator: " ")
         let suffix = (newline && !stopAfter) ? "\n" : ""
-        Shell.current.stdout(joined + suffix)
+        Shell.bashCurrent.stdout(joined + suffix)
         return .success
     }
 

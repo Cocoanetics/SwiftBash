@@ -33,15 +33,15 @@ public struct UniqCommand: ParsableBashCommand {
         var lines: [String] = []
         if let f = input {
             do {
-                let data = try await Shell.current.readDataAtPath(f)
+                let data = try await Shell.bashCurrent.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 lines = SortCommand.splitLines(text)
             } catch {
-                Shell.current.stderr("uniq: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("uniq: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            for await line in Shell.current.stdin.lines { lines.append(line) }
+            for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
         }
 
         var i = 0
@@ -53,10 +53,10 @@ public struct UniqCommand: ParsableBashCommand {
             if count {
                 // Match BSD `uniq -c`: 4-char right-aligned count, one
                 // space, then the line.
-                Shell.current.stdout(String(format: "%4d %@\n",
+                Shell.bashCurrent.stdout(String(format: "%4d %@\n",
                                     run, lines[i] as NSString))
             } else {
-                Shell.current.stdout(lines[i] + "\n")
+                Shell.bashCurrent.stdout(lines[i] + "\n")
             }
             i += run
         }

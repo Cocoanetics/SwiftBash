@@ -12,7 +12,7 @@ public struct HostnameCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout(Shell.current.hostInfo.hostName + "\n")
+        Shell.bashCurrent.stdout(Shell.bashCurrent.hostInfo.hostName + "\n")
         return .success
     }
 }

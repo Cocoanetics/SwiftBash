@@ -23,14 +23,14 @@ public struct RealpathCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        let absolute = Shell.current.resolvePath(path)
+        let absolute = Shell.bashCurrent.resolvePath(path)
         do {
-            let resolved = try await Shell.current.fileSystem.canonicalize(
+            let resolved = try await Shell.bashCurrent.fileSystem.canonicalize(
                 absolute, allowMissing: missing)
-            Shell.current.stdout(resolved + "\n")
+            Shell.bashCurrent.stdout(resolved + "\n")
             return .success
         } catch FileSystemError.notFound {
-            Shell.current.stderr("realpath: \(path): No such file or directory\n")
+            Shell.bashCurrent.stderr("realpath: \(path): No such file or directory\n")
             return .failure
         }
     }

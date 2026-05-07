@@ -15,44 +15,44 @@ public struct SourceCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         guard let path = argv.dropFirst().first else {
-            Shell.current.stderr("\(name): filename argument required\n")
+            Shell.bashCurrent.stderr("\(name): filename argument required\n")
             return ExitStatus(2)
         }
         let data: Data
         do {
-            data = try await Shell.current.readDataAtPath(path)
+            data = try await Shell.bashCurrent.readDataAtPath(path)
         } catch FileSystemError.notFound {
-            Shell.current.stderr("\(name): \(path): No such file or directory\n")
+            Shell.bashCurrent.stderr("\(name): \(path): No such file or directory\n")
             return .failure
         }
         let source = String(decoding: data, as: UTF8.self)
 
         // Save call-frame state — same shape as a function call so
         // `return` works and the positional params don't leak.
-        let savedParams = Shell.current.positionalParameters
-        let savedSource = Shell.current.currentSource
+        let savedParams = Shell.bashCurrent.positionalParameters
+        let savedSource = Shell.bashCurrent.currentSource
 
         // `source PATH a b c` → the sourced script sees `a b c` as $1..$3.
         let extraArgs = Array(argv.dropFirst(2))
         if !extraArgs.isEmpty {
-            Shell.current.positionalParameters = extraArgs
+            Shell.bashCurrent.positionalParameters = extraArgs
         }
-        Shell.current.functionCallDepth += 1
-        Shell.current.localVarStack.append([])
+        Shell.bashCurrent.functionCallDepth += 1
+        Shell.bashCurrent.localVarStack.append([])
 
         defer {
-            if let frame = Shell.current.localVarStack.popLast() {
+            if let frame = Shell.bashCurrent.localVarStack.popLast() {
                 for (name, prior) in frame.reversed() {
-                    Shell.current.environment[name] = prior
+                    Shell.bashCurrent.environment[name] = prior
                 }
             }
-            Shell.current.functionCallDepth -= 1
-            Shell.current.positionalParameters = savedParams
-            Shell.current.currentSource = savedSource
+            Shell.bashCurrent.functionCallDepth -= 1
+            Shell.bashCurrent.positionalParameters = savedParams
+            Shell.bashCurrent.currentSource = savedSource
         }
 
         do {
-            return try await Shell.current.run(source)
+            return try await Shell.bashCurrent.run(source)
         } catch let ret as ReturnSignal {
             return ret.status
         }

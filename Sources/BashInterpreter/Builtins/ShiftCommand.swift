@@ -11,17 +11,17 @@ public struct ShiftCommand: Command {
         let n: Int
         if let raw = args.first {
             guard let parsed = Int(raw), parsed >= 0 else {
-                Shell.current.stderr("shift: \(raw): numeric argument required\n")
+                Shell.bashCurrent.stderr("shift: \(raw): numeric argument required\n")
                 return .failure
             }
             n = parsed
         } else {
             n = 1
         }
-        if n > Shell.current.positionalParameters.count {
+        if n > Shell.bashCurrent.positionalParameters.count {
             return .failure
         }
-        Shell.current.positionalParameters.removeFirst(n)
+        Shell.bashCurrent.positionalParameters.removeFirst(n)
         return .success
     }
 }

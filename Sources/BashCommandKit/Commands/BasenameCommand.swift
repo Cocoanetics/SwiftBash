@@ -29,7 +29,7 @@ public struct BasenameCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout(Self.basename(of: path, suffix: suffix ?? "") + "\n")
+        Shell.bashCurrent.stdout(Self.basename(of: path, suffix: suffix ?? "") + "\n")
         return .success
     }
 

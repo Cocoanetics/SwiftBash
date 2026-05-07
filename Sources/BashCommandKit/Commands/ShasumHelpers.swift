@@ -19,8 +19,8 @@ func runSum(
     hash: (Data) -> String
 ) async throws -> ExitStatus {
     if files.isEmpty {
-        let data = await Shell.current.stdin.readAllData()
-        Shell.current.stdout("\(hash(data))  \(displayFor(nil))\n")
+        let data = await Shell.bashCurrent.stdin.readAllData()
+        Shell.bashCurrent.stdout("\(hash(data))  \(displayFor(nil))\n")
         return .success
     }
     var hadError = false
@@ -29,10 +29,10 @@ func runSum(
         // so a kill from the parent shell can land between files.
         try Task.checkCancellation()
         do {
-            let data = try await Shell.current.readDataAtPath(f)
-            Shell.current.stdout("\(hash(data))  \(f)\n")
+            let data = try await Shell.bashCurrent.readDataAtPath(f)
+            Shell.bashCurrent.stdout("\(hash(data))  \(f)\n")
         } catch {
-            Shell.current.stderr("\(f): \(error)\n")
+            Shell.bashCurrent.stderr("\(f): \(error)\n")
             hadError = true
         }
     }

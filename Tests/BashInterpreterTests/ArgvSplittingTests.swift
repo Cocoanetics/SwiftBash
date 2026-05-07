@@ -16,9 +16,9 @@ import Testing
         let cap = CapturingShell()
         cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                Shell.current.stdout("[\(i + 1)]\(a)\n")
+                Shell.bashCurrent.stdout("[\(i + 1)]\(a)\n")
             }
-            Shell.current.stdout("count=\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         return cap

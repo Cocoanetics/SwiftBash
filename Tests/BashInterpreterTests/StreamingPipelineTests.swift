@@ -25,7 +25,7 @@ import Foundation
                                           chunk: String) {
         shell.register(name: name) { _ in
             while !Task.isCancelled {
-                Shell.current.stdout(chunk)
+                Shell.bashCurrent.stdout(chunk)
                 // Yield so the consumer gets a chance to run and
                 // potentially signal cancellation by closing its stdin.
                 await Task.yield()
@@ -43,8 +43,8 @@ import Foundation
         // A simple stream-aware `head -n 3` implementation.
         cap.shell.register(name: "take3") { _ in
             var emitted = 0
-            for await line in Shell.current.stdin.lines {
-                Shell.current.stdout(line + "\n")
+            for await line in Shell.bashCurrent.stdin.lines {
+                Shell.bashCurrent.stdout(line + "\n")
                 emitted += 1
                 if emitted >= 3 { break }
             }
@@ -83,14 +83,14 @@ import Foundation
             producerStart.setNow()
             // Emit 10 lines with a small delay between each.
             for n in 1...10 {
-                Shell.current.stdout("\(n)\n")
+                Shell.bashCurrent.stdout("\(n)\n")
                 try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
             }
             return .success
         }
 
         cap.shell.register(name: "cons") { _ in
-            for await _ in Shell.current.stdin.lines {
+            for await _ in Shell.bashCurrent.stdin.lines {
                 if consumerStart.value == nil {
                     consumerStart.setNow()
                 }
@@ -122,12 +122,12 @@ import Foundation
         let payload = Data([0x00, 0xFF, 0x7F, 0x80, 0x00, 0x01, 0xFE])
 
         cap.shell.register(name: "emit") { _ in
-            Shell.current.stdout(payload)
+            Shell.bashCurrent.stdout(payload)
             return .success
         }
         let received = AtomicData()
         cap.shell.register(name: "collect") { _ in
-            received.value = await Shell.current.stdin.readAllData()
+            received.value = await Shell.bashCurrent.stdin.readAllData()
             return .success
         }
 
@@ -143,8 +143,8 @@ import Foundation
         let cap = CapturingShell()
         cap.shell.environment["X"] = "outer"
         cap.shell.register(name: "stage") { _ in
-            Shell.current.environment["X"] = "inside"
-            let _ = await Shell.current.stdin.readAllData()
+            Shell.bashCurrent.environment["X"] = "inside"
+            let _ = await Shell.bashCurrent.stdin.readAllData()
             return .success
         }
         try await cap.shell.run("true | stage")
@@ -161,15 +161,15 @@ import Foundation
         // that the pipeline still finishes correctly.
         let cap = CapturingShell()
         cap.shell.register(name: "burst") { _ in
-            for i in 1...100 { Shell.current.stdout("\(i)\n") }
+            for i in 1...100 { Shell.bashCurrent.stdout("\(i)\n") }
             return .success
         }
         cap.shell.register(name: "sum") { _ in
             var total = 0
-            for await line in Shell.current.stdin.lines {
+            for await line in Shell.bashCurrent.stdin.lines {
                 total += Int(line) ?? 0
             }
-            Shell.current.stdout("\(total)\n")
+            Shell.bashCurrent.stdout("\(total)\n")
             return .success
         }
         try await cap.shell.run("burst | sum")

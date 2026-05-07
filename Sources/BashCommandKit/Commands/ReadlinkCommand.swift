@@ -20,29 +20,29 @@ public struct ReadlinkCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         guard !files.isEmpty else {
-            Shell.current.stderr("readlink: missing operand\n")
+            Shell.bashCurrent.stderr("readlink: missing operand\n")
             return ExitStatus(2)
         }
         var hadError = false
         for f in files {
-            let resolved = Shell.current.resolvePath(f)
+            let resolved = Shell.bashCurrent.resolvePath(f)
             if canonicalize {
-                if let canonical = try? await Shell.current.fileSystem
+                if let canonical = try? await Shell.bashCurrent.fileSystem
                     .canonicalize(resolved, allowMissing: true) {
-                    Shell.current.stdout(canonical + "\n")
+                    Shell.bashCurrent.stdout(canonical + "\n")
                 } else {
-                    Shell.current.stdout(resolved + "\n")
+                    Shell.bashCurrent.stdout(resolved + "\n")
                 }
                 continue
             }
-            guard let meta = try? await Shell.current.fileSystem.metadata(resolved) else {
-                Shell.current.stderr("readlink: \(f): No such file or directory\n")
+            guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(resolved) else {
+                Shell.bashCurrent.stderr("readlink: \(f): No such file or directory\n")
                 hadError = true; continue
             }
             if let target = meta.symlinkTarget {
-                Shell.current.stdout(target + "\n")
+                Shell.bashCurrent.stdout(target + "\n")
             } else {
-                Shell.current.stderr("readlink: \(f): Not a symlink\n")
+                Shell.bashCurrent.stderr("readlink: \(f): Not a symlink\n")
                 hadError = true
             }
         }

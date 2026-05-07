@@ -56,17 +56,17 @@ public struct FindCommand: Command {
         do {
             parsed = try Self.parse(argv: Array(argv.dropFirst()))
         } catch let err as ParseError {
-            Shell.current.stderr("find: \(err.message)\n")
+            Shell.bashCurrent.stderr("find: \(err.message)\n")
             return .failure
         }
 
         // Resolve `-newer FILE` paths to mtimes once before walking.
         var newerCache: [String: Date] = [:]
         for path in parsed.newerPaths {
-            let resolved = Shell.current.resolvePath(path)
-            guard let meta = try? await Shell.current.fileSystem.metadata(resolved)
+            let resolved = Shell.bashCurrent.resolvePath(path)
+            guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(resolved)
             else {
-                Shell.current.stderr("find: \(path): no such file or directory\n")
+                Shell.bashCurrent.stderr("find: \(path): no such file or directory\n")
                 return .failure
             }
             newerCache[path] = meta.modifiedAt
@@ -78,14 +78,14 @@ public struct FindCommand: Command {
 
         var hadError = false
         for path in parsed.paths {
-            let resolved = Shell.current.resolvePath(path)
+            let resolved = Shell.bashCurrent.resolvePath(path)
             do {
                 try await walk(displayPath: path,
                                absolutePath: resolved,
                                depth: 0,
                                ctx: ctx)
             } catch {
-                Shell.current.stderr("find: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("find: \(path): \(error)\n")
                 hadError = true
             }
         }
@@ -109,10 +109,10 @@ public struct FindCommand: Command {
         try Task.checkCancellation()
         let meta: FileMetadata?
         do {
-            meta = try await Shell.current.fileSystem.metadata(absolutePath)
+            meta = try await Shell.bashCurrent.fileSystem.metadata(absolutePath)
         } catch {
             if depth == 0 { throw error }
-            Shell.current.stderr("find: \(displayPath): \(error)\n")
+            Shell.bashCurrent.stderr("find: \(displayPath): \(error)\n")
             return
         }
         guard let meta else {
@@ -142,9 +142,9 @@ public struct FindCommand: Command {
         if canDescend {
             let entries: [String]
             do {
-                entries = try await Shell.current.fileSystem.list(absolutePath)
+                entries = try await Shell.bashCurrent.fileSystem.list(absolutePath)
             } catch {
-                Shell.current.stderr("find: \(displayPath): \(error)\n")
+                Shell.bashCurrent.stderr("find: \(displayPath): \(error)\n")
                 if ctx.opts.depthFirst, depthOK {
                     _ = try await evaluate(
                         ctx.opts.expr,
@@ -239,7 +239,7 @@ public struct FindCommand: Command {
             case .file:
                 return node.meta.size == 0
             case .directory:
-                let kids = (try? await Shell.current.fileSystem
+                let kids = (try? await Shell.bashCurrent.fileSystem
                     .list(node.absolutePath)) ?? []
                 return kids.isEmpty
             default:
@@ -304,10 +304,10 @@ public struct FindCommand: Command {
                            ctx: EvalContext) async throws -> EvalResult {
         switch a {
         case .print:
-            Shell.current.stdout(node.displayPath + "\n")
+            Shell.bashCurrent.stdout(node.displayPath + "\n")
             return EvalResult(matched: true)
         case .print0:
-            Shell.current.stdout(node.displayPath + "\u{0}")
+            Shell.bashCurrent.stdout(node.displayPath + "\u{0}")
             return EvalResult(matched: true)
         case .prune:
             // Returns true; the walker reads `pruned` to skip descent.
@@ -321,21 +321,21 @@ public struct FindCommand: Command {
                 return EvalResult(matched: false)
             }
             do {
-                try await Shell.current.fileSystem.remove(
+                try await Shell.bashCurrent.fileSystem.remove(
                     node.absolutePath, recursive: false)
                 return EvalResult(matched: true)
             } catch {
-                Shell.current.stderr("find: -delete \(node.displayPath): \(error)\n")
+                Shell.bashCurrent.stderr("find: -delete \(node.displayPath): \(error)\n")
                 return EvalResult(matched: false)
             }
         case .execEach(let template):
             let argv = template.map { $0 == "{}" ? node.displayPath : $0 }
             let line = argv.map(Self.shellEscape).joined(separator: " ")
             do {
-                let status = try await Shell.current.run(line)
+                let status = try await Shell.bashCurrent.run(line)
                 return EvalResult(matched: status.isSuccess)
             } catch {
-                Shell.current.stderr("find: -exec: \(error)\n")
+                Shell.bashCurrent.stderr("find: -exec: \(error)\n")
                 return EvalResult(matched: false)
             }
         case .execBatch(let batch):
@@ -362,9 +362,9 @@ public struct FindCommand: Command {
         }
         let line = argv.map(Self.shellEscape).joined(separator: " ")
         do {
-            _ = try await Shell.current.run(line)
+            _ = try await Shell.bashCurrent.run(line)
         } catch {
-            Shell.current.stderr("find: -exec: \(error)\n")
+            Shell.bashCurrent.stderr("find: -exec: \(error)\n")
         }
     }
 

@@ -36,19 +36,19 @@ public struct FoldCommand: ParsableBashCommand {
             if a == "-b" || a == "--bytes" { byBytes = true; i += 1; continue }
             if a == "-w" || a == "--width" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.current.stderr("fold: -w requires WIDTH\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("fold: -w requires WIDTH\n"); return ExitStatus(2)
                 }
                 width = n; i += 2; continue
             }
             if a.hasPrefix("--width=") {
                 guard let n = Int(a.dropFirst("--width=".count)), n > 0 else {
-                    Shell.current.stderr("fold: invalid --width\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("fold: invalid --width\n"); return ExitStatus(2)
                 }
                 width = n; i += 1; continue
             }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
                 if let n = Int(a.dropFirst()) { width = n; i += 1; continue }
-                Shell.current.stderr("fold: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.bashCurrent.stderr("fold: unknown option: \(a)\n"); return ExitStatus(2)
             }
             files.append(a); i += 1
         }
@@ -59,14 +59,14 @@ public struct FoldCommand: ParsableBashCommand {
             try Task.checkCancellation()
             do {
                 let text: String
-                if f == "-" { text = await Shell.current.stdin.readAllString() }
+                if f == "-" { text = await Shell.bashCurrent.stdin.readAllString() }
                 else {
-                    let data = try await Shell.current.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(f)
                     text = String(decoding: data, as: UTF8.self)
                 }
-                Shell.current.stdout(FoldCommand.fold(text, width: width, atSpaces: atSpaces, byBytes: byBytes))
+                Shell.bashCurrent.stdout(FoldCommand.fold(text, width: width, atSpaces: atSpaces, byBytes: byBytes))
             } catch {
-                Shell.current.stderr("fold: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("fold: \(f): \(error)\n")
                 hadError = true
             }
         }

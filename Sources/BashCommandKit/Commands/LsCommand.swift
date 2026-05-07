@@ -72,28 +72,28 @@ public struct LsCommand: ParsableBashCommand {
         var hadError = false
 
         for (i, path) in targets.enumerated() {
-            let resolved = Shell.current.resolvePath(path)
+            let resolved = Shell.bashCurrent.resolvePath(path)
             let meta: FileMetadata?
             do {
-                meta = try await Shell.current.fileSystem.metadata(resolved)
+                meta = try await Shell.bashCurrent.fileSystem.metadata(resolved)
             } catch {
-                Shell.current.stderr("ls: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("ls: \(path): \(error)\n")
                 hadError = true
                 continue
             }
             guard let meta else {
-                Shell.current.stderr("ls: \(path): No such file or directory\n")
+                Shell.bashCurrent.stderr("ls: \(path): No such file or directory\n")
                 hadError = true
                 continue
             }
 
             if directoryOnly || meta.kind != .directory {
-                if i > 0 { Shell.current.stdout("\n") }
+                if i > 0 { Shell.bashCurrent.stdout("\n") }
                 let entry = Entry(name: path, meta: meta)
                 if long {
-                    Shell.current.stdout(formatLong(entry) + "\n")
+                    Shell.bashCurrent.stdout(formatLong(entry) + "\n")
                 } else {
-                    Shell.current.stdout(formatEntry(name: path, meta: meta) + "\n")
+                    Shell.bashCurrent.stdout(formatEntry(name: path, meta: meta) + "\n")
                 }
                 continue
             }
@@ -103,7 +103,7 @@ public struct LsCommand: ParsableBashCommand {
                                         showHeader: targets.count > 1 || recursive,
                                         leadingNewline: i > 0)
             } catch {
-                Shell.current.stderr("ls: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("ls: \(path): \(error)\n")
                 hadError = true
             }
         }
@@ -114,7 +114,7 @@ public struct LsCommand: ParsableBashCommand {
 
     private func listDirectory(path: String, fullPath: String,
                                showHeader: Bool, leadingNewline: Bool) async throws {
-        let rawNames = try await Shell.current.fileSystem.list(fullPath)
+        let rawNames = try await Shell.bashCurrent.fileSystem.list(fullPath)
         var names: [String] = rawNames
         if !(all || almostAll) {
             names = names.filter { !$0.hasPrefix(".") }
@@ -126,7 +126,7 @@ public struct LsCommand: ParsableBashCommand {
         var entries: [Entry] = []
         for n in names {
             let p = joinPath(fullPath, n)
-            let meta = (try? await Shell.current.fileSystem.metadata(p)) ?? nil
+            let meta = (try? await Shell.bashCurrent.fileSystem.metadata(p)) ?? nil
             entries.append(Entry(name: n, meta: meta))
         }
 
@@ -134,10 +134,10 @@ public struct LsCommand: ParsableBashCommand {
             // `.` is the directory itself; `..` is its parent. Stat
             // both so the long listing reports the right kind / mode
             // / mtime instead of falling back to file defaults.
-            let dotMeta = (try? await Shell.current.fileSystem.metadata(fullPath))
+            let dotMeta = (try? await Shell.bashCurrent.fileSystem.metadata(fullPath))
                 ?? nil
             let parentPath = (fullPath as NSString).deletingLastPathComponent
-            let dotDotMeta = (try? await Shell.current.fileSystem
+            let dotDotMeta = (try? await Shell.bashCurrent.fileSystem
                 .metadata(parentPath.isEmpty ? "/" : parentPath)) ?? nil
             entries.insert(Entry(name: "..", meta: dotDotMeta), at: 0)
             entries.insert(Entry(name: ".", meta: dotMeta), at: 0)
@@ -146,20 +146,20 @@ public struct LsCommand: ParsableBashCommand {
         sort(&entries)
         if reverse { entries.reverse() }
 
-        if leadingNewline { Shell.current.stdout("\n") }
-        if showHeader { Shell.current.stdout("\(path):\n") }
+        if leadingNewline { Shell.bashCurrent.stdout("\n") }
+        if showHeader { Shell.bashCurrent.stdout("\(path):\n") }
 
         if long {
             // GNU ls prefaces long listings with "total N" — we don't
             // have block counts, but POSIX accepts a 0-or-count value.
             let total = entries.reduce(0) { $0 + Int(($1.meta?.size ?? 0) / 1024) }
-            Shell.current.stdout("total \(total)\n")
+            Shell.bashCurrent.stdout("total \(total)\n")
             for e in entries {
-                Shell.current.stdout(formatLong(e) + "\n")
+                Shell.bashCurrent.stdout(formatLong(e) + "\n")
             }
         } else {
             for e in entries {
-                Shell.current.stdout(formatEntry(name: e.name, meta: e.meta) + "\n")
+                Shell.bashCurrent.stdout(formatEntry(name: e.name, meta: e.meta) + "\n")
             }
         }
 
@@ -206,7 +206,7 @@ public struct LsCommand: ParsableBashCommand {
     }
 
     private func formatLong(_ e: Entry) -> String {
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let kind = e.meta?.kind ?? .file
         // Real permission bits from FileMetadata.mode, formatted as
         // bash-style `rwxrw-r--`. Falls back to defaults only when

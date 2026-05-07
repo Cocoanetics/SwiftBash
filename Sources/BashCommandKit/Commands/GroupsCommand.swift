@@ -20,12 +20,12 @@ public struct GroupsCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let names = users.isEmpty ? [host.userName] : users
         var hadError = false
         for name in names {
             guard name == host.userName else {
-                Shell.current.stderr("groups: \(name): unknown user\n")
+                Shell.bashCurrent.stderr("groups: \(name): unknown user\n")
                 hadError = true
                 continue
             }
@@ -35,7 +35,7 @@ public struct GroupsCommand: ParsableBashCommand {
             for gid in host.groups where gid != host.gid {
                 line.append("\(gid)")
             }
-            Shell.current.stdout(line.joined(separator: " ") + "\n")
+            Shell.bashCurrent.stdout(line.joined(separator: " ") + "\n")
         }
         return hadError ? .failure : .success
     }

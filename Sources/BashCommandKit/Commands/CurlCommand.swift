@@ -55,7 +55,7 @@ public struct CurlCommand: ParsableBashCommand {
     /// Test seam: same behaviour as ``execute(shell:)`` but lets
     /// callers inject a pre-built ``SecureFetcher`` (typically wrapping
     /// a mock ``NetworkFetcher``). When `injectedFetcher` is `nil`,
-    /// curl builds one from `Shell.current.networkConfig` — production path.
+    /// curl builds one from `Shell.bashCurrent.networkConfig` — production path.
     public static func run(argv: [String],
                            
                            fetcher injectedFetcher: SecureFetcher?
@@ -65,16 +65,16 @@ public struct CurlCommand: ParsableBashCommand {
         do {
             opts = try parse(rawArgv)
         } catch CurlParseError.missingURL {
-            Shell.current.stderr("curl: no URL specified\n")
+            Shell.bashCurrent.stderr("curl: no URL specified\n")
             return ExitStatus(2)
         } catch let CurlParseError.unknownOption(o) {
-            Shell.current.stderr("curl: option \(o): is unknown\n")
+            Shell.bashCurrent.stderr("curl: option \(o): is unknown\n")
             return ExitStatus(2)
         } catch let CurlParseError.argumentRequired(o) {
-            Shell.current.stderr("curl: option \(o): requires an argument\n")
+            Shell.bashCurrent.stderr("curl: option \(o): requires an argument\n")
             return ExitStatus(2)
         } catch {
-            Shell.current.stderr("curl: \(error)\n")
+            Shell.bashCurrent.stderr("curl: \(error)\n")
             return ExitStatus(2)
         }
 
@@ -104,9 +104,9 @@ public struct CurlCommand: ParsableBashCommand {
                     "multipart/form-data; boundary=\(boundary)"
             case .fromFile(let path):
                 do {
-                    body = try await Shell.current.readDataAtPath(path)
+                    body = try await Shell.bashCurrent.readDataAtPath(path)
                 } catch {
-                    Shell.current.stderr("curl: can't read \(path)\n")
+                    Shell.bashCurrent.stderr("curl: can't read \(path)\n")
                     return ExitStatus(26) // CURLE_READ_ERROR
                 }
             }
@@ -141,8 +141,8 @@ public struct CurlCommand: ParsableBashCommand {
             effectiveTimeout = opts.maxTimeSeconds
                 ?? injected.config.timeoutSeconds
         } else {
-            guard let netConfig = Shell.current.networkConfig else {
-                Shell.current.stderr(
+            guard let netConfig = Shell.bashCurrent.networkConfig else {
+                Shell.bashCurrent.stderr(
                     "curl: (7) Network access denied: no network configured: "
                     + "\(targetURL.absoluteString)\n")
                 return ExitStatus(7)
@@ -152,7 +152,7 @@ public struct CurlCommand: ParsableBashCommand {
             do {
                 fetcher = try SecureFetcher(config: effectiveConfig)
             } catch let err as NetworkError {
-                Shell.current.stderr("curl: (\(err.exitCode)) \(err.description)\n")
+                Shell.bashCurrent.stderr("curl: (\(err.exitCode)) \(err.description)\n")
                 return ExitStatus(err.exitCode)
             }
             effectiveTimeout = effectiveConfig.timeoutSeconds
@@ -174,7 +174,7 @@ public struct CurlCommand: ParsableBashCommand {
             response = try await fetcher.fetch(req)
         } catch let err as NetworkError {
             if !opts.silent || opts.showError {
-                Shell.current.stderr("curl: (\(err.exitCode)) \(err.description)\n")
+                Shell.bashCurrent.stderr("curl: (\(err.exitCode)) \(err.description)\n")
             }
             return ExitStatus(err.exitCode)
         }
@@ -186,7 +186,7 @@ public struct CurlCommand: ParsableBashCommand {
         // -f: bail on 4xx/5xx without writing the body.
         if opts.failOnError, response.status >= 400 {
             if !opts.silent || opts.showError {
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "curl: (22) The requested URL returned error: "
                     + "\(response.status)\n")
             }
@@ -210,28 +210,28 @@ public struct CurlCommand: ParsableBashCommand {
         // Choose where to write the body.
         if let path = opts.outputPath {
             do {
-                try await Shell.current.fileSystem.writeData(
-                    output, to: Shell.current.resolvePath(path), append: false)
+                try await Shell.bashCurrent.fileSystem.writeData(
+                    output, to: Shell.bashCurrent.resolvePath(path), append: false)
             } catch {
-                Shell.current.stderr("curl: can't write \(path)\n")
+                Shell.bashCurrent.stderr("curl: can't write \(path)\n")
                 return ExitStatus(23) // CURLE_WRITE_ERROR
             }
         } else if opts.remoteName {
             let name = (targetURL.lastPathComponent.isEmpty
                         ? "index.html" : targetURL.lastPathComponent)
             do {
-                try await Shell.current.fileSystem.writeData(
-                    output, to: Shell.current.resolvePath(name), append: false)
+                try await Shell.bashCurrent.fileSystem.writeData(
+                    output, to: Shell.bashCurrent.resolvePath(name), append: false)
             } catch {
-                Shell.current.stderr("curl: can't write \(name)\n")
+                Shell.bashCurrent.stderr("curl: can't write \(name)\n")
                 return ExitStatus(23)
             }
         } else {
-            Shell.current.stdout(output)
+            Shell.bashCurrent.stdout(output)
         }
 
         if let format = opts.writeOut {
-            Shell.current.stdout(formatWriteOut(format, response: response))
+            Shell.bashCurrent.stdout(formatWriteOut(format, response: response))
         }
 
         return .success
@@ -388,7 +388,7 @@ extension CurlCommand {
                 // URLSession-backed; we don't expose cert pinning.
                 i += 1
             case "-h", "--help":
-                Shell.current.stdout(curlHelp)
+                Shell.bashCurrent.stdout(curlHelp)
                 throw CurlParseError.missingURL // returns 2 from caller
             default:
                 if a.hasPrefix("-"), a.count > 1, a != "-" {
@@ -514,21 +514,21 @@ private func encodeMultipart(parts: [MultipartPart],
 // MARK: - Verbose tracing
 
 private func traceRequest(_ req: NetworkRequest) {
-    Shell.current.stderr("> \(req.method) \(req.url.path.isEmpty ? "/" : req.url.path)"
+    Shell.bashCurrent.stderr("> \(req.method) \(req.url.path.isEmpty ? "/" : req.url.path)"
                  + " HTTP/1.1\r\n")
-    if let host = req.url.host { Shell.current.stderr("> Host: \(host)\r\n") }
+    if let host = req.url.host { Shell.bashCurrent.stderr("> Host: \(host)\r\n") }
     for k in req.headers.keys.sorted() {
-        Shell.current.stderr("> \(k): \(req.headers[k] ?? "")\r\n")
+        Shell.bashCurrent.stderr("> \(k): \(req.headers[k] ?? "")\r\n")
     }
-    Shell.current.stderr(">\r\n")
+    Shell.bashCurrent.stderr(">\r\n")
 }
 
 private func traceResponse(_ resp: NetworkResponse) {
-    Shell.current.stderr("< HTTP/1.1 \(resp.status) \(resp.statusText)\r\n")
+    Shell.bashCurrent.stderr("< HTTP/1.1 \(resp.status) \(resp.statusText)\r\n")
     for k in resp.headers.keys.sorted() {
-        Shell.current.stderr("< \(k): \(resp.headers[k] ?? "")\r\n")
+        Shell.bashCurrent.stderr("< \(k): \(resp.headers[k] ?? "")\r\n")
     }
-    Shell.current.stderr("<\r\n")
+    Shell.bashCurrent.stderr("<\r\n")
 }
 
 // MARK: - --write-out

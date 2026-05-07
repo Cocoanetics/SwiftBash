@@ -39,18 +39,18 @@ public struct ColumnCommand: ParsableBashCommand {
             if a == "-x" { fillRows = true; i += 1; continue }
             if a == "-s" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("column: -s requires SEP\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("column: -s requires SEP\n"); return ExitStatus(2)
                 }
                 sep = rawArgv[i + 1]; i += 2; continue
             }
             if a == "-c" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.current.stderr("column: -c requires WIDTH\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("column: -c requires WIDTH\n"); return ExitStatus(2)
                 }
                 width = n; i += 2; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.current.stderr("column: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("column: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -59,15 +59,15 @@ public struct ColumnCommand: ParsableBashCommand {
         // Read input.
         var lines: [String] = []
         if files.isEmpty {
-            for await line in Shell.current.stdin.lines { lines.append(line) }
+            for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
         } else {
             for f in files {
                 do {
-                    let data = try await Shell.current.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     lines.append(contentsOf: SortCommand.splitLines(text))
                 } catch {
-                    Shell.current.stderr("column: \(f): \(error)\n")
+                    Shell.bashCurrent.stderr("column: \(f): \(error)\n")
                     return .failure
                 }
             }
@@ -97,7 +97,7 @@ public struct ColumnCommand: ParsableBashCommand {
                     if i == cols - 1 { return v }
                     return v.padding(toLength: widths[i] + 2, withPad: " ", startingAt: 0)
                 }
-                Shell.current.stdout(parts.joined() + "\n")
+                Shell.bashCurrent.stdout(parts.joined() + "\n")
             }
             return .success
         }
@@ -114,7 +114,7 @@ public struct ColumnCommand: ParsableBashCommand {
                     pieces.append(lines[idx].padding(toLength: maxLen, withPad: " ", startingAt: 0))
                 }
             }
-            Shell.current.stdout(pieces.joined().trimmingCharacters(in: .whitespaces) + "\n")
+            Shell.bashCurrent.stdout(pieces.joined().trimmingCharacters(in: .whitespaces) + "\n")
         }
         return .success
     }

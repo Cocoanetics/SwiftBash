@@ -22,7 +22,7 @@ private struct GreetCommand: ParsableBashCommand {
 
     mutating func execute() async throws -> ExitStatus {
         let line = loud ? "HELLO \(name.uppercased())" : "hello \(name)"
-        for _ in 0..<count { Shell.current.stdout(line + "\n") }
+        for _ in 0..<count { Shell.bashCurrent.stdout(line + "\n") }
         return .success
     }
 }
@@ -33,7 +33,7 @@ private struct SumCommand: ParsableBashCommand {
     @Argument var values: [Int] = []
 
     mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout("\(values.reduce(0, +))\n")
+        Shell.bashCurrent.stdout("\(values.reduce(0, +))\n")
         return .success
     }
 }
@@ -45,7 +45,7 @@ private struct RequireNameCommand: ParsableBashCommand {
     var name: String
 
     mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout("got \(name)\n")
+        Shell.bashCurrent.stdout("got \(name)\n")
         return .success
     }
 }
@@ -55,7 +55,7 @@ private struct Nameless: ParsableBashCommand {
     static let configuration = CommandConfiguration()
     @Argument var word: String = "default"
     mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout("\(word)\n")
+        Shell.bashCurrent.stdout("\(word)\n")
         return .success
     }
 }
@@ -190,7 +190,7 @@ private struct Nameless: ParsableBashCommand {
             @Argument var name: String
             @Argument var value: String
             mutating func execute() async throws -> ExitStatus {
-                Shell.current.environment[name] = value
+                Shell.bashCurrent.environment[name] = value
                 return .success
             }
         }

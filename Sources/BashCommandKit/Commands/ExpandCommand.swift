@@ -36,7 +36,7 @@ public struct ExpandCommand: ParsableBashCommand {
             if a == "-i" || a == "--initial" { initialOnly = true; i += 1; continue }
             if a == "-t" || a == "--tabs" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("expand: -t requires LIST\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("expand: -t requires LIST\n"); return ExitStatus(2)
                 }
                 tabSpec = rawArgv[i + 1]; i += 2; continue
             }
@@ -51,7 +51,7 @@ public struct ExpandCommand: ParsableBashCommand {
                 if let _ = Int(a.dropFirst()) {
                     tabSpec = String(a.dropFirst()); i += 1; continue
                 }
-                Shell.current.stderr("expand: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.bashCurrent.stderr("expand: unknown option: \(a)\n"); return ExitStatus(2)
             }
             files.append(a); i += 1
         }
@@ -63,14 +63,14 @@ public struct ExpandCommand: ParsableBashCommand {
             try Task.checkCancellation()
             do {
                 let text: String
-                if f == "-" { text = await Shell.current.stdin.readAllString() }
+                if f == "-" { text = await Shell.bashCurrent.stdin.readAllString() }
                 else {
-                    let data = try await Shell.current.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(f)
                     text = String(decoding: data, as: UTF8.self)
                 }
-                Shell.current.stdout(ExpandCommand.expand(text, stops: stops, initialOnly: initialOnly))
+                Shell.bashCurrent.stdout(ExpandCommand.expand(text, stops: stops, initialOnly: initialOnly))
             } catch {
-                Shell.current.stderr("expand: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("expand: \(f): \(error)\n")
                 hadError = true
             }
         }

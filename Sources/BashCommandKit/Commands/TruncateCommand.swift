@@ -29,22 +29,22 @@ public struct TruncateCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         guard !size.isEmpty else {
-            Shell.current.stderr("truncate: missing -s SIZE\n")
+            Shell.bashCurrent.stderr("truncate: missing -s SIZE\n")
             return .failure
         }
         guard let parsed = Self.parseSize(size) else {
-            Shell.current.stderr("truncate: invalid size: \(size)\n")
+            Shell.bashCurrent.stderr("truncate: invalid size: \(size)\n")
             return .failure
         }
         if files.isEmpty {
-            Shell.current.stderr("truncate: missing file operand\n")
+            Shell.bashCurrent.stderr("truncate: missing file operand\n")
             return .failure
         }
         var hadError = false
         for file in files {
-            let resolved = Shell.current.resolvePath(file)
+            let resolved = Shell.bashCurrent.resolvePath(file)
             do {
-                let existing = try? await Shell.current.fileSystem
+                let existing = try? await Shell.bashCurrent.fileSystem
                     .readData(resolved)
                 if existing == nil && noCreate { continue }
                 let current = existing ?? Data()
@@ -56,10 +56,10 @@ public struct TruncateCommand: ParsableBashCommand {
                     newData = current
                     newData.append(Data(repeating: 0, count: target - current.count))
                 }
-                try await Shell.current.fileSystem.writeData(
+                try await Shell.bashCurrent.fileSystem.writeData(
                     newData, to: resolved, append: false)
             } catch {
-                Shell.current.stderr("truncate: \(file): \(error)\n")
+                Shell.bashCurrent.stderr("truncate: \(file): \(error)\n")
                 hadError = true
             }
         }

@@ -44,20 +44,20 @@ public struct YqCommand: ParsableBashCommand {
             }
             if a == "-o" || a == "--output-format" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("yq: -o requires FORMAT\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("yq: -o requires FORMAT\n"); return ExitStatus(2)
                 }
                 outFmt = rawArgv[i + 1]; i += 2; continue
             }
             if a == "-p" || a == "--input-format" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("yq: -p requires FORMAT\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("yq: -p requires FORMAT\n"); return ExitStatus(2)
                 }
                 inFmt = rawArgv[i + 1]; i += 2; continue
             }
             if a == "-c" || a == "--compact" { compact = true; i += 1; continue }
             if a == "-r" || a == "--raw-output" { raw = true; i += 1; continue }
             if a.hasPrefix("-") && a != "-" {
-                Shell.current.stderr("yq: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("yq: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             positionals.append(a); i += 1
@@ -70,13 +70,13 @@ public struct YqCommand: ParsableBashCommand {
         let raw_input: String
         do {
             if let p = filePath {
-                let data = try await Shell.current.readDataAtPath(p)
+                let data = try await Shell.bashCurrent.readDataAtPath(p)
                 raw_input = String(decoding: data, as: UTF8.self)
             } else {
-                raw_input = await Shell.current.stdin.readAllString()
+                raw_input = await Shell.bashCurrent.stdin.readAllString()
             }
         } catch {
-            Shell.current.stderr("yq: \(error)\n")
+            Shell.bashCurrent.stderr("yq: \(error)\n")
             return ExitStatus(2)
         }
 
@@ -89,14 +89,14 @@ public struct YqCommand: ParsableBashCommand {
             case "yaml":
                 value = try YamlParser.parse(raw_input)
             default:
-                Shell.current.stderr("yq: unsupported input format: \(inFmt)\n")
+                Shell.bashCurrent.stderr("yq: unsupported input format: \(inFmt)\n")
                 return ExitStatus(2)
             }
         } catch let e as JqError {
-            Shell.current.stderr("yq: \(e.message)\n")
+            Shell.bashCurrent.stderr("yq: \(e.message)\n")
             return ExitStatus(2)
         } catch {
-            Shell.current.stderr("yq: \(error)\n")
+            Shell.bashCurrent.stderr("yq: \(error)\n")
             return ExitStatus(2)
         }
 
@@ -105,7 +105,7 @@ public struct YqCommand: ParsableBashCommand {
         do {
             ast = try JqParser.parse(filterStr)
         } catch let e as JqError {
-            Shell.current.stderr("yq: parse error: \(e.message)\n")
+            Shell.bashCurrent.stderr("yq: parse error: \(e.message)\n")
             return ExitStatus(3)
         }
         let ctx = JqContext()
@@ -113,10 +113,10 @@ public struct YqCommand: ParsableBashCommand {
         do {
             results = try JqEvaluator.evaluate(value, ast, ctx: ctx)
         } catch let e as JqError {
-            Shell.current.stderr("yq: error: \(e.message)\n")
+            Shell.bashCurrent.stderr("yq: error: \(e.message)\n")
             return ExitStatus(5)
         } catch {
-            Shell.current.stderr("yq: error: \(error)\n")
+            Shell.bashCurrent.stderr("yq: error: \(error)\n")
             return ExitStatus(5)
         }
 
@@ -130,11 +130,11 @@ public struct YqCommand: ParsableBashCommand {
             case "yaml":
                 out += YamlEmitter.emit(r, raw: raw) + "\n"
             default:
-                Shell.current.stderr("yq: unsupported output format: \(outFmt)\n")
+                Shell.bashCurrent.stderr("yq: unsupported output format: \(outFmt)\n")
                 return ExitStatus(2)
             }
         }
-        Shell.current.stdout(out)
+        Shell.bashCurrent.stdout(out)
         return .success
     }
 }

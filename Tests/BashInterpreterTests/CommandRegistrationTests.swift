@@ -9,7 +9,7 @@ import Testing
         let cap = CapturingShell()
         cap.shell.register(name: "greet") { argv in
             let who = argv.dropFirst().first ?? "world"
-            Shell.current.stdout("hello \(who)\n")
+            Shell.bashCurrent.stdout("hello \(who)\n")
             return .success
         }
         try await cap.shell.run("greet oliver")
@@ -38,7 +38,7 @@ import Testing
     @Test func closureCommandMutatesEnvironment() async throws {
         let cap = CapturingShell()
         cap.shell.register(name: "bless") { argv in
-            for arg in argv.dropFirst() { Shell.current.environment[arg] = "ok" }
+            for arg in argv.dropFirst() { Shell.bashCurrent.environment[arg] = "ok" }
             return .success
         }
         try await cap.shell.run("bless A B C")
@@ -54,7 +54,7 @@ import Testing
             let name = "upper"
             func run(_ argv: [String]) async throws -> ExitStatus {
                 let out = argv.dropFirst().joined(separator: " ").uppercased()
-                Shell.current.stdout(out + "\n")
+                Shell.bashCurrent.stdout(out + "\n")
                 return .success
             }
         }
@@ -69,7 +69,7 @@ import Testing
     @Test func unregisterRemovesCommand() async throws {
         let cap = CapturingShell()
         cap.shell.register(name: "once") { _ in
-            Shell.current.stdout("first\n"); return .success
+            Shell.bashCurrent.stdout("first\n"); return .success
         }
         try await cap.shell.run("once")
         #expect(cap.stdout == "first\n")
@@ -93,7 +93,7 @@ import Testing
         // Override `echo` with a louder version.
         cap.shell.register(name: "echo") { argv in
             let loud = argv.dropFirst().joined(separator: " ").uppercased()
-            Shell.current.stdout(loud + "!\n")
+            Shell.bashCurrent.stdout(loud + "!\n")
             return .success
         }
         try await cap.shell.run("echo hello")
@@ -105,8 +105,8 @@ import Testing
     @Test func registeredCommandInsideLoop() async throws {
         let cap = CapturingShell()
         cap.shell.register(name: "collect") { argv in
-            let prior = Shell.current.environment["COLLECTED"] ?? ""
-            Shell.current.environment["COLLECTED"] = prior
+            let prior = Shell.bashCurrent.environment["COLLECTED"] ?? ""
+            Shell.bashCurrent.environment["COLLECTED"] = prior
                 + (prior.isEmpty ? "" : ",")
                 + argv.dropFirst().joined(separator: " ")
             return .success
@@ -118,7 +118,7 @@ import Testing
     @Test func registeredCommandUsedInPipelinePositions() async throws {
         let cap = CapturingShell()
         cap.shell.register(name: "emit") { argv in
-            for arg in argv.dropFirst() { Shell.current.stdout("\(arg)\n") }
+            for arg in argv.dropFirst() { Shell.bashCurrent.stdout("\(arg)\n") }
             return .success
         }
         try await cap.shell.run("emit 1 2 && emit 3")
@@ -146,7 +146,7 @@ import Testing
 
         // Register something and verify only it works.
         cap.shell.register(name: "hi") { _ in
-            Shell.current.stdout("hi\n"); return .success
+            Shell.bashCurrent.stdout("hi\n"); return .success
         }
         try await cap.shell.run("hi")
         #expect(cap.stdout == "hi\n")

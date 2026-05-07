@@ -10,7 +10,7 @@ extension Shell {
     /// way out, so this is safe to call from arbitrary contexts.
     ///
     /// If you want to consume output live rather than drain it at the
-    /// end, replace `Shell.current.stdout` with your own `OutputSink` and
+    /// end, replace `Shell.bashCurrent.stdout` with your own `OutputSink` and
     /// iterate `stdout.bytes` / `stdout.lines` in a separate Task
     /// before calling `run`.
     @discardableResult

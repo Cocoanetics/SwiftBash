@@ -16,7 +16,7 @@ public struct ClearCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout("\u{1B}[2J\u{1B}[H")
+        Shell.bashCurrent.stdout("\u{1B}[2J\u{1B}[H")
         return .success
     }
 }

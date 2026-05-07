@@ -22,7 +22,7 @@ public struct DirnameCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        Shell.current.stdout(Self.dirname(of: path) + "\n")
+        Shell.bashCurrent.stdout(Self.dirname(of: path) + "\n")
         return .success
     }
 

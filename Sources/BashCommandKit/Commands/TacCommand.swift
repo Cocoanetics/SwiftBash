@@ -20,22 +20,22 @@ public struct TacCommand: ParsableBashCommand {
     public mutating func execute() async throws -> ExitStatus {
         if files.isEmpty {
             var lines: [String] = []
-            for await line in Shell.current.stdin.lines { lines.append(line) }
-            for line in lines.reversed() { Shell.current.stdout(line + "\n") }
+            for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
+            for line in lines.reversed() { Shell.bashCurrent.stdout(line + "\n") }
             return .success
         }
         var hadError = false
         for f in files {
             try Task.checkCancellation()
             do {
-                let data = try await Shell.current.readDataAtPath(f)
+                let data = try await Shell.bashCurrent.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 for line in SortCommand.splitLines(text).reversed() {
                     try Task.checkCancellation()
-                    Shell.current.stdout(line + "\n")
+                    Shell.bashCurrent.stdout(line + "\n")
                 }
             } catch {
-                Shell.current.stderr("tac: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("tac: \(f): \(error)\n")
                 hadError = true
             }
         }

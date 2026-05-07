@@ -44,7 +44,7 @@ extension Shell {
     public func run(_ parts: [Node], source: String) async throws -> ExitStatus {
         // Bind self as the task-local current shell for the duration
         // of the run. Subshells, pipeline stages, traps, and any
-        // command body all read shell state via `Shell.current`.
+        // command body all read shell state via `Shell.bashCurrent`.
         return try await withCurrent {
             try await runImpl(parts, source: source)
         }

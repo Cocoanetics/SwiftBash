@@ -28,19 +28,19 @@ public struct WhichCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         if names.isEmpty {
-            Shell.current.stderr("which: missing operand\n")
+            Shell.bashCurrent.stderr("which: missing operand\n")
             return .failure
         }
         var missing = false
         for name in names {
-            guard Shell.current.commands[name] != nil else {
+            guard Shell.bashCurrent.commands[name] != nil else {
                 missing = true
                 continue
             }
             if let path = BinCatalog.knownPaths[name] {
-                Shell.current.stdout("\(path)\n")
+                Shell.bashCurrent.stdout("\(path)\n")
             } else {
-                Shell.current.stdout("\(name): shell built-in command\n")
+                Shell.bashCurrent.stdout("\(name): shell built-in command\n")
             }
         }
         return missing ? .failure : .success

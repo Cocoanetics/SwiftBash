@@ -37,17 +37,17 @@ public struct TeeCommand: ParsableBashCommand {
         for f in files {
             do {
                 sinks.append(
-                    try await Shell.current.openOutputPath(f, append: append))
+                    try await Shell.bashCurrent.openOutputPath(f, append: append))
             } catch {
-                Shell.current.stderr("tee: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("tee: \(f): \(error)\n")
                 for s in sinks { s.finish() }
                 return .failure
             }
         }
         defer { for s in sinks { s.finish() } }
 
-        for await chunk in Shell.current.stdin.bytes {
-            Shell.current.stdout(chunk)
+        for await chunk in Shell.bashCurrent.stdin.bytes {
+            Shell.bashCurrent.stdout(chunk)
             for s in sinks { s.write(chunk) }
         }
         return .success

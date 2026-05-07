@@ -235,14 +235,14 @@ func runGzip(decompress: Bool,
                      files: [String],
                      commandName: String) async throws -> ExitStatus {
     if files.isEmpty {
-        let input = await Shell.current.stdin.readAllData()
+        let input = await Shell.bashCurrent.stdin.readAllData()
         do {
             let output = decompress
                 ? try Gzip.decode(input)
                 : Gzip.encode(input)
-            Shell.current.stdout(output)
+            Shell.bashCurrent.stdout(output)
         } catch let err as Gzip.Error {
-            Shell.current.stderr("\(commandName): \(err)\n")
+            Shell.bashCurrent.stderr("\(commandName): \(err)\n")
             return .failure
         }
         return .success
@@ -253,9 +253,9 @@ func runGzip(decompress: Bool,
         try Task.checkCancellation()
         let data: Data
         do {
-            data = try await Shell.current.readDataAtPath(f)
+            data = try await Shell.bashCurrent.readDataAtPath(f)
         } catch {
-            Shell.current.stderr("\(commandName): \(f): \(error)\n")
+            Shell.bashCurrent.stderr("\(commandName): \(f): \(error)\n")
             hadError = true
             continue
         }
@@ -263,29 +263,29 @@ func runGzip(decompress: Bool,
         do {
             output = decompress ? try Gzip.decode(data) : Gzip.encode(data)
         } catch let err as Gzip.Error {
-            Shell.current.stderr("\(commandName): \(f): \(err)\n")
+            Shell.bashCurrent.stderr("\(commandName): \(f): \(err)\n")
             hadError = true
             continue
         } catch {
-            Shell.current.stderr("\(commandName): \(f): \(error)\n")
+            Shell.bashCurrent.stderr("\(commandName): \(f): \(error)\n")
             hadError = true
             continue
         }
 
         if toStdout {
-            Shell.current.stdout(output)
+            Shell.bashCurrent.stdout(output)
         } else {
             // File replacement: write the new path, remove the old.
             let target = decompress
                 ? Gzip.strippedSuffix(f)
                 : f + ".gz"
             do {
-                try await Shell.current.writeData(
+                try await Shell.bashCurrent.writeData(
                     output, toPath: target, append: false)
-                try await Shell.current.fileSystem.remove(
-                    Shell.current.resolvePath(f), recursive: false)
+                try await Shell.bashCurrent.fileSystem.remove(
+                    Shell.bashCurrent.resolvePath(f), recursive: false)
             } catch {
-                Shell.current.stderr("\(commandName): \(f): \(error)\n")
+                Shell.bashCurrent.stderr("\(commandName): \(f): \(error)\n")
                 hadError = true
             }
         }

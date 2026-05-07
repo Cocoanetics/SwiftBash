@@ -19,32 +19,32 @@ struct FunctionCommand: Command {
 
     func run(_ argv: [String]) async throws -> ExitStatus {
         // Save call-frame state.
-        let savedParams = Shell.current.positionalParameters
-        let savedSource = Shell.current.currentSource
+        let savedParams = Shell.bashCurrent.positionalParameters
+        let savedSource = Shell.bashCurrent.currentSource
 
-        Shell.current.positionalParameters = Array(argv.dropFirst())
-        Shell.current.currentSource = definitionSource
-        Shell.current.functionCallDepth += 1
-        Shell.current.localVarStack.append([])
+        Shell.bashCurrent.positionalParameters = Array(argv.dropFirst())
+        Shell.bashCurrent.currentSource = definitionSource
+        Shell.bashCurrent.functionCallDepth += 1
+        Shell.bashCurrent.localVarStack.append([])
 
         defer {
             // Pop locals — restore shadowed values in reverse order.
-            if let frame = Shell.current.localVarStack.popLast() {
+            if let frame = Shell.bashCurrent.localVarStack.popLast() {
                 for (name, prior) in frame.reversed() {
-                    Shell.current.environment[name] = prior
+                    Shell.bashCurrent.environment[name] = prior
                 }
             }
-            Shell.current.functionCallDepth -= 1
-            Shell.current.positionalParameters = savedParams
-            Shell.current.currentSource = savedSource
+            Shell.bashCurrent.functionCallDepth -= 1
+            Shell.bashCurrent.positionalParameters = savedParams
+            Shell.bashCurrent.currentSource = savedSource
         }
 
         do {
-            let result = try await Shell.current.execute(body)
-            Shell.current.lastExitStatus = result
+            let result = try await Shell.bashCurrent.execute(body)
+            Shell.bashCurrent.lastExitStatus = result
             return result
         } catch let ret as ReturnSignal {
-            Shell.current.lastExitStatus = ret.status
+            Shell.bashCurrent.lastExitStatus = ret.status
             return ret.status
         }
     }

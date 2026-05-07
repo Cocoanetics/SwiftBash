@@ -21,7 +21,7 @@ public struct SleepCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         if seconds < 0 {
-            Shell.current.stderr("sleep: negative duration\n")
+            Shell.bashCurrent.stderr("sleep: negative duration\n")
             return .failure
         }
         if seconds > 0 {

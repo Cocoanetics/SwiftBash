@@ -8,19 +8,19 @@ public struct ReturnCommand: Command {
     public init() {}
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
-        if Shell.current.functionCallDepth == 0 {
-            Shell.current.stderr("return: can only `return' from a function or sourced script\n")
+        if Shell.bashCurrent.functionCallDepth == 0 {
+            Shell.bashCurrent.stderr("return: can only `return' from a function or sourced script\n")
             return .failure
         }
         let status: ExitStatus
         if let raw = argv.dropFirst().first {
             guard let n = Int32(raw) else {
-                Shell.current.stderr("return: \(raw): numeric argument required\n")
+                Shell.bashCurrent.stderr("return: \(raw): numeric argument required\n")
                 return ExitStatus(2)
             }
             status = ExitStatus(n)
         } else {
-            status = Shell.current.lastExitStatus
+            status = Shell.bashCurrent.lastExitStatus
         }
         throw ReturnSignal(status: status)
     }

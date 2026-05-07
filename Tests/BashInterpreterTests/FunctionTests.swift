@@ -270,8 +270,8 @@ import Foundation
         // BashCommandKit being loaded in BashInterpreter tests.
         cap.shell.register(name: "count") { _ in
             var n = 0
-            for await _ in Shell.current.stdin.lines { n += 1 }
-            Shell.current.stdout("\(n)\n")
+            for await _ in Shell.bashCurrent.stdin.lines { n += 1 }
+            Shell.bashCurrent.stdout("\(n)\n")
             return .success
         }
         try await cap.shell.run("""

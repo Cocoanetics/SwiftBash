@@ -35,9 +35,9 @@ public struct WcCommand: ParsableBashCommand {
         let showAll = !lines && !words && !bytes && !chars
 
         if files.isEmpty {
-            let data = await Shell.current.stdin.readAllData()
+            let data = await Shell.bashCurrent.stdin.readAllData()
             let counts = compute(data: data)
-            Shell.current.stdout(format(counts: counts, label: nil,
+            Shell.bashCurrent.stdout(format(counts: counts, label: nil,
                                 showAll: showAll) + "\n")
             return .success
         }
@@ -47,22 +47,22 @@ public struct WcCommand: ParsableBashCommand {
         for path in files {
             do {
                 let data = path == "-"
-                    ? await Shell.current.stdin.readAllData()
-                    : try await Shell.current.readDataAtPath(path)
+                    ? await Shell.bashCurrent.stdin.readAllData()
+                    : try await Shell.bashCurrent.readDataAtPath(path)
                 let c = compute(data: data)
                 total.add(c)
-                Shell.current.stdout(format(counts: c, label: path,
+                Shell.bashCurrent.stdout(format(counts: c, label: path,
                                     showAll: showAll) + "\n")
             } catch FileSystemError.notFound {
-                Shell.current.stderr("wc: \(path): No such file or directory\n")
+                Shell.bashCurrent.stderr("wc: \(path): No such file or directory\n")
                 hadError = true
             } catch {
-                Shell.current.stderr("wc: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("wc: \(path): \(error)\n")
                 hadError = true
             }
         }
         if files.count > 1 {
-            Shell.current.stdout(format(counts: total, label: "total",
+            Shell.bashCurrent.stdout(format(counts: total, label: "total",
                                 showAll: showAll) + "\n")
         }
         return hadError ? .failure : .success

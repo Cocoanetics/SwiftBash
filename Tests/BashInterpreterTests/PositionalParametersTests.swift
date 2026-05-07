@@ -145,7 +145,7 @@ import Testing
         cap.shell.positionalParameters = ["hello world", "second"]
         cap.shell.register(name: "showargs") { argv in
             for (i, arg) in argv.dropFirst().enumerated() {
-                Shell.current.stdout("[\(i + 1)]\(arg)\n")
+                Shell.bashCurrent.stdout("[\(i + 1)]\(arg)\n")
             }
             return .success
         }
@@ -158,7 +158,7 @@ import Testing
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["one", "two", "three"]
         cap.shell.register(name: "count") { argv in
-            Shell.current.stdout("\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run("count $@")
@@ -169,7 +169,7 @@ import Testing
         let cap = CapturingShell()
         // No positional params set.
         cap.shell.register(name: "count") { argv in
-            Shell.current.stdout("\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"count "$@""#)
@@ -183,7 +183,7 @@ import Testing
         cap.shell.positionalParameters = ["a b", "c"]
         cap.shell.register(name: "echoargs") { argv in
             for arg in argv.dropFirst() {
-                Shell.current.stdout("<\(arg)>\n")
+                Shell.bashCurrent.stdout("<\(arg)>\n")
             }
             return .success
         }

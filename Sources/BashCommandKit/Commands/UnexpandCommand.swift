@@ -32,7 +32,7 @@ public struct UnexpandCommand: ParsableBashCommand {
             if a == "-a" || a == "--all" { allBlanks = true; i += 1; continue }
             if a == "-t" || a == "--tabs" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("unexpand: -t requires LIST\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("unexpand: -t requires LIST\n"); return ExitStatus(2)
                 }
                 tabSpec = rawArgv[i + 1]; allBlanks = true; i += 2; continue
             }
@@ -44,7 +44,7 @@ public struct UnexpandCommand: ParsableBashCommand {
                 tabSpec = String(a.dropFirst(2)); allBlanks = true; i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.current.stderr("unexpand: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("unexpand: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -57,14 +57,14 @@ public struct UnexpandCommand: ParsableBashCommand {
             try Task.checkCancellation()
             do {
                 let text: String
-                if f == "-" { text = await Shell.current.stdin.readAllString() }
+                if f == "-" { text = await Shell.bashCurrent.stdin.readAllString() }
                 else {
-                    let data = try await Shell.current.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(f)
                     text = String(decoding: data, as: UTF8.self)
                 }
-                Shell.current.stdout(UnexpandCommand.unexpand(text, stops: stops, allBlanks: allBlanks))
+                Shell.bashCurrent.stdout(UnexpandCommand.unexpand(text, stops: stops, allBlanks: allBlanks))
             } catch {
-                Shell.current.stderr("unexpand: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("unexpand: \(f): \(error)\n")
                 hadError = true
             }
         }

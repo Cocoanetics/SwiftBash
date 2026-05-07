@@ -26,7 +26,7 @@ public struct DeclareCommand: Command {
                 case "A": associative = true
                 case "r", "x", "i", "a", "g": break
                 default:
-                    Shell.current.stderr("declare: -\(c): invalid option\n")
+                    Shell.bashCurrent.stderr("declare: -\(c): invalid option\n")
                     return ExitStatus(2)
                 }
             }
@@ -46,19 +46,19 @@ public struct DeclareCommand: Command {
             }
 
             if associative {
-                if Shell.current.environment.associativeArrays[nameOnly] == nil {
-                    Shell.current.environment.associativeArrays[nameOnly] = [:]
+                if Shell.bashCurrent.environment.associativeArrays[nameOnly] == nil {
+                    Shell.bashCurrent.environment.associativeArrays[nameOnly] = [:]
                 }
-                Shell.current.environment.arrays.removeValue(forKey: nameOnly)
-                Shell.current.environment.variables.removeValue(forKey: nameOnly)
+                Shell.bashCurrent.environment.arrays.removeValue(forKey: nameOnly)
+                Shell.bashCurrent.environment.variables.removeValue(forKey: nameOnly)
                 if let value {
                     // `declare -A m=value` is unusual in real scripts
                     // (typically followed by `m[k]=v` lines instead);
                     // we treat the bare value as the empty-key entry.
-                    Shell.current.environment.associativeArrays[nameOnly]?[""] = value
+                    Shell.bashCurrent.environment.associativeArrays[nameOnly]?[""] = value
                 }
             } else if let value {
-                Shell.current.environment[nameOnly] = value
+                Shell.bashCurrent.environment[nameOnly] = value
             }
         }
         return .success

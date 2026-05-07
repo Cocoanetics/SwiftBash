@@ -21,15 +21,15 @@ public struct CmpCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         guard files.count == 2 else {
-            Shell.current.stderr("cmp: usage: cmp [-s] FILE1 FILE2\n")
+            Shell.bashCurrent.stderr("cmp: usage: cmp [-s] FILE1 FILE2\n")
             return ExitStatus(2)
         }
         let a: Data, b: Data
         do {
-            a = try await Shell.current.readDataAtPath(files[0])
-            b = try await Shell.current.readDataAtPath(files[1])
+            a = try await Shell.bashCurrent.readDataAtPath(files[0])
+            b = try await Shell.bashCurrent.readDataAtPath(files[1])
         } catch {
-            Shell.current.stderr("cmp: \(error)\n")
+            Shell.bashCurrent.stderr("cmp: \(error)\n")
             return ExitStatus(2)
         }
         let n = min(a.count, b.count)
@@ -37,7 +37,7 @@ public struct CmpCommand: ParsableBashCommand {
         for i in 0..<n {
             if a[i] != b[i] {
                 if !silent {
-                    Shell.current.stdout("\(files[0]) \(files[1]) differ: char \(i + 1), line \(line)\n")
+                    Shell.bashCurrent.stdout("\(files[0]) \(files[1]) differ: char \(i + 1), line \(line)\n")
                 }
                 return ExitStatus(1)
             }
@@ -46,7 +46,7 @@ public struct CmpCommand: ParsableBashCommand {
         if a.count != b.count {
             if !silent {
                 let longer = a.count > b.count ? files[0] : files[1]
-                Shell.current.stdout("cmp: EOF on \(longer)\n")
+                Shell.bashCurrent.stdout("cmp: EOF on \(longer)\n")
             }
             return ExitStatus(1)
         }

@@ -52,46 +52,46 @@ public struct MktempCommand: ParsableBashCommand {
             path = try await resolveTemplate()
         } catch {
             if !quiet {
-                Shell.current.stderr("mktemp: \(error.localizedDescription)\n")
+                Shell.bashCurrent.stderr("mktemp: \(error.localizedDescription)\n")
             }
             return .failure
         }
 
         if dryRun {
-            Shell.current.stdout(path + "\n")
+            Shell.bashCurrent.stdout(path + "\n")
             return .success
         }
 
         do {
             if directory {
-                try await Shell.current.fileSystem.createDirectory(
+                try await Shell.bashCurrent.fileSystem.createDirectory(
                     path, intermediates: false)
             } else {
-                try await Shell.current.fileSystem.writeData(
+                try await Shell.bashCurrent.fileSystem.writeData(
                     Data(), to: path, append: false)
             }
         } catch {
             if !quiet {
-                Shell.current.stderr("mktemp: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("mktemp: \(path): \(error)\n")
             }
             return .failure
         }
 
-        Shell.current.stdout(path + "\n")
+        Shell.bashCurrent.stdout(path + "\n")
         return .success
     }
 
     private func resolveTemplate() async throws -> String {
         // Decide the template body and which directory it lives in.
         if let t = template {
-            let resolved = Shell.current.resolvePath(t)
+            let resolved = Shell.bashCurrent.resolvePath(t)
             return Self.replacingX(in: resolved)
         }
         let p = prefix ?? "tmp"
         // makeTempPath gives a unique full path under the FS's temp
         // directory; any trailing "X"-style randomness is provided by
         // the FS implementation itself.
-        return try await Shell.current.fileSystem.makeTempPath(prefix: p)
+        return try await Shell.bashCurrent.fileSystem.makeTempPath(prefix: p)
     }
 
     /// Replace the trailing run of `X` characters with a random

@@ -36,7 +36,7 @@ public struct PsCommand: ParsableBashCommand {
             let a = rawArgv[i]
             if a == "-p" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("ps: -p requires PIDs\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("ps: -p requires PIDs\n"); return ExitStatus(2)
                 }
                 pidFilter = Set(rawArgv[i + 1].split(separator: ",")
                     .compactMap { Int32($0) })
@@ -44,7 +44,7 @@ public struct PsCommand: ParsableBashCommand {
             }
             if a == "-o" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("ps: -o requires COL list\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("ps: -o requires COL list\n"); return ExitStatus(2)
                 }
                 columns = rawArgv[i + 1]
                     .split(whereSeparator: { $0 == "," || $0 == " " })
@@ -57,7 +57,7 @@ public struct PsCommand: ParsableBashCommand {
                     switch c {
                     case "A", "e", "a", "x": break
                     default:
-                        Shell.current.stderr("ps: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("ps: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -66,13 +66,13 @@ public struct PsCommand: ParsableBashCommand {
             i += 1
         }
 
-        let entries = await Shell.current.processTable.list()
+        let entries = await Shell.bashCurrent.processTable.list()
             .filter { pidFilter?.contains($0.pid) ?? true }
 
-        Shell.current.stdout(
+        Shell.bashCurrent.stdout(
             columns.map(columnHeader).joined(separator: "  ") + "\n")
         for e in entries {
-            Shell.current.stdout(
+            Shell.bashCurrent.stdout(
                 columns.map { columnValue($0, of: e) }
                     .joined(separator: "  ") + "\n")
         }
@@ -95,7 +95,7 @@ public struct PsCommand: ParsableBashCommand {
     {
         switch name {
         case "pid":  return String(format: "%5d", e.pid)
-        case "ppid": return String(format: "%5d", Shell.current.virtualPID)
+        case "ppid": return String(format: "%5d", Shell.bashCurrent.virtualPID)
         case "state":
             switch e.state {
             case .running:   return "R   "

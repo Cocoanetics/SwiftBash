@@ -39,7 +39,7 @@ public struct UnameCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let any = all || kernel || node || release || version || machine
         let useKernel = !any || kernel || all
         var parts: [String] = []
@@ -48,7 +48,7 @@ public struct UnameCommand: ParsableBashCommand {
         if all || release  { parts.append(host.kernelRelease) }
         if all || version  { parts.append(host.kernelVersion) }
         if all || machine  { parts.append(host.machine) }
-        Shell.current.stdout(parts.joined(separator: " ") + "\n")
+        Shell.bashCurrent.stdout(parts.joined(separator: " ") + "\n")
         return .success
     }
 }

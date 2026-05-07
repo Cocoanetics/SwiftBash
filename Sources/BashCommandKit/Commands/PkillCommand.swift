@@ -26,7 +26,7 @@ public struct PkillCommand: ParsableBashCommand {
             if a == "-f" { i += 1; continue }    // -f is a no-op here
             if a == "-s" {
                 guard i + 1 < rawArgv.count, let s = parseSignal(rawArgv[i + 1]) else {
-                    Shell.current.stderr("pkill: invalid signal\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("pkill: invalid signal\n"); return ExitStatus(2)
                 }
                 sig = s; i += 2; continue
             }
@@ -34,20 +34,20 @@ public struct PkillCommand: ParsableBashCommand {
                 let body = String(a.dropFirst())
                 if body == "f" { i += 1; continue }
                 if let s = parseSignal(body) { sig = s; i += 1; continue }
-                Shell.current.stderr("pkill: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("pkill: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             pattern = a; i += 1
         }
         guard let pat = pattern else {
-            Shell.current.stderr("pkill: missing pattern\n")
+            Shell.bashCurrent.stderr("pkill: missing pattern\n")
             return ExitStatus(2)
         }
         guard let regex = try? NSRegularExpression(pattern: pat) else {
-            Shell.current.stderr("pkill: invalid pattern\n")
+            Shell.bashCurrent.stderr("pkill: invalid pattern\n")
             return ExitStatus(2)
         }
-        let table = Shell.current.processTable
+        let table = Shell.bashCurrent.processTable
         let entries = await table.list()
         let matches = entries.filter { e in
             let ns = e.command as NSString

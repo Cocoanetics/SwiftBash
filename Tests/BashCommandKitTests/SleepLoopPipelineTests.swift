@@ -70,7 +70,7 @@ import Foundation
         let counter = CallCounter()
         cap.shell.register(name: "status") { _ in
             let n = counter.increment()
-            Shell.current.stdout(n >= 3 ? "completed\n" : "running\n")
+            Shell.bashCurrent.stdout(n >= 3 ? "completed\n" : "running\n")
             return .success
         }
 
@@ -93,7 +93,7 @@ import Foundation
         // consumer.
         let arrivals: LineArrivalRecorder = LineArrivalRecorder()
         cap.shell.register(name: "record") { _ in
-            for await line in Shell.current.stdin.lines {
+            for await line in Shell.bashCurrent.stdin.lines {
                 arrivals.record(line)
             }
             return .success

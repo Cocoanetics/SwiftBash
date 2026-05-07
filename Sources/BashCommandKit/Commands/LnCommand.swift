@@ -25,12 +25,12 @@ public struct LnCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         guard operands.count >= 2 else {
-            Shell.current.stderr("ln: missing operand\n")
+            Shell.bashCurrent.stderr("ln: missing operand\n")
             return ExitStatus(2)
         }
         let last = operands.last!
-        let lastResolved = Shell.current.resolvePath(last)
-        let isDir = (try? await Shell.current.fileSystem.metadata(lastResolved))?.kind == .directory
+        let lastResolved = Shell.bashCurrent.resolvePath(last)
+        let isDir = (try? await Shell.bashCurrent.fileSystem.metadata(lastResolved))?.kind == .directory
         let targets: [String]
         var destination: String
         if isDir && operands.count > 2 {
@@ -40,7 +40,7 @@ public struct LnCommand: ParsableBashCommand {
             targets = [operands[0]]
             destination = lastResolved
         } else {
-            Shell.current.stderr("ln: target '\(last)' is not a directory\n")
+            Shell.bashCurrent.stderr("ln: target '\(last)' is not a directory\n")
             return ExitStatus(1)
         }
         var hadError = false
@@ -53,17 +53,17 @@ public struct LnCommand: ParsableBashCommand {
                 dest = destination
             }
             do {
-                if force, let _ = try? await Shell.current.fileSystem.metadata(dest) {
-                    try? await Shell.current.fileSystem.remove(dest, recursive: false)
+                if force, let _ = try? await Shell.bashCurrent.fileSystem.metadata(dest) {
+                    try? await Shell.bashCurrent.fileSystem.remove(dest, recursive: false)
                 }
                 if symbolic {
-                    try await Shell.current.fileSystem.symlink(target: target, at: dest)
+                    try await Shell.bashCurrent.fileSystem.symlink(target: target, at: dest)
                 } else {
-                    try await Shell.current.fileSystem.hardlink(
-                        target: Shell.current.resolvePath(target), at: dest)
+                    try await Shell.bashCurrent.fileSystem.hardlink(
+                        target: Shell.bashCurrent.resolvePath(target), at: dest)
                 }
             } catch {
-                Shell.current.stderr("ln: \(dest): \(error)\n")
+                Shell.bashCurrent.stderr("ln: \(dest): \(error)\n")
                 hadError = true
             }
         }

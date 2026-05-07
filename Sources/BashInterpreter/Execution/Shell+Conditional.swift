@@ -158,8 +158,8 @@ private struct ConditionalEvaluator {
             let rhs = parts[pos + 2]
             pos += 3
             if skip { return false }
-            let l = try await Shell.current.expand(word: lhs)
-            let r = try await Shell.current.expand(word: rhs)
+            let l = try await Shell.bashCurrent.expand(word: lhs)
+            let r = try await Shell.bashCurrent.expand(word: rhs)
             return opStr == "<" ? (l < r) : (l > r)
         }
 
@@ -178,7 +178,7 @@ private struct ConditionalEvaluator {
                 "[[: empty expression")
         }
         if skip { return false }
-        let value = try await Shell.current.expand(word: node)
+        let value = try await Shell.bashCurrent.expand(word: node)
         return !value.isEmpty
     }
 
@@ -213,13 +213,13 @@ private struct ConditionalEvaluator {
 
     private func evalUnary(op: String, arg: Node) async throws -> Bool
     {
-        let value = try await Shell.current.expand(word: arg)
+        let value = try await Shell.bashCurrent.expand(word: arg)
         switch op {
         case "-z": return value.isEmpty
         case "-n": return !value.isEmpty
         case "-e", "-f", "-d", "-s", "-r", "-w", "-x":
-            let path = Shell.current.resolvePath(value)
-            let m = try? await Shell.current.fileSystem.metadata(path)
+            let path = Shell.bashCurrent.resolvePath(value)
+            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
             switch op {
             case "-e": return m != nil
             case "-f": return m?.kind == .file
@@ -242,7 +242,7 @@ private struct ConditionalEvaluator {
         guard case .word(let opStr, _) = op.kind else {
             throw BashInterpreterError.parameter("[[: bad binary operator")
         }
-        let lValue = try await Shell.current.expand(word: lhs)
+        let lValue = try await Shell.bashCurrent.expand(word: lhs)
 
         switch opStr {
         case "=", "==":
@@ -252,7 +252,7 @@ private struct ConditionalEvaluator {
         case "=~":
             // Regex match. Always literal comparison — regex syntax
             // doesn't go through glob.
-            let rValue = try await Shell.current.expand(word: rhs)
+            let rValue = try await Shell.bashCurrent.expand(word: rhs)
             do {
                 let regex = try NSRegularExpression(pattern: rValue)
                 let range = NSRange(lValue.startIndex..., in: lValue)
@@ -262,7 +262,7 @@ private struct ConditionalEvaluator {
                     "[[: invalid regex `\(rValue)': \(error.localizedDescription)")
             }
         case "-eq", "-ne", "-lt", "-le", "-gt", "-ge":
-            let rValue = try await Shell.current.expand(word: rhs)
+            let rValue = try await Shell.bashCurrent.expand(word: rhs)
             guard let l = Int64(lValue.trimmingCharacters(in: .whitespaces)),
                   let r = Int64(rValue.trimmingCharacters(in: .whitespaces))
             else {
@@ -279,11 +279,11 @@ private struct ConditionalEvaluator {
             default: return false
             }
         case "-nt", "-ot", "-ef":
-            let rValue = try await Shell.current.expand(word: rhs)
-            let lp = Shell.current.resolvePath(lValue)
-            let rp = Shell.current.resolvePath(rValue)
-            let lm = try? await Shell.current.fileSystem.metadata(lp)
-            let rm = try? await Shell.current.fileSystem.metadata(rp)
+            let rValue = try await Shell.bashCurrent.expand(word: rhs)
+            let lp = Shell.bashCurrent.resolvePath(lValue)
+            let rp = Shell.bashCurrent.resolvePath(rValue)
+            let lm = try? await Shell.bashCurrent.fileSystem.metadata(lp)
+            let rm = try? await Shell.bashCurrent.fileSystem.metadata(rp)
             switch opStr {
             case "-nt":
                 guard let l = lm else { return false }
@@ -294,9 +294,9 @@ private struct ConditionalEvaluator {
                 guard let l = lm else { return true }
                 return l.modifiedAt < r.modifiedAt
             case "-ef":
-                let lc = try? await Shell.current.fileSystem.canonicalize(
+                let lc = try? await Shell.bashCurrent.fileSystem.canonicalize(
                     lp, allowMissing: false)
-                let rc = try? await Shell.current.fileSystem.canonicalize(
+                let rc = try? await Shell.bashCurrent.fileSystem.canonicalize(
                     rp, allowMissing: false)
                 return lc != nil && lc == rc
             default: return false
@@ -313,7 +313,7 @@ private struct ConditionalEvaluator {
     /// characters from a word's value but keeps them in the original
     /// source range, so we inspect that.
     private func rhsIsLiteral(_ node: Node) -> Bool {
-        let chars = Array(Shell.current.currentSource)
+        let chars = Array(Shell.bashCurrent.currentSource)
         let lo = max(0, node.range.lowerBound)
         let hi = min(chars.count, node.range.upperBound)
         for i in lo..<hi {
@@ -332,8 +332,8 @@ private struct ConditionalEvaluator {
     {
         let pattern = try await buildGlobPattern(rhs: rhs)
         let opts = GlobOptions(
-            extglob: Shell.current.shoptOptions["extglob"] == true,
-            nocase:  Shell.current.shoptOptions["nocasematch"] == true)
+            extglob: Shell.bashCurrent.shoptOptions["extglob"] == true,
+            nocase:  Shell.bashCurrent.shoptOptions["nocasematch"] == true)
         return GlobMatcher.match(pattern: pattern, string: lhs, options: opts)
     }
 
@@ -345,7 +345,7 @@ private struct ConditionalEvaluator {
     /// expanded value is escaped — bash treats substituted text as
     /// literal in `[[ ]]` patterns.
     private func buildGlobPattern(rhs: Node) async throws -> String {
-        let chars = Array(Shell.current.currentSource)
+        let chars = Array(Shell.bashCurrent.currentSource)
         let lo = max(0, rhs.range.lowerBound)
         let hi = min(chars.count, rhs.range.upperBound)
         guard lo < hi else { return "" }
@@ -361,7 +361,7 @@ private struct ConditionalEvaluator {
         var i = lo
         while i < hi {
             if let head = queue.first, i == head.range.lowerBound {
-                let value = try await Shell.current.resolve(part: head)
+                let value = try await Shell.bashCurrent.resolve(part: head)
                 out.append(escapedForGlob(value))
                 i = min(hi, head.range.upperBound)
                 queue.removeFirst()

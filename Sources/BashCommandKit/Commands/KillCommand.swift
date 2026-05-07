@@ -38,7 +38,7 @@ public struct KillCommand: ParsableBashCommand {
             }
             if a == "-s" {
                 guard i + 1 < rawArgv.count, let sig = parseSignal(rawArgv[i + 1]) else {
-                    Shell.current.stderr("kill: invalid signal\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("kill: invalid signal\n"); return ExitStatus(2)
                 }
                 signal = sig; i += 2; continue
             }
@@ -47,7 +47,7 @@ public struct KillCommand: ParsableBashCommand {
                 if let sig = parseSignal(sigPart) {
                     signal = sig
                 } else {
-                    Shell.current.stderr("kill: invalid signal: \(a)\n")
+                    Shell.bashCurrent.stderr("kill: invalid signal: \(a)\n")
                     return ExitStatus(2)
                 }
                 i += 1; continue
@@ -55,21 +55,21 @@ public struct KillCommand: ParsableBashCommand {
             if let pid = Int32(a) {
                 pids.append(pid)
             } else {
-                Shell.current.stderr("kill: invalid PID: \(a)\n")
+                Shell.bashCurrent.stderr("kill: invalid PID: \(a)\n")
                 return ExitStatus(2)
             }
             i += 1
         }
         guard !pids.isEmpty else {
-            Shell.current.stderr("kill: usage: kill [-SIG] PID...\n")
+            Shell.bashCurrent.stderr("kill: usage: kill [-SIG] PID...\n")
             return ExitStatus(2)
         }
         var hadError = false
-        let table = Shell.current.processTable
+        let table = Shell.bashCurrent.processTable
         for pid in pids {
             let ok = await table.signal(pid: pid, signo: signal)
             if !ok {
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "kill: (\(pid)) - No such process\n")
                 hadError = true
             }
@@ -88,7 +88,7 @@ public struct KillCommand: ParsableBashCommand {
             ("CHLD", SIGCHLD), ("TTIN", SIGTTIN), ("TTOU", SIGTTOU),
             ("USR1", SIGUSR1), ("USR2", SIGUSR2),
         ]
-        Shell.current.stdout(
+        Shell.bashCurrent.stdout(
             signals.map { "\($0.1)) \($0.0)" }.joined(separator: " ") + "\n")
     }
 }

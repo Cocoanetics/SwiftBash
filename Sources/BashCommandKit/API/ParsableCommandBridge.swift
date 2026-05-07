@@ -31,9 +31,9 @@ struct ParsableCommandBridge<Parsed: ParsableBashCommand>: Command {
 
             if !message.isEmpty {
                 if code == 0 {
-                    Shell.current.stdout(message + "\n")
+                    Shell.bashCurrent.stdout(message + "\n")
                 } else {
-                    Shell.current.stderr(message + "\n")
+                    Shell.bashCurrent.stderr(message + "\n")
                 }
             }
             return ExitStatus(code)

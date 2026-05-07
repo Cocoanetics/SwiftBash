@@ -26,13 +26,13 @@ public struct Base64Command: ParsableBashCommand {
         let data: Data
         if let f = input, f != "-" {
             do {
-                data = try await Shell.current.readDataAtPath(f)
+                data = try await Shell.bashCurrent.readDataAtPath(f)
             } catch {
-                Shell.current.stderr("base64: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("base64: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            data = await Shell.current.stdin.readAllData()
+            data = await Shell.bashCurrent.stdin.readAllData()
         }
 
         if decode {
@@ -41,15 +41,15 @@ public struct Base64Command: ParsableBashCommand {
                 !($0 == 0x0A || $0 == 0x0D || $0 == 0x20 || $0 == 0x09)
             }
             guard let decoded = Data(base64Encoded: cleaned) else {
-                Shell.current.stderr("base64: invalid input\n")
+                Shell.bashCurrent.stderr("base64: invalid input\n")
                 return .failure
             }
-            Shell.current.stdout(decoded)
+            Shell.bashCurrent.stdout(decoded)
         } else {
             let encoded = data.base64EncodedString(
                 options: [.lineLength76Characters,
                           .endLineWithLineFeed])
-            Shell.current.stdout(encoded + "\n")
+            Shell.bashCurrent.stdout(encoded + "\n")
         }
         return .success
     }

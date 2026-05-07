@@ -24,7 +24,7 @@ public struct TestCommand: Command {
         // `[ EXPR ]` requires a literal `]` as the final arg.
         if argv.first == "[" {
             guard args.last == "]" else {
-                Shell.current.stderr("[: missing `]'\n")
+                Shell.bashCurrent.stderr("[: missing `]'\n")
                 return ExitStatus(2)
             }
             args.removeLast()
@@ -35,7 +35,7 @@ public struct TestCommand: Command {
             let result = try await parser.parse()
             return result ? .success : .failure
         } catch let err as TestError {
-            Shell.current.stderr("\(name): \(err.message)\n")
+            Shell.bashCurrent.stderr("\(name): \(err.message)\n")
             return ExitStatus(2)
         }
     }
@@ -170,23 +170,23 @@ private struct TestExpressionParser {
 
     private func evalUnary(op: String, arg: String) async throws -> Bool
     {
-        let path = Shell.current.resolvePath(arg)
+        let path = Shell.bashCurrent.resolvePath(arg)
         switch op {
         case "-e":
-            return (try? await Shell.current.fileSystem.metadata(path)) ?? nil != nil
+            return (try? await Shell.bashCurrent.fileSystem.metadata(path)) ?? nil != nil
         case "-f":
-            let m = try? await Shell.current.fileSystem.metadata(path)
+            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
             return m?.kind == .file
         case "-d":
-            let m = try? await Shell.current.fileSystem.metadata(path)
+            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
             return m?.kind == .directory
         case "-s":
-            let m = try? await Shell.current.fileSystem.metadata(path)
+            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
             return (m?.size ?? 0) > 0
         case "-r", "-w", "-x":
             // No permission model; report true iff the path exists.
             // RealFileSystem could be enhanced later via `access(2)`.
-            let m = try? await Shell.current.fileSystem.metadata(path)
+            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
             return m != nil
         case "-L", "-h":
             // We don't expose a separate symlink-stat from the FS yet;
@@ -236,10 +236,10 @@ private struct TestExpressionParser {
 
         // File mtime / identity comparison.
         case "-nt", "-ot", "-ef":
-            let lp = Shell.current.resolvePath(lhs)
-            let rp = Shell.current.resolvePath(rhs)
-            let lm = try? await Shell.current.fileSystem.metadata(lp)
-            let rm = try? await Shell.current.fileSystem.metadata(rp)
+            let lp = Shell.bashCurrent.resolvePath(lhs)
+            let rp = Shell.bashCurrent.resolvePath(rhs)
+            let lm = try? await Shell.bashCurrent.fileSystem.metadata(lp)
+            let rm = try? await Shell.bashCurrent.fileSystem.metadata(rp)
             switch op {
             case "-nt":
                 // True if `lhs` exists and either rhs is missing or
@@ -254,9 +254,9 @@ private struct TestExpressionParser {
             case "-ef":
                 // Same file: compare canonicalised paths. Without
                 // device/inode info this is the closest we can get.
-                let lc = try? await Shell.current.fileSystem.canonicalize(
+                let lc = try? await Shell.bashCurrent.fileSystem.canonicalize(
                     lp, allowMissing: false)
-                let rc = try? await Shell.current.fileSystem.canonicalize(
+                let rc = try? await Shell.bashCurrent.fileSystem.canonicalize(
                     rp, allowMissing: false)
                 return lc != nil && lc == rc
             default: return false

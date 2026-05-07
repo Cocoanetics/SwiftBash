@@ -45,7 +45,7 @@ public struct DateCommand: ParsableBashCommand {
                 break
             }
             if a == "-h" || a == "--help" {
-                Shell.current.stdout("""
+                Shell.bashCurrent.stdout("""
                     USAGE: date [-u] [-f FMT | --format FMT] [+FORMAT]
 
                     Print the current date and time. Format strings follow
@@ -64,7 +64,7 @@ public struct DateCommand: ParsableBashCommand {
             }
             if a == "-f" || a == "--format" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("date: option requires an argument: \(a)\n")
+                    Shell.bashCurrent.stderr("date: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 format = rawArgv[i + 1]
@@ -76,7 +76,7 @@ public struct DateCommand: ParsableBashCommand {
             }
             // Unknown option / extra positional. Real `date` accepts
             // `-r SECONDS` and `-d STRING` but those are out of scope.
-            Shell.current.stderr("date: unknown argument: \(a)\n")
+            Shell.bashCurrent.stderr("date: unknown argument: \(a)\n")
             return ExitStatus(2)
         }
 
@@ -106,7 +106,7 @@ public struct DateCommand: ParsableBashCommand {
         // decode as UTF-8 (the deprecated `String(cString: array)`
         // variant scans for NUL itself).
         let bytes = (0..<written).map { UInt8(bitPattern: buffer[$0]) }
-        Shell.current.stdout(String(decoding: bytes, as: UTF8.self) + "\n")
+        Shell.bashCurrent.stdout(String(decoding: bytes, as: UTF8.self) + "\n")
         return .success
     }
 

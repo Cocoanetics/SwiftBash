@@ -27,7 +27,7 @@ public struct RmdirCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         if paths.isEmpty {
-            Shell.current.stderr("rmdir: missing operand\n")
+            Shell.bashCurrent.stderr("rmdir: missing operand\n")
             return .failure
         }
         var hadError = false
@@ -66,12 +66,12 @@ public struct RmdirCommand: ParsableBashCommand {
     /// false. `FileSystem.remove(_:recursive:false)` errors when the
     /// directory isn't empty — exactly what `rmdir` is supposed to do.
     private func removeOne(_ path: String) async -> Bool {
-        let abs = Shell.current.resolvePath(path)
+        let abs = Shell.bashCurrent.resolvePath(path)
         do {
-            try await Shell.current.fileSystem.remove(abs, recursive: false)
+            try await Shell.bashCurrent.fileSystem.remove(abs, recursive: false)
             return true
         } catch {
-            Shell.current.stderr("rmdir: \(path): \(error)\n")
+            Shell.bashCurrent.stderr("rmdir: \(path): \(error)\n")
             return false
         }
     }

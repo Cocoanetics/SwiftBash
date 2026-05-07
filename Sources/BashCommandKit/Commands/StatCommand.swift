@@ -36,7 +36,7 @@ public struct StatCommand: ParsableBashCommand {
             }
             if a == "-c" || a == "--format" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("stat: -c requires FORMAT\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("stat: -c requires FORMAT\n"); return ExitStatus(2)
                 }
                 format = rawArgv[i + 1]; i += 2; continue
             }
@@ -47,7 +47,7 @@ public struct StatCommand: ParsableBashCommand {
                 format = String(a.dropFirst(2)); i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" {
-                Shell.current.stderr("stat: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("stat: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -55,15 +55,15 @@ public struct StatCommand: ParsableBashCommand {
 
         var hadError = false
         for f in files {
-            let resolved = Shell.current.resolvePath(f)
-            guard let meta = try? await Shell.current.fileSystem.metadata(resolved) else {
-                Shell.current.stderr("stat: \(f): No such file or directory\n")
+            let resolved = Shell.bashCurrent.resolvePath(f)
+            guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(resolved) else {
+                Shell.bashCurrent.stderr("stat: \(f): No such file or directory\n")
                 hadError = true; continue
             }
             if let format {
-                Shell.current.stdout(formatString(format, name: f, meta: meta) + "\n")
+                Shell.bashCurrent.stdout(formatString(format, name: f, meta: meta) + "\n")
             } else {
-                Shell.current.stdout(defaultStat(name: f, meta: meta))
+                Shell.bashCurrent.stdout(defaultStat(name: f, meta: meta))
             }
         }
         return hadError ? .failure : .success

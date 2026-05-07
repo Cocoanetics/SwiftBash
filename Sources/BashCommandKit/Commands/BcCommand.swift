@@ -46,17 +46,17 @@ public struct BcCommand: ParsableBashCommand {
 
         for f in files {
             do {
-                let data = try await Shell.current.readDataAtPath(f)
+                let data = try await Shell.bashCurrent.readDataAtPath(f)
                 let text = String(decoding: data, as: UTF8.self)
                 if let exit = process(text, ctx: &ctx) {
                     return exit
                 }
             } catch {
-                Shell.current.stderr("bc: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("bc: \(f): \(error)\n")
                 return .failure
             }
         }
-        let stdin = await Shell.current.stdin.readAllString()
+        let stdin = await Shell.bashCurrent.stdin.readAllString()
         if !stdin.isEmpty {
             if let exit = process(stdin, ctx: &ctx) {
                 return exit
@@ -103,13 +103,13 @@ public struct BcCommand: ParsableBashCommand {
                 if line == "quit" || line == "halt" { return .success }
                 do {
                     if let result = try Bc.evalLine(line, ctx: &ctx) {
-                        Shell.current.stdout(
+                        Shell.bashCurrent.stdout(
                             Bc.format(result, scale: ctx.scale) + "\n")
                     }
                 } catch let e as Bc.Error {
-                    Shell.current.stderr("bc: \(e.message)\n")
+                    Shell.bashCurrent.stderr("bc: \(e.message)\n")
                 } catch {
-                    Shell.current.stderr("bc: \(error)\n")
+                    Shell.bashCurrent.stderr("bc: \(error)\n")
                 }
             }
         }
