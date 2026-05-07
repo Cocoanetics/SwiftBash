@@ -14,6 +14,16 @@ private final class ChildPromiseHandles: @unchecked Sendable {
     var reject: JSValue?
 }
 
+/// Holder for the JS-side `ChildProcess` and its three streams.
+/// Crossed into Task.detached / pipe handlers under the same
+/// "main-queue-only access" rule as ``ChildPromiseHandles``.
+private final class SpawnHandles: @unchecked Sendable {
+    var proc: JSValue?
+    var stdoutS: JSValue?
+    var stderrS: JSValue?
+    var stdinS: JSValue?
+}
+
 extension JSRuntime {
 
     /// Build the `node:child_process` module.
@@ -44,6 +54,17 @@ extension JSRuntime {
         cp.setObject(block(spawnSync as AnyObject),
                      forKeyedSubscript: "spawnSync" as NSString)
 
+        // spawn(command, args?, options?) → ChildProcess with live
+        // stdout/stderr/stdin streams. Non-blocking; chunks arrive on
+        // the JS event loop the way node delivers them.
+        let spawnImpl: @convention(block) (String, JSValue?, JSValue?) -> JSValue? = { [weak self] cmd, args, opts in
+            guard let self else { return nil }
+            let argList = (args?.toArray() as? [String]) ?? []
+            return self.runChildSpawn(command: cmd, args: argList, opts: opts)
+        }
+        cp.setObject(block(spawnImpl as AnyObject),
+                     forKeyedSubscript: "spawn" as NSString)
+
         // exec(command, opts?) → Promise<{stdout, stderr, code}>.
         //
         // Non-blocking. Each call spawns a Swift Task.detached that
@@ -59,6 +80,356 @@ extension JSRuntime {
                      forKeyedSubscript: "exec" as NSString)
 
         return cp
+    }
+
+    /// `spawn(cmd, args)` — non-blocking, returns a ``ChildProcess``
+    /// with live `stdout`/`stderr` ``Readable`` streams and a `stdin`
+    /// ``Writable``. Each chunk produced by the underlying backend
+    /// hops to main and is `_push`ed into the corresponding JS
+    /// stream; the `'exit'` and `'close'` events fire when the
+    /// command terminates and both output streams have ended.
+    ///
+    /// Backed by ``Shell`` (`.inProcess`) or `Process` (`.hostShell`),
+    /// the same way `execSync` and `exec` are.
+    private func runChildSpawn(command: String, args: [String], opts _: JSValue?) -> JSValue? {
+        installStreamClasses()
+        let ctx = context
+
+        // Build the JS-side ChildProcess + its three streams. Using
+        // a small JS factory is simpler than constructing them piece
+        // by piece from Swift (we'd otherwise need to manually wire
+        // the EventEmitter prototype chain).
+        let factory = #"""
+        (() => {
+          const S = globalThis.__swiftjs_stream;
+          const events = (() => {
+            const cache = globalThis.__swiftjs_module_cache;
+            return cache && cache["events"] ? cache["events"] : require("node:events");
+          })();
+          const EventEmitter = events.EventEmitter ?? events;
+          class ChildProcess extends EventEmitter {}
+          const proc = new ChildProcess();
+          proc.stdout = new S.Readable();
+          proc.stderr = new S.Readable();
+          proc.stdin  = new S.Writable();
+          proc.killed = false;
+          proc.exitCode = null;
+          proc.signalCode = null;
+          return proc;
+        })();
+        """#
+        guard let proc = ctx.evaluateScript(factory) else { return nil }
+
+        let handles = SpawnHandles()
+        handles.proc = proc
+        handles.stdoutS = proc.objectForKeyedSubscript("stdout")
+        handles.stderrS = proc.objectForKeyedSubscript("stderr")
+        handles.stdinS  = proc.objectForKeyedSubscript("stdin")
+
+        // Sentinel keeps the runloop alive until the spawned process
+        // closes — same trick `runChildAsync` uses for exec().
+        let sentinelID = nextTimerID
+        nextTimerID += 1
+        let sentinel = DispatchSource.makeTimerSource(queue: .main)
+        sentinel.schedule(deadline: .distantFuture)
+        sentinel.setEventHandler {}
+        pendingTimers[sentinelID] = sentinel
+        sentinel.resume()
+
+        switch childShell {
+        case .inProcess:
+            startInProcessSpawn(command: command, args: args,
+                                handles: handles, sentinelID: sentinelID)
+        case .hostShell:
+            startHostShellSpawn(command: command, args: args,
+                                handles: handles, sentinelID: sentinelID)
+        }
+        return proc
+    }
+
+    /// In-process backend for `spawn`. Drives a fresh ``Shell`` whose
+    /// stdout/stderr ``OutputSink``s feed into the JS-side
+    /// ``Readable`` streams. Stdin is an ``InputSource`` over an
+    /// `AsyncStream<Data>` that the JS-side ``Writable`` yields into.
+    private func startInProcessSpawn(
+        command: String, args: [String],
+        handles: SpawnHandles, sentinelID: Int
+    ) {
+        // Feed stdin: JS Writable -> AsyncStream<Data> -> InputSource.
+        let (stdinStream, stdinCont) = AsyncStream<Data>.makeStream()
+        wireStdinHooks(stream: handles.stdinS,
+                       onWrite: { stdinCont.yield($0) },
+                       onEnd:   { stdinCont.finish() })
+
+        let line = Self.composeCommandLine(command, args: args)
+
+        Task.detached { [weak self] in
+            let shell = Shell()
+            shell.registerStandardCommands()
+            let stdoutSink = OutputSink()
+            let stderrSink = OutputSink()
+            shell.stdout = stdoutSink
+            shell.stderr = stderrSink
+            shell.stdin = InputSource(bytes: stdinStream)
+
+            async let outDrain: () = Self.drainSinkToJS(stdoutSink, target: handles.stdoutS)
+            async let errDrain: () = Self.drainSinkToJS(stderrSink, target: handles.stderrS)
+
+            var status: Int32 = 0
+            do {
+                let exit = try await shell.run(line)
+                stdoutSink.finish()
+                stderrSink.finish()
+                status = Int32(exit.code)
+            } catch {
+                let msg = String(describing: error) + "\n"
+                stdoutSink.finish()
+                stderrSink.write(msg)
+                stderrSink.finish()
+                status = 1
+            }
+            await outDrain
+            await errDrain
+
+            await MainActor.run {
+                Self.finalizeSpawn(runtime: self, handles: handles,
+                                   sentinelID: sentinelID, status: status)
+            }
+        }
+    }
+
+    /// Host-shell backend for `spawn`. Uses Foundation's `Process`
+    /// with three pipes; readability handlers hop chunks back to
+    /// main where the JS streams live.
+    ///
+    /// Unavailable on iOS / tvOS / watchOS (App Sandbox blocks fork);
+    /// on those platforms we synthesize an immediate error path.
+    private func startHostShellSpawn(
+        command: String, args: [String],
+        handles: SpawnHandles, sentinelID: Int
+    ) {
+        #if os(macOS) || os(Linux)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", Self.composeCommandLine(command, args: args)]
+
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        let inPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError  = errPipe
+        process.standardInput  = inPipe
+
+        // Feed stdin from the JS Writable straight into the pipe.
+        wireStdinHooks(
+            stream: handles.stdinS,
+            onWrite: { data in
+                try? inPipe.fileHandleForWriting.write(contentsOf: data)
+            },
+            onEnd: {
+                try? inPipe.fileHandleForWriting.close()
+            }
+        )
+
+        // Two flags so we only emit 'close' once both streams finished.
+        let stateLock = NSLock()
+        var stdoutDone = false
+        var stderrDone = false
+        var processDone = false
+        var exitStatus: Int32 = 0
+        let runtime = self
+        let finalize: @Sendable () -> Void = {
+            stateLock.lock()
+            let ready = stdoutDone && stderrDone && processDone
+            let status = exitStatus
+            stateLock.unlock()
+            guard ready else { return }
+            DispatchQueue.main.async {
+                Self.finalizeSpawn(runtime: runtime, handles: handles,
+                                   sentinelID: sentinelID, status: status)
+            }
+        }
+
+        Self.installReadabilityHandler(
+            on: outPipe.fileHandleForReading,
+            target: handles.stdoutS,
+            onEOF: {
+                stateLock.lock()
+                stdoutDone = true
+                stateLock.unlock()
+                finalize()
+            }
+        )
+        Self.installReadabilityHandler(
+            on: errPipe.fileHandleForReading,
+            target: handles.stderrS,
+            onEOF: {
+                stateLock.lock()
+                stderrDone = true
+                stateLock.unlock()
+                finalize()
+            }
+        )
+
+        process.terminationHandler = { proc in
+            stateLock.lock()
+            processDone = true
+            exitStatus = proc.terminationStatus
+            stateLock.unlock()
+            finalize()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            // Fail synthetically: write the message to stderr, mark
+            // status 127, end both streams. Run on main so the JS
+            // side sees coherent ordering.
+            let message = "\(error.localizedDescription)\n"
+            DispatchQueue.main.async { [weak self] in
+                if let stream = handles.stderrS {
+                    Self.pushBytes(Array(message.utf8), to: stream)
+                    stream.invokeMethod("_end", withArguments: [])
+                }
+                handles.stdoutS?.invokeMethod("_end", withArguments: [])
+                Self.finalizeSpawn(runtime: self, handles: handles,
+                                   sentinelID: sentinelID, status: 127)
+            }
+        }
+        #else
+        let message = "host shell unavailable on this platform\n"
+        DispatchQueue.main.async { [weak self] in
+            if let stream = handles.stderrS {
+                Self.pushBytes(Array(message.utf8), to: stream)
+                stream.invokeMethod("_end", withArguments: [])
+            }
+            handles.stdoutS?.invokeMethod("_end", withArguments: [])
+            Self.finalizeSpawn(runtime: self, handles: handles,
+                               sentinelID: sentinelID, status: 127)
+        }
+        #endif
+    }
+
+    /// Hook the JS-side ``Writable`` so that `write(chunk)` and
+    /// `end()` invoke the supplied closures. Chunks are decoded
+    /// through ``Self/dataFromChunk`` first.
+    private func wireStdinHooks(
+        stream: JSValue?,
+        onWrite: @escaping @Sendable (Data) -> Void,
+        onEnd: @escaping @Sendable () -> Void
+    ) {
+        guard let stream else { return }
+        let writeImpl: @convention(block) (JSValue) -> Void = { chunk in
+            onWrite(JSRuntime.dataFromChunk(chunk))
+        }
+        let endImpl: @convention(block) () -> Void = {
+            onEnd()
+        }
+        stream.setObject(block(writeImpl as AnyObject),
+                         forKeyedSubscript: "_onWrite" as NSString)
+        stream.setObject(block(endImpl as AnyObject),
+                         forKeyedSubscript: "_onEnd" as NSString)
+    }
+
+    /// Drain an ``OutputSink`` until it finishes, hopping to main on
+    /// every chunk to push it into the JS-side ``Readable``. Sends a
+    /// final `_end()` once the stream completes.
+    private static func drainSinkToJS(_ sink: OutputSink,
+                                      target: JSValue?) async {
+        for await chunk in sink.bytes {
+            let bytes = Array(chunk)
+            await MainActor.run {
+                guard let target else { return }
+                Self.pushBytes(bytes, to: target)
+            }
+        }
+        await MainActor.run {
+            _ = target?.invokeMethod("_end", withArguments: [])
+        }
+    }
+
+    /// Wire a `FileHandle.readabilityHandler` to forward bytes to the
+    /// JS-side ``Readable``. Empty Data signals EOF — at which point
+    /// we tear down the handler, push a final `_end`, and call
+    /// `onEOF` so the caller can sequence the `close` event.
+    #if os(macOS) || os(Linux)
+    private static func installReadabilityHandler(
+        on fh: FileHandle,
+        target: JSValue?,
+        onEOF: @escaping @Sendable () -> Void
+    ) {
+        fh.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                DispatchQueue.main.async {
+                    target?.invokeMethod("_end", withArguments: [])
+                }
+                onEOF()
+                return
+            }
+            let bytes = Array(data)
+            DispatchQueue.main.async {
+                if let target {
+                    Self.pushBytes(bytes, to: target)
+                }
+            }
+        }
+    }
+    #endif
+
+    /// Push raw bytes into a JS-side ``Readable`` as a Buffer. Must
+    /// be called on the main queue.
+    private static func pushBytes(_ bytes: [UInt8], to stream: JSValue) {
+        guard let ctx = stream.context,
+              let bufCtor = ctx.objectForKeyedSubscript("Buffer"),
+              let buf = bufCtor.invokeMethod("from", withArguments: [bytes])
+        else { return }
+        stream.invokeMethod("_push", withArguments: [buf])
+    }
+
+    /// Cancel the sentinel timer, set `exitCode`/`signalCode`, and
+    /// emit `'exit'` then `'close'` on the JS-side ChildProcess.
+    /// Must run on the main queue (touches JSValues + the runtime's
+    /// timer table).
+    private static func finalizeSpawn(
+        runtime: JSRuntime?,
+        handles: SpawnHandles,
+        sentinelID: Int,
+        status: Int32
+    ) {
+        if let runtime,
+           let timer = runtime.pendingTimers.removeValue(forKey: sentinelID) {
+            timer.cancel()
+        }
+        // Close the stdin Writable so its `writable` flag flips to
+        // false and further `write()` calls are no-ops. Without this,
+        // user code that keeps writing after the child exited would
+        // either silently drop bytes into a closed pipe (`.hostShell`)
+        // or grow the stdin AsyncStream buffer unbounded
+        // (`.inProcess`). `Writable.end()` is idempotent, so it's
+        // safe even when the user already called it themselves.
+        if let stdin = handles.stdinS, !stdin.isUndefined, !stdin.isNull {
+            _ = stdin.invokeMethod("end", withArguments: [])
+        }
+        guard let proc = handles.proc, !proc.isUndefined, !proc.isNull else { return }
+        proc.setObject(status, forKeyedSubscript: "exitCode" as NSString)
+        // Match node: signal === null when the process exited normally.
+        proc.setObject(NSNull(), forKeyedSubscript: "signalCode" as NSString)
+        _ = proc.invokeMethod("emit", withArguments: ["exit", status, NSNull()])
+        _ = proc.invokeMethod("emit", withArguments: ["close", status, NSNull()])
+    }
+
+    /// Convert a JS-side chunk (string | Buffer | Uint8Array | array
+    /// of bytes) to a `Data`. Used by stdin writes from JS.
+    static func dataFromChunk(_ value: JSValue) -> Data {
+        if value.isString {
+            return Data((value.toString() ?? "").utf8)
+        }
+        if let arr = value.toArray() as? [NSNumber] {
+            return Data(arr.map { $0.uint8Value })
+        }
+        return Data((value.toString() ?? "").utf8)
     }
 
     /// Async `exec`. Spawns a detached Task that runs the command
@@ -184,7 +555,7 @@ extension JSRuntime {
     /// shouldn't be reachable there anyway, but the function still
     /// has to compile.
     private static func runHostShellAsync(command: String, args: [String]?) async -> ChildResult {
-        #if os(macOS) || os(Linux) || os(Windows)
+        #if os(macOS) || os(Linux)
         return await withCheckedContinuation { (cont: CheckedContinuation<ChildResult, Never>) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -327,7 +698,7 @@ extension JSRuntime {
     /// `Process` is unavailable on iOS / tvOS / watchOS (App Sandbox);
     /// gated so the file still compiles on those platforms.
     private func runHostShell(command: String, args: [String]?) -> ChildResult {
-        #if os(macOS) || os(Linux) || os(Windows)
+        #if os(macOS) || os(Linux)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         if let args, !args.isEmpty {

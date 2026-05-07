@@ -1025,6 +1025,222 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "x is 7\n{\"a\":1}\n")
     }
+
+    // MARK: - node:stream + child_process.spawn() streaming
+
+    /// Helper for spawn tests that need to wait for the runloop to
+    /// drain. `JSRuntime.run` already drains until pendingTimers is
+    /// empty, so all we need is to invoke a script that schedules the
+    /// async work and returns synchronously.
+    private func hostShellRuntime() -> (JSRuntime, () -> String, () -> String) {
+        var out = ""
+        var err = ""
+        let r = JSRuntime(
+            argv: ["swift-js"],
+            envProvider: OSEnvProvider(),
+            childShell: .hostShell,
+            stdout: { out += $0 },
+            stderr: { err += $0 }
+        )
+        return (r, { out }, { err })
+    }
+
+    func testSpawnDataEvent() {
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('printf', ['hi']);
+        let buf = '';
+        proc.stdout.on('data', (chunk) => { buf += chunk.toString(); });
+        proc.on('close', (code) => console.log('code=' + code, buf));
+        """)
+        XCTAssertEqual(out(), "code=0 hi\n")
+    }
+
+    func testSpawnForAwait() {
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        (async () => {
+          const proc = cp.spawn('printf', ['a\\nb\\nc']);
+          let acc = '';
+          for await (const chunk of proc.stdout) acc += chunk.toString();
+          console.log('lines:', acc.split('\\n').filter(s => s.length).join('|'));
+        })();
+        """)
+        XCTAssertEqual(out(), "lines: a|b|c\n")
+    }
+
+    func testSpawnPipeToProcessStdout() {
+        let (r, out, _) = hostShellRuntime()
+        // pipe() forwards every 'data' chunk to dest.write(...). The
+        // command is run via /bin/sh so multiple writes coalesce into
+        // one chunk on most platforms — that's fine, we only check
+        // the final string.
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('printf', ['piped:%s', 'ok']);
+        proc.stdout.pipe(process.stdout);
+        """)
+        XCTAssertEqual(out(), "piped:ok")
+    }
+
+    func testSpawnInProcessBackend() {
+        // BashInterpreter backend — `echo` is a registered command so
+        // this works without forking. The spawn surface is the same.
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('echo', ['streamed']);
+        let buf = '';
+        proc.stdout.on('data', c => { buf += c.toString(); });
+        proc.on('close', code => console.log('done', code, buf.trim()));
+        """)
+        XCTAssertEqual(out(), "done 0 streamed\n")
+    }
+
+    func testSpawnExitCodeOnFailure() {
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('sh', ['-c', 'exit 7']);
+        proc.on('close', code => console.log('exit', code));
+        """)
+        XCTAssertEqual(out(), "exit 7\n")
+    }
+
+    func testSpawnStderrSeparateChannel() {
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('sh', ['-c', 'printf out; printf err 1>&2']);
+        let outBuf = '', errBuf = '';
+        proc.stdout.on('data', c => { outBuf += c.toString(); });
+        proc.stderr.on('data', c => { errBuf += c.toString(); });
+        proc.on('close', () => console.log('o=' + outBuf, 'e=' + errBuf));
+        """)
+        XCTAssertEqual(out(), "o=out e=err\n")
+    }
+
+    func testSpawnStdinWriteEnd() {
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('cat', []);
+        let buf = '';
+        proc.stdout.on('data', c => { buf += c.toString(); });
+        proc.on('close', () => console.log('echoed:', buf));
+        proc.stdin.write('hello ');
+        proc.stdin.write('world');
+        proc.stdin.end();
+        """)
+        XCTAssertEqual(out(), "echoed: hello world\n")
+    }
+
+    func testStreamModuleExportsClasses() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const stream = require('node:stream');
+        const r1 = new stream.Readable();
+        r1.on('data', d => console.log('got', d));
+        r1._push('a');
+        r1._push('b');
+        r1._end();
+        """)
+        // 'data' chunks emit before the end listener, in order.
+        XCTAssertEqual(out(), "got a\ngot b\n")
+    }
+
+    func testReadableForAwaitOrdering() {
+        // Buffered chunks should drain in order via the async iterator
+        // even when pushes happen before the loop starts awaiting.
+        let (r, out, _) = runtime()
+        r.run("""
+        const { Readable } = require('node:stream');
+        const s = new Readable();
+        s._push('one'); s._push('two'); s._push('three');
+        // _end after a microtask so the iterator still sees an
+        // unfinished stream when it begins.
+        Promise.resolve().then(() => s._end());
+        (async () => {
+          const got = [];
+          for await (const c of s) got.push(c);
+          console.log(got.join(','));
+        })();
+        """)
+        XCTAssertEqual(out(), "one,two,three\n")
+    }
+
+    func testReadableLateDataListenerDoesNotReEmitEnd() {
+        // Regression for #8 review (P2): attaching a `'data'` listener
+        // to a stream that already ended in paused mode used to
+        // re-emit `'end'`/`'close'` — double-firing any earlier
+        // `'end'` or `'close'` listener.
+        let (r, out, _) = runtime()
+        r.run("""
+        const { Readable } = require('node:stream');
+        const s = new Readable();
+        let endCount = 0, closeCount = 0;
+        s.on('end',   () => endCount++);
+        s.on('close', () => closeCount++);
+        // Push + end while still in paused mode — buffered chunk stays.
+        s._push('buf');
+        s._end();
+        // Late 'data' listener: should drain the buffer but NOT
+        // re-emit end/close.
+        const got = [];
+        s.on('data', (c) => got.push(String(c)));
+        console.log('drained:', got.join(','), 'end:', endCount, 'close:', closeCount);
+        """)
+        XCTAssertEqual(out(), "drained: buf end: 1 close: 1\n")
+    }
+
+    func testSpawnStdinEndsOnChildExit() {
+        // Regression for #8 review: when the child process closes,
+        // proc.stdin should flip to non-writable. Otherwise user code
+        // that keeps writing leaks bytes (silently dropped on
+        // .hostShell, or growing the AsyncStream buffer on
+        // .inProcess).
+        let (r, out, _) = hostShellRuntime()
+        r.run("""
+        const cp = require('node:child_process');
+        const proc = cp.spawn('printf', ['done']);
+        proc.on('close', () => {
+          console.log('writable=' + proc.stdin.writable,
+                      'wroteAfter=' + proc.stdin.write('late'));
+        });
+        """)
+        // After 'close', stdin is no longer writable and write()
+        // returns false instead of pretending the bytes went somewhere.
+        XCTAssertEqual(out(), "writable=false wroteAfter=false\n")
+    }
+
+    func testReadableForAwaitBreakDestroysStream() {
+        // Regression for #8 review (P1): early exit from `for await`
+        // must destroy the stream so native producers can detach.
+        // We observe the `'close'` event firing and verify _onDestroy
+        // ran and subsequent pushes are dropped.
+        let (r, out, _) = runtime()
+        r.run("""
+        const { Readable } = require('node:stream');
+        const s = new Readable();
+        let destroyed = false;
+        s._onDestroy = () => { destroyed = true; };
+        s.on('close', () => console.log('close fired'));
+        // Pre-seed two chunks; the loop only takes the first.
+        s._push('a'); s._push('b');
+        (async () => {
+          for await (const c of s) {
+            console.log('saw', String(c));
+            break;
+          }
+          // Producer keeps trying; new pushes should be dropped.
+          s._push('c');
+          console.log('destroyed:', destroyed);
+        })();
+        """)
+        XCTAssertEqual(out(), "saw a\nclose fired\ndestroyed: true\n")
+    }
 }
 
 #endif

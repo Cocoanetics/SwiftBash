@@ -39,6 +39,10 @@ public final class JSRuntime {
     var pendingTimers: [Int: DispatchSourceTimer] = [:]
     var nextTimerID: Int = 1
 
+    /// Cached lazily-constructed `process.stdin` Readable, so the
+    /// getter returns the same instance on every property access.
+    var cachedStdin: JSValue?
+
     /// Set to true while the run loop is draining. Used by tests
     /// that want to inspect state mid-flight.
     public internal(set) var isDraining: Bool = false
