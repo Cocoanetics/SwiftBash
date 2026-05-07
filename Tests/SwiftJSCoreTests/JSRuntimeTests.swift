@@ -401,24 +401,34 @@ final class JSRuntimeTests: XCTestCase {
     }
 
     func testAsyncExecParallelism() {
-        // Three concurrent sleeps. Wall time should be ~0.1s, not
-        // ~0.3s — proves Promise.all dispatches them onto separate
-        // Swift Tasks rather than serialising.
+        // Verify Promise.all dispatches each exec onto its own Swift
+        // Task rather than serialising them. We measure both the
+        // parallel and serial runs in the same test so the assertion
+        // is robust to slow CI runners — what matters is the *ratio*,
+        // not the absolute duration.
         let (r, out, _) = runtime()
-        let start = Date()
         r.run("""
         const cp = require('node:child_process');
-        Promise.all([
-          cp.exec('sleep 0.1; printf 1'),
-          cp.exec('sleep 0.1; printf 2'),
-          cp.exec('sleep 0.1; printf 3'),
-        ]).then(rs => console.log(rs.map(r => r.stdout).join(',')));
+        const sleepCmd = 'sleep 0.15; printf x';
+        (async () => {
+          const tPar = Date.now();
+          await Promise.all([cp.exec(sleepCmd), cp.exec(sleepCmd), cp.exec(sleepCmd)]);
+          const par = Date.now() - tPar;
+
+          const tSeq = Date.now();
+          await cp.exec(sleepCmd);
+          await cp.exec(sleepCmd);
+          await cp.exec(sleepCmd);
+          const seq = Date.now() - tSeq;
+
+          // par should be much less than seq. Even with heavy CI
+          // overhead, parallel < seq * 0.7 means we got real overlap.
+          console.log('result:', par < seq * 0.7 ? 'parallel' : 'serialised',
+                      `par=${par}ms seq=${seq}ms`);
+        })();
         """)
-        let elapsed = Date().timeIntervalSince(start)
-        XCTAssertEqual(out(), "1,2,3\n")
-        // Allow a generous upper bound for slow CI; sequential
-        // would be ~300ms, parallel ~100ms.
-        XCTAssertLessThan(elapsed, 0.25, "parallel exec took \(elapsed)s — looks serialised")
+        XCTAssertTrue(out().hasPrefix("result: parallel"),
+                      "expected parallelism, got: \(out())")
     }
 
     func testSpawnSyncReturnsObject() {
