@@ -1,8 +1,9 @@
 import Foundation
-import JavaScriptCore
 import CZlib
 
 #if canImport(JavaScriptCore)
+
+import JavaScriptCore
 
 /// `node:zlib` — gzip/gunzip/deflate/inflate.
 ///

@@ -1,7 +1,8 @@
 import Foundation
-import JavaScriptCore
 
 #if canImport(JavaScriptCore)
+
+import JavaScriptCore
 
 /// A configured JavaScriptCore context with a Node-ish runtime
 /// bolted on top. Layers:

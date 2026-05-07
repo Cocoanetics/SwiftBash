@@ -1,7 +1,8 @@
 import Foundation
-import JavaScriptCore
 
 #if canImport(JavaScriptCore)
+
+import JavaScriptCore
 
 /// Mutable holder for the resolve/reject handles of a Promise, used
 /// so the URLSession callback (non-isolated) can post the JSValues

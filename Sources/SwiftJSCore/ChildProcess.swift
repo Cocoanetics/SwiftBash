@@ -1,9 +1,10 @@
 import Foundation
-import JavaScriptCore
 import BashInterpreter
 import BashCommandKit
 
 #if canImport(JavaScriptCore)
+
+import JavaScriptCore
 
 /// Holder for resolve/reject of an async child_process Promise.
 /// Mirrors the one in Network.swift; access fenced by the main
@@ -158,8 +159,15 @@ extension JSRuntime {
     /// Static async variant of runHostShell — uses Process and a
     /// continuation rather than a blocking `waitUntilExit` so the
     /// caller doesn't peg a thread.
+    ///
+    /// `Foundation.Process` is unavailable on iOS / tvOS / watchOS
+    /// (App Sandbox can't fork). On those platforms we return a
+    /// 127 with a clear message — `JSRuntime.childShell == .hostShell`
+    /// shouldn't be reachable there anyway, but the function still
+    /// has to compile.
     private static func runHostShellAsync(command: String, args: [String]?) async -> ChildResult {
-        await withCheckedContinuation { (cont: CheckedContinuation<ChildResult, Never>) in
+        #if os(macOS) || os(Linux) || os(Windows)
+        return await withCheckedContinuation { (cont: CheckedContinuation<ChildResult, Never>) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             if let args, !args.isEmpty {
@@ -187,6 +195,12 @@ extension JSRuntime {
                 ))
             }
         }
+        #else
+        return ChildResult(
+            status: 127, stdout: "",
+            stderr: "host shell unavailable on this platform"
+        )
+        #endif
     }
 
     /// `execSync`: run a command line through bash, return stdout.
@@ -274,7 +288,10 @@ extension JSRuntime {
     }
 
     /// Foundation Process backend — spawns a real /bin/sh subprocess.
+    /// `Process` is unavailable on iOS / tvOS / watchOS (App Sandbox);
+    /// gated so the file still compiles on those platforms.
     private func runHostShell(command: String, args: [String]?) -> ChildResult {
+        #if os(macOS) || os(Linux) || os(Windows)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         if let args, !args.isEmpty {
@@ -302,6 +319,12 @@ extension JSRuntime {
             stdout: String(decoding: outData, as: UTF8.self),
             stderr: String(decoding: errData, as: UTF8.self)
         )
+        #else
+        return ChildResult(
+            status: 127, stdout: "",
+            stderr: "host shell unavailable on this platform"
+        )
+        #endif
     }
 
     /// Static dispatch on the runtime's configured backend.

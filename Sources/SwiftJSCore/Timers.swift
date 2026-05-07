@@ -1,7 +1,8 @@
 import Foundation
-import JavaScriptCore
 
 #if canImport(JavaScriptCore)
+
+import JavaScriptCore
 
 extension JSRuntime {
 

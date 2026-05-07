@@ -1,8 +1,9 @@
 import Foundation
-import JavaScriptCore
 import CryptoKit
 
 #if canImport(JavaScriptCore)
+
+import JavaScriptCore
 
 extension JSRuntime {
 
