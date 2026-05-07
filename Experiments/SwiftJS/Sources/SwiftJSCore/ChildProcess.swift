@@ -65,7 +65,17 @@ extension JSRuntime {
     /// non-zero exit. A sentinel timer keeps the JSRuntime runloop
     /// alive until the Promise settles.
     private func runChildAsync(command: String, opts: JSValue?) -> JSValue {
-        let useHostShell = optsUseHostShell(opts)
+        // Decide upfront whether to run in-process or via host /bin/sh.
+        // Default `auto`: if every command in the line is a known
+        // SwiftBash builtin, stay in-process; otherwise hand off to
+        // the host shell so external binaries (git, python, …) work.
+        let choice = backendChoice(opts: opts)
+        let useHostShell: Bool
+        switch choice {
+        case .hostShell: useHostShell = true
+        case .inProcess: useHostShell = false
+        case .auto:      useHostShell = !commandsAllInCatalog(command)
+        }
         let ctx = context
         let handles = ChildPromiseHandles()
 
@@ -192,15 +202,8 @@ extension JSRuntime {
     /// In Node, default encoding is `null` (returns Buffer); we
     /// default to utf-8 string to match the shell-script idiom.
     private func runChildSync(command: String, args _: [String]?, opts: JSValue?) -> Any? {
-        let useHostShell = optsUseHostShell(opts)
         let encoding = optsEncoding(opts) ?? "utf-8"
-
-        let result: ChildResult
-        if useHostShell {
-            result = runHostShell(command: command, args: nil)
-        } else {
-            result = runBashInterpreter(command: command)
-        }
+        let result = pickBackendAndRun(command: command, args: nil, opts: opts)
 
         if result.status != 0 {
             return throwJS("Command failed: \(command)\n\(result.stderr)")
@@ -211,16 +214,7 @@ extension JSRuntime {
     /// spawnSync: returns `{ status, stdout, stderr, signal, error }`.
     /// Doesn't throw on non-zero exit (matches Node).
     private func spawnChildSync(command: String, args: [String], opts: JSValue?) -> Any? {
-        let useHostShell = optsUseHostShell(opts)
-        let result: ChildResult
-        if useHostShell || !args.isEmpty {
-            // Bash-style "command args..." mapping is awkward — when
-            // the caller hands us argv, run it through host
-            // Process so quoting matches expectations.
-            result = runHostShell(command: command, args: args)
-        } else {
-            result = runBashInterpreter(command: command)
-        }
+        let result = pickBackendAndRun(command: command, args: args, opts: opts)
 
         let ctx = context
         let obj = JSValue(newObjectIn: ctx)!
@@ -319,14 +313,109 @@ extension JSRuntime {
         )
     }
 
-    private func optsUseHostShell(_ opts: JSValue?) -> Bool {
+    private enum BackendChoice {
+        case inProcess        // SwiftBash interpreter only
+        case hostShell        // /bin/sh
+        case auto             // try in-process, fall through to host on cmd-not-found
+    }
+
+    private func backendChoice(opts: JSValue?) -> BackendChoice {
         if ProcessInfo.processInfo.environment["SWIFTJS_HOST_SHELL"] == "1" {
-            return true
+            return .hostShell
         }
         guard let opts, opts.isObject,
-              let shell = opts.objectForKeyedSubscript("shell"),
-              shell.isString else { return false }
-        return shell.toString() == "host"
+              let s = opts.objectForKeyedSubscript("shell"),
+              s.isString,
+              let str = s.toString() else { return .auto }
+        switch str {
+        case "host":       return .hostShell
+        case "in-process": return .inProcess
+        case "auto":       return .auto
+        default:           return .auto
+        }
+    }
+
+    /// Decide between SwiftBash's in-process interpreter and host
+    /// /bin/sh, then run the command. Default is `auto`: try
+    /// in-process, fall through to host shell if any command in
+    /// the line isn't in SwiftBash's catalog. That way scripts
+    /// calling `git`, `python3`, or any other binary on PATH just
+    /// work, the same as they would under node — but commands we
+    /// *do* have (echo, cat, grep, sed, find, curl, jq, etc.) stay
+    /// in-process for the speed and sandboxability win.
+    private func pickBackendAndRun(command: String, args: [String]?, opts: JSValue?) -> ChildResult {
+        let choice = backendChoice(opts: opts)
+        switch choice {
+        case .hostShell:
+            return runHostShell(command: command, args: args)
+        case .inProcess:
+            return runBashInterpreter(command: command)
+        case .auto:
+            if (args?.isEmpty == false) {
+                // Caller passed argv explicitly — host shell handles
+                // quoting predictably.
+                return runHostShell(command: command, args: args)
+            }
+            // Quick static check: is the first word of every
+            // top-level command in our catalog?
+            if commandsAllInCatalog(command) {
+                return runBashInterpreter(command: command)
+            }
+            return runHostShell(command: command, args: nil)
+        }
+    }
+
+    /// Tokenise `command` on top-level shell separators and check
+    /// each segment's first word against a known set: SwiftBash's
+    /// `Shell.commands` plus the bash builtins/keywords that the
+    /// interpreter handles directly. Conservative: if anything
+    /// looks ambiguous (variable assignment leading the line,
+    /// `$(…)`, redirects we don't fully parse), return false so
+    /// the host shell handles it.
+    private func commandsAllInCatalog(_ command: String) -> Bool {
+        // Bail out for anything with substitution / heredocs we
+        // don't want to scan into.
+        if command.contains("$(") || command.contains("`") || command.contains("<(") {
+            return false
+        }
+        // Top-level separators: |, ;, &&, ||, &
+        let segments = splitOnShellSeparators(command)
+        let knownBuiltins: Set<String> = [
+            "if", "then", "else", "elif", "fi", "for", "while", "do", "done",
+            "case", "esac", "in", "function", "return", "break", "continue",
+            "set", "unset", "export", "readonly", "declare", "typeset",
+            "local", "shift", "trap", "source", ".", "alias", "unalias",
+            "exit", "true", "false", "test", "[", "[[", "let", "eval",
+            "exec", "read", "shopt", "umask", "printf", "echo", "cd", "pwd",
+            "type", "command", "builtin", "help", "history", "ulimit",
+            "wait", "kill", "jobs", "fg", "bg", "disown", "times",
+            ":", "getopts", "mapfile", "readarray",
+        ]
+        // Snapshot the catalog. Since we run a fresh Shell per call,
+        // the catalog is whatever `registerStandardCommands` just
+        // installed — same on every invocation.
+        let scratch = Shell()
+        scratch.registerStandardCommands()
+        let known = Set(scratch.commands.keys).union(knownBuiltins)
+
+        // (helper below)
+        for raw in segments {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            // Strip leading `VAR=value` assignments (bash allows them
+            // before a command). Conservative: if we see one, give up.
+            let firstToken = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            if firstToken.contains("=") {
+                return false
+            }
+            // Strip leading parens used for subshells.
+            let cleaned = firstToken.trimmingCharacters(in: CharacterSet(charactersIn: "()"))
+            if cleaned.isEmpty { continue }
+            if !known.contains(cleaned) {
+                return false
+            }
+        }
+        return true
     }
 
     private func optsEncoding(_ opts: JSValue?) -> String? {
@@ -334,6 +423,39 @@ extension JSRuntime {
               let enc = opts.objectForKeyedSubscript("encoding"),
               enc.isString else { return nil }
         return enc.toString()
+    }
+
+    /// Split a command line on top-level shell separators
+    /// (`|`, `||`, `;`, `&&`, `&`). Quotes are honoured so e.g.
+    /// `echo "a | b"` stays one segment. Naive — doesn't track
+    /// backslash escaping; good enough for the catalog probe.
+    private func splitOnShellSeparators(_ command: String) -> [String] {
+        var out: [String] = []
+        var current = ""
+        var inSingle = false
+        var inDouble = false
+        let chars = Array(command)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "'" && !inDouble { inSingle.toggle(); current.append(c); i += 1; continue }
+            if c == "\"" && !inSingle { inDouble.toggle(); current.append(c); i += 1; continue }
+            if !inSingle && !inDouble {
+                // Two-char separators first.
+                if i + 1 < chars.count {
+                    let two = String(chars[i...i+1])
+                    if two == "&&" || two == "||" {
+                        out.append(current); current = ""; i += 2; continue
+                    }
+                }
+                if c == "|" || c == ";" || c == "&" {
+                    out.append(current); current = ""; i += 1; continue
+                }
+            }
+            current.append(c); i += 1
+        }
+        out.append(current)
+        return out
     }
 
     private func encode(bytes: [UInt8], encoding: String) -> Any? {

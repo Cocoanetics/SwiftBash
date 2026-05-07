@@ -332,6 +332,39 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "HELLO\n")
     }
 
+    func testProcessPid() {
+        let (r, out, _) = runtime()
+        r.run("console.log(typeof process.pid, process.pid > 0, typeof process.ppid);")
+        XCTAssertEqual(out(), "number true number\n")
+    }
+
+    func testExecSyncAutoFallbackForExternalBinary() {
+        // `git` isn't in SwiftBash's catalog, so auto-mode should
+        // route this through the host shell. We don't assume any
+        // specific git output — just that execSync didn't throw and
+        // returned something non-empty.
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        const v = cp.execSync('git --version', { encoding: 'utf-8' });
+        console.log(v.startsWith('git'));
+        """)
+        XCTAssertEqual(out(), "true\n")
+    }
+
+    func testExecSyncForceInProcessRejectsExternalBinary() {
+        // With shell:'in-process' the SwiftBash interpreter alone
+        // serves the request; an unknown command is a hard fail.
+        let (r, _, err) = runtime()
+        r.run("""
+        const cp = require('node:child_process');
+        try { cp.execSync('git --version', { shell: 'in-process' }); console.log('UNEXPECTED'); }
+        catch (e) { console.error('threw:', e.message.split(String.raw`\n`)[0]); }
+        """)
+        XCTAssertTrue(err().contains("threw:"))
+        XCTAssertTrue(err().contains("Command failed: git"))
+    }
+
     func testExecSyncEchoStringRoundTrip() {
         let (r, out, _) = runtime()
         r.run("""

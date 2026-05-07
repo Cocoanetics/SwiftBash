@@ -528,7 +528,7 @@ environment that lives entirely inside one Swift process. Useful
 for: agentic systems where the LLM emits both bash and JS that
 need to coordinate; iOS apps that can't fork; sandboxed plugins.
 
-### child_process novelty
+### child_process: in-process by default, host-shell when needed
 
 When a JS script does:
 
@@ -546,6 +546,44 @@ between Swift `Command` types, and hands the captured stdout back
 to JS. This is the angle node and bun can't match: a
 sandboxable JS-and-bash hybrid that doesn't touch the OS process
 table.
+
+But scripts in the wild also call binaries SwiftBash *doesn't*
+have — `git`, `python3`, `npm`, `curl --some-modern-flag`, custom
+binaries. Refusing those would defeat "node-compatible." So the
+backend chooser is **`auto` by default**:
+
+```javascript
+cp.execSync('echo a | grep a | wc -l');   // every word is a SwiftBash
+                                          // command → runs in-process
+
+cp.execSync('git --version');             // 'git' isn't in our catalog →
+                                          // forks /bin/sh, like node would
+```
+
+The decision is made statically before the run. We tokenise the
+command on top-level `|`, `||`, `;`, `&&`, `&`, take the first
+word of each segment, and check it against `Shell.commands.keys`
+plus the bash builtins/keywords. If anything looks unrecognised
+(or the line uses `$(...)`, `<(...)`, or backticks), the host
+shell handles it. No double-execution, no inconsistent semantics
+across attempts.
+
+Three explicit modes for callers who care:
+
+| `opts.shell` value | Behaviour |
+|---|---|
+| `'auto'` (default) | catalog probe; in-process if all known, host shell otherwise |
+| `'in-process'` | always SwiftBash; missing commands hard-fail with exit 127 |
+| `'host'` | always fork+exec /bin/sh — matches node exactly |
+
+`SWIFTJS_HOST_SHELL=1` env var forces host mode for the whole
+runtime, useful for debugging.
+
+The result: `process.pid`, fork-and-exec semantics, and the
+ability to call any binary on PATH all "just work" out of the
+box — but the speedup and sandboxability of in-process bash kick
+in for free whenever the script uses commands SwiftBash already
+knows.
 
 ### Concurrent subprocesses via Swift Tasks
 

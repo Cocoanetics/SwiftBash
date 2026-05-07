@@ -292,6 +292,8 @@ extension JSRuntime {
         #endif
 
         process.setObject("v22.0.0-swiftjs", forKeyedSubscript: "version" as NSString)
+        process.setObject(Int(getpid()), forKeyedSubscript: "pid" as NSString)
+        process.setObject(Int(getppid()), forKeyedSubscript: "ppid" as NSString)
 
         let exit: @convention(block) (Int32) -> Void = { [weak self] code in
             guard let self else { return }
