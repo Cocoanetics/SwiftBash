@@ -193,6 +193,20 @@ extension JSRuntime {
         let perfMod = makePerfHooksModule()
         cacheBuiltin("perf_hooks", perfMod)
         cacheBuiltin("node:perf_hooks", perfMod)
+
+        // node:stream depends on EventEmitter being cached, so register
+        // it after `events`. The module is the `Readable`/`Writable`
+        // pair plus a `default`/named-export shape for ESM ergonomics.
+        let streamMod = makeStreamModule()
+        let streamWrapper = JSValue(newObjectIn: context)!
+        streamWrapper.setObject(streamMod.objectForKeyedSubscript("Readable")!,
+                                forKeyedSubscript: "Readable" as NSString)
+        streamWrapper.setObject(streamMod.objectForKeyedSubscript("Writable")!,
+                                forKeyedSubscript: "Writable" as NSString)
+        streamWrapper.setObject(streamWrapper,
+                                forKeyedSubscript: "default" as NSString)
+        cacheBuiltin("stream", streamWrapper)
+        cacheBuiltin("node:stream", streamWrapper)
     }
 
     // MARK: - node:assert (pure JS)

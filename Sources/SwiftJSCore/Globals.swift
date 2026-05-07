@@ -18,6 +18,115 @@ extension JSRuntime {
 
     // MARK: - performance
 
+    /// `process.stdin` — a ``Readable`` over `FileHandle.standardInput`,
+    /// lazily wired. The reader doesn't start (and the runloop doesn't
+    /// stay up) until JS attaches a `'data'` listener or starts a
+    /// `for await` iteration. Once started, a sentinel timer keeps
+    /// the runloop alive until stdin EOFs.
+    ///
+    /// Installed as a property accessor rather than a plain object so
+    /// that the Stream classes (which need EventEmitter from
+    /// `node:events`) are only constructed *after* `installModules`
+    /// has registered the events cache entry — `installGlobals`
+    /// itself runs before `installModules` and can't materialise the
+    /// stream eagerly.
+    func installProcessStdin(on process: JSValue) {
+        let stdinGet: @convention(block) () -> Any? = { [weak self] in
+            self?.lazyProcessStdin()
+        }
+        setGlobal("__swiftjs_stdinGet", block(stdinGet as AnyObject))
+        context.evaluateScript(#"""
+        (() => {
+          Object.defineProperty(process, "stdin", {
+            get() { return globalThis.__swiftjs_stdinGet(); },
+            enumerable: true,
+            configurable: true,
+          });
+        })();
+        """#)
+    }
+
+    /// First-touch construction of the JS-side `process.stdin`.
+    /// Materialises a Readable subclass whose first listener attach
+    /// (or first iterator pull) hooks `FileHandle.standardInput`.
+    private func lazyProcessStdin() -> JSValue? {
+        if let cached = cachedStdin, !cached.isUndefined { return cached }
+        installStreamClasses()
+        let factory = #"""
+        (() => {
+          const S = globalThis.__swiftjs_stream;
+          class Stdin extends S.Readable {
+            constructor() {
+              super();
+              this._started = false;
+              this.isTTY = false;
+            }
+            _start() {
+              if (this._started) return;
+              this._started = true;
+              globalThis.__swiftjs_startStdin(this);
+            }
+            on(event, fn) {
+              const r = super.on(event, fn);
+              if (event === "data") this._start();
+              return r;
+            }
+            [Symbol.asyncIterator]() {
+              this._start();
+              return super[Symbol.asyncIterator]();
+            }
+          }
+          return new Stdin();
+        })();
+        """#
+        guard let stdin = context.evaluateScript(factory) else { return nil }
+        cachedStdin = stdin
+
+        let startStdin: @convention(block) (JSValue) -> Void = { [weak self] s in
+            self?.beginStdinRead(into: s)
+        }
+        setGlobal("__swiftjs_startStdin", block(startStdin as AnyObject))
+        return stdin
+    }
+
+    /// Hook `FileHandle.standardInput.readabilityHandler` to forward
+    /// bytes into the supplied JS-side Readable. Idempotent at the
+    /// JS level — the Stdin class only calls in once.
+    private func beginStdinRead(into streamJS: JSValue) {
+        // Sentinel keeps the runloop alive while we read.
+        let sentinelID = nextTimerID
+        nextTimerID += 1
+        let sentinel = DispatchSource.makeTimerSource(queue: .main)
+        sentinel.schedule(deadline: .distantFuture)
+        sentinel.setEventHandler {}
+        pendingTimers[sentinelID] = sentinel
+        sentinel.resume()
+
+        let fh = FileHandle.standardInput
+        fh.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                DispatchQueue.main.async { [weak self] in
+                    _ = streamJS.invokeMethod("_end", withArguments: [])
+                    if let self,
+                       let timer = self.pendingTimers.removeValue(forKey: sentinelID) {
+                        timer.cancel()
+                    }
+                }
+                return
+            }
+            let bytes = Array(data)
+            DispatchQueue.main.async {
+                guard let ctx = streamJS.context,
+                      let bufCtor = ctx.objectForKeyedSubscript("Buffer"),
+                      let buf = bufCtor.invokeMethod("from", withArguments: [bytes])
+                else { return }
+                _ = streamJS.invokeMethod("_push", withArguments: [buf])
+            }
+        }
+    }
+
     private func installPerformance() {
         // performance.now() — high-resolution monotonic clock in ms
         // (per the WHATWG spec). Backed by mach_absolute_time via
@@ -383,6 +492,12 @@ extension JSRuntime {
           delete globalThis.__swiftjs_exitCodeSet;
         })();
         """#)
+
+        // Stdin is wired last so the `Object.defineProperty(process,
+        // …)` call inside it has `process` already bound on
+        // `globalThis`. (The stream classes it depends on are
+        // installed lazily on first read.)
+        installProcessStdin(on: process)
     }
 
     // MARK: - Buffer + encoding bridges
