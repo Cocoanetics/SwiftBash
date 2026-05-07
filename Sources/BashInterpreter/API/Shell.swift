@@ -357,8 +357,20 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
     /// A fresh `Shell` suitable for running as a pipeline stage or a
     /// subshell `( … )`. Every property that should be inherited is
-    /// cloned — runtime context (delegated to super) plus all bash-
-    /// specific fields below.
+    /// cloned — runtime context (delegated to super) plus the
+    /// bash-specific *configuration* fields below.
+    ///
+    /// Bash-specific *per-execution / per-shell-instance* state
+    /// (`errexitGuard`, `skipNextErrexitCheck`, `runningTraps`,
+    /// `getoptsCharIndex`, `loopDepth`, `functionCallDepth`,
+    /// `localVarStack`, `pendingProcessSubs`, `currentCommandRange`)
+    /// is **not** carried over — a subshell starts fresh, matching
+    /// real bash. In particular, `loopDepth` MUST reset so that
+    /// `(break)` inside a loop body raises bash's "only meaningful
+    /// in a loop" diagnostic instead of unwinding the parent's loop
+    /// (Codex review on PR #11). Same logic applies to
+    /// `functionCallDepth` / `localVarStack`: a subshell isn't
+    /// inside any function frame.
     public override func copy() -> Self {
         let sub = super.copy()
         // Cast to Self — the base impl uses `type(of: self).init(...)`
@@ -370,23 +382,16 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
                 "have used type(of: self).init(...) which preserves the " +
                 "subclass.")
         }
-        // Bash-specific state.
+        // Inheritable bash configuration. Mirror the pre-ShellKit
+        // copy() exactly — anything not listed here resets to its
+        // initializer default in the new subshell instance.
         bash.fileSystem = fileSystem
         bash.errexit = errexit
         bash.pipefail = pipefail
         bash.nounset = nounset
         bash.shoptOptions = shoptOptions
-        bash.errexitGuard = errexitGuard
-        bash.skipNextErrexitCheck = skipNextErrexitCheck
         bash.traps = traps
-        bash.runningTraps = runningTraps
-        bash.getoptsCharIndex = getoptsCharIndex
-        bash.loopDepth = loopDepth
-        bash.functionCallDepth = functionCallDepth
-        bash.localVarStack = localVarStack
-        bash.pendingProcessSubs = pendingProcessSubs
         bash.currentSource = currentSource
-        bash.currentCommandRange = currentCommandRange
         return bash
     }
 

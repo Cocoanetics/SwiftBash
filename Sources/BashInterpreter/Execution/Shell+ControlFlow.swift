@@ -426,6 +426,16 @@ extension Shell {
             // Subshell-scoped exit: capture the status and let the
             // parent see it as `$?` without terminating its own run.
             last = exit.status
+        } catch let signal as LoopControlSignal {
+            // `(break)` / `(continue)` inside a subshell must NOT
+            // unwind the parent's enclosing loop — bash treats loop
+            // state as not crossing the subshell boundary.
+            // `copy()` resets `loopDepth` to 0 in `sub`, so the
+            // signal that escaped here is by definition stray. Warn
+            // (matching the top-level stray-break behaviour) and
+            // return success from the subshell.
+            sub.warnStrayLoopControl(signal)
+            last = .success
         }
         lastExitStatus = last
         return last

@@ -117,4 +117,45 @@ import Testing
         let status = try await cap.shell.run("for x in 1; do break; done")
         #expect(status == .success)
     }
+
+    // MARK: Subshell-isolation of loop control
+
+    /// A `break` *inside a subshell* `( ... )` must NOT escape the
+    /// subshell into the parent's enclosing loop. Bash's rule: loop
+    /// state doesn't propagate across subshell boundaries; an
+    /// in-subshell `break` with no surrounding loop is a stray
+    /// "only meaningful in a `for', `while', or `until' loop"
+    /// diagnostic, identical to the top-level case.
+    ///
+    /// Regression test for the PR #11 Codex review finding —
+    /// `Shell.copy()` was inheriting `loopDepth` into clones, which
+    /// would let `(break)` unwind the parent's loop instead.
+    @Test func breakInsideSubshellDoesNotEscape() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run("""
+            for x in 1 2 3; do
+              ( break )      # subshell - break has no loop here
+              echo $x
+            done
+            """)
+        // The parent loop must run to completion: the in-subshell
+        // break must not propagate out and short-circuit it.
+        #expect(cap.stdout == "1\n2\n3\n")
+        // The stray-break diagnostic must fire INSIDE the subshell.
+        #expect(cap.stderr.contains("only meaningful"), "\(cap.stderr)")
+    }
+
+    @Test func continueInsideSubshellDoesNotEscape() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run("""
+            for x in 1 2; do
+              ( continue )   # subshell - continue has no loop here
+              echo after-$x
+            done
+            """)
+        // Parent loop's "after" line must still print on every
+        // iteration — the in-subshell continue must not skip it.
+        #expect(cap.stdout == "after-1\nafter-2\n")
+        #expect(cap.stderr.contains("only meaningful"), "\(cap.stderr)")
+    }
 }
