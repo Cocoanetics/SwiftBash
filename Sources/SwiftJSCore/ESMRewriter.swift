@@ -49,14 +49,51 @@ public enum ESMRewriter {
             return source
         }
 
-        var src = source
+        // Pre-pass: convert aliased import lists in-place so that
+        // when the generic regex rules below copy them into
+        // destructuring patterns, JS parses them correctly.
+        // `import { a as b }` →  ESM destructuring `{ a as b }` is
+        // INVALID; the equivalent is `{ a: b }`.
+        var src = normalizeAliasedImportLists(source)
+
         for (pattern, replacement, options) in rules {
             src = regexReplace(in: src, pattern: pattern, with: replacement, options: options)
         }
-        // Second pass: expand the named-export markers we left for
+        // Final pass: expand the named-export markers we left for
         // `export { a, b as c }` etc.
         src = expandNamedExports(src)
         return src
+    }
+
+    /// Inside `import { ... } from "..."` lines, rewrite each
+    /// `name as alias` to `name: alias` so when the generic regex
+    /// emits `const { ... } = require(...)`, the destructuring is
+    /// valid JS. Multi-line braces are supported.
+    private static func normalizeAliasedImportLists(_ src: String) -> String {
+        let pattern = #"(?m)(^[ \t]*import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\{)([\s\S]+?)(\}\s+from\s+['"][^'"]+['"]\s*;?)"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return src }
+        let ns = src as NSString
+        var out = ""
+        var cursor = 0
+        re.enumerateMatches(in: src, range: NSRange(location: 0, length: ns.length)) { m, _, _ in
+            guard let m else { return }
+            out += ns.substring(with: NSRange(location: cursor, length: m.range.location - cursor))
+            let head = ns.substring(with: m.range(at: 1))
+            let body = ns.substring(with: m.range(at: 2))
+            let tail = ns.substring(with: m.range(at: 3))
+            // Within the brace body, `\b(\w+)\s+as\s+(\w+)\b` → `$1: $2`.
+            let asRe = try? NSRegularExpression(pattern: #"\b([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)\b"#)
+            let bodyNS = body as NSString
+            let normalised = asRe?.stringByReplacingMatches(
+                in: body,
+                range: NSRange(location: 0, length: bodyNS.length),
+                withTemplate: "$1: $2"
+            ) ?? body
+            out += head + normalised + tail
+            cursor = m.range.location + m.range.length
+        }
+        out += ns.substring(from: cursor)
+        return out
     }
 
     // MARK: - Rules

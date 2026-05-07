@@ -310,10 +310,25 @@ extension JSRuntime {
     private func pickBackendAndRun(command: String, args: [String]?, opts _: JSValue?) -> ChildResult {
         switch childShell {
         case .inProcess:
-            return runBashInterpreter(command: command)
+            // spawnSync('cmd', ['a','b']) needs to act as `cmd a b`.
+            // BashInterpreter takes a single command-line string, so
+            // join the argv with shell-safe quoting.
+            return runBashInterpreter(command: Self.composeCommandLine(command, args: args))
         case .hostShell:
             return runHostShell(command: command, args: args)
         }
+    }
+
+    /// Combine `(command, args)` into a single shell-safe command
+    /// line. Each arg is single-quoted (with embedded `'` escaped
+    /// as `'\''`), the bash-conventional way to pass a literal arg
+    /// through a shell parser.
+    private static func composeCommandLine(_ command: String, args: [String]?) -> String {
+        guard let args, !args.isEmpty else { return command }
+        let quoted = args.map { arg -> String in
+            "'" + arg.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        return command + " " + quoted.joined(separator: " ")
     }
 
     private func optsEncoding(_ opts: JSValue?) -> String? {

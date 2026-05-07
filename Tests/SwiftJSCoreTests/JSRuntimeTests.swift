@@ -506,6 +506,72 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "a/b/c\n")
     }
 
+    func testEsmImportAliasedRewritesToColonForm() throws {
+        // Regression: `import { a as b }` was being rewritten to
+        // `const { a as b } = require(...)`, which is invalid JS
+        // (destructuring rename uses `a: b`).
+        let (r, out, _) = runtime()
+        let dir = NSTemporaryDirectory() + "swiftjs-alias-\(UUID().uuidString)/"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try """
+        export const original = "ok";
+        export const ALPHA = 1;
+        """.write(toFile: dir + "lib.mjs", atomically: true, encoding: .utf8)
+        try """
+        import { original as renamed, ALPHA as a1 } from "./lib.mjs";
+        console.log(renamed, a1);
+        """.write(toFile: dir + "main.mjs", atomically: true, encoding: .utf8)
+        try r.runFile(dir + "main.mjs")
+        XCTAssertEqual(out(), "ok 1\n")
+    }
+
+    func testEsmImportCombinedAliasedRewrites() throws {
+        // Same fix has to apply to the combined `import x, { a as b }`
+        // form.
+        let (r, out, _) = runtime()
+        let dir = NSTemporaryDirectory() + "swiftjs-aliasx-\(UUID().uuidString)/"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try """
+        export const A = "named";
+        export default { name: "default-export" };
+        """.write(toFile: dir + "lib.mjs", atomically: true, encoding: .utf8)
+        try """
+        import meta, { A as renamed } from "./lib.mjs";
+        console.log(meta.name, renamed);
+        """.write(toFile: dir + "main.mjs", atomically: true, encoding: .utf8)
+        try r.runFile(dir + "main.mjs")
+        XCTAssertEqual(out(), "default-export named\n")
+    }
+
+    func testSpawnSyncWithArgsInProcess() {
+        // Regression: in `.inProcess` mode the explicit argv was
+        // being dropped on the floor — `spawnSync('echo', ['abc'])`
+        // ran as `echo` with no args. Compose the command line
+        // before handing it to BashInterpreter.
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('child_process');
+        const r = cp.spawnSync('echo', ['hello', 'world']);
+        console.log(r.stdout.toString().trim());
+        """)
+        XCTAssertEqual(out(), "hello world\n")
+    }
+
+    func testSpawnSyncWithQuotingInProcess() {
+        // Args containing single quotes need to survive the
+        // single-quote-escape composer (e.g. don't break out of
+        // the quoting and accidentally inject shell syntax).
+        let (r, out, _) = runtime()
+        r.run("""
+        const cp = require('child_process');
+        const r = cp.spawnSync('echo', ["it's", 'fine']);
+        console.log(r.stdout.toString().trim());
+        """)
+        XCTAssertEqual(out(), "it's fine\n")
+    }
+
     func testEsmImportDefault() {
         let (r, out, _) = runtime()
         r.run("""
