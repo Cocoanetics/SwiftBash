@@ -86,7 +86,12 @@ extension JSRuntime {
         let urlString = urlVal.toString() ?? ""
         guard let url = URL(string: urlString) else {
             box.reject?.call(withArguments: [
-                JSValue(newErrorFromMessage: "Invalid URL: \(urlString)", in: ctx)!
+                makeJSError(
+                    "Invalid URL: \(urlString)",
+                    in: ctx,
+                    code: "ERR_INVALID_URL",
+                    extras: ["input": urlString]
+                )
             ])
             return promise
         }
@@ -118,7 +123,11 @@ extension JSRuntime {
                     let reason = s.objectForKeyedSubscript("reason")
                     let err = (reason?.isObject == true)
                         ? reason!
-                        : JSValue(newErrorFromMessage: "The operation was aborted.", in: ctx)!
+                        : makeJSError(
+                            "The operation was aborted.",
+                            in: ctx,
+                            code: "ABORT_ERR"
+                        )
                     box.reject?.call(withArguments: [err])
                     return promise
                 }
@@ -144,15 +153,33 @@ extension JSRuntime {
             let headers = (response as? HTTPURLResponse)?.allHeaderFields ?? [:]
             let respondedURL = response?.url?.absoluteString ?? urlString
             let errorDesc = error?.localizedDescription
+            let errorCode = Self.fetchErrorCode(error)
+            let errnoText: Int? = {
+                guard let urlError = error as? URLError else { return nil }
+                return urlError.errorCode
+            }()
             DispatchQueue.main.async {
                 guard let self else { return }
                 if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
                     s.cancel()
                 }
                 if let errorDesc {
-                    box.reject?.call(withArguments: [
-                        JSValue(newErrorFromMessage: errorDesc, in: self.context)!
-                    ])
+                    var extras: [String: Any] = [
+                        "url": urlString,
+                    ]
+                    if let errnoText { extras["errno"] = errnoText }
+                    let isAbort = (errorCode == "ABORT_ERR")
+                    let err = self.makeJSError(
+                        isAbort ? "The operation was aborted." : errorDesc,
+                        in: self.context,
+                        code: errorCode,
+                        extras: extras
+                    )
+                    if isAbort {
+                        err.setObject("AbortError",
+                                      forKeyedSubscript: "name" as NSString)
+                    }
+                    box.reject?.call(withArguments: [err])
                     return
                 }
                 let respObj = self.makeResponseObject(
@@ -178,6 +205,34 @@ extension JSRuntime {
         }
 
         return promise
+    }
+
+    /// Map a URLError to the closest Node-style symbolic code so JS
+    /// `catch (e) { if (e.code === 'ENOTFOUND') ... }` matches the
+    /// shape user code expects. Falls back to `ERR_NETWORK` for
+    /// anything we don't have a more specific mapping for.
+    fileprivate static func fetchErrorCode(_ error: Error?) -> String? {
+        guard let error else { return nil }
+        guard let urlError = error as? URLError else { return "ERR_NETWORK" }
+        switch urlError.code {
+        case .cancelled:               return "ABORT_ERR"
+        case .timedOut:                return "ETIMEDOUT"
+        case .cannotFindHost:          return "ENOTFOUND"
+        case .cannotConnectToHost:     return "ECONNREFUSED"
+        case .networkConnectionLost:   return "ECONNRESET"
+        case .notConnectedToInternet:  return "ENETDOWN"
+        case .dnsLookupFailed:         return "EAI_AGAIN"
+        case .badURL:                  return "ERR_INVALID_URL"
+        case .unsupportedURL:          return "ERR_INVALID_URL"
+        case .secureConnectionFailed:  return "ERR_TLS"
+        case .serverCertificateUntrusted,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid:
+            return "CERT_HAS_EXPIRED"
+        default:
+            return "ERR_NETWORK"
+        }
     }
 
     private func makeResponseObject(

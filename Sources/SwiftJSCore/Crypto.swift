@@ -91,7 +91,10 @@ extension JSRuntime {
         let digest: @convention(block) (JSValue?) -> Any? = { [weak self] encoding in
             guard let self else { return nil }
             guard let bytes = state.finalize() else {
-                return self.throwJS("Unsupported hash algorithm: \(algorithm)")
+                return self.throwJSError(
+                    "Digest method not supported: \(algorithm)",
+                    code: "ERR_OSSL_EVP_UNSUPPORTED"
+                )
             }
             if let encoding, encoding.isString {
                 let enc = encoding.toString()?.lowercased() ?? "hex"

@@ -130,9 +130,7 @@ public final class JSRuntime {
             if exception.objectForKeyedSubscript("__swiftjs_exit").toBool() {
                 return
             }
-            let message = exception.toString() ?? "<unknown>"
-            let stack = exception.objectForKeyedSubscript("stack")?.toString() ?? ""
-            self.stderr("\(message)\n\(stack)\n")
+            self.stderr(self.formatException(exception))
             if !self.didExit { self.exitCode = 1 }
         }
 
@@ -183,7 +181,10 @@ public final class JSRuntime {
         // scope so we expose them as globals.
         setGlobal("__filename", url.path)
         setGlobal("__dirname", (url.path as NSString).deletingLastPathComponent)
-        return run(source, name: url.lastPathComponent)
+        // Pass the absolute path as the sourceURL so stack traces and
+        // the code-frame on uncaught exceptions resolve back to the
+        // real on-disk file (rather than a basename relative to cwd).
+        return run(source, name: url.path)
     }
 
     /// Re-sync `process.argv` from the current `argvProvider` value.
@@ -253,6 +254,214 @@ extension JSRuntime {
         let err = JSValue(newErrorFromMessage: message, in: ctx)
         ctx.exception = err
         return err
+    }
+
+    /// Throw a JS Error decorated with the Node-style fields the
+    /// ecosystem expects (`code`, plus any extras the caller wants to
+    /// attach). Returns the exception so callers can `return` it from
+    /// `Any?`-typed bridge blocks.
+    @discardableResult
+    func throwJSError(
+        _ message: String,
+        code: String? = nil,
+        extras: [String: Any] = [:]
+    ) -> JSValue? {
+        guard let ctx = JSContext.current() ?? Optional(context) else { return nil }
+        guard let err = JSValue(newErrorFromMessage: message, in: ctx) else { return nil }
+        if let code { err.setObject(code, forKeyedSubscript: "code" as NSString) }
+        for (k, v) in extras { err.setObject(v, forKeyedSubscript: k as NSString) }
+        ctx.exception = err
+        return err
+    }
+
+    /// Build (but do not throw) a JS Error with `code` and extras.
+    /// Used by async paths that need to reject a Promise rather than
+    /// set `ctx.exception`.
+    func makeJSError(
+        _ message: String,
+        in ctx: JSContext,
+        code: String? = nil,
+        extras: [String: Any] = [:]
+    ) -> JSValue {
+        let err = JSValue(newErrorFromMessage: message, in: ctx)!
+        if let code { err.setObject(code, forKeyedSubscript: "code" as NSString) }
+        for (k, v) in extras { err.setObject(v, forKeyedSubscript: k as NSString) }
+        return err
+    }
+
+    /// Throw a Node-shaped fs/system error. Pulls the POSIX errno out
+    /// of the underlying Foundation error so we can emit the same
+    /// `ENOENT: no such file or directory, open '/x'` shape Node does,
+    /// with `.code`, `.errno`, `.syscall`, `.path` set on the Error.
+    @discardableResult
+    func throwSystemError(
+        _ error: Error,
+        syscall: String,
+        path: String? = nil
+    ) -> JSValue? {
+        let errno = Self.posixErrno(from: error)
+        let code = Self.posixCodeName(errno)
+        let desc = Self.posixDescription(errno, fallback: error.localizedDescription)
+        var msg = "\(code): \(desc), \(syscall)"
+        if let path { msg += " '\(path)'" }
+        var extras: [String: Any] = [
+            "errno": Int(-errno),
+            "syscall": syscall,
+        ]
+        if let path { extras["path"] = path }
+        return throwJSError(msg, code: code, extras: extras)
+    }
+
+    /// Extract POSIX errno from a Foundation/NSError. Cocoa
+    /// file-system errors carry the original POSIXError nested under
+    /// `NSUnderlyingErrorKey`; pull it out so we can map to a Node code.
+    /// Returns 0 if no POSIX errno can be derived.
+    static func posixErrno(from error: Error) -> Int32 {
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain { return Int32(ns.code) }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain {
+            return Int32(underlying.code)
+        }
+        // Cocoa file errors → best-guess mapping for the common cases.
+        if ns.domain == NSCocoaErrorDomain {
+            switch ns.code {
+            case 4 /* NSFileNoSuchFileError */, 260 /* NSFileReadNoSuchFileError */:
+                return ENOENT
+            case 257 /* NSFileReadNoPermissionError */, 513 /* NSFileWriteNoPermissionError */:
+                return EACCES
+            case 516 /* NSFileWriteFileExistsError */:
+                return EEXIST
+            default: break
+            }
+        }
+        return 0
+    }
+
+    /// Map a POSIX errno to its Node-style symbolic code.
+    static func posixCodeName(_ errno: Int32) -> String {
+        switch errno {
+        case ENOENT:    return "ENOENT"
+        case EACCES:    return "EACCES"
+        case EPERM:     return "EPERM"
+        case EEXIST:    return "EEXIST"
+        case ENOTDIR:   return "ENOTDIR"
+        case EISDIR:    return "EISDIR"
+        case ENOTEMPTY: return "ENOTEMPTY"
+        case EBUSY:     return "EBUSY"
+        case ENOSPC:    return "ENOSPC"
+        case EROFS:     return "EROFS"
+        case EMFILE:    return "EMFILE"
+        case ENFILE:    return "ENFILE"
+        case EINVAL:    return "EINVAL"
+        case ENOMEM:    return "ENOMEM"
+        case ELOOP:     return "ELOOP"
+        case ENAMETOOLONG: return "ENAMETOOLONG"
+        case EAGAIN:    return "EAGAIN"
+        case EBADF:     return "EBADF"
+        case EFAULT:    return "EFAULT"
+        case EIO:       return "EIO"
+        default:        return "UNKNOWN"
+        }
+    }
+
+    /// Node-style human-readable description for a POSIX errno.
+    /// Falls back to the OS string if we don't have a hard-coded one.
+    static func posixDescription(_ errno: Int32, fallback: String) -> String {
+        switch errno {
+        case ENOENT:    return "no such file or directory"
+        case EACCES:    return "permission denied"
+        case EPERM:     return "operation not permitted"
+        case EEXIST:    return "file already exists"
+        case ENOTDIR:   return "not a directory"
+        case EISDIR:    return "illegal operation on a directory"
+        case ENOTEMPTY: return "directory not empty"
+        case EBUSY:     return "resource busy or locked"
+        case ENOSPC:    return "no space left on device"
+        case EROFS:     return "read-only file system"
+        case EMFILE, ENFILE: return "too many open files"
+        case EINVAL:    return "invalid argument"
+        case ENAMETOOLONG: return "name too long"
+        case ELOOP:     return "too many symbolic links"
+        case 0:         return fallback
+        default:
+            return String(cString: strerror(errno))
+        }
+    }
+
+    // MARK: - Exception formatting
+    //
+    // Surface uncaught exceptions in a Node-ish shape:
+    //
+    //     <sourceURL>:<line>
+    //     <source line>
+    //         ^
+    //
+    //     <ErrorName>: <message>
+    //         <stack...>
+    //
+    // The code-frame is only produced when we can resolve the
+    // sourceURL to a real on-disk file — for `-e` snippets we fall
+    // back to message + stack. We never reference the rewritten
+    // module wrapper or the ESM-rewritten source: line numbers are
+    // preserved by both transforms, so reading the on-disk file at
+    // the reported line gives the original user source.
+    func formatException(_ exception: JSValue) -> String {
+        let message = exception.toString() ?? "<unknown>"
+        let stack = nonEmpty(exception, "stack")
+
+        let sourceURL = nonEmpty(exception, "sourceURL")
+        let line = exception.objectForKeyedSubscript("line")?.toInt32() ?? 0
+        let column = exception.objectForKeyedSubscript("column")?.toInt32() ?? 0
+
+        var out = ""
+        if let frame = codeFrame(sourceURL: sourceURL, line: line, column: column) {
+            out += frame + "\n\n"
+        }
+        out += message + "\n"
+        if let stack { out += stack + "\n" }
+        return out
+    }
+
+    private func nonEmpty(_ v: JSValue, _ key: String) -> String? {
+        guard let prop = v.objectForKeyedSubscript(key),
+              !prop.isUndefined, !prop.isNull,
+              let s = prop.toString(), !s.isEmpty else { return nil }
+        return s
+    }
+
+    /// Read `sourceURL`'s line `line` and produce a Node-style
+    /// `path:line\n  source\n  ^` frame. Returns nil when the file
+    /// can't be read (e.g. `[eval]` pseudo-paths).
+    private func codeFrame(sourceURL: String?, line: Int32, column: Int32) -> String? {
+        guard let sourceURL, line > 0 else { return nil }
+        let path: String
+        if sourceURL.hasPrefix("file://"), let u = URL(string: sourceURL) {
+            path = u.path
+        } else {
+            path = sourceURL
+        }
+        guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return nil
+        }
+        let lines = source.split(omittingEmptySubsequences: false,
+                                  whereSeparator: { $0 == "\n" })
+        let idx = Int(line) - 1
+        guard idx >= 0, idx < lines.count else { return nil }
+        let lineText = String(lines[idx])
+        var frame = "\(path):\(line)\n\(lineText)"
+        // Required modules are wrapped in a CommonJS factory whose
+        // prefix lives on the same line as the user's first line, so
+        // the column on line 1 is shifted by the prefix length. We
+        // can't recover the original column without tracking the
+        // offset, so suppress the caret when it would point past the
+        // visible source line — better no caret than a misleading one.
+        if column > 0, Int(column) <= lineText.count + 1 {
+            // JSC columns are 1-based for the visible character.
+            let caret = String(repeating: " ", count: max(0, Int(column) - 1)) + "^"
+            frame += "\n" + caret
+        }
+        return frame
     }
 }
 #endif

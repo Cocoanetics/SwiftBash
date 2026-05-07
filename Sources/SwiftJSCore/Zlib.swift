@@ -15,78 +15,92 @@ extension JSRuntime {
     func makeZlibModule() -> JSValue {
         let zlib = JSValue(newObjectIn: context)!
 
-        // gzipSync(buf|string) → Buffer (gzip format, with header)
-        let gzipSync: @convention(block) (JSValue) -> Any? = { [weak self] input in
-            guard let self else { return nil }
-            let bytes = JSRuntime.bytesForZlibInput(input)
-            guard let out = JSRuntime.zlibCompress(bytes, format: .gzip) else {
-                return self.throwJS("zlib gzip failed")
+        // Each *Sync entry funnels through `bridge`, which decorates a
+        // failed compress/decompress with the underlying zlib message
+        // (`stream.msg`) and a Node-shaped `code` (`Z_DATA_ERROR`,
+        // `Z_BUF_ERROR`, …). Without that, errors looked like the
+        // generic "zlib gunzip failed", and a truncated gzip stream
+        // and an OOM would be indistinguishable to the caller.
+        let bridge: (String, @escaping (JSValue) -> JSResult) -> @convention(block) (JSValue) -> Any? = { [weak self] op, body in
+            { input in
+                guard let self else { return nil }
+                switch body(input) {
+                case .ok(let bytes):
+                    return self.bufferFromBytes(bytes)
+                case .err(let rc, let message):
+                    let code = JSRuntime.zlibCodeName(rc)
+                    let detail = message ?? JSRuntime.zlibDescription(rc)
+                    return self.throwJSError(
+                        "zlib: \(op) failed: \(detail)",
+                        code: code,
+                        extras: ["errno": Int(rc)]
+                    )
+                }
             }
-            return self.bufferFromBytes(out)
+        }
+
+        let gzipSync = bridge("gzip") { input in
+            JSRuntime.zlibCompress(JSRuntime.bytesForZlibInput(input), format: .gzip)
         }
         zlib.setObject(block(gzipSync as AnyObject),
                        forKeyedSubscript: "gzipSync" as NSString)
 
-        // gunzipSync(buf) → Buffer
-        let gunzipSync: @convention(block) (JSValue) -> Any? = { [weak self] input in
-            guard let self else { return nil }
-            let bytes = JSRuntime.bytesForZlibInput(input)
-            guard let out = JSRuntime.zlibDecompress(bytes, format: .gzip) else {
-                return self.throwJS("zlib gunzip failed")
-            }
-            return self.bufferFromBytes(out)
+        let gunzipSync = bridge("gunzip") { input in
+            JSRuntime.zlibDecompress(JSRuntime.bytesForZlibInput(input), format: .gzip)
         }
         zlib.setObject(block(gunzipSync as AnyObject),
                        forKeyedSubscript: "gunzipSync" as NSString)
 
-        // deflateSync(buf|string) → Buffer (zlib format)
-        let deflateSync: @convention(block) (JSValue) -> Any? = { [weak self] input in
-            guard let self else { return nil }
-            let bytes = JSRuntime.bytesForZlibInput(input)
-            guard let out = JSRuntime.zlibCompress(bytes, format: .zlib) else {
-                return self.throwJS("zlib deflate failed")
-            }
-            return self.bufferFromBytes(out)
+        let deflateSync = bridge("deflate") { input in
+            JSRuntime.zlibCompress(JSRuntime.bytesForZlibInput(input), format: .zlib)
         }
         zlib.setObject(block(deflateSync as AnyObject),
                        forKeyedSubscript: "deflateSync" as NSString)
 
-        // inflateSync(buf) → Buffer
-        let inflateSync: @convention(block) (JSValue) -> Any? = { [weak self] input in
-            guard let self else { return nil }
-            let bytes = JSRuntime.bytesForZlibInput(input)
-            guard let out = JSRuntime.zlibDecompress(bytes, format: .zlib) else {
-                return self.throwJS("zlib inflate failed")
-            }
-            return self.bufferFromBytes(out)
+        let inflateSync = bridge("inflate") { input in
+            JSRuntime.zlibDecompress(JSRuntime.bytesForZlibInput(input), format: .zlib)
         }
         zlib.setObject(block(inflateSync as AnyObject),
                        forKeyedSubscript: "inflateSync" as NSString)
 
-        // deflateRawSync / inflateRawSync — raw deflate (no header).
-        let deflateRawSync: @convention(block) (JSValue) -> Any? = { [weak self] input in
-            guard let self else { return nil }
-            let bytes = JSRuntime.bytesForZlibInput(input)
-            guard let out = JSRuntime.zlibCompress(bytes, format: .raw) else {
-                return self.throwJS("zlib deflateRaw failed")
-            }
-            return self.bufferFromBytes(out)
+        let deflateRawSync = bridge("deflateRaw") { input in
+            JSRuntime.zlibCompress(JSRuntime.bytesForZlibInput(input), format: .raw)
         }
         zlib.setObject(block(deflateRawSync as AnyObject),
                        forKeyedSubscript: "deflateRawSync" as NSString)
 
-        let inflateRawSync: @convention(block) (JSValue) -> Any? = { [weak self] input in
-            guard let self else { return nil }
-            let bytes = JSRuntime.bytesForZlibInput(input)
-            guard let out = JSRuntime.zlibDecompress(bytes, format: .raw) else {
-                return self.throwJS("zlib inflateRaw failed")
-            }
-            return self.bufferFromBytes(out)
+        let inflateRawSync = bridge("inflateRaw") { input in
+            JSRuntime.zlibDecompress(JSRuntime.bytesForZlibInput(input), format: .raw)
         }
         zlib.setObject(block(inflateRawSync as AnyObject),
                        forKeyedSubscript: "inflateRawSync" as NSString)
 
         return zlib
+    }
+
+    /// Map a zlib return code (Z_DATA_ERROR, Z_BUF_ERROR, …) to its
+    /// Node-style symbolic name. Used as the `.code` on the JS Error
+    /// thrown from a failed compress/decompress.
+    fileprivate static func zlibCodeName(_ rc: Int32) -> String {
+        switch rc {
+        case Z_STREAM_ERROR: return "Z_STREAM_ERROR"
+        case Z_DATA_ERROR:   return "Z_DATA_ERROR"
+        case Z_MEM_ERROR:    return "Z_MEM_ERROR"
+        case Z_BUF_ERROR:    return "Z_BUF_ERROR"
+        case Z_VERSION_ERROR: return "Z_VERSION_ERROR"
+        default:             return "Z_ERRNO"
+        }
+    }
+
+    fileprivate static func zlibDescription(_ rc: Int32) -> String {
+        switch rc {
+        case Z_STREAM_ERROR:  return "invalid stream state"
+        case Z_DATA_ERROR:    return "incorrect data check / corrupted input"
+        case Z_MEM_ERROR:     return "not enough memory"
+        case Z_BUF_ERROR:     return "no progress is possible"
+        case Z_VERSION_ERROR: return "zlib version mismatch"
+        default:              return "zlib failed (rc=\(rc))"
+        }
     }
 
     private func bufferFromBytes(_ bytes: [UInt8]) -> JSValue {
@@ -124,9 +138,23 @@ private enum ZlibFormat {
     }
 }
 
+/// Result of a single zlib compress/decompress attempt. Carries the
+/// rc and `stream.msg` along with the bytes so the JS side can throw
+/// a Node-shaped Error with a useful diagnostic.
+enum JSResult {
+    case ok([UInt8])
+    case err(rc: Int32, message: String?)
+}
+
+extension JSResult {
+    static func err(_ rc: Int32, _ message: String?) -> JSResult {
+        .err(rc: rc, message: message)
+    }
+}
+
 extension JSRuntime {
 
-    fileprivate static func zlibCompress(_ src: [UInt8], format: ZlibFormat) -> [UInt8]? {
+    fileprivate static func zlibCompress(_ src: [UInt8], format: ZlibFormat) -> JSResult {
         var stream = z_stream()
         let level = Int32(Z_DEFAULT_COMPRESSION)
         let initRC = deflateInit2_(
@@ -138,11 +166,11 @@ extension JSRuntime {
             ZLIB_VERSION,
             Int32(MemoryLayout<z_stream>.size)
         )
-        guard initRC == Z_OK else { return nil }
+        guard initRC == Z_OK else { return .err(initRC, zlibStreamMessage(&stream)) }
         defer { deflateEnd(&stream) }
 
         var output: [UInt8] = []
-        return src.withUnsafeBufferPointer { srcBuf -> [UInt8]? in
+        return src.withUnsafeBufferPointer { srcBuf -> JSResult in
             stream.next_in = UnsafeMutablePointer(mutating: srcBuf.baseAddress)
             stream.avail_in = UInt32(srcBuf.count)
 
@@ -155,13 +183,15 @@ extension JSRuntime {
                 }
                 let written = chunk.count - Int(stream.avail_out)
                 output.append(contentsOf: chunk[..<written])
-                if rc == Z_STREAM_END { return output }
-                if rc != Z_OK && rc != Z_BUF_ERROR { return nil }
+                if rc == Z_STREAM_END { return .ok(output) }
+                if rc != Z_OK && rc != Z_BUF_ERROR {
+                    return .err(rc, zlibStreamMessage(&stream))
+                }
             }
         }
     }
 
-    fileprivate static func zlibDecompress(_ src: [UInt8], format: ZlibFormat) -> [UInt8]? {
+    fileprivate static func zlibDecompress(_ src: [UInt8], format: ZlibFormat) -> JSResult {
         var stream = z_stream()
         let initRC = inflateInit2_(
             &stream,
@@ -169,11 +199,11 @@ extension JSRuntime {
             ZLIB_VERSION,
             Int32(MemoryLayout<z_stream>.size)
         )
-        guard initRC == Z_OK else { return nil }
+        guard initRC == Z_OK else { return .err(initRC, zlibStreamMessage(&stream)) }
         defer { inflateEnd(&stream) }
 
         var output: [UInt8] = []
-        return src.withUnsafeBufferPointer { srcBuf -> [UInt8]? in
+        return src.withUnsafeBufferPointer { srcBuf -> JSResult in
             stream.next_in = UnsafeMutablePointer(mutating: srcBuf.baseAddress)
             stream.avail_in = UInt32(srcBuf.count)
 
@@ -186,10 +216,20 @@ extension JSRuntime {
                 }
                 let written = chunk.count - Int(stream.avail_out)
                 output.append(contentsOf: chunk[..<written])
-                if rc == Z_STREAM_END { return output }
-                if rc != Z_OK { return nil }
+                if rc == Z_STREAM_END { return .ok(output) }
+                if rc != Z_OK {
+                    return .err(rc, zlibStreamMessage(&stream))
+                }
             }
         }
+    }
+
+    /// Pull the human-readable diagnostic out of `stream.msg`, which
+    /// zlib points at a static C string when something goes wrong
+    /// (e.g. "incorrect header check"). Nil when zlib didn't set one.
+    private static func zlibStreamMessage(_ stream: UnsafePointer<z_stream>) -> String? {
+        guard let cstr = stream.pointee.msg else { return nil }
+        return String(cString: cstr)
     }
 }
 #endif

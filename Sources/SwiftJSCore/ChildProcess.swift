@@ -110,10 +110,28 @@ extension JSRuntime {
                                       forKeyedSubscript: "code" as NSString)
                     handles.resolve?.call(withArguments: [payload])
                 } else {
-                    let err = JSValue(newErrorFromMessage: "Command failed: \(command)\n\(result.stderr)", in: self.context)!
-                    err.setObject(result.status, forKeyedSubscript: "code" as NSString)
-                    err.setObject(result.stdout, forKeyedSubscript: "stdout" as NSString)
-                    err.setObject(result.stderr, forKeyedSubscript: "stderr" as NSString)
+                    // Node's `exec` populates the rejected Error with
+                    // both the numeric exit code (`code`) and a more
+                    // structured shape: `cmd`, `killed`, `signal`,
+                    // `stdout`, `stderr`. Match that surface so error
+                    // matchers in user code can use `err.code === 127`
+                    // / `err.cmd` etc.
+                    let trimmedStderr = result.stderr
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let suffix = trimmedStderr.isEmpty ? "" : "\n\(trimmedStderr)"
+                    let err = self.makeJSError(
+                        "Command failed: \(command)\(suffix)",
+                        in: self.context,
+                        extras: [
+                            "code": result.status,
+                            "status": result.status,
+                            "cmd": command,
+                            "killed": false,
+                            "signal": NSNull(),
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                        ]
+                    )
                     handles.reject?.call(withArguments: [err])
                 }
             }
@@ -211,7 +229,25 @@ extension JSRuntime {
         let result = pickBackendAndRun(command: command, args: nil, opts: opts)
 
         if result.status != 0 {
-            return throwJS("Command failed: \(command)\n\(result.stderr)")
+            // Match the shape Node throws from execSync — Error with
+            // `status`, `stdout`, `stderr`, `pid`, `signal`, plus a
+            // numeric `code` mirroring `status`. The string form keeps
+            // Node's "Command failed: <cmd>\n<stderr>" message so
+            // existing log-grep'ing code keeps working.
+            let trimmedStderr = result.stderr
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffix = trimmedStderr.isEmpty ? "" : "\n\(trimmedStderr)"
+            return throwJSError(
+                "Command failed: \(command)\(suffix)",
+                extras: [
+                    "code": result.status,
+                    "status": result.status,
+                    "cmd": command,
+                    "signal": NSNull(),
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                ]
+            )
         }
         return encode(bytes: Array(result.stdout.utf8), encoding: encoding)
     }
