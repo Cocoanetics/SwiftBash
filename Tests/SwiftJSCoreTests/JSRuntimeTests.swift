@@ -340,12 +340,14 @@ final class JSRuntimeTests: XCTestCase {
 
     func testInProcessModeFailsOnExternalBinary() {
         // The default `.inProcess` runtime only knows the SwiftBash
-        // catalog. `git` isn't in it, so execSync must fail rather
-        // than silently fall through to `/bin/sh`.
+        // catalog (which now includes the SwiftPorts CLIs — gh, git,
+        // jq, tar, …). A binary that *isn't* registered must fail
+        // rather than silently fall through to `/bin/sh`. Use a
+        // sentinel name guaranteed not to be a builtin.
         let (r, _, err) = runtime()
         r.run("""
         const cp = require('node:child_process');
-        try { cp.execSync('git --version'); }
+        try { cp.execSync('definitely-not-a-real-binary-zzz --version'); }
         catch (e) { console.error('threw:', e.message.split(String.raw`\n`)[0]); }
         """)
         XCTAssertTrue(err().contains("threw:"))
