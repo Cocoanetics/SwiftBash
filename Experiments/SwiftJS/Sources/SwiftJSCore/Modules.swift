@@ -1,6 +1,8 @@
 import Foundation
 import JavaScriptCore
 
+#if canImport(JavaScriptCore)
+
 extension JSRuntime {
 
     /// Wires up `require()`, the builtin module table (node:fs,
@@ -732,3 +734,4 @@ extension JSRuntime {
         return context.evaluateScript(source)!
     }
 }
+#endif

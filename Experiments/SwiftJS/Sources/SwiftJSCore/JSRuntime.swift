@@ -1,6 +1,8 @@
 import Foundation
 import JavaScriptCore
 
+#if canImport(JavaScriptCore)
+
 /// A configured JavaScriptCore context with a Node-ish runtime
 /// bolted on top. Layers:
 ///
@@ -225,3 +227,4 @@ extension JSRuntime {
         return err
     }
 }
+#endif

@@ -2,6 +2,8 @@ import Foundation
 import JavaScriptCore
 import CryptoKit
 
+#if canImport(JavaScriptCore)
+
 extension JSRuntime {
 
     /// Builds the `node:crypto` module:
@@ -170,3 +172,4 @@ private final class HashState {
         }
     }
 }
+#endif

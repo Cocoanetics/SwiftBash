@@ -1,6 +1,27 @@
 import Foundation
 import SwiftJSCore
 
+#if !canImport(JavaScriptCore)
+// JavaScriptCore is Apple-only. On Linux / Windows / Android the
+// SwiftJSCore module compiles to nothing useful (its types are
+// gated on `canImport(JavaScriptCore)`), so the executable can't
+// run JS. Print a clear message and exit instead of confusing
+// build failures.
+FileHandle.standardError.write(Data(
+    "swift-js: JavaScriptCore is not available on this platform.\n".utf8
+))
+FileHandle.standardError.write(Data(
+    "          Apple platforms (macOS, iOS, tvOS, watchOS) are supported.\n".utf8
+))
+FileHandle.standardError.write(Data(
+    "          For Linux / Windows we'd need a different engine\n".utf8
+))
+FileHandle.standardError.write(Data(
+    "          (e.g. QuickJS-NG); see Docs/SwiftJS.md.\n".utf8
+))
+exit(78)  // EX_CONFIG
+#else
+
 // Multi-call binary. The basename of argv[0] selects the personality:
 //
 //     node      — accept `node script.js [args...]`, `node -e <expr>`,
@@ -135,3 +156,5 @@ func installAliases(prefix: String, source: String) {
         exit(1)
     }
 }
+
+#endif

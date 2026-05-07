@@ -3,6 +3,8 @@ import JavaScriptCore
 import BashInterpreter
 import BashCommandKit
 
+#if canImport(JavaScriptCore)
+
 /// Holder for resolve/reject of an async child_process Promise.
 /// Mirrors the one in Network.swift; access fenced by the main
 /// queue hop in Task.detached's continuation.
@@ -346,3 +348,4 @@ extension JSRuntime {
         }
     }
 }
+#endif

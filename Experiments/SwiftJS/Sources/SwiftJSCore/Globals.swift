@@ -1,6 +1,8 @@
 import Foundation
 import JavaScriptCore
 
+#if canImport(JavaScriptCore)
+
 extension JSRuntime {
 
     func installGlobals() {
@@ -595,3 +597,4 @@ extension JSRuntime {
         context.evaluateScript(urlShim)
     }
 }
+#endif

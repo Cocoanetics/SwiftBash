@@ -2,6 +2,8 @@ import Foundation
 import JavaScriptCore
 import CZlib
 
+#if canImport(JavaScriptCore)
+
 /// `node:zlib` — gzip/gunzip/deflate/inflate.
 ///
 /// Sync-only for now (matches the rest of our fs/crypto surface).
@@ -189,3 +191,4 @@ extension JSRuntime {
         }
     }
 }
+#endif

@@ -688,6 +688,50 @@ target dep on Linux/Android only).
    compliance is a year of work and the result will be slower
    than QuickJS-NG by 10×.
 
+## Cross-platform: who gets what
+
+JavaScriptCore is Apple-only. Linux, Windows, and Android don't
+have it (and won't anytime soon — see [Cross-platform: JavaScriptCore vs QuickJS](#javascriptcore-on-linux)
+for the painful path through WebKitGTK). Rather than block the
+whole package on those platforms, every JSC-touching `.swift`
+source file is wrapped in:
+
+```swift
+import Foundation
+import JavaScriptCore
+
+#if canImport(JavaScriptCore)
+
+// ... runtime code ...
+
+#endif
+```
+
+That includes `JSRuntime`, `Globals`, `Modules`, `Crypto`,
+`Network`, `Timers`, `ChildProcess`, and `Zlib`. `ESMRewriter`
+and `EnvProvider` are pure Foundation (the protocol is useful
+on any platform) and stay unguarded.
+
+The `swift-js` executable target also has a non-Apple branch
+that prints a clear error and exits with `EX_CONFIG`:
+
+```
+$ swift-js --version       # on Linux (hypothetical)
+swift-js: JavaScriptCore is not available on this platform.
+          Apple platforms (macOS, iOS, tvOS, watchOS) are supported.
+          For Linux / Windows we'd need a different engine
+          (e.g. QuickJS-NG); see Docs/SwiftJS.md.
+```
+
+The test target's `JSRuntimeTests` is similarly guarded so
+non-Apple CI runs just skip those tests instead of failing
+to compile.
+
+The net effect: when this experiment is folded back into the
+main `Package.swift`, no Linux/Windows/Android builds break.
+The targets get registered everywhere; on non-Apple they
+compile to (essentially) empty modules and a stub executable.
+
 ## Status of this branch
 
 `experiment/js-executor`, parallel to `main`. The package lives in

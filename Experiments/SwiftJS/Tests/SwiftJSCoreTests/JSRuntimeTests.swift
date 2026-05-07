@@ -3,6 +3,8 @@ import XCTest
 import BashInterpreter
 import BashCommandKit
 
+#if canImport(JavaScriptCore)
+
 final class JSRuntimeTests: XCTestCase {
 
     private func runtime() -> (JSRuntime, () -> String, () -> String) {
@@ -910,3 +912,5 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "x is 7\n{\"a\":1}\n")
     }
 }
+
+#endif

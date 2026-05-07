@@ -1,6 +1,8 @@
 import Foundation
 import JavaScriptCore
 
+#if canImport(JavaScriptCore)
+
 /// Mutable holder for the resolve/reject handles of a Promise, used
 /// so the URLSession callback (non-isolated) can post the JSValues
 /// back to the main thread without capturing them in its closure.
@@ -221,3 +223,4 @@ extension JSRuntime {
         return factory.call(withArguments: [bytesValue, status, headersDict, url])!
     }
 }
+#endif

@@ -1,6 +1,8 @@
 import Foundation
 import JavaScriptCore
 
+#if canImport(JavaScriptCore)
+
 extension JSRuntime {
 
     /// Wires up setTimeout/setInterval/clearTimeout/clearInterval +
@@ -70,3 +72,4 @@ extension JSRuntime {
         return id
     }
 }
+#endif
