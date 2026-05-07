@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "BashSyntax", targets: ["BashSyntax"]),
         .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
         .library(name: "BashCommandKit", targets: ["BashCommandKit"]),
+        .library(name: "CZlib", targets: ["CZlib"]),
         .executable(name: "swift-bash", targets: ["swift-bash"]),
     ],
     dependencies: [

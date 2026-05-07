@@ -8,7 +8,105 @@ extension JSRuntime {
         installProcess()
         installBufferAndEncodingBridges()
         installWebGlobals()
+        installPerformance()
+        installAbortController()
         installEntryModuleScope()
+    }
+
+    // MARK: - performance
+
+    private func installPerformance() {
+        // performance.now() — high-resolution monotonic clock in ms
+        // (per the WHATWG spec). Backed by mach_absolute_time via
+        // DispatchTime.uptimeNanoseconds.
+        let start = DispatchTime.now().uptimeNanoseconds
+        let now: @convention(block) () -> Double = {
+            let elapsedNs = DispatchTime.now().uptimeNanoseconds - start
+            return Double(elapsedNs) / 1_000_000.0
+        }
+        let timeOrigin: Double = Double(start) / 1_000_000.0
+        let perf = JSValue(newObjectIn: context)!
+        perf.setObject(block(now as AnyObject), forKeyedSubscript: "now" as NSString)
+        perf.setObject(timeOrigin, forKeyedSubscript: "timeOrigin" as NSString)
+        setGlobal("performance", perf)
+    }
+
+    // MARK: - AbortController / AbortSignal
+
+    private func installAbortController() {
+        // Pure-JS implementation. fetch() picks up the signal via
+        // init.signal — the Swift bridge inspects it after the
+        // request has been built but before resume(). Aborting from
+        // JS calls signal.dispatchEvent which we intercept by setting
+        // a flag the URLSession completion checks.
+        let source = #"""
+        (() => {
+          class AbortError extends Error {
+            constructor(message) {
+              super(message ?? "The operation was aborted.");
+              this.name = "AbortError";
+              this.code = "ABORT_ERR";
+            }
+          }
+          class AbortSignal {
+            constructor() { this.aborted = false; this.reason = undefined; this._listeners = []; }
+            addEventListener(type, fn) {
+              if (type === "abort") this._listeners.push(fn);
+            }
+            removeEventListener(type, fn) {
+              if (type === "abort") this._listeners = this._listeners.filter(x => x !== fn);
+            }
+            throwIfAborted() { if (this.aborted) throw this.reason ?? new AbortError(); }
+            dispatchEvent(event) {
+              for (const fn of this._listeners) {
+                try { fn(event); } catch (_) {}
+              }
+            }
+            static abort(reason) {
+              const s = new AbortSignal();
+              s.aborted = true;
+              s.reason = reason ?? new AbortError();
+              return s;
+            }
+            static timeout(ms) {
+              const s = new AbortSignal();
+              setTimeout(() => {
+                if (!s.aborted) {
+                  s.aborted = true;
+                  s.reason = new AbortError("The operation timed out.");
+                  s.dispatchEvent({ type: "abort" });
+                }
+              }, ms);
+              return s;
+            }
+          }
+          class AbortController {
+            constructor() { this.signal = new AbortSignal(); }
+            abort(reason) {
+              if (this.signal.aborted) return;
+              this.signal.aborted = true;
+              this.signal.reason = reason ?? new AbortError();
+              this.signal.dispatchEvent({ type: "abort" });
+            }
+          }
+          globalThis.AbortController = AbortController;
+          globalThis.AbortSignal = AbortSignal;
+          globalThis.AbortError = AbortError;
+
+          // structuredClone — JSON-roundtrip subset. Good enough for
+          // plain data; throws on functions/cycles like the real
+          // structuredClone.
+          globalThis.structuredClone = (value, _opts) => {
+            // Fast path for primitives.
+            if (value === null) return null;
+            const t = typeof value;
+            if (t !== "object" && t !== "function") return value;
+            if (t === "function") throw new Error("structuredClone: functions not supported");
+            return JSON.parse(JSON.stringify(value));
+          };
+        })();
+        """#
+        context.evaluateScript(source)
     }
 
     /// Expose `module` and `exports` at the top level so an entry
@@ -46,6 +144,55 @@ extension JSRuntime {
             console.setObject(block(err as AnyObject), forKeyedSubscript: name as NSString)
         }
         setGlobal("console", console)
+
+        // Layer extras (time/count/group/assert) on top in pure JS so
+        // they pick up our `log`/`error` that already write to the
+        // injected sinks.
+        let extras = #"""
+        (() => {
+          const c = globalThis.console;
+          const timers = new Map();
+          const counters = new Map();
+          let groupDepth = 0;
+          const indent = () => "  ".repeat(groupDepth);
+          const wrap = (level, fn) => (...args) => fn(indent() + (typeof args[0] === "string" ? args[0] : JSON.stringify(args[0])), ...args.slice(1));
+          // Override log/info/error/warn to honour group indent.
+          const baseLog = c.log;
+          const baseErr = c.error;
+          c.log = (...a) => baseLog(indent() + (a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ")));
+          c.info = c.log; c.debug = c.log; c.trace = c.log;
+          c.error = (...a) => baseErr(indent() + (a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ")));
+          c.warn = c.error;
+
+          c.time = (label = "default") => { timers.set(label, performance.now()); };
+          c.timeEnd = (label = "default") => {
+            const start = timers.get(label);
+            if (start === undefined) { c.warn("Timer '" + label + "' does not exist"); return; }
+            timers.delete(label);
+            c.log(label + ": " + (performance.now() - start).toFixed(3) + "ms");
+          };
+          c.timeLog = (label = "default", ...rest) => {
+            const start = timers.get(label);
+            if (start === undefined) return;
+            c.log(label + ": " + (performance.now() - start).toFixed(3) + "ms", ...rest);
+          };
+          c.count = (label = "default") => {
+            const n = (counters.get(label) ?? 0) + 1;
+            counters.set(label, n);
+            c.log(label + ": " + n);
+          };
+          c.countReset = (label = "default") => counters.delete(label);
+          c.group = (...args) => { if (args.length) c.log(...args); groupDepth++; };
+          c.groupCollapsed = c.group;
+          c.groupEnd = () => { groupDepth = Math.max(0, groupDepth - 1); };
+          c.assert = (cond, ...args) => {
+            if (!cond) c.error("Assertion failed:", ...args);
+          };
+          c.dir = (obj, _opts) => c.log(JSON.stringify(obj, null, 2));
+          c.table = (data) => c.log(JSON.stringify(data, null, 2));
+        })();
+        """#
+        context.evaluateScript(extras)
     }
 
     private func formatArgs(_ args: [JSValue]) -> String {
@@ -172,7 +319,65 @@ extension JSRuntime {
         }
         process.setObject(block(hrtime as AnyObject), forKeyedSubscript: "hrtime" as NSString)
 
+        // process.stdout.write(string) / .stderr.write(string)
+        // — print without an automatic trailing newline.
+        let stdoutWrite: @convention(block) (JSValue) -> Bool = { [weak self] v in
+            self?.stdout(JSRuntime.stringFromWritable(v))
+            return true
+        }
+        let stderrWrite: @convention(block) (JSValue) -> Bool = { [weak self] v in
+            self?.stderr(JSRuntime.stringFromWritable(v))
+            return true
+        }
+        let stdoutObj = JSValue(newObjectIn: context)!
+        stdoutObj.setObject(block(stdoutWrite as AnyObject), forKeyedSubscript: "write" as NSString)
+        stdoutObj.setObject(true, forKeyedSubscript: "isTTY" as NSString)
+        process.setObject(stdoutObj, forKeyedSubscript: "stdout" as NSString)
+        let stderrObj = JSValue(newObjectIn: context)!
+        stderrObj.setObject(block(stderrWrite as AnyObject), forKeyedSubscript: "write" as NSString)
+        stderrObj.setObject(true, forKeyedSubscript: "isTTY" as NSString)
+        process.setObject(stderrObj, forKeyedSubscript: "stderr" as NSString)
+
+        // process.on('event', fn) — only `exit` is honoured.
+        let on: @convention(block) (String, JSValue) -> JSValue? = { [weak self] event, fn in
+            guard let self else { return nil }
+            if event == "exit" { self.exitListeners.append(fn) }
+            // Return process for chaining (Node convention).
+            return self.context.objectForKeyedSubscript("process")
+        }
+        process.setObject(block(on as AnyObject), forKeyedSubscript: "on" as NSString)
+
+        // process.exitCode — getter/setter via Object.defineProperty.
+        // Stored on a hidden field; the CLI reads `runtime.exitCode`
+        // directly.
+        let exitCodeGet: @convention(block) () -> Int32 = { [weak self] in
+            self?.exitCode ?? 0
+        }
+        let exitCodeSet: @convention(block) (JSValue) -> Void = { [weak self] v in
+            self?.exitCode = v.toInt32()
+        }
+        setGlobal("__swiftjs_exitCodeGet", block(exitCodeGet as AnyObject))
+        setGlobal("__swiftjs_exitCodeSet", block(exitCodeSet as AnyObject))
+
         setGlobal("process", process)
+
+        // Define exitCode as an accessor on process so reads/writes
+        // round-trip through the runtime's `exitCode` field.
+        // Capture the bridges by closure (not name lookup) so we can
+        // safely scrub the globals afterwards.
+        context.evaluateScript(#"""
+        (() => {
+          const G = globalThis.__swiftjs_exitCodeGet;
+          const S = globalThis.__swiftjs_exitCodeSet;
+          Object.defineProperty(process, "exitCode", {
+            get() { return G(); },
+            set(v) { S(v); },
+            enumerable: true,
+          });
+          delete globalThis.__swiftjs_exitCodeGet;
+          delete globalThis.__swiftjs_exitCodeSet;
+        })();
+        """#)
     }
 
     // MARK: - Buffer + encoding bridges
@@ -323,6 +528,16 @@ extension JSRuntime {
     /// Pull bytes out of a JSValue. Accepts Uint8Array, plain Array
     /// of numbers, or anything else with a `length` and indexable
     /// elements. We can't `as` a JSValue to `[UInt8]` directly.
+    /// Convert a `string|Buffer|Uint8Array` argument to a string for
+    /// `process.stdout.write` / `stderr.write`.
+    static func stringFromWritable(_ v: JSValue) -> String {
+        if v.isString { return v.toString() ?? "" }
+        if let arr = v.toArray() as? [NSNumber] {
+            return String(decoding: arr.map { $0.uint8Value }, as: UTF8.self)
+        }
+        return v.toString() ?? ""
+    }
+
     private static func bytes(from value: JSValue) -> [UInt8] {
         let array = value.toArray() ?? []
         return array.compactMap { ($0 as? NSNumber)?.uint8Value }

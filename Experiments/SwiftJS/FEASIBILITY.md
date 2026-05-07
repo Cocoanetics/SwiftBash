@@ -176,21 +176,31 @@ shell-style Node script touches:
 
 | Now supported | How |
 |---|---|
-| `console`, `process`, timers, `setImmediate`, `queueMicrotask` | Swift bridges + JS shim |
-| `Buffer`, `TextEncoder`/`Decoder`, `atob`, `btoa` | UTF-8/base64/hex bridged from Swift, classes built in JS on top |
+| `console.*` (incl. `time/timeEnd/count/group/assert/dir/table`) | Swift sinks + JS extension |
+| `process.argv`, `env`, `cwd`, `chdir`, `exit`, `exitCode`, `on('exit')`, `stdout/stderr.write`, `hrtime`, `platform`, `arch`, `version` | Swift bridges + Proxy-backed env/argv |
+| `setTimeout`/`setInterval`/`setImmediate`/`queueMicrotask` | DispatchSourceTimer + microtask queue |
+| `performance.now()`, `performance.timeOrigin`, `node:perf_hooks` | DispatchTime |
+| `Buffer`, `TextEncoder`/`Decoder`, `atob`, `btoa`, `structuredClone` | UTF-8/base64/hex bridged from Swift, classes built in JS on top |
 | `URL`, `URLSearchParams`-equivalent fields | `URLComponents`-backed parser |
+| `AbortController`, `AbortSignal`, `AbortError` | pure JS, plumbed into `fetch` via URLSessionDataTask.cancel |
+| `WebAssembly` (sync `Module`/`Instance`) | **free from JSC** |
 | `node:fs` (sync + promises wrapper) | Foundation `FileManager`/`Data` |
 | `node:path`, `node:os`, `node:util`, `node:url` | Pure JS where possible, Swift for `os.*` |
 | `node:crypto` (createHash/createHmac/randomBytes/randomUUID/timingSafeEqual) | CryptoKit |
-| `node:child_process` (execSync/spawnSync) | **SwiftBash `BashInterpreter` in-process** by default; Foundation `Process` as opt-in fallback |
-| `fetch`, `Response`, `Headers` | URLSession |
+| `node:zlib` (gzipSync/gunzipSync/deflateSync/inflateSync/deflateRawSync/inflateRawSync) | host zlib via `CZlib` |
+| `node:assert` (equal/strictEqual/deepEqual/throws/match/…) | pure JS |
+| `node:events` (EventEmitter) | pure JS |
+| `node:querystring` | pure JS |
+| `node:child_process` (`execSync`, `spawnSync`, async `exec`) | **SwiftBash `BashInterpreter` in-process** by default; Foundation `Process` as opt-in fallback. Concurrent via `Task.detached`. |
+| `fetch`, `Response`, `Headers` (with abort signal) | URLSession |
 | `require('./local')`, `require('node:foo')` | CommonJS wrapper, module cache, circular guard |
+| ESM `import`/`export` (incl. `import.meta.url`, dynamic `import()`) | static rewriter to CommonJS |
 
 | Still missing | Cost to add |
 |---|---|
-| `node:zlib` | small (parent has zlib) |
-| `node:stream` | medium |
-| Cipher/Decipher / pbkdf2 / scrypt in `crypto` | small (CryptoKit + a few spins) |
+| `node:stream` (Readable/Writable/Transform) | medium |
+| Cipher/Decipher / pbkdf2 / scrypt in `crypto` | small (CryptoKit) |
+| WebAssembly **async** path (`WebAssembly.instantiate`) | small — needs runloop integration |
 | Top-level `await` in modules | needs real `JSScript` module support, not exposed in public API |
 | `node:worker_threads` | unclear — JSC's threading is not Node's |
 | Native addons (`*.node`) | impossible |

@@ -22,6 +22,10 @@ public final class JSRuntime {
     public internal(set) var exitCode: Int32 = 0
     var didExit: Bool = false
 
+    /// Callbacks registered via `process.on('exit', fn)`. Fired
+    /// when the runtime is about to terminate.
+    var exitListeners: [JSValue] = []
+
     /// Path of the currently-running script (used for `__filename`,
     /// `__dirname`, and resolving `require('./relative')`).
     var currentScriptPath: String?
@@ -119,6 +123,17 @@ public final class JSRuntime {
         let result = context.evaluateScript(rewritten, withSourceURL: url)
         drainPendingWorkIfNeeded()
         return result
+    }
+
+    /// Fire any `process.on('exit', fn)` callbacks. Called by the
+    /// CLI just before `exit(code)`, and by tests that want to
+    /// observe the same lifecycle.
+    public func fireExitListeners() {
+        let codeArg = JSValue(int32: exitCode, in: context)!
+        for fn in exitListeners {
+            _ = fn.call(withArguments: [codeArg])
+        }
+        exitListeners.removeAll()
     }
 
     /// Run a `.js` file from disk. Honours shebang on the first line

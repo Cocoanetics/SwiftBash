@@ -91,6 +91,7 @@ if firstArg == "-e" || firstArg == "-p" || firstArg == "--print" {
        let result, !result.isUndefined, !result.isNull {
         print(result.toString() ?? "")
     }
+    runtime.fireExitListeners()
     exit(runtime.exitCode)
 }
 

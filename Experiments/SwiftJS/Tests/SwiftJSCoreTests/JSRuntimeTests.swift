@@ -695,6 +695,209 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertNil(ProcessInfo.processInfo.environment["FROM_JS"])
     }
 
+    // MARK: - process.stdout / stderr / exitCode / on(exit)
+
+    func testProcessStdoutWrite() {
+        let (r, out, _) = runtime()
+        r.run(#"process.stdout.write("hi"); process.stdout.write(" "); process.stdout.write("there");"#)
+        XCTAssertEqual(out(), "hi there")
+    }
+
+    func testProcessExitCodeProperty() {
+        let (r, _, _) = runtime()
+        r.run("process.exitCode = 9; /* no exit() call */")
+        XCTAssertEqual(r.exitCode, 9)
+    }
+
+    func testProcessOnExitCallback() {
+        let (r, out, _) = runtime()
+        r.run("""
+        process.on('exit', (code) => process.stdout.write('bye-' + code));
+        process.stdout.write('alive\\n');
+        """)
+        r.fireExitListeners()
+        XCTAssertEqual(out(), "alive\nbye-0")
+    }
+
+    // MARK: - performance / structuredClone
+
+    func testPerformanceNowMonotonic() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const a = performance.now();
+        const b = performance.now();
+        console.log(typeof a === 'number', b >= a);
+        """)
+        XCTAssertEqual(out(), "true true\n")
+    }
+
+    func testStructuredClone() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const a = { x: 1, ys: [{n:2}] };
+        const b = structuredClone(a);
+        b.ys[0].n = 99;
+        console.log(a.ys[0].n, b.ys[0].n);
+        """)
+        XCTAssertEqual(out(), "2 99\n")
+    }
+
+    // MARK: - AbortController
+
+    func testAbortController() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const ac = new AbortController();
+        let fired = false;
+        ac.signal.addEventListener('abort', () => { fired = true; });
+        console.log(ac.signal.aborted, fired);
+        ac.abort();
+        console.log(ac.signal.aborted, fired, ac.signal.reason.name);
+        """)
+        XCTAssertEqual(out(), "false false\ntrue true AbortError\n")
+    }
+
+    // MARK: - extended console
+
+    func testConsoleCountAndGroup() {
+        let (r, out, _) = runtime()
+        r.run("""
+        console.count('a');
+        console.count('a');
+        console.group('outer');
+        console.log('hi');
+        console.groupEnd();
+        """)
+        XCTAssertEqual(out(), "a: 1\na: 2\nouter\n  hi\n")
+    }
+
+    func testConsoleTime() {
+        let (r, out, _) = runtime()
+        r.run("""
+        console.time('t');
+        for (let i = 0; i < 100; i++) {}
+        console.timeEnd('t');
+        """)
+        XCTAssertTrue(out().hasPrefix("t: "))
+        XCTAssertTrue(out().hasSuffix("ms\n"))
+    }
+
+    // MARK: - node:zlib
+
+    func testZlibGzipRoundTrip() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const zlib = require('node:zlib');
+        // Input large enough to compress under the gzip header overhead.
+        const text = 'hello world '.repeat(50);
+        const gz = zlib.gzipSync(text);
+        const back = zlib.gunzipSync(gz).toString('utf-8');
+        console.log(back === text, gz.length < text.length);
+        """)
+        XCTAssertEqual(out(), "true true\n")
+    }
+
+    func testZlibDeflateRoundTrip() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const zlib = require('zlib');
+        const data = Buffer.from('the quick brown fox jumps over the lazy dog the quick brown fox');
+        const z = zlib.deflateSync(data);
+        const back = zlib.inflateSync(z).toString('utf-8');
+        console.log(back, z.length < data.length);
+        """)
+        XCTAssertEqual(out(),
+            "the quick brown fox jumps over the lazy dog the quick brown fox true\n")
+    }
+
+    func testZlibRawRoundTrip() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const zlib = require('zlib');
+        const z = zlib.deflateRawSync('aaaaaaaaaaaaaaaa');
+        const back = zlib.inflateRawSync(z).toString('utf-8');
+        console.log(back === 'aaaaaaaaaaaaaaaa');
+        """)
+        XCTAssertEqual(out(), "true\n")
+    }
+
+    // MARK: - node:assert
+
+    func testAssertModule() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const assert = require('node:assert');
+        assert.equal(2 + 2, 4);
+        assert.deepEqual([1,2], [1,2]);
+        assert.strictEqual('x','x');
+        assert.throws(() => { throw new Error('nope') }, /nope/);
+        try { assert.strictEqual(1, '1'); } catch (e) { console.log(e.code); }
+        """)
+        XCTAssertEqual(out(), "ERR_ASSERTION\n")
+    }
+
+    // MARK: - node:events
+
+    func testEventEmitter() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const { EventEmitter } = require('node:events');
+        const ee = new EventEmitter();
+        let count = 0;
+        ee.on('tick', n => { count += n; });
+        ee.emit('tick', 1);
+        ee.emit('tick', 2);
+        ee.emit('tick', 3);
+        console.log(count, ee.listenerCount('tick'));
+        """)
+        XCTAssertEqual(out(), "6 1\n")
+    }
+
+    func testEventEmitterOnce() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const { EventEmitter } = require('events');
+        const ee = new EventEmitter();
+        let n = 0;
+        ee.once('go', () => n++);
+        ee.emit('go'); ee.emit('go'); ee.emit('go');
+        console.log(n);
+        """)
+        XCTAssertEqual(out(), "1\n")
+    }
+
+    // MARK: - node:querystring
+
+    func testQuerystring() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const qs = require('node:querystring');
+        console.log(JSON.stringify(qs.parse('a=1&b=2&a=3')));
+        console.log(qs.stringify({x: 'hello world', y: [1,2]}));
+        """)
+        XCTAssertEqual(out(),
+            "{\"a\":[\"1\",\"3\"],\"b\":\"2\"}\nx=hello+world&y=1&y=2\n")
+    }
+
+    // MARK: - WebAssembly (free from JSC)
+
+    func testWebAssemblySync() {
+        let (r, out, _) = runtime()
+        r.run("""
+        const wasm = new Uint8Array([
+          0,97,115,109, 1,0,0,0,
+          1,7,1,96,2,127,127,1,127,
+          3,2,1,0,
+          7,7,1,3,97,100,100,0,0,
+          10,9,1,7,0,32,0,32,1,106,11,
+        ]);
+        const m = new WebAssembly.Module(wasm.buffer);
+        const inst = new WebAssembly.Instance(m);
+        console.log(inst.exports.add(40, 2));
+        """)
+        XCTAssertEqual(out(), "42\n")
+    }
+
     // MARK: - util
 
     func testUtilFormat() {

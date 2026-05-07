@@ -89,6 +89,7 @@ extension JSRuntime {
         }
 
         var request = URLRequest(url: url)
+        var abortSignal: JSValue?
         if let initVal, initVal.isObject {
             if let m = initVal.objectForKeyedSubscript("method"), m.isString {
                 request.httpMethod = m.toString()
@@ -107,6 +108,18 @@ extension JSRuntime {
                     request.httpBody = Data(bytes.map { $0.uint8Value })
                 }
             }
+            if let s = initVal.objectForKeyedSubscript("signal"), s.isObject {
+                abortSignal = s
+                // Already-aborted? Reject synchronously.
+                if s.objectForKeyedSubscript("aborted").toBool() {
+                    let reason = s.objectForKeyedSubscript("reason")
+                    let err = (reason?.isObject == true)
+                        ? reason!
+                        : JSValue(newErrorFromMessage: "The operation was aborted.", in: ctx)!
+                    box.reject?.call(withArguments: [err])
+                    return promise
+                }
+            }
         }
 
         // Add a sentinel timer so `drainPendingWorkIfNeeded` keeps
@@ -120,6 +133,7 @@ extension JSRuntime {
         sentinel.resume()
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            _ = abortSignal // capture so it stays alive across the call
             // We're on URLSession's queue. Hop to main where JSValue
             // is safe to touch.
             let bytes = Array(data ?? Data())
@@ -146,6 +160,20 @@ extension JSRuntime {
             }
         }
         task.resume()
+
+        // Wire up cancellation: when the JS AbortSignal fires, cancel
+        // the URLSessionDataTask. We do this by registering a JS
+        // listener that calls a Swift bridge.
+        if let signal = abortSignal {
+            let cancel: @convention(block) () -> Void = { [weak task] in
+                task?.cancel()
+            }
+            let cancelJS = JSValue(object: block(cancel as AnyObject), in: ctx)!
+            // signal.addEventListener("abort", cancelJS)
+            _ = signal.invokeMethod("addEventListener",
+                                    withArguments: ["abort", cancelJS])
+        }
+
         return promise
     }
 

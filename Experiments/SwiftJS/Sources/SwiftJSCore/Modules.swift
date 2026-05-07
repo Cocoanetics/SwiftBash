@@ -166,6 +166,205 @@ extension JSRuntime {
         let fsPromises = makeFsPromisesModule(syncFs: fs)
         cacheBuiltin("node:fs/promises", fsPromises)
         cacheBuiltin("fs/promises", fsPromises)
+
+        let zlibMod = makeZlibModule()
+        cacheBuiltin("zlib", zlibMod)
+        cacheBuiltin("node:zlib", zlibMod)
+
+        let assertMod = makeAssertModule()
+        cacheBuiltin("assert", assertMod)
+        cacheBuiltin("node:assert", assertMod)
+        cacheBuiltin("assert/strict", assertMod)
+        cacheBuiltin("node:assert/strict", assertMod)
+
+        let eventsMod = makeEventsModule()
+        cacheBuiltin("events", eventsMod)
+        cacheBuiltin("node:events", eventsMod)
+
+        let qsMod = makeQuerystringModule()
+        cacheBuiltin("querystring", qsMod)
+        cacheBuiltin("node:querystring", qsMod)
+
+        let perfMod = makePerfHooksModule()
+        cacheBuiltin("perf_hooks", perfMod)
+        cacheBuiltin("node:perf_hooks", perfMod)
+    }
+
+    // MARK: - node:assert (pure JS)
+
+    private func makeAssertModule() -> JSValue {
+        // Just enough of node:assert to write tests against.
+        let source = #"""
+        (() => {
+          class AssertionError extends Error {
+            constructor(opts = {}) {
+              super(opts.message ?? `Expected: ${JSON.stringify(opts.expected)}, got: ${JSON.stringify(opts.actual)}`);
+              this.name = "AssertionError";
+              this.code = "ERR_ASSERTION";
+              this.actual = opts.actual;
+              this.expected = opts.expected;
+              this.operator = opts.operator;
+            }
+          }
+          const fail = (opts) => { throw new AssertionError(opts); };
+          const ok = (cond, message) => {
+            if (!cond) fail({ actual: cond, expected: true, message: message ?? "Expected truthy", operator: "==" });
+          };
+          const eq  = (a, b, message) => {
+            if (a != b)  fail({ actual: a, expected: b, message, operator: "==" });
+          };
+          const strictEq = (a, b, message) => {
+            if (a !== b) fail({ actual: a, expected: b, message, operator: "===" });
+          };
+          const deepEq = (a, b, message) => {
+            if (JSON.stringify(a) !== JSON.stringify(b)) {
+              fail({ actual: a, expected: b, message, operator: "deepEqual" });
+            }
+          };
+          const throws = (fn, expected) => {
+            let threw = false; let err;
+            try { fn(); } catch (e) { threw = true; err = e; }
+            if (!threw) fail({ message: "Missing expected exception" });
+            if (expected instanceof RegExp && !expected.test(err && err.message)) {
+              fail({ actual: err.message, expected: expected.source, message: "Error did not match" });
+            }
+          };
+          const fn = ok;
+          fn.AssertionError = AssertionError;
+          fn.ok = ok;
+          fn.fail = (msg) => fail({ message: msg ?? "Failed" });
+          fn.equal = eq;
+          fn.notEqual = (a, b, m) => { if (a == b) fail({ actual: a, expected: b, message: m, operator: "!=" }); };
+          fn.strictEqual = strictEq;
+          fn.notStrictEqual = (a, b, m) => { if (a === b) fail({ actual: a, expected: b, message: m, operator: "!==" }); };
+          fn.deepEqual = deepEq;
+          fn.deepStrictEqual = deepEq;
+          fn.throws = throws;
+          fn.doesNotThrow = (f) => { try { f(); } catch { fail({ message: "Got unwanted exception" }); } };
+          fn.match = (str, re, m) => { if (!re.test(str)) fail({ actual: str, expected: re.source, message: m, operator: "match" }); };
+          fn.strict = fn;
+          return fn;
+        })()
+        """#
+        return context.evaluateScript(source)!
+    }
+
+    // MARK: - node:events (EventEmitter, pure JS)
+
+    private func makeEventsModule() -> JSValue {
+        let source = #"""
+        (() => {
+          class EventEmitter {
+            constructor() { this._events = new Map(); this._maxListeners = 10; }
+            on(event, fn) { return this.addListener(event, fn); }
+            addListener(event, fn) {
+              const list = this._events.get(event) ?? [];
+              list.push(fn);
+              this._events.set(event, list);
+              return this;
+            }
+            once(event, fn) {
+              const wrap = (...a) => { this.off(event, wrap); fn(...a); };
+              return this.on(event, wrap);
+            }
+            off(event, fn) { return this.removeListener(event, fn); }
+            removeListener(event, fn) {
+              const list = this._events.get(event);
+              if (!list) return this;
+              const next = list.filter(x => x !== fn);
+              if (next.length) this._events.set(event, next);
+              else this._events.delete(event);
+              return this;
+            }
+            removeAllListeners(event) {
+              if (event === undefined) this._events.clear();
+              else this._events.delete(event);
+              return this;
+            }
+            emit(event, ...args) {
+              const list = this._events.get(event);
+              if (!list || list.length === 0) {
+                if (event === "error") throw args[0] ?? new Error("Unhandled error");
+                return false;
+              }
+              // Copy in case a handler mutates the list.
+              for (const fn of list.slice()) {
+                try { fn(...args); } catch (e) { /* swallow per Node */ }
+              }
+              return true;
+            }
+            listenerCount(event) {
+              return (this._events.get(event) ?? []).length;
+            }
+            listeners(event) {
+              return (this._events.get(event) ?? []).slice();
+            }
+            eventNames() { return Array.from(this._events.keys()); }
+            setMaxListeners(n) { this._maxListeners = n; return this; }
+            getMaxListeners() { return this._maxListeners; }
+          }
+          const out = EventEmitter;
+          out.EventEmitter = EventEmitter;
+          out.default = EventEmitter;
+          return out;
+        })()
+        """#
+        return context.evaluateScript(source)!
+    }
+
+    // MARK: - node:querystring (pure JS)
+
+    private func makeQuerystringModule() -> JSValue {
+        let source = #"""
+        ({
+          parse(str, sep = "&", eq = "=") {
+            const out = {};
+            if (!str) return out;
+            for (const pair of str.split(sep)) {
+              if (!pair) continue;
+              const i = pair.indexOf(eq);
+              const k = decodeURIComponent((i < 0 ? pair : pair.slice(0, i)).replace(/\+/g, " "));
+              const v = i < 0 ? "" : decodeURIComponent(pair.slice(i + 1).replace(/\+/g, " "));
+              if (k in out) {
+                if (Array.isArray(out[k])) out[k].push(v);
+                else out[k] = [out[k], v];
+              } else out[k] = v;
+            }
+            return out;
+          },
+          stringify(obj, sep = "&", eq = "=") {
+            if (!obj) return "";
+            const enc = (s) => encodeURIComponent(String(s)).replace(/%20/g, "+");
+            const pairs = [];
+            for (const k of Object.keys(obj)) {
+              const v = obj[k];
+              if (Array.isArray(v)) {
+                for (const x of v) pairs.push(enc(k) + eq + enc(x));
+              } else if (v == null) {
+                pairs.push(enc(k) + eq);
+              } else {
+                pairs.push(enc(k) + eq + enc(v));
+              }
+            }
+            return pairs.join(sep);
+          },
+          escape: encodeURIComponent,
+          unescape: decodeURIComponent,
+        })
+        """#
+        return context.evaluateScript(source)!
+    }
+
+    // MARK: - node:perf_hooks (re-export performance)
+
+    private func makePerfHooksModule() -> JSValue {
+        let source = #"""
+        ({
+          performance: globalThis.performance,
+          monotonicTimeOrigin: globalThis.performance?.timeOrigin,
+        })
+        """#
+        return context.evaluateScript(source)!
     }
 
     /// `node:fs/promises` — async wrappers over the sync fs ops.

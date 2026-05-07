@@ -34,13 +34,17 @@ let package = Package(
             dependencies: [
                 .product(name: "BashInterpreter", package: "SwiftBash"),
                 .product(name: "BashCommandKit", package: "SwiftBash"),
+                .product(name: "CZlib", package: "SwiftBash"),
             ],
             path: "Sources/SwiftJSCore",
             // The runtime is single-threaded — every JSValue touch
             // happens on the main queue. Swift 6 strict concurrency
             // doesn't let us prove that statically and the workarounds
             // would obscure the experiment, so we run in v5 mode.
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [
+                .linkedLibrary("z"),
+            ]
         ),
         .executableTarget(
             name: "swift-js",
