@@ -60,18 +60,18 @@ public struct DiffCommand: ParsableBashCommand {
                 unifiedContext = n; i += 1; continue
             }
             if a.hasPrefix("-"), a.count > 1, a != "-" {
-                Shell.current.stderr("diff: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("diff: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
         }
 
         guard files.count == 2 else {
-            Shell.current.stderr("diff: expected two file arguments\n")
+            Shell.bashCurrent.stderr("diff: expected two file arguments\n")
             return ExitStatus(2)
         }
         if let ctx = unifiedContext, ctx < 0 {
-            Shell.current.stderr("diff: -u must be ≥ 0\n")
+            Shell.bashCurrent.stderr("diff: -u must be ≥ 0\n")
             return ExitStatus(2)
         }
         let aLines: [String]
@@ -80,7 +80,7 @@ public struct DiffCommand: ParsableBashCommand {
             aLines = try await Self.readLines(at: files[0])
             bLines = try await Self.readLines(at: files[1])
         } catch let err as DiffError {
-            Shell.current.stderr("diff: \(err.message)\n")
+            Shell.bashCurrent.stderr("diff: \(err.message)\n")
             return ExitStatus(2)
         }
 
@@ -95,7 +95,7 @@ public struct DiffCommand: ParsableBashCommand {
         } else {
             output = Self.renderNormal(merged: merged)
         }
-        Shell.current.stdout(output)
+        Shell.bashCurrent.stdout(output)
         return .failure
     }
 
@@ -106,11 +106,11 @@ public struct DiffCommand: ParsableBashCommand {
     private static func readLines(at path: String) async throws -> [String] {
         if path == "-" {
             var lines: [String] = []
-            for await line in Shell.current.stdin.lines { lines.append(line) }
+            for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
             return lines
         }
         do {
-            let data = try await Shell.current.readDataAtPath(path)
+            let data = try await Shell.bashCurrent.readDataAtPath(path)
             return SortCommand.splitLines(
                 String(decoding: data, as: UTF8.self))
         } catch {

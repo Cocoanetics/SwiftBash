@@ -21,13 +21,13 @@ public struct LinkCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        let src = Shell.current.resolvePath(source)
-        let dst = Shell.current.resolvePath(destination)
+        let src = Shell.bashCurrent.resolvePath(source)
+        let dst = Shell.bashCurrent.resolvePath(destination)
         do {
-            try await Shell.current.fileSystem.hardlink(target: src, at: dst)
+            try await Shell.bashCurrent.fileSystem.hardlink(target: src, at: dst)
             return .success
         } catch {
-            Shell.current.stderr("link: \(destination): \(error)\n")
+            Shell.bashCurrent.stderr("link: \(destination): \(error)\n")
             return .failure
         }
     }
@@ -48,18 +48,18 @@ public struct UnlinkCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        let resolved = Shell.current.resolvePath(path)
+        let resolved = Shell.bashCurrent.resolvePath(path)
         do {
-            let meta = try await Shell.current.fileSystem.metadata(resolved)
+            let meta = try await Shell.bashCurrent.fileSystem.metadata(resolved)
             if meta?.kind == .directory {
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "unlink: \(path): is a directory\n")
                 return .failure
             }
-            try await Shell.current.fileSystem.remove(resolved, recursive: false)
+            try await Shell.bashCurrent.fileSystem.remove(resolved, recursive: false)
             return .success
         } catch {
-            Shell.current.stderr("unlink: \(path): \(error)\n")
+            Shell.bashCurrent.stderr("unlink: \(path): \(error)\n")
             return .failure
         }
     }

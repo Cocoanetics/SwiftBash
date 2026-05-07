@@ -46,7 +46,7 @@ public struct PatchCommand: ParsableBashCommand {
             }
             if a == "-p" || a == "--strip" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    Shell.current.stderr("patch: -p requires N\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("patch: -p requires N\n"); return ExitStatus(2)
                 }
                 stripCount = n; i += 2; continue
             }
@@ -55,14 +55,14 @@ public struct PatchCommand: ParsableBashCommand {
             }
             if a.hasPrefix("--strip=") {
                 guard let n = Int(a.dropFirst("--strip=".count)) else {
-                    Shell.current.stderr("patch: invalid --strip\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("patch: invalid --strip\n"); return ExitStatus(2)
                 }
                 stripCount = n; i += 1; continue
             }
             if a == "-R" || a == "--reverse" { reverse = true; i += 1; continue }
             if a == "-i" || a == "--input" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("patch: -i requires FILE\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("patch: -i requires FILE\n"); return ExitStatus(2)
                 }
                 inputFile = rawArgv[i + 1]; i += 2; continue
             }
@@ -71,13 +71,13 @@ public struct PatchCommand: ParsableBashCommand {
             }
             if a == "-d" || a == "--directory" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("patch: -d requires DIR\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("patch: -d requires DIR\n"); return ExitStatus(2)
                 }
                 changeDir = rawArgv[i + 1]; i += 2; continue
             }
             if a == "--dry-run" { dryRun = true; i += 1; continue }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                Shell.current.stderr("patch: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("patch: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             positionals.append(a); i += 1
@@ -87,23 +87,23 @@ public struct PatchCommand: ParsableBashCommand {
         let patchText: String
         do {
             if let p = inputFile {
-                let data = try await Shell.current.readDataAtPath(p)
+                let data = try await Shell.bashCurrent.readDataAtPath(p)
                 patchText = String(decoding: data, as: UTF8.self)
             } else if positionals.count >= 2 {
-                let data = try await Shell.current.readDataAtPath(positionals[1])
+                let data = try await Shell.bashCurrent.readDataAtPath(positionals[1])
                 patchText = String(decoding: data, as: UTF8.self)
             } else {
-                patchText = await Shell.current.stdin.readAllString()
+                patchText = await Shell.bashCurrent.stdin.readAllString()
             }
         } catch {
-            Shell.current.stderr("patch: \(error)\n")
+            Shell.bashCurrent.stderr("patch: \(error)\n")
             return .failure
         }
 
-        let cwd = changeDir.map { Shell.current.resolvePath($0) } ?? Shell.current.environment.workingDirectory
+        let cwd = changeDir.map { Shell.bashCurrent.resolvePath($0) } ?? Shell.bashCurrent.environment.workingDirectory
         let hunks = parsePatch(patchText)
         if hunks.isEmpty {
-            Shell.current.stderr("patch: no hunks found\n")
+            Shell.bashCurrent.stderr("patch: no hunks found\n")
             return .failure
         }
 
@@ -129,21 +129,21 @@ public struct PatchCommand: ParsableBashCommand {
                 ? relPath : (cwd as NSString).appendingPathComponent(relPath)
             let original: [String]
             do {
-                let data = try await Shell.current.readDataAtPath(absPath)
+                let data = try await Shell.bashCurrent.readDataAtPath(absPath)
                 original = SortCommand.splitLines(String(decoding: data, as: UTF8.self))
             } catch {
-                Shell.current.stderr("patch: \(relPath): \(error)\n")
+                Shell.bashCurrent.stderr("patch: \(relPath): \(error)\n")
                 hadError = true; continue
             }
             do {
                 let updated = try apply(hunks: fileHunks, to: original, reverse: reverse)
                 if !dryRun {
                     let out = updated.joined(separator: "\n") + "\n"
-                    try await Shell.current.writeData(Data(out.utf8), toPath: absPath, append: false)
+                    try await Shell.bashCurrent.writeData(Data(out.utf8), toPath: absPath, append: false)
                 }
-                Shell.current.stdout("patching file \(relPath)\n")
+                Shell.bashCurrent.stdout("patching file \(relPath)\n")
             } catch let e as PatchError {
-                Shell.current.stderr("patch: \(relPath): \(e.message)\n")
+                Shell.bashCurrent.stderr("patch: \(relPath): \(e.message)\n")
                 hadError = true
             }
         }

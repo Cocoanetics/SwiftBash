@@ -16,16 +16,16 @@ public struct TouchCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         if paths.isEmpty {
-            Shell.current.stderr("touch: missing operand\n")
+            Shell.bashCurrent.stderr("touch: missing operand\n")
             return .failure
         }
         var hadError = false
         for path in paths {
-            let resolved = Shell.current.resolvePath(path)
+            let resolved = Shell.bashCurrent.resolvePath(path)
             do {
-                try await Shell.current.fileSystem.touch(resolved)
+                try await Shell.bashCurrent.fileSystem.touch(resolved)
             } catch {
-                Shell.current.stderr("touch: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("touch: \(path): \(error)\n")
                 hadError = true
             }
         }

@@ -37,19 +37,19 @@ public struct BashCommand: Command {
 
         // bash --version
         if args.first == "--version" {
-            Shell.current.stdout(SwiftBashVersion.banner + "\n")
+            Shell.bashCurrent.stdout(SwiftBashVersion.banner + "\n")
             return .success
         }
         // bash --help
         if args.first == "--help" {
-            Shell.current.stdout(Self.helpText(name: name))
+            Shell.bashCurrent.stdout(Self.helpText(name: name))
             return .success
         }
 
         // bash -c CMD [name [arg1 …]]
         if args.first == "-c" {
             guard args.count >= 2 else {
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "\(name): -c: option requires an argument\n")
                 return ExitStatus(2)
             }
@@ -72,12 +72,12 @@ public struct BashCommand: Command {
         // bash FILE [args…]
         let path = args[0]
         let scriptArgs = Array(args.dropFirst())
-        let resolved = Shell.current.resolvePath(path)
+        let resolved = Shell.bashCurrent.resolvePath(path)
         let data: Data
         do {
-            data = try await Shell.current.fileSystem.readData(resolved)
+            data = try await Shell.bashCurrent.fileSystem.readData(resolved)
         } catch {
-            Shell.current.stderr(
+            Shell.bashCurrent.stderr(
                 "\(name): \(path): No such file or directory\n")
             return ExitStatus(127)
         }
@@ -99,7 +99,7 @@ public struct BashCommand: Command {
         if src.hasPrefix("#!"), let nl = src.firstIndex(of: "\n") {
             src = String(src[src.index(after: nl)...])
         }
-        let sub = Shell.current.copy()
+        let sub = Shell.bashCurrent.copy()
         sub.scriptName = scriptName
         sub.positionalParameters = args
         // Once we hand control to the sub-shell, its stdin is
@@ -115,7 +115,7 @@ public struct BashCommand: Command {
     /// no-args form (`cat file.sh | bash`).
     private func drainStdin() async -> Data {
         var data = Data()
-        for await chunk in Shell.current.stdin.bytes {
+        for await chunk in Shell.bashCurrent.stdin.bytes {
             data.append(chunk)
         }
         return data

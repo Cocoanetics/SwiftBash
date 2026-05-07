@@ -14,8 +14,8 @@ public struct ExportCommand: Command {
         let args = argv.dropFirst()
         if args.isEmpty {
             // Print every variable as `declare -x NAME="value"`.
-            for (k, v) in Shell.current.environment.variables.sorted(by: { $0.key < $1.key }) {
-                Shell.current.stdout("declare -x \(k)=\"\(v)\"\n")
+            for (k, v) in Shell.bashCurrent.environment.variables.sorted(by: { $0.key < $1.key }) {
+                Shell.bashCurrent.stdout("declare -x \(k)=\"\(v)\"\n")
             }
             return .success
         }
@@ -23,12 +23,12 @@ public struct ExportCommand: Command {
             if let eq = arg.firstIndex(of: "=") {
                 let name = String(arg[..<eq])
                 let value = String(arg[arg.index(after: eq)...])
-                Shell.current.environment[name] = value
+                Shell.bashCurrent.environment[name] = value
             } else {
                 // `export NAME` without `=` ensures the variable exists
                 // (empty if previously unset).
-                if Shell.current.environment[arg] == nil {
-                    Shell.current.environment[arg] = ""
+                if Shell.bashCurrent.environment[arg] == nil {
+                    Shell.bashCurrent.environment[arg] = ""
                 }
             }
         }

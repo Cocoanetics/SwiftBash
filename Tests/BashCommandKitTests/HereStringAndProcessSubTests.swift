@@ -54,9 +54,9 @@ import Foundation
         let cap = makeShell()
         cap.shell.register(name: "twocat") { argv in
             for path in argv.dropFirst() {
-                let data = try await Shell.current.fileSystem.readData(
-                    Shell.current.resolvePath(path))
-                Shell.current.stdout(data)
+                let data = try await Shell.bashCurrent.fileSystem.readData(
+                    Shell.bashCurrent.resolvePath(path))
+                Shell.bashCurrent.stdout(data)
             }
             return .success
         }
@@ -68,7 +68,7 @@ import Foundation
         // After the command finishes, the temp file is removed.
         let cap = makeShell()
         cap.shell.register(name: "echopath") { argv in
-            Shell.current.stdout(argv.dropFirst().joined(separator: " ") + "\n")
+            Shell.bashCurrent.stdout(argv.dropFirst().joined(separator: " ") + "\n")
             return .success
         }
         try await cap.shell.run("echopath <(echo gone)")
@@ -125,9 +125,9 @@ import Foundation
         // Synthetic diff that just concatenates two captured streams.
         cap.shell.register(name: "join") { argv in
             for path in argv.dropFirst() {
-                let data = try await Shell.current.fileSystem.readData(
-                    Shell.current.resolvePath(path))
-                Shell.current.stdout(data)
+                let data = try await Shell.bashCurrent.fileSystem.readData(
+                    Shell.bashCurrent.resolvePath(path))
+                Shell.bashCurrent.stdout(data)
             }
             return .success
         }

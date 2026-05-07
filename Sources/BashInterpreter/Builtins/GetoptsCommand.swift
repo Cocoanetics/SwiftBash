@@ -23,25 +23,25 @@ public struct GetoptsCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         guard argv.count >= 3 else {
-            Shell.current.stderr("getopts: usage: getopts optstring name [arg ...]\n")
+            Shell.bashCurrent.stderr("getopts: usage: getopts optstring name [arg ...]\n")
             return ExitStatus(2)
         }
         let rawOptstring = argv[1]
         let varName = argv[2]
         let providedArgs = Array(argv.dropFirst(3))
         let args = providedArgs.isEmpty
-            ? Shell.current.positionalParameters
+            ? Shell.bashCurrent.positionalParameters
             : providedArgs
 
         let silent = rawOptstring.first == ":"
         let optstring = silent ? String(rawOptstring.dropFirst()) : rawOptstring
 
         // OPTIND is 1-based; default to 1 if unset/invalid.
-        var optind = max(1, Int(Shell.current.environment["OPTIND"] ?? "1") ?? 1)
+        var optind = max(1, Int(Shell.bashCurrent.environment["OPTIND"] ?? "1") ?? 1)
 
         // Out of args? End of option processing.
         guard optind - 1 < args.count else {
-            Shell.current.environment[varName] = "?"
+            Shell.bashCurrent.environment[varName] = "?"
             return ExitStatus(1)
         }
         let currentArg = args[optind - 1]
@@ -49,25 +49,25 @@ public struct GetoptsCommand: Command {
         // Non-option arg, lone `-`, or explicit `--` ends parsing.
         // For `--`, OPTIND moves past it (POSIX).
         if currentArg == "-" || !currentArg.hasPrefix("-") {
-            Shell.current.environment[varName] = "?"
+            Shell.bashCurrent.environment[varName] = "?"
             return ExitStatus(1)
         }
         if currentArg == "--" {
-            Shell.current.environment["OPTIND"] = "\(optind + 1)"
-            Shell.current.getoptsCharIndex = 1
-            Shell.current.environment[varName] = "?"
+            Shell.bashCurrent.environment["OPTIND"] = "\(optind + 1)"
+            Shell.bashCurrent.getoptsCharIndex = 1
+            Shell.bashCurrent.environment[varName] = "?"
             return ExitStatus(1)
         }
 
         let chars = Array(currentArg)
-        var charIdx = Shell.current.getoptsCharIndex
+        var charIdx = Shell.bashCurrent.getoptsCharIndex
         // If charIdx is somehow past the end, advance to the next arg
         // — defensive against the user mutating OPTIND mid-loop.
         if charIdx >= chars.count {
             optind += 1
             charIdx = 1
-            Shell.current.getoptsCharIndex = 1
-            Shell.current.environment["OPTIND"] = "\(optind)"
+            Shell.bashCurrent.getoptsCharIndex = 1
+            Shell.bashCurrent.environment["OPTIND"] = "\(optind)"
             return try await run(argv)
         }
 
@@ -77,12 +77,12 @@ public struct GetoptsCommand: Command {
         guard let pos = optstring.firstIndex(of: letter) else {
             // Unknown option.
             if silent {
-                Shell.current.environment[varName] = "?"
-                Shell.current.environment["OPTARG"] = optKey
+                Shell.bashCurrent.environment[varName] = "?"
+                Shell.bashCurrent.environment["OPTARG"] = optKey
             } else {
-                Shell.current.stderr("getopts: illegal option -- \(optKey)\n")
-                Shell.current.environment[varName] = "?"
-                Shell.current.environment.variables.removeValue(forKey: "OPTARG")
+                Shell.bashCurrent.stderr("getopts: illegal option -- \(optKey)\n")
+                Shell.bashCurrent.environment[varName] = "?"
+                Shell.bashCurrent.environment.variables.removeValue(forKey: "OPTARG")
             }
             advance(charIdx: charIdx, chars: chars, optind: optind)
             return .success
@@ -94,34 +94,34 @@ public struct GetoptsCommand: Command {
             // Argument may be glued to the option (`-bvalue`) or come
             // as the next arg (`-b value`).
             if charIdx + 1 < chars.count {
-                Shell.current.environment["OPTARG"] = String(chars[(charIdx + 1)...])
-                Shell.current.environment["OPTIND"] = "\(optind + 1)"
-                Shell.current.getoptsCharIndex = 1
+                Shell.bashCurrent.environment["OPTARG"] = String(chars[(charIdx + 1)...])
+                Shell.bashCurrent.environment["OPTIND"] = "\(optind + 1)"
+                Shell.bashCurrent.getoptsCharIndex = 1
             } else if optind < args.count {
-                Shell.current.environment["OPTARG"] = args[optind]
-                Shell.current.environment["OPTIND"] = "\(optind + 2)"
-                Shell.current.getoptsCharIndex = 1
+                Shell.bashCurrent.environment["OPTARG"] = args[optind]
+                Shell.bashCurrent.environment["OPTIND"] = "\(optind + 2)"
+                Shell.bashCurrent.getoptsCharIndex = 1
             } else {
                 // Required arg missing.
                 if silent {
-                    Shell.current.environment[varName] = ":"
-                    Shell.current.environment["OPTARG"] = optKey
+                    Shell.bashCurrent.environment[varName] = ":"
+                    Shell.bashCurrent.environment["OPTARG"] = optKey
                 } else {
-                    Shell.current.stderr("getopts: option requires an argument -- \(optKey)\n")
-                    Shell.current.environment[varName] = "?"
-                    Shell.current.environment.variables.removeValue(forKey: "OPTARG")
+                    Shell.bashCurrent.stderr("getopts: option requires an argument -- \(optKey)\n")
+                    Shell.bashCurrent.environment[varName] = "?"
+                    Shell.bashCurrent.environment.variables.removeValue(forKey: "OPTARG")
                 }
-                Shell.current.environment["OPTIND"] = "\(optind + 1)"
-                Shell.current.getoptsCharIndex = 1
+                Shell.bashCurrent.environment["OPTIND"] = "\(optind + 1)"
+                Shell.bashCurrent.getoptsCharIndex = 1
                 return .success
             }
-            Shell.current.environment[varName] = optKey
+            Shell.bashCurrent.environment[varName] = optKey
             return .success
         }
 
         // Plain flag.
-        Shell.current.environment[varName] = optKey
-        Shell.current.environment.variables.removeValue(forKey: "OPTARG")
+        Shell.bashCurrent.environment[varName] = optKey
+        Shell.bashCurrent.environment.variables.removeValue(forKey: "OPTARG")
         advance(charIdx: charIdx, chars: chars, optind: optind)
         return .success
     }
@@ -131,11 +131,11 @@ public struct GetoptsCommand: Command {
     private func advance(charIdx: Int,
                          chars: [Character], optind: Int) {
         if charIdx + 1 < chars.count {
-            Shell.current.getoptsCharIndex = charIdx + 1
-            Shell.current.environment["OPTIND"] = "\(optind)"
+            Shell.bashCurrent.getoptsCharIndex = charIdx + 1
+            Shell.bashCurrent.environment["OPTIND"] = "\(optind)"
         } else {
-            Shell.current.getoptsCharIndex = 1
-            Shell.current.environment["OPTIND"] = "\(optind + 1)"
+            Shell.bashCurrent.getoptsCharIndex = 1
+            Shell.bashCurrent.environment["OPTIND"] = "\(optind + 1)"
         }
     }
 }

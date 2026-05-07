@@ -11,8 +11,8 @@ import Testing
     private func makeShellWithUpper() -> CapturingShell {
         let cap = CapturingShell()
         cap.shell.register(name: "upper") { _ in
-            let input = await Shell.current.stdin.readAllString()
-            Shell.current.stdout(input.uppercased())
+            let input = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(input.uppercased())
             return .success
         }
         return cap
@@ -27,8 +27,8 @@ import Testing
     @Test func threeStagePipeline() async throws {
         let cap = makeShellWithUpper()
         cap.shell.register(name: "twice") { _ in
-            let input = await Shell.current.stdin.readAllString()
-            Shell.current.stdout(input + input)
+            let input = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(input + input)
             return .success
         }
         try await cap.shell.run("echo hi | upper | twice")
@@ -39,8 +39,8 @@ import Testing
         let cap = makeShellWithUpper()
         cap.shell.stdin = .string("start\n")
         cap.shell.register(name: "readin") { _ in
-            let input = await Shell.current.stdin.readAllString()
-            Shell.current.stdout(input)
+            let input = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(input)
             return .success
         }
         try await cap.shell.run("readin | upper")
@@ -91,14 +91,14 @@ import Testing
         let cap = CapturingShell()
         // Producer writes to both stdout and stderr.
         cap.shell.register(name: "noisy") { _ in
-            Shell.current.stdout("out\n")
-            Shell.current.stderr("err\n")
+            Shell.bashCurrent.stdout("out\n")
+            Shell.bashCurrent.stderr("err\n")
             return .success
         }
         // Consumer records what it received via stdin.
         cap.shell.register(name: "collect") { _ in
-            let input = await Shell.current.stdin.readAllString()
-            Shell.current.stdout("[\(input)]")
+            let input = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout("[\(input)]")
             return .success
         }
         try await cap.shell.run("noisy |& collect")
@@ -110,13 +110,13 @@ import Testing
     @Test func pipeWithoutAmpPassesStderrThrough() async throws {
         let cap = CapturingShell()
         cap.shell.register(name: "noisy") { _ in
-            Shell.current.stdout("out\n")
-            Shell.current.stderr("err\n")
+            Shell.bashCurrent.stdout("out\n")
+            Shell.bashCurrent.stderr("err\n")
             return .success
         }
         cap.shell.register(name: "collect") { _ in
-            let input = await Shell.current.stdin.readAllString()
-            Shell.current.stdout("[\(input)]")
+            let input = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout("[\(input)]")
             return .success
         }
         try await cap.shell.run("noisy | collect")

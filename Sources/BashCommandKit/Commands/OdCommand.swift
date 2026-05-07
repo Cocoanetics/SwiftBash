@@ -39,13 +39,13 @@ public struct OdCommand: ParsableBashCommand {
         let data: Data
         if let f = input, f != "-" {
             do {
-                data = try await Shell.current.readDataAtPath(f)
+                data = try await Shell.bashCurrent.readDataAtPath(f)
             } catch {
-                Shell.current.stderr("od: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("od: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            data = await Shell.current.stdin.readAllData()
+            data = await Shell.bashCurrent.stdin.readAllData()
         }
 
         let mode: Mode = chars ? .chars : (hex ? .hex : .octal)
@@ -54,13 +54,13 @@ public struct OdCommand: ParsableBashCommand {
         while offset < bytes.count {
             try Task.checkCancellation()
             let end = min(offset + 16, bytes.count)
-            Shell.current.stdout(format(offset: offset,
+            Shell.bashCurrent.stdout(format(offset: offset,
                                 row: Array(bytes[offset..<end]),
                                 mode: mode) + "\n")
             offset = end
         }
         // od traditionally prints the final offset on a line of its own.
-        Shell.current.stdout(String(format: "%07o", bytes.count) + "\n")
+        Shell.bashCurrent.stdout(String(format: "%07o", bytes.count) + "\n")
         return .success
     }
 

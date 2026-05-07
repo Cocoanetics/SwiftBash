@@ -19,7 +19,7 @@ public struct ExitCommand: Command {
             }
             status = ExitStatus(n)
         } else {
-            status = Shell.current.lastExitStatus
+            status = Shell.bashCurrent.lastExitStatus
         }
         throw ShellExit(status: status)
     }

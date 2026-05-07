@@ -12,7 +12,7 @@ import Foundation
 /// - `-s SKIP` discard the first SKIP lines.
 /// - `-O ORIGIN` start writing at index ORIGIN (default 0).
 ///
-/// Lines are read from `Shell.current.stdin`; the typical idiom
+/// Lines are read from `Shell.bashCurrent.stdin`; the typical idiom
 /// `mapfile arr < file` re-binds stdin first via redirection.
 public struct MapfileCommand: Command {
     public let name: String
@@ -32,27 +32,27 @@ public struct MapfileCommand: Command {
             if a == "-t" { stripNewline = true; i += 1; continue }
             if a == "-n" || a == "-c" {
                 guard i + 1 < argv.count, let n = Int(argv[i + 1]) else {
-                    Shell.current.stderr("\(name): option requires a numeric argument: \(a)\n")
+                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 maxCount = n; i += 2; continue
             }
             if a == "-s" {
                 guard i + 1 < argv.count, let n = Int(argv[i + 1]) else {
-                    Shell.current.stderr("\(name): option requires a numeric argument: \(a)\n")
+                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 skip = n; i += 2; continue
             }
             if a == "-O" {
                 guard i + 1 < argv.count, let n = Int(argv[i + 1]) else {
-                    Shell.current.stderr("\(name): option requires a numeric argument: \(a)\n")
+                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 origin = n; i += 2; continue
             }
             if a.hasPrefix("-"), a.count > 1 {
-                Shell.current.stderr("\(name): invalid option: \(a)\n")
+                Shell.bashCurrent.stderr("\(name): invalid option: \(a)\n")
                 return ExitStatus(2)
             }
             arrayName = a; i += 1
@@ -61,7 +61,7 @@ public struct MapfileCommand: Command {
 
         // Drain the entire stream into one buffer first so we can split
         // it by newline. mapfile is a "consume all of stdin" operation.
-        let data = await Shell.current.stdin.readAllData()
+        let data = await Shell.bashCurrent.stdin.readAllData()
         let text = String(decoding: data, as: UTF8.self)
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
                         .map(String.init)
@@ -77,8 +77,8 @@ public struct MapfileCommand: Command {
             let value = stripNewline ? line : line + "\n"
             array[origin + idx] = value
         }
-        Shell.current.environment.arrays[arrayName] = array
-        Shell.current.environment.variables.removeValue(forKey: arrayName)
+        Shell.bashCurrent.environment.arrays[arrayName] = array
+        Shell.bashCurrent.environment.variables.removeValue(forKey: arrayName)
         return .success
     }
 }

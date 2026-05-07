@@ -56,7 +56,7 @@ public struct HeadCommand: ParsableBashCommand {
             }
             if a == "-n" || a == "--lines" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("head: -n requires N\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("head: -n requires N\n"); return ExitStatus(2)
                 }
                 let (n, trailing) = try parseSignedCount(rawArgv[i + 1])
                 lines = n; linesTrailing = trailing; bytes = nil
@@ -69,7 +69,7 @@ public struct HeadCommand: ParsableBashCommand {
             }
             if a == "-c" || a == "--bytes" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("head: -c requires BYTES\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("head: -c requires BYTES\n"); return ExitStatus(2)
                 }
                 let (n, trailing) = try parseSignedCount(rawArgv[i + 1])
                 bytes = n; bytesTrailing = trailing; lines = nil
@@ -88,7 +88,7 @@ public struct HeadCommand: ParsableBashCommand {
                 i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" {
-                Shell.current.stderr("head: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("head: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
@@ -101,9 +101,9 @@ public struct HeadCommand: ParsableBashCommand {
         var hadError = false
         for (idx, f) in useFiles.enumerated() {
             if printHeaders {
-                if idx > 0 { Shell.current.stdout("\n") }
+                if idx > 0 { Shell.bashCurrent.stdout("\n") }
                 let label = (f == "-") ? "standard input" : f
-                Shell.current.stdout("==> \(label) <==\n")
+                Shell.bashCurrent.stdout("==> \(label) <==\n")
             }
             do {
                 if let n = lines {
@@ -112,7 +112,7 @@ public struct HeadCommand: ParsableBashCommand {
                     try await emitBytes(f, count: n, trailing: bytesTrailing)
                 }
             } catch {
-                Shell.current.stderr("head: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("head: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -146,7 +146,7 @@ public struct HeadCommand: ParsableBashCommand {
             window.reserveCapacity(count)
             try await forEachLine(path: path) { line in
                 if window.count == count {
-                    Shell.current.stdout(window.removeFirst() + "\n")
+                    Shell.bashCurrent.stdout(window.removeFirst() + "\n")
                 }
                 window.append(line)
             }
@@ -155,7 +155,7 @@ public struct HeadCommand: ParsableBashCommand {
         if count <= 0 { return }
         var emitted = 0
         try await forEachLine(path: path) { line in
-            Shell.current.stdout(line + "\n")
+            Shell.bashCurrent.stdout(line + "\n")
             emitted += 1
             if emitted >= count { throw HeadDone() }
         }
@@ -163,19 +163,19 @@ public struct HeadCommand: ParsableBashCommand {
 
     private func streamAllLines(_ path: String) async throws {
         try await forEachLine(path: path) { line in
-            Shell.current.stdout(line + "\n")
+            Shell.bashCurrent.stdout(line + "\n")
         }
     }
 
     private func forEachLine(path: String, 
                              _ body: (String) throws -> Void) async throws {
         if path == "-" {
-            for await line in Shell.current.stdin.lines {
+            for await line in Shell.bashCurrent.stdin.lines {
                 do { try body(line) } catch is HeadDone { return }
             }
             return
         }
-        let source = try await Shell.current.openInputPath(path)
+        let source = try await Shell.bashCurrent.openInputPath(path)
         for await line in source.lines {
             do { try body(line) } catch is HeadDone { return }
         }
@@ -188,18 +188,18 @@ public struct HeadCommand: ParsableBashCommand {
         // the partial-utf8 worries of the chunked path.
         let data: Data
         if path == "-" {
-            data = await Shell.current.stdin.readAllData()
+            data = await Shell.bashCurrent.stdin.readAllData()
         } else {
-            data = try await Shell.current.readDataAtPath(path)
+            data = try await Shell.bashCurrent.readDataAtPath(path)
         }
         if trailing {
-            if count <= 0 { Shell.current.stdout(data); return }
+            if count <= 0 { Shell.bashCurrent.stdout(data); return }
             let end = max(0, data.count - count)
-            Shell.current.stdout(data.prefix(end))
+            Shell.bashCurrent.stdout(data.prefix(end))
             return
         }
         if count <= 0 { return }
-        Shell.current.stdout(data.prefix(count))
+        Shell.bashCurrent.stdout(data.prefix(count))
     }
 
     private struct HeadDone: Error {}

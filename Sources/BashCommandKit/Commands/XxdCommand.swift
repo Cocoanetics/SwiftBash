@@ -29,13 +29,13 @@ public struct XxdCommand: ParsableBashCommand {
         let data: Data
         if let f = input, f != "-" {
             do {
-                data = try await Shell.current.readDataAtPath(f)
+                data = try await Shell.bashCurrent.readDataAtPath(f)
             } catch {
-                Shell.current.stderr("xxd: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("xxd: \(f): \(error)\n")
                 return .failure
             }
         } else {
-            data = await Shell.current.stdin.readAllData()
+            data = await Shell.bashCurrent.stdin.readAllData()
         }
 
         let bytesPerRow = 16
@@ -47,7 +47,7 @@ public struct XxdCommand: ParsableBashCommand {
             try Task.checkCancellation()
             let end = min(offset + bytesPerRow, bytes.count)
             let row = bytes[offset..<end]
-            Shell.current.stdout(Self.format(offset: offset,
+            Shell.bashCurrent.stdout(Self.format(offset: offset,
                                      row: Array(row),
                                      bytesPerRow: bytesPerRow) + "\n")
             offset = end

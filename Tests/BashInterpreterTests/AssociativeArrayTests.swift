@@ -62,7 +62,7 @@ import Testing
         cap.shell.register(name: "collect") { argv in
             let keys = Set(argv.dropFirst())
             let sorted = keys.sorted()
-            Shell.current.stdout(sorted.joined(separator: ",") + "\n")
+            Shell.bashCurrent.stdout(sorted.joined(separator: ",") + "\n")
             return .success
         }
         try await cap.shell.run("""
@@ -78,7 +78,7 @@ import Testing
     @Test func keysCountMatchesInsertions() async throws {
         let cap = makeShell()
         cap.shell.register(name: "argc") { argv in
-            Shell.current.stdout("\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run("""
@@ -96,7 +96,7 @@ import Testing
     @Test func valuesCountMatchesInsertions() async throws {
         let cap = makeShell()
         cap.shell.register(name: "argc") { argv in
-            Shell.current.stdout("\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run("""
@@ -151,7 +151,7 @@ import Testing
     @Test func valuesFedThroughCommand() async throws {
         let cap = makeShell()
         cap.shell.register(name: "join") { argv in
-            Shell.current.stdout(argv.dropFirst().sorted().joined(separator: ",") + "\n")
+            Shell.bashCurrent.stdout(argv.dropFirst().sorted().joined(separator: ",") + "\n")
             return .success
         }
         try await cap.shell.run("""

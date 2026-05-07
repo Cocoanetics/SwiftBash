@@ -15,13 +15,13 @@ public struct LocalCommand: Command {
     public init() {}
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
-        if Shell.current.functionCallDepth == 0 {
-            Shell.current.stderr("local: can only be used in a function\n")
+        if Shell.bashCurrent.functionCallDepth == 0 {
+            Shell.bashCurrent.stderr("local: can only be used in a function\n")
             return .failure
         }
         // Always operate on the top frame; FunctionCommand pushed it.
-        var frame = Shell.current.localVarStack.removeLast()
-        defer { Shell.current.localVarStack.append(frame) }
+        var frame = Shell.bashCurrent.localVarStack.removeLast()
+        defer { Shell.bashCurrent.localVarStack.append(frame) }
 
         for spec in argv.dropFirst() {
             let name: String
@@ -36,15 +36,15 @@ public struct LocalCommand: Command {
             // Snapshot the prior value once per name (so multiple
             // `local x` calls stack to the *outermost* prior).
             if !frame.contains(where: { $0.name == name }) {
-                frame.append((name, Shell.current.environment[name]))
+                frame.append((name, Shell.bashCurrent.environment[name]))
             }
             if let value {
-                Shell.current.environment[name] = value
+                Shell.bashCurrent.environment[name] = value
             } else {
                 // POSIX says local without a value initialises to "".
                 // Bash actually leaves it unset; we follow bash so a
                 // subsequent `${X:-default}` can fire.
-                Shell.current.environment[name] = nil
+                Shell.bashCurrent.environment[name] = nil
             }
         }
         return .success

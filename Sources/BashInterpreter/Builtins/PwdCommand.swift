@@ -24,22 +24,22 @@ public struct PwdCommand: Command {
             case "-P": physical = true
             case "--": continue
             default:
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "pwd: \(arg): invalid option\n"
                     + "pwd: usage: pwd [-LP]\n")
                 return ExitStatus(2)
             }
         }
-        let logical = Shell.current.environment.workingDirectory
+        let logical = Shell.bashCurrent.environment.workingDirectory
         if physical {
-            if let canon = try? await Shell.current.fileSystem
+            if let canon = try? await Shell.bashCurrent.fileSystem
                 .canonicalize(logical, allowMissing: true)
             {
-                Shell.current.stdout(canon + "\n")
+                Shell.bashCurrent.stdout(canon + "\n")
                 return .success
             }
         }
-        Shell.current.stdout(logical + "\n")
+        Shell.bashCurrent.stdout(logical + "\n")
         return .success
     }
 }

@@ -61,7 +61,7 @@ public final class VirtualBinFileSystem: FileSystem, @unchecked Sendable {
     /// entry under `directory`. The intersection of "what the shell
     /// can run" and "what would live here on a real macOS install".
     private func synthesizedEntries(in directory: String) -> [String] {
-        let registered = Set(Shell.current.commands.keys)
+        let registered = Set(Shell.bashCurrent.commands.keys)
         return BinCatalog.names(in: directory)
             .filter { registered.contains($0) }
             .sorted()
@@ -73,7 +73,7 @@ public final class VirtualBinFileSystem: FileSystem, @unchecked Sendable {
             (path as NSString).lastPathComponent]
         else { return false }
         return canonical == path
-            && Shell.current.commands[(path as NSString).lastPathComponent] != nil
+            && Shell.bashCurrent.commands[(path as NSString).lastPathComponent] != nil
     }
 
     /// `true` if `path` is one of the synthesized directories.
@@ -269,7 +269,7 @@ public final class VirtualBinFileSystem: FileSystem, @unchecked Sendable {
     /// `0o755`, owner / group come from the running shell's
     /// ``HostInfo`` so identity stays consistent with `whoami` / `id`.
     private static func fileMetadata(path: String) -> FileMetadata {
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let stub = stubBytes(forCommand: (path as NSString).lastPathComponent)
         // Use a fixed epoch-ish date so listings stay stable across runs.
         // Real macOS reports the install timestamp; we have no install
@@ -290,7 +290,7 @@ public final class VirtualBinFileSystem: FileSystem, @unchecked Sendable {
     /// Synthetic metadata for a synthesized directory (`/bin`,
     /// `/usr/bin`, `/usr/local/bin`).
     private static var dirMetadata: FileMetadata {
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let date = Date(timeIntervalSince1970: 0)
         return FileMetadata(
             kind: .directory,

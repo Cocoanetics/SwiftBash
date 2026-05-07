@@ -33,7 +33,7 @@ public struct PrintfCommand: Command {
             let a = argv[i]
             if a == "-v" {
                 guard i + 1 < argv.count else {
-                    Shell.current.stderr("printf: -v: option requires an argument\n")
+                    Shell.bashCurrent.stderr("printf: -v: option requires an argument\n")
                     return ExitStatus(2)
                 }
                 assignTo = argv[i + 1]
@@ -47,7 +47,7 @@ public struct PrintfCommand: Command {
         }
 
         guard i < argv.count else {
-            Shell.current.stderr("printf: usage: printf [-v var] format [arguments]\n")
+            Shell.bashCurrent.stderr("printf: usage: printf [-v var] format [arguments]\n")
             return ExitStatus(2)
         }
 
@@ -67,9 +67,9 @@ public struct PrintfCommand: Command {
         } while argIdx < args.count
 
         if let assignTo {
-            Shell.current.environment[assignTo] = output
+            Shell.bashCurrent.environment[assignTo] = output
         } else {
-            Shell.current.stdout(output)
+            Shell.bashCurrent.stdout(output)
         }
         return .success
     }

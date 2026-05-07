@@ -29,7 +29,7 @@ public struct CdCommand: Command {
             case "--": rest.removeFirst(); break flagLoop
             default:
                 if first.hasPrefix("-"), first.count > 1, first != "-" {
-                    Shell.current.stderr(
+                    Shell.bashCurrent.stderr(
                         "cd: \(first): invalid option\n"
                         + "cd: usage: cd [-L|-P] [dir]\n")
                     return ExitStatus(2)
@@ -42,8 +42,8 @@ public struct CdCommand: Command {
         var printAfter = false
         if let requested = rest.first, !requested.isEmpty {
             if requested == "-" {
-                guard let old = Shell.current.environment["OLDPWD"] else {
-                    Shell.current.stderr("cd: OLDPWD not set\n")
+                guard let old = Shell.bashCurrent.environment["OLDPWD"] else {
+                    Shell.bashCurrent.stderr("cd: OLDPWD not set\n")
                     return .failure
                 }
                 target = old
@@ -53,36 +53,36 @@ public struct CdCommand: Command {
                 target = requested
             }
         } else {
-            guard let home = Shell.current.environment["HOME"] else {
-                Shell.current.stderr("cd: HOME not set\n")
+            guard let home = Shell.bashCurrent.environment["HOME"] else {
+                Shell.bashCurrent.stderr("cd: HOME not set\n")
                 return .failure
             }
             target = home
         }
 
-        var absolute = Shell.current.resolvePath(target)
-        guard let meta = try? await Shell.current.fileSystem.metadata(absolute),
+        var absolute = Shell.bashCurrent.resolvePath(target)
+        guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(absolute),
               meta.kind == .directory
         else {
-            Shell.current.stderr("cd: no such file or directory: \(target)\n")
+            Shell.bashCurrent.stderr("cd: no such file or directory: \(target)\n")
             return .failure
         }
         if physical {
             // Resolve symlinks in the path. Fall back to the logical
             // path on canonicalize failure — we already verified the
             // directory exists, so this is a defensive guard.
-            if let canon = try? await Shell.current.fileSystem
+            if let canon = try? await Shell.bashCurrent.fileSystem
                 .canonicalize(absolute, allowMissing: false)
             {
                 absolute = canon
             }
         }
 
-        let old = Shell.current.environment.workingDirectory
-        Shell.current.environment.workingDirectory = absolute
-        Shell.current.environment["OLDPWD"] = old
-        Shell.current.environment["PWD"] = absolute
-        if printAfter { Shell.current.stdout(absolute + "\n") }
+        let old = Shell.bashCurrent.environment.workingDirectory
+        Shell.bashCurrent.environment.workingDirectory = absolute
+        Shell.bashCurrent.environment["OLDPWD"] = old
+        Shell.bashCurrent.environment["PWD"] = absolute
+        if printAfter { Shell.bashCurrent.stdout(absolute + "\n") }
         return .success
     }
 }

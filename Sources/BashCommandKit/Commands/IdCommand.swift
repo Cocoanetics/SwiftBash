@@ -33,28 +33,28 @@ public struct IdCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let uid = host.uid
         let gid = host.gid
 
         if userOnly {
-            Shell.current.stdout((names ? host.userName : "\(uid)") + "\n")
+            Shell.bashCurrent.stdout((names ? host.userName : "\(uid)") + "\n")
             return .success
         }
         if groupOnly {
-            Shell.current.stdout((names ? host.groupName : "\(gid)") + "\n")
+            Shell.bashCurrent.stdout((names ? host.groupName : "\(gid)") + "\n")
             return .success
         }
         if allGroups {
             let parts = host.groups.map { names ? host.groupName : "\($0)" }
-            Shell.current.stdout(parts.joined(separator: " ") + "\n")
+            Shell.bashCurrent.stdout(parts.joined(separator: " ") + "\n")
             return .success
         }
         // Default: uid=N(name) gid=N(name) groups=N(name),M(...)
         let groupsField = host.groups
             .map { "\($0)(\(host.groupName))" }
             .joined(separator: ",")
-        Shell.current.stdout(
+        Shell.bashCurrent.stdout(
             "uid=\(uid)(\(host.userName)) gid=\(gid)(\(host.groupName))"
             + " groups=\(groupsField)\n")
         return .success

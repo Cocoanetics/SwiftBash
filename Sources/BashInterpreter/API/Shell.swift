@@ -1,72 +1,29 @@
 import Foundation
 import BashSyntax
+import ShellKit
 
-/// A minimal bash interpreter operating on ASTs from ``BashSyntax``.
+/// SwiftBash's bash interpreter context.
 ///
-/// The shell holds an ``Environment``, a registry of commands, and a
-/// triple of byte-oriented stdio — `stdin` as an ``InputSource`` and
-/// `stdout` / `stderr` as `Data` sinks. Convenience overloads accept
-/// `String`, UTF-8-encoding automatically, so text-oriented commands
-/// stay readable.
+/// Subclasses ``ShellKit/Shell`` to layer bash-specific runtime
+/// state on top of the virtualised environment ShellKit owns. The
+/// inherited surface — `stdin` / `stdout` / `stderr`, `environment`,
+/// `commands`, `sandbox`, `networkConfig`, `processTable`,
+/// `hostInfo`, `positionalParameters`, `scriptName`, `lastExitStatus`,
+/// `virtualPID` — is what every command and every consumer reads;
+/// the subclass-only fields are bash machinery (`errexit` /
+/// `pipefail` / `shopt` options, trap tables, loop / function-call
+/// depth bookkeeping, errexit guard, getopts cursor, process-
+/// substitution tracking, source-position tracking).
 ///
-/// ```swift
-/// let shell = Shell()
-/// shell.environment["PATH"] = "/usr/bin:/bin"
-/// try await shell.run("echo $PATH")
-/// ```
-///
-/// The interpreter is fully async: every `run` is an `await`, and
-/// pipeline stages execute concurrently via Swift `Task`s so
-/// streaming pipelines (`tail -f file | grep error`) work without
-/// buffering the entire upstream output.
-public final class Shell: @unchecked Sendable {
+/// The bash interpreter dispatches every command body through
+/// ``withCurrent(_:)``, which binds **both** ShellKit's TaskLocal
+/// (so plain ShellKit consumers — registered SwiftPorts CLIs, etc.
+/// — see this shell's runtime context) and SwiftBash's own
+/// `Shell.bashCurrent` shadow (so internal interpreter code reads bash-
+/// specific fields without an explicit cast).
+public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
-    /// The shell's mutable environment (variables + cwd).
-    public var environment: Environment
-
-    /// Byte-oriented stdout. Defaults to forwarding to fd 1. Replace
-    /// with `OutputSink()` to capture, or iterate `stdout.bytes` /
-    /// `stdout.lines` to consume live.
-    public var stdout: OutputSink
-
-    /// Byte-oriented stderr. Defaults to forwarding to fd 2.
-    public var stderr: OutputSink
-
-    /// Standard input made available to commands. Empty by default;
-    /// the pipeline executor swaps this out per stage. Tests can set
-    /// it directly to feed a single command.
-    public var stdin: InputSource = .empty
-
-    /// Commands keyed by name.
-    public var commands: [String: Command]
-
-    /// The filesystem the shell reads and writes through. Defaults to
-    /// ``RealFileSystem`` (the host's real `FileManager`). Swap in
-    /// `InMemoryFileSystem` or similar to sandbox scripts.
-    ///
-    /// Whatever is assigned is automatically wrapped in
-    /// ``VirtualBinFileSystem`` so `/bin`, `/usr/bin`, and
-    /// `/usr/local/bin` always reflect this shell's command registry
-    /// rather than whatever the host might (or might not) have at
-    /// those paths. Wrapping is idempotent — assigning a fileSystem
-    /// that's already a ``VirtualBinFileSystem`` doesn't double-wrap.
-    public var fileSystem: FileSystem {
-        get { _fileSystem }
-        set {
-            _fileSystem = (newValue is VirtualBinFileSystem)
-                ? newValue
-                : VirtualBinFileSystem(backing: newValue)
-        }
-    }
-    private var _fileSystem: FileSystem
-
-    /// Positional parameters — `$1` is `positionalParameters[0]`, etc.
-    /// Set this directly, or use `set -- a b c` from a script. The
-    /// CLI's `swift-bash exec script.sh arg1 arg2` populates them.
-    public var positionalParameters: [String] = []
-
-    /// `$0` — the script or shell name. Defaults to "swift-bash".
-    public var scriptName: String = "swift-bash"
+    // MARK: - Bash-specific runtime state
 
     /// Source range of the simple command currently being dispatched —
     /// used to render `script.sh: line N:` prefixes on errors so they
@@ -92,48 +49,6 @@ public final class Shell: @unchecked Sendable {
             return "\(scriptName): line \(lineNumber(for: r.lowerBound)): "
         }
         return "\(scriptName): "
-    }
-
-    /// Exit status of the most recently completed command.
-    public internal(set) var lastExitStatus: ExitStatus = .success
-
-    /// Network policy used by `curl` and any other network-using
-    /// command. **`nil` means default-deny** — curl reports
-    /// `Network access denied: URL not in allow-list` and exits with
-    /// status 7. To enable, set a ``NetworkConfig`` with concrete
-    /// ``NetworkConfig/allowedURLPrefixes`` entries.
-    public var networkConfig: NetworkConfig? = nil
-
-    /// Virtual process table — `&` background jobs and the four
-    /// `ps`/`kill`/`pgrep`/`pkill` commands all operate against this
-    /// in-memory table. There is intentionally no path to the host's
-    /// real process table.
-    public var processTable: ProcessTable = ProcessTable()
-
-    /// `$$` — this shell's virtual PID. Synthetic, not the host's.
-    public var virtualPID: Int32 = 1
-
-    /// Identity reported by `whoami`, `hostname`, `id`, `uname`,
-    /// `df`, and any other host-identity-disclosing command. Default
-    /// is ``HostInfo/synthetic`` — leaks nothing. Embedders that
-    /// genuinely want the running machine's identity assign
-    /// ``HostInfo/real()``.
-    ///
-    /// Setting this also re-syncs the matching environment variables
-    /// (`$HOSTNAME`, `$USER`, `$LOGNAME`, `$HOME`, `$HOSTTYPE`,
-    /// `$MACHTYPE`) so `whoami`'s answer and `$USER`'s value never
-    /// disagree. If you want to preserve a custom override (e.g. you
-    /// set `HOSTNAME=foo` deliberately), assign it AFTER setting
-    /// `hostInfo`.
-    public var hostInfo: HostInfo = .synthetic {
-        didSet {
-            environment.variables["HOSTNAME"] = hostInfo.hostName
-            environment.variables["USER"] = hostInfo.userName
-            environment.variables["LOGNAME"] = hostInfo.userName
-            environment.variables["HOSTTYPE"] = hostInfo.machine
-            environment.variables["MACHTYPE"] =
-                "\(hostInfo.machine)-apple-\(hostInfo.kernelName.lowercased())"
-        }
     }
 
     /// `set -e` / `set -o errexit` — when `true`, the shell exits as
@@ -219,59 +134,138 @@ public final class Shell: @unchecked Sendable {
         let consumer: Node?  // for `.output`, the command to feed
     }
 
-    public init(environment: Environment = Environment(),
-                stdout: OutputSink? = nil,
-                stderr: OutputSink? = nil,
-                commands: [String: Command] = Shell.defaultCommands(),
-                fileSystem: FileSystem = RealFileSystem())
+    // MARK: Per-run state (set during `run`, used by expansion)
+
+    var currentSource: String = ""
+
+    // MARK: - Filesystem
+
+    /// The filesystem the shell reads and writes through. Defaults
+    /// to ``RealFileSystem`` (the host's real `FileManager`). Swap in
+    /// `InMemoryFileSystem` or similar to sandbox scripts.
+    ///
+    /// Whatever is assigned is automatically wrapped in
+    /// ``VirtualBinFileSystem`` so `/bin`, `/usr/bin`, and
+    /// `/usr/local/bin` always reflect this shell's command registry
+    /// rather than whatever the host might (or might not) have at
+    /// those paths. Wrapping is idempotent — assigning a fileSystem
+    /// that's already a ``VirtualBinFileSystem`` doesn't double-wrap.
+    ///
+    /// **Migration note.** This is the legacy `FileSystem` protocol
+    /// surface; SwiftBash will retire it in favour of ShellKit's
+    /// `Sandbox` URL-gate model in a follow-up PR. For now both
+    /// coexist on the bash interpreter — code that needs URL-level
+    /// gating should call `ShellKit.Shell.current.sandbox?.authorize(_:)`
+    /// directly and only use `fileSystem` for the legacy path-based
+    /// reads/writes.
+    public var fileSystem: FileSystem {
+        get { _fileSystem }
+        set {
+            _fileSystem = (newValue is VirtualBinFileSystem)
+                ? newValue
+                : VirtualBinFileSystem(backing: newValue)
+        }
+    }
+    private var _fileSystem: FileSystem
+
+    // MARK: - Bash-typed TaskLocal
+
+    /// Bash-typed TaskLocal that runs alongside (not on top of) the
+    /// inherited ``ShellKit/Shell/current``. Inside SwiftBash's
+    /// interpreter, code reads `Shell.bashCurrent` to get the bash
+    /// subclass directly (so accesses like `bashCurrent.errexit`
+    /// don't need a cast). Plain ShellKit consumers — registered
+    /// SwiftPorts CLIs, anything that doesn't know SwiftBash exists
+    /// — read `ShellKit.Shell.bashCurrent` and see the same instance via
+    /// the runtime-context surface only.
+    ///
+    /// ``withCurrent(_:)`` binds the two in tandem on every
+    /// dispatch / subshell entry, so the two accessors never get
+    /// out of sync.
+    ///
+    /// Why two names instead of overriding `current`: Swift won't
+    /// let a subclass redeclare a `@TaskLocal` static with a
+    /// different element type (the projected `$current` value can't
+    /// be narrowed). Separate name keeps both accessors typed
+    /// correctly without runtime casts.
+    @TaskLocal public static var bashCurrent: Shell = Shell()
+
+    // MARK: - Init
+
+    public required init(
+        stdin: InputSource = .empty,
+        stdout: OutputSink? = nil,
+        stderr: OutputSink? = nil,
+        environment: Environment = Environment(),
+        positionalParameters: [String] = [],
+        scriptName: String = "swift-bash",
+        lastExitStatus: ExitStatus = .success,
+        sandbox: Sandbox? = nil,
+        networkConfig: NetworkConfig? = nil,
+        hostInfo: HostInfo = .synthetic,
+        processTable: ProcessTable = ProcessTable(),
+        virtualPID: Int32 = 1,
+        commands: [String: Command] = [:]
+    ) {
+        // FileSystem is bash-specific (legacy protocol). The
+        // VirtualBinFileSystem wrap happens after super.init.
+        self._fileSystem = VirtualBinFileSystem(backing: RealFileSystem())
+        super.init(
+            stdin: stdin,
+            stdout: stdout,
+            stderr: stderr,
+            environment: environment,
+            positionalParameters: positionalParameters,
+            scriptName: scriptName,
+            lastExitStatus: lastExitStatus,
+            sandbox: sandbox,
+            networkConfig: networkConfig,
+            hostInfo: hostInfo,
+            processTable: processTable,
+            virtualPID: virtualPID,
+            commands: commands)
+    }
+
+    /// Convenience initializer matching SwiftBash's pre-migration
+    /// signature so existing call sites compile unchanged.
+    public convenience init(environment: Environment = Environment(),
+                            stdout: OutputSink? = nil,
+                            stderr: OutputSink? = nil,
+                            commands: [String: Command] = Shell.defaultCommands(),
+                            fileSystem: FileSystem = RealFileSystem())
     {
-        self.environment = environment
-        self.stdout = stdout ?? .forwarding(to: FileHandle.standardOutput)
-        self.stderr = stderr ?? .forwarding(to: FileHandle.standardError)
-        self.commands = commands
-        // Initialise the underlying storage directly to go through the
-        // wrap-if-needed setter logic exactly once.
-        self._fileSystem = (fileSystem is VirtualBinFileSystem)
-            ? fileSystem
-            : VirtualBinFileSystem(backing: fileSystem)
+        self.init(
+            stdout: stdout ?? .forwarding(to: FileHandle.standardOutput),
+            stderr: stderr ?? .forwarding(to: FileHandle.standardError),
+            environment: environment,
+            commands: commands)
+        self.fileSystem = fileSystem
         // Advertise the running interpreter to scripts that probe bash
         // version. These describe SwiftBash itself, not anything the
-        // caller's environment should be able to override — the only
-        // useful answer is "you're running under SwiftBash 4.x-target".
+        // caller's environment should be able to override.
         self.environment.variables["BASH"] = SwiftBashVersion.bashPath
         self.environment.variables["BASH_VERSION"] = SwiftBashVersion.bashVersion
         self.environment.arrays["BASH_VERSINFO"] = BashArray(
             dense: SwiftBashVersion.bashVersionInfo)
         // Sensible "I am a real bash session" defaults for the
-        // variables a bash shell normally sets at startup but that
-        // a parent process *doesn't* pass down. Without these, a
-        // script's `[ -n "$IFS" ]`, `getopts`-without-init, and
-        // platform sniffs (`case $OSTYPE in linux*) … esac`) would
-        // hit unexpected empty values. Anything the caller already
-        // set in the supplied Environment wins.
+        // variables a bash shell normally sets at startup but that a
+        // parent process *doesn't* pass down. Caller-supplied values
+        // win.
         for (key, value) in Self.runtimeEnvDefaults() {
             if self.environment.variables[key] == nil {
                 self.environment.variables[key] = value
             }
         }
-        // PWD tracks the shell's logical cwd. Initialise from
-        // `workingDirectory` if the caller didn't supply one.
         if self.environment.variables["PWD"] == nil {
             self.environment.variables["PWD"] = self.environment.workingDirectory
         }
     }
 
     /// Default values for environment variables a real bash shell sets
-    /// at startup. Applied in ``init(environment:stdout:stderr:commands:fileSystem:)``
-    /// only when the supplied environment doesn't already provide a
-    /// value — caller's choice always wins.
+    /// at startup. Applied in the convenience init when the supplied
+    /// environment doesn't already provide a value — caller's choice
+    /// always wins.
     private static func runtimeEnvDefaults() -> [(String, String)] {
-        // Use synthetic-aligned defaults rather than introspecting
-        // the host: `Shell()` should leak nothing about the machine
-        // it's running on. Embedders that want real values either
-        // pass `Environment.current()` (which keeps inherited PATH
-        // / HOME / TERM / …) or assign `Shell.hostInfo = .real()`
-        // and re-set the relevant variables themselves.
         return [
             ("PATH",      "/usr/bin:/bin"),
             ("HOME",      "/home/\(HostInfo.synthetic.userName)"),
@@ -294,7 +288,28 @@ public final class Shell: @unchecked Sendable {
         ]
     }
 
-    // MARK: Default registry
+    // MARK: - hostInfo override (re-syncs env vars on assignment)
+
+    /// Override the inherited `hostInfo` to attach a `didSet`
+    /// observer that re-syncs the matching environment variables —
+    /// `$HOSTNAME`, `$USER`, `$LOGNAME`, `$HOSTTYPE`, `$MACHTYPE` —
+    /// so `whoami`'s answer and `$USER`'s value never disagree.
+    ///
+    /// Embedders that want to preserve a deliberate custom override
+    /// (e.g. setting `HOSTNAME=foo` for a specific test) assign it
+    /// AFTER setting `hostInfo`.
+    public override var hostInfo: HostInfo {
+        didSet {
+            environment.variables["HOSTNAME"] = hostInfo.hostName
+            environment.variables["USER"] = hostInfo.userName
+            environment.variables["LOGNAME"] = hostInfo.userName
+            environment.variables["HOSTTYPE"] = hostInfo.machine
+            environment.variables["MACHTYPE"] =
+                "\(hostInfo.machine)-apple-\(hostInfo.kernelName.lowercased())"
+        }
+    }
+
+    // MARK: - Default registry
 
     public static func defaultCommands() -> [String: Command] {
         let all: [Command] = [
@@ -338,73 +353,63 @@ public final class Shell: @unchecked Sendable {
         return dict
     }
 
-    // MARK: Per-run state (set during `run`, used by expansion)
-
-    var currentSource: String = ""
-
-    // MARK: Task-local current shell
-
-    /// The shell that nested code (commands, expansion, traps) reads
-    /// from. The top-level ``run(_:)`` wraps execution in
-    /// ``Shell/$current.withValue(self)``; subshells push their copy
-    /// the same way. As a result, every option held on a Shell —
-    /// `networkConfig`, `fileSystem`, `commands`, `shoptOptions`,
-    /// `errexit`, `environment`, … — propagates automatically across
-    /// pipeline stages, `(…)` subshells, and child Tasks via Swift's
-    /// `@TaskLocal` propagation.
-    ///
-    /// The default value is a placeholder Shell with empty defaults;
-    /// it should never be observed in practice because every entry
-    /// point binds the real Shell first.
-    @TaskLocal public static var current: Shell = Shell()
-
-    // MARK: Subshell factory
+    // MARK: - Subshell factory
 
     /// A fresh `Shell` suitable for running as a pipeline stage or a
     /// subshell `( … )`. Every property that should be inherited is
-    /// cloned here — this is the **single place** to update when
-    /// adding a new shell-scoped option.
+    /// cloned — runtime context (delegated to super) plus the
+    /// bash-specific *configuration* fields below.
     ///
-    /// Mutations on the returned shell don't affect the receiver; the
-    /// two are fully independent value snapshots (with reference-typed
-    /// sinks like `stdout` / `stderr` shared so the subshell's output
-    /// flows to the same destination).
-    public func copy() -> Shell {
-        let sub = Shell(environment: environment,
-                        stdout: stdout,
-                        stderr: stderr,
-                        commands: commands,
-                        fileSystem: fileSystem)
-        // Inheritable runtime / configuration. Anything that should
-        // survive into a subshell or pipeline stage gets cloned here.
-        sub.networkConfig = networkConfig
-        sub.shoptOptions = shoptOptions
-        sub.errexit = errexit
-        sub.pipefail = pipefail
-        sub.nounset = nounset
-        sub.scriptName = scriptName
-        sub.positionalParameters = positionalParameters
-        sub.traps = traps
-        sub.currentSource = currentSource
-        sub.lastExitStatus = lastExitStatus
-        sub.stdin = stdin
-        // Background jobs spawned in a subshell stay registered in
-        // the *parent's* table so the parent's `wait` can see them.
-        // Reference-share, not clone.
-        sub.processTable = processTable
-        sub.virtualPID = virtualPID
-        sub.hostInfo = hostInfo
-        return sub
+    /// Bash-specific *per-execution / per-shell-instance* state
+    /// (`errexitGuard`, `skipNextErrexitCheck`, `runningTraps`,
+    /// `getoptsCharIndex`, `loopDepth`, `functionCallDepth`,
+    /// `localVarStack`, `pendingProcessSubs`, `currentCommandRange`)
+    /// is **not** carried over — a subshell starts fresh, matching
+    /// real bash. In particular, `loopDepth` MUST reset so that
+    /// `(break)` inside a loop body raises bash's "only meaningful
+    /// in a loop" diagnostic instead of unwinding the parent's loop
+    /// (Codex review on PR #11). Same logic applies to
+    /// `functionCallDepth` / `localVarStack`: a subshell isn't
+    /// inside any function frame.
+    public override func copy() -> Self {
+        let sub = super.copy()
+        // Cast to Self — the base impl uses `type(of: self).init(...)`
+        // so the runtime type is already correct; the static return
+        // type is `Self` thanks to the `Self` marker on the base.
+        guard let bash = sub as? Self else {
+            preconditionFailure(
+                "Shell.copy() returned a non-bash Shell — base should " +
+                "have used type(of: self).init(...) which preserves the " +
+                "subclass.")
+        }
+        // Inheritable bash configuration. Mirror the pre-ShellKit
+        // copy() exactly — anything not listed here resets to its
+        // initializer default in the new subshell instance.
+        bash.fileSystem = fileSystem
+        bash.errexit = errexit
+        bash.pipefail = pipefail
+        bash.nounset = nounset
+        bash.shoptOptions = shoptOptions
+        bash.traps = traps
+        bash.currentSource = currentSource
+        return bash
     }
 
-    /// Run `body` with this Shell installed as ``Shell/current``.
-    /// Used internally by ``run(_:)`` and by every subshell entry
-    /// point. Public so embedders can do `Shell.current` lookups in
-    /// their own helpers without going through the dispatcher.
-    public func withCurrent<T: Sendable>(
+    // MARK: - Binding helper
+
+    /// Run `body` with this Shell installed as both ``Shell/current``
+    /// (the bash-typed shadow) AND ``ShellKit/Shell/current`` (the
+    /// runtime-context view ShellKit consumers use). Both bind to
+    /// the SAME instance, so mutations are visible through either
+    /// accessor.
+    public override func withCurrent<T: Sendable>(
         _ body: () async throws -> T
     ) async rethrows -> T {
-        return try await Self.$current.withValue(self) { try await body() }
+        return try await Shell.$bashCurrent.withValue(self) {
+            try await ShellKit.Shell.$current.withValue(self) {
+                try await body()
+            }
+        }
     }
 }
 

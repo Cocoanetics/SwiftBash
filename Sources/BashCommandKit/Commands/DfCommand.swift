@@ -38,31 +38,31 @@ public struct DfCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         let target = paths.isEmpty
-            ? [Shell.current.environment.workingDirectory] : paths
+            ? [Shell.bashCurrent.environment.workingDirectory] : paths
         if human {
-            Shell.current.stdout(
+            Shell.bashCurrent.stdout(
                 "Filesystem      Size    Used   Avail Capacity Mounted on\n")
         } else {
             let unit = mib ? "1M-blocks" : "1024-blocks"
-            Shell.current.stdout(
+            Shell.bashCurrent.stdout(
                 "Filesystem    \(unit)        Used   Available Capacity Mounted on\n")
         }
-        let host = Shell.current.hostInfo
+        let host = Shell.bashCurrent.hostInfo
         let label = host.hostName.padding(toLength: 14,
                                           withPad: " ", startingAt: 0)
         var hadError = false
         for p in target {
-            let resolved = Shell.current.resolvePath(p)
+            let resolved = Shell.bashCurrent.resolvePath(p)
             // Confirm the path actually exists in the shell's
             // filesystem before reporting.
-            guard (try? await Shell.current.fileSystem.metadata(resolved)) != nil
+            guard (try? await Shell.bashCurrent.fileSystem.metadata(resolved)) != nil
             else {
-                Shell.current.stderr("df: \(p): no such file or directory\n")
+                Shell.bashCurrent.stderr("df: \(p): no such file or directory\n")
                 hadError = true; continue
             }
             // Sizes unknown for a virtual mount; emit `-` placeholders
             // so column-parsing consumers still split correctly.
-            Shell.current.stdout(
+            Shell.bashCurrent.stdout(
                 "\(label)" +
                 " \("-".leftPad(8))" +
                 " \("-".leftPad(8))" +

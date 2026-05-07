@@ -33,7 +33,7 @@ public struct ReadCommand: Command {
                 i += 1
             } else if arg == "-p" {
                 guard i + 1 < argv.count else {
-                    Shell.current.stderr("read: -p: missing argument\n")
+                    Shell.bashCurrent.stderr("read: -p: missing argument\n")
                     return ExitStatus(2)
                 }
                 prompt = argv[i + 1]
@@ -43,7 +43,7 @@ public struct ReadCommand: Command {
                 i += 1
             } else if arg == "-a" {
                 guard i + 1 < argv.count else {
-                    Shell.current.stderr("read: -a: missing array name\n")
+                    Shell.bashCurrent.stderr("read: -a: missing array name\n")
                     return ExitStatus(2)
                 }
                 arrayName = argv[i + 1]
@@ -53,7 +53,7 @@ public struct ReadCommand: Command {
                 i += 1
             } else if arg.hasPrefix("-") && arg != "-" {
                 // Unknown flag; surface and stop option parsing.
-                Shell.current.stderr("read: \(arg): invalid option\n")
+                Shell.bashCurrent.stderr("read: \(arg): invalid option\n")
                 return ExitStatus(2)
             } else {
                 break
@@ -61,7 +61,7 @@ public struct ReadCommand: Command {
         }
 
         if let prompt {
-            Shell.current.stderr(prompt)
+            Shell.bashCurrent.stderr(prompt)
         }
 
         guard let line = await readOneLine(raw: raw) else {
@@ -78,7 +78,7 @@ public struct ReadCommand: Command {
 
         let names = Array(argv[i...])
         if names.isEmpty {
-            Shell.current.environment["REPLY"] = line
+            Shell.bashCurrent.environment["REPLY"] = line
             return .success
         }
         assignSplitFields(line, into: names)
@@ -91,7 +91,7 @@ public struct ReadCommand: Command {
                                name: String)
     {
         let ifsChars: [Character] = {
-            if let ifs = Shell.current.environment["IFS"] { return Array(ifs) }
+            if let ifs = Shell.bashCurrent.environment["IFS"] { return Array(ifs) }
             return [" ", "\t", "\n"]
         }()
         let ifsSet = Set(ifsChars)
@@ -119,15 +119,15 @@ public struct ReadCommand: Command {
         }
         if !current.isEmpty { fields.append(current) }
 
-        Shell.current.environment.arrays[name] = BashArray(dense: fields)
-        Shell.current.environment.variables.removeValue(forKey: name)
+        Shell.bashCurrent.environment.arrays[name] = BashArray(dense: fields)
+        Shell.bashCurrent.environment.variables.removeValue(forKey: name)
     }
 
-    /// Read one line from `Shell.current.stdin`. With `raw: false`, processes
+    /// Read one line from `Shell.bashCurrent.stdin`. With `raw: false`, processes
     /// `\<newline>` as line-continuation and `\<char>` as the literal
     /// char (matching bash without `-r`).
     private func readOneLine(raw: Bool) async -> String? {
-        guard let first = await Shell.current.stdin.readLine() else { return nil }
+        guard let first = await Shell.bashCurrent.stdin.readLine() else { return nil }
         if raw { return first }
 
         // Process backslash escapes. `\<newline>` joins lines.
@@ -145,7 +145,7 @@ public struct ReadCommand: Command {
                     } else {
                         // Trailing backslash — line continuation. Pull
                         // another line and append (no newline).
-                        guard let cont = await Shell.current.stdin.readLine() else {
+                        guard let cont = await Shell.bashCurrent.stdin.readLine() else {
                             return buf
                         }
                         line = cont
@@ -171,7 +171,7 @@ public struct ReadCommand: Command {
                                    into names: [String])
     {
         let ifsChars: [Character] = {
-            if let ifs = Shell.current.environment["IFS"] {
+            if let ifs = Shell.bashCurrent.environment["IFS"] {
                 return Array(ifs)
             }
             return [" ", "\t", "\n"]
@@ -225,7 +225,7 @@ public struct ReadCommand: Command {
         fields.append(remainder)
 
         for (j, name) in names.enumerated() {
-            Shell.current.environment[name] = j < fields.count ? fields[j] : ""
+            Shell.bashCurrent.environment[name] = j < fields.count ? fields[j] : ""
         }
     }
 }

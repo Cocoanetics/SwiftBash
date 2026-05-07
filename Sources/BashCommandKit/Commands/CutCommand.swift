@@ -51,7 +51,7 @@ public struct CutCommand: ParsableBashCommand {
             if a == "-" { files.append("-"); i += 1; continue }
             if a == "-f" || a == "--fields" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("cut: -f requires LIST\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("cut: -f requires LIST\n"); return ExitStatus(2)
                 }
                 listStr = rawArgv[i + 1]; mode = .fields; i += 2; continue
             }
@@ -61,7 +61,7 @@ public struct CutCommand: ParsableBashCommand {
             }
             if a == "-c" || a == "--characters" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("cut: -c requires LIST\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("cut: -c requires LIST\n"); return ExitStatus(2)
                 }
                 listStr = rawArgv[i + 1]; mode = .chars; i += 2; continue
             }
@@ -71,7 +71,7 @@ public struct CutCommand: ParsableBashCommand {
             }
             if a == "-b" || a == "--bytes" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("cut: -b requires LIST\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("cut: -b requires LIST\n"); return ExitStatus(2)
                 }
                 listStr = rawArgv[i + 1]; mode = .bytes; i += 2; continue
             }
@@ -81,7 +81,7 @@ public struct CutCommand: ParsableBashCommand {
             }
             if a == "-d" || a == "--delimiter" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("cut: -d requires DELIM\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("cut: -d requires DELIM\n"); return ExitStatus(2)
                 }
                 delim = rawArgv[i + 1]; i += 2; continue
             }
@@ -94,7 +94,7 @@ public struct CutCommand: ParsableBashCommand {
             }
             if a == "--output-delimiter" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("cut: --output-delimiter requires STR\n")
+                    Shell.bashCurrent.stderr("cut: --output-delimiter requires STR\n")
                     return ExitStatus(2)
                 }
                 outputDelim = rawArgv[i + 1]; i += 2; continue
@@ -120,25 +120,25 @@ public struct CutCommand: ParsableBashCommand {
                 delim = String(a.dropFirst(2)); i += 1; continue
             }
             if a.hasPrefix("-") && a.count > 1 {
-                Shell.current.stderr("cut: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("cut: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             files.append(a); i += 1
         }
 
         guard let raw = listStr else {
-            Shell.current.stderr("cut: you must specify a list of bytes, characters, or fields\n")
+            Shell.bashCurrent.stderr("cut: you must specify a list of bytes, characters, or fields\n")
             return ExitStatus(2)
         }
         let spec: FieldSpec
         do {
             spec = try FieldSpec.parse(raw)
         } catch let err as FieldSpec.ParseError {
-            Shell.current.stderr("cut: \(err.message)\n")
+            Shell.bashCurrent.stderr("cut: \(err.message)\n")
             return ExitStatus(2)
         }
         guard delim.count == 1 || mode != .fields else {
-            Shell.current.stderr("cut: -d requires a single character\n")
+            Shell.bashCurrent.stderr("cut: -d requires a single character\n")
             return ExitStatus(2)
         }
         let delimChar = delim.first ?? "\t"
@@ -149,14 +149,14 @@ public struct CutCommand: ParsableBashCommand {
         for f in useFiles {
             do {
                 if f == "-" {
-                    for await line in Shell.current.stdin.lines {
+                    for await line in Shell.bashCurrent.stdin.lines {
                         try emit(line, mode: mode, spec: spec,
                                  delim: delimChar, outDelim: outDelim,
                                  onlyDelimited: onlyDelimited,
                                  complement: complement)
                     }
                 } else {
-                    let data = try await Shell.current.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(f)
                     let text = String(decoding: data, as: UTF8.self)
                     for line in SortCommand.splitLines(text) {
                         try emit(line, mode: mode, spec: spec,
@@ -166,7 +166,7 @@ public struct CutCommand: ParsableBashCommand {
                     }
                 }
             } catch {
-                Shell.current.stderr("cut: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("cut: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -180,22 +180,22 @@ public struct CutCommand: ParsableBashCommand {
         case .fields:
             if !line.contains(delim) {
                 if onlyDelimited { return }
-                Shell.current.stdout(line + "\n"); return
+                Shell.bashCurrent.stdout(line + "\n"); return
             }
             let parts = line.split(separator: delim,
                                    omittingEmptySubsequences: false)
                 .map(String.init)
             let picks = spec.picks(from: parts.count, complement: complement)
-            Shell.current.stdout(picks.map { parts[$0] }.joined(separator: outDelim) + "\n")
+            Shell.bashCurrent.stdout(picks.map { parts[$0] }.joined(separator: outDelim) + "\n")
         case .chars:
             let chars = Array(line)
             let picks = spec.picks(from: chars.count, complement: complement)
-            Shell.current.stdout(String(picks.map { chars[$0] }) + "\n")
+            Shell.bashCurrent.stdout(String(picks.map { chars[$0] }) + "\n")
         case .bytes:
             let bytes = Array(line.utf8)
             let picks = spec.picks(from: bytes.count, complement: complement)
             let sliced = picks.map { bytes[$0] }
-            Shell.current.stdout(String(decoding: sliced, as: UTF8.self) + "\n")
+            Shell.bashCurrent.stdout(String(decoding: sliced, as: UTF8.self) + "\n")
         }
     }
 

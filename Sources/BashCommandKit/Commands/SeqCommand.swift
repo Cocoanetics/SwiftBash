@@ -40,7 +40,7 @@ public struct SeqCommand: ParsableBashCommand {
             }
             if a == "-s" || a == "--separator" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("seq: option requires an argument: \(a)\n")
+                    Shell.bashCurrent.stderr("seq: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 separator = rawArgv[i + 1]
@@ -58,7 +58,7 @@ public struct SeqCommand: ParsableBashCommand {
             }
             if a == "-f" || a == "--format" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("seq: option requires an argument: \(a)\n")
+                    Shell.bashCurrent.stderr("seq: option requires an argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 // We support the simplest case: pass-through the format
@@ -75,7 +75,7 @@ public struct SeqCommand: ParsableBashCommand {
         parsed.reserveCapacity(positional.count)
         for raw in positional {
             guard let n = Double(raw) else {
-                Shell.current.stderr("seq: invalid number: \(raw)\n")
+                Shell.bashCurrent.stderr("seq: invalid number: \(raw)\n")
                 return .failure
             }
             parsed.append(n)
@@ -87,12 +87,12 @@ public struct SeqCommand: ParsableBashCommand {
         case 2: first = parsed[0];  step = 1;           last = parsed[1]
         case 3: first = parsed[0];  step = parsed[1];   last = parsed[2]
         default:
-            Shell.current.stderr("seq: expected 1, 2, or 3 numeric arguments\n")
+            Shell.bashCurrent.stderr("seq: expected 1, 2, or 3 numeric arguments\n")
             return .failure
         }
 
         if step == 0 {
-            Shell.current.stderr("seq: invalid zero increment value\n")
+            Shell.bashCurrent.stderr("seq: invalid zero increment value\n")
             return .failure
         }
 
@@ -110,7 +110,7 @@ public struct SeqCommand: ParsableBashCommand {
         if equalWidth, let width = values.map({ widthIgnoringSign($0) }).max() {
             values = values.map { padLeftZeros($0, toWidth: width) }
         }
-        Shell.current.stdout(values.joined(separator: separator) + "\n")
+        Shell.bashCurrent.stdout(values.joined(separator: separator) + "\n")
         return .success
     }
 

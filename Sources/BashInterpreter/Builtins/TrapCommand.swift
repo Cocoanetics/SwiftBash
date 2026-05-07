@@ -23,25 +23,25 @@ public struct TrapCommand: Command {
         let args = Array(argv.dropFirst())
 
         if args.isEmpty {
-            for sig in Shell.current.traps.keys.sorted() {
-                Shell.current.stdout(formatTrap(sig: sig, body: Shell.current.traps[sig]!))
+            for sig in Shell.bashCurrent.traps.keys.sorted() {
+                Shell.bashCurrent.stdout(formatTrap(sig: sig, body: Shell.bashCurrent.traps[sig]!))
             }
             return .success
         }
 
         if args[0] == "-l" {
-            Shell.current.stdout(knownSignals.joined(separator: " ") + "\n")
+            Shell.bashCurrent.stdout(knownSignals.joined(separator: " ") + "\n")
             return .success
         }
 
         if args[0] == "-p" {
             let names = Array(args.dropFirst())
             let toShow: [String] = names.isEmpty
-                ? Array(Shell.current.traps.keys.sorted())
+                ? Array(Shell.bashCurrent.traps.keys.sorted())
                 : names.map(canonicalize)
             for sig in toShow {
-                if let body = Shell.current.traps[sig] {
-                    Shell.current.stdout(formatTrap(sig: sig, body: body))
+                if let body = Shell.bashCurrent.traps[sig] {
+                    Shell.bashCurrent.stdout(formatTrap(sig: sig, body: body))
                 }
             }
             return .success
@@ -52,7 +52,7 @@ public struct TrapCommand: Command {
         //   `''` → ignore (store empty string)
         //   any other text → command to run
         guard args.count >= 2 else {
-            Shell.current.stderr("trap: usage: trap [-lp] [[arg] signal_spec ...]\n")
+            Shell.bashCurrent.stderr("trap: usage: trap [-lp] [[arg] signal_spec ...]\n")
             return ExitStatus(2)
         }
         let command = args[0]
@@ -61,13 +61,13 @@ public struct TrapCommand: Command {
         for raw in sigSpecs {
             let sig = canonicalize(raw)
             guard isValidSignal(sig) else {
-                Shell.current.stderr("trap: \(raw): invalid signal specification\n")
+                Shell.bashCurrent.stderr("trap: \(raw): invalid signal specification\n")
                 return ExitStatus(1)
             }
             if command == "-" {
-                Shell.current.traps.removeValue(forKey: sig)
+                Shell.bashCurrent.traps.removeValue(forKey: sig)
             } else {
-                Shell.current.traps[sig] = command
+                Shell.bashCurrent.traps[sig] = command
             }
         }
         return .success

@@ -13,21 +13,21 @@ public struct TimeCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
         guard !args.isEmpty else {
-            Shell.current.stderr("time: usage: time COMMAND [ARG...]\n")
+            Shell.bashCurrent.stderr("time: usage: time COMMAND [ARG...]\n")
             return ExitStatus(2)
         }
         let start = Date()
         let line = args.map(shellQuote).joined(separator: " ")
         let status: ExitStatus
         do {
-            status = try await Shell.current.run(line)
+            status = try await Shell.bashCurrent.run(line)
         } catch {
-            Shell.current.stderr("time: \(error)\n")
+            Shell.bashCurrent.stderr("time: \(error)\n")
             return ExitStatus(126)
         }
         let elapsed = Date().timeIntervalSince(start)
         let realStr = formatDuration(elapsed)
-        Shell.current.stderr("\nreal\t\(realStr)\nuser\t0m0.000s\nsys\t0m0.000s\n")
+        Shell.bashCurrent.stderr("\nreal\t\(realStr)\nuser\t0m0.000s\nsys\t0m0.000s\n")
         return status
     }
 
@@ -72,25 +72,25 @@ public struct TimeoutCommand: Command {
             break
         }
         guard args.count >= 2 else {
-            Shell.current.stderr("timeout: usage: timeout DURATION COMMAND [ARG...]\n")
+            Shell.bashCurrent.stderr("timeout: usage: timeout DURATION COMMAND [ARG...]\n")
             return ExitStatus(2)
         }
         guard let seconds = parseDuration(args[0]) else {
-            Shell.current.stderr("timeout: invalid duration: \(args[0])\n")
+            Shell.bashCurrent.stderr("timeout: invalid duration: \(args[0])\n")
             return ExitStatus(2)
         }
         let cmd = Array(args.dropFirst())
         let line = cmd.map(shellQuote).joined(separator: " ")
 
         // Race the command against a sleep. The interpreter doesn't
-        // give us a way to actually kill an in-flight `Shell.current.run`, so
+        // give us a way to actually kill an in-flight `Shell.bashCurrent.run`, so
         // when the timer fires we surface 124 to the caller; the
         // command task is left to complete in the background. Good
         // enough for orchestration and tests, though not as tight as
         // GNU timeout's signal delivery.
         return try await withThrowingTaskGroup(of: TimeoutResult.self) { group in
             group.addTask {
-                let s = try await Shell.current.run(line)
+                let s = try await Shell.bashCurrent.run(line)
                 return .completed(s)
             }
             group.addTask {
@@ -102,7 +102,7 @@ public struct TimeoutCommand: Command {
                 switch result {
                 case .completed(let s): return s
                 case .timedOut:
-                    Shell.current.stderr("timeout: command timed out\n")
+                    Shell.bashCurrent.stderr("timeout: command timed out\n")
                     return ExitStatus(124)
                 }
             }

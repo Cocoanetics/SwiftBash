@@ -13,7 +13,7 @@ import Foundation
 /// ```
 ///
 /// The interpreter sees:
-/// - the host process's environment (copy) as `Shell.current.environment`
+/// - the host process's environment (copy) as `Shell.bashCurrent.environment`
 /// - `registerStandardCommands()` preloaded, so `cat`, `seq`, `sleep`,
 ///   `date`, `grep`, `wc`, `head`, etc. are all available
 /// - stdout / stderr wired directly to the process's file handles so

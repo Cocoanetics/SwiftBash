@@ -19,7 +19,7 @@ public struct WaitCommand: Command {
     public init() {}
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
-        let table = Shell.current.processTable
+        let table = Shell.bashCurrent.processTable
         let pidArgs = argv.dropFirst()
 
         if pidArgs.isEmpty {
@@ -29,7 +29,7 @@ public struct WaitCommand: Command {
         var last: ExitStatus = .success
         for arg in pidArgs {
             guard let pid = Int32(arg) else {
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "wait: \(arg): not a valid pid or job spec\n")
                 return ExitStatus(127)
             }
@@ -37,7 +37,7 @@ public struct WaitCommand: Command {
                 last = status
             } else {
                 // bash returns 127 for "no such process is a child"
-                Shell.current.stderr(
+                Shell.bashCurrent.stderr(
                     "wait: pid \(pid) is not a child of this shell\n")
                 last = ExitStatus(127)
             }

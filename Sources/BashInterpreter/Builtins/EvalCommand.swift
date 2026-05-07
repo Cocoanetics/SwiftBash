@@ -17,8 +17,8 @@ public struct EvalCommand: Command {
         if args.isEmpty { return .success }
         let source = args.joined(separator: " ")
 
-        let savedSource = Shell.current.currentSource
-        defer { Shell.current.currentSource = savedSource }
-        return try await Shell.current.run(source)
+        let savedSource = Shell.bashCurrent.currentSource
+        defer { Shell.bashCurrent.currentSource = savedSource }
+        return try await Shell.bashCurrent.run(source)
     }
 }

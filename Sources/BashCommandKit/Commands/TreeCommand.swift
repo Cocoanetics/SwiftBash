@@ -36,13 +36,13 @@ public struct TreeCommand: ParsableBashCommand {
             }
             if a == "-L" || a == "--level" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.current.stderr("tree: -L requires a positive integer\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("tree: -L requires a positive integer\n"); return ExitStatus(2)
                 }
                 maxDepth = n; i += 2; continue
             }
             if a.hasPrefix("--level=") {
                 guard let n = Int(a.dropFirst("--level=".count)), n > 0 else {
-                    Shell.current.stderr("tree: invalid --level\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("tree: invalid --level\n"); return ExitStatus(2)
                 }
                 maxDepth = n; i += 1; continue
             }
@@ -50,7 +50,7 @@ public struct TreeCommand: ParsableBashCommand {
             if a == "-d" { dirsOnly = true; i += 1; continue }
             if a == "-f" { fullPath = true; i += 1; continue }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.current.stderr("tree: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.bashCurrent.stderr("tree: unknown option: \(a)\n"); return ExitStatus(2)
             }
             roots.append(a); i += 1
         }
@@ -59,8 +59,8 @@ public struct TreeCommand: ParsableBashCommand {
         var dirCount = 0
         var fileCount = 0
         for root in roots {
-            Shell.current.stdout(root + "\n")
-            await walk(root: root, dir: Shell.current.resolvePath(root),
+            Shell.bashCurrent.stdout(root + "\n")
+            await walk(root: root, dir: Shell.bashCurrent.resolvePath(root),
                        prefix: "", depth: 1, maxDepth: maxDepth,
                        showHidden: showHidden, dirsOnly: dirsOnly,
                        fullPath: fullPath, displayPath: root,
@@ -69,7 +69,7 @@ public struct TreeCommand: ParsableBashCommand {
         let summary = dirsOnly
             ? "\n\(dirCount) director\(dirCount == 1 ? "y" : "ies")\n"
             : "\n\(dirCount) director\(dirCount == 1 ? "y" : "ies"), \(fileCount) file\(fileCount == 1 ? "" : "s")\n"
-        Shell.current.stdout(summary)
+        Shell.bashCurrent.stdout(summary)
         return .success
     }
 
@@ -81,13 +81,13 @@ public struct TreeCommand: ParsableBashCommand {
         // can't use checkCancellation; bail explicitly.
         if Task.isCancelled { return }
         if let m = maxDepth, depth > m { return }
-        var entries = (try? await Shell.current.fileSystem.list(dir)) ?? []
+        var entries = (try? await Shell.bashCurrent.fileSystem.list(dir)) ?? []
         if !showHidden { entries = entries.filter { !$0.hasPrefix(".") } }
         entries.sort()
         var visible: [(name: String, meta: FileMetadata?)] = []
         for n in entries {
             let p = (dir as NSString).appendingPathComponent(n)
-            let meta = (try? await Shell.current.fileSystem.metadata(p)) ?? nil
+            let meta = (try? await Shell.bashCurrent.fileSystem.metadata(p)) ?? nil
             if dirsOnly && meta?.kind != .directory { continue }
             visible.append((n, meta))
         }
@@ -97,7 +97,7 @@ public struct TreeCommand: ParsableBashCommand {
             let label = fullPath
                 ? (displayPath as NSString).appendingPathComponent(name)
                 : name
-            Shell.current.stdout(prefix + connector + label + "\n")
+            Shell.bashCurrent.stdout(prefix + connector + label + "\n")
             if meta?.kind == .directory {
                 dirCount += 1
                 let childPrefix = prefix + (isLast ? "    " : "│   ")

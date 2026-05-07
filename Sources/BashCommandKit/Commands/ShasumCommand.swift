@@ -34,7 +34,7 @@ public struct ShasumCommand: ParsableBashCommand {
             }
             if a == "-a" || a == "--algorithm" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    Shell.current.stderr("shasum: option requires a numeric argument: \(a)\n")
+                    Shell.bashCurrent.stderr("shasum: option requires a numeric argument: \(a)\n")
                     return ExitStatus(2)
                 }
                 algorithm = n
@@ -62,7 +62,7 @@ public struct ShasumCommand: ParsableBashCommand {
                 ShasumHelpers.hex(of: SHA512.hash(data: $0))
             }
         default:
-            Shell.current.stderr("shasum: unsupported algorithm: \(algorithm)\n")
+            Shell.bashCurrent.stderr("shasum: unsupported algorithm: \(algorithm)\n")
             return ExitStatus(2)
         }
     }

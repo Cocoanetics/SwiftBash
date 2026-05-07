@@ -29,19 +29,19 @@ public struct StringsCommand: ParsableBashCommand {
             }
             if a == "-n" || a == "--bytes" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.current.stderr("strings: -n requires positive N\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("strings: -n requires positive N\n"); return ExitStatus(2)
                 }
                 minLen = n; i += 2; continue
             }
             if a.hasPrefix("--bytes=") {
                 guard let n = Int(a.dropFirst("--bytes=".count)), n > 0 else {
-                    Shell.current.stderr("strings: invalid --bytes\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("strings: invalid --bytes\n"); return ExitStatus(2)
                 }
                 minLen = n; i += 1; continue
             }
             if a.hasPrefix("-") && a != "-" && a.count > 1 {
                 if let n = Int(a.dropFirst()), n > 0 { minLen = n; i += 1; continue }
-                Shell.current.stderr("strings: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.bashCurrent.stderr("strings: unknown option: \(a)\n"); return ExitStatus(2)
             }
             files.append(a); i += 1
         }
@@ -51,11 +51,11 @@ public struct StringsCommand: ParsableBashCommand {
             try Task.checkCancellation()
             do {
                 let data: Data
-                if f == "-" { data = await Shell.current.stdin.readAllData() }
-                else { data = try await Shell.current.readDataAtPath(f) }
+                if f == "-" { data = await Shell.bashCurrent.stdin.readAllData() }
+                else { data = try await Shell.bashCurrent.readDataAtPath(f) }
                 emit(data, minLen: minLen)
             } catch {
-                Shell.current.stderr("strings: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("strings: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -71,13 +71,13 @@ public struct StringsCommand: ParsableBashCommand {
                 run.append(byte)
             } else {
                 if run.count >= minLen {
-                    Shell.current.stdout(String(decoding: run, as: UTF8.self) + "\n")
+                    Shell.bashCurrent.stdout(String(decoding: run, as: UTF8.self) + "\n")
                 }
                 run.removeAll(keepingCapacity: true)
             }
         }
         if run.count >= minLen {
-            Shell.current.stdout(String(decoding: run, as: UTF8.self) + "\n")
+            Shell.bashCurrent.stdout(String(decoding: run, as: UTF8.self) + "\n")
         }
     }
 }

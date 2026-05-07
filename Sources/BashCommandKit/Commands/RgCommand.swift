@@ -105,7 +105,7 @@ public struct RgCommand: ParsableBashCommand {
             paths = positionals.isEmpty ? ["."] : positionals
         } else {
             guard let p = positionals.first else {
-                Shell.current.stderr("rg: missing PATTERN\n")
+                Shell.bashCurrent.stderr("rg: missing PATTERN\n")
                 return ExitStatus(2)
             }
             pattern = p
@@ -119,7 +119,7 @@ public struct RgCommand: ParsableBashCommand {
         if listFiles {
             for path in paths {
                 try Task.checkCancellation()
-                let abs = Shell.current.resolvePath(path)
+                let abs = Shell.bashCurrent.resolvePath(path)
                 await listOne(displayPath: path,
                               absolutePath: abs,
                               globs: parsedGlobs)
@@ -139,7 +139,7 @@ public struct RgCommand: ParsableBashCommand {
             matcher = try LineMatcher(pattern: pattern!,
                                       ignoreCase: effIgnore)
         } catch {
-            Shell.current.stderr("rg: \(pattern!): \(error)\n")
+            Shell.bashCurrent.stderr("rg: \(pattern!): \(error)\n")
             return ExitStatus(2)
         }
 
@@ -156,7 +156,7 @@ public struct RgCommand: ParsableBashCommand {
         var anyMatched = false
         for path in paths {
             try Task.checkCancellation()
-            let abs = Shell.current.resolvePath(path)
+            let abs = Shell.bashCurrent.resolvePath(path)
             let r = await searchPath(displayPath: path,
                                      absolutePath: abs,
                                      globs: parsedGlobs,
@@ -173,22 +173,22 @@ public struct RgCommand: ParsableBashCommand {
     private func listOne(displayPath: String,
                          absolutePath: String,
                          globs: [GlobRule]) async {
-        let meta = try? await Shell.current.metadataAtPath(displayPath)
+        let meta = try? await Shell.bashCurrent.metadataAtPath(displayPath)
         guard let meta else {
-            Shell.current.stderr("rg: \(displayPath): No such file or directory\n")
+            Shell.bashCurrent.stderr("rg: \(displayPath): No such file or directory\n")
             return
         }
         if meta.kind == .directory {
             await walk(displayPath: displayPath,
                        absolutePath: absolutePath,
                        globs: globs) { dp, _ in
-                Shell.current.stdout(dp + "\n")
+                Shell.bashCurrent.stdout(dp + "\n")
                 return true
             }
         } else {
             let name = (displayPath as NSString).lastPathComponent
             if Self.passesGlobs(name: name, rules: globs) {
-                Shell.current.stdout(displayPath + "\n")
+                Shell.bashCurrent.stdout(displayPath + "\n")
             }
         }
     }
@@ -200,9 +200,9 @@ public struct RgCommand: ParsableBashCommand {
                             globs: [GlobRule],
                             matcher: LineMatcher,
                             opts: OutputOptions) async -> Bool {
-        let meta = try? await Shell.current.metadataAtPath(displayPath)
+        let meta = try? await Shell.bashCurrent.metadataAtPath(displayPath)
         guard let meta else {
-            Shell.current.stderr("rg: \(displayPath): No such file or directory\n")
+            Shell.bashCurrent.stderr("rg: \(displayPath): No such file or directory\n")
             return false
         }
         if meta.kind == .directory {
@@ -235,9 +235,9 @@ public struct RgCommand: ParsableBashCommand {
                       visit: (String, String) async -> Bool) async {
         let entries: [String]
         do {
-            entries = try await Shell.current.fileSystem.list(absolutePath)
+            entries = try await Shell.bashCurrent.fileSystem.list(absolutePath)
         } catch {
-            Shell.current.stderr("rg: \(displayPath): \(error)\n")
+            Shell.bashCurrent.stderr("rg: \(displayPath): \(error)\n")
             return
         }
         for name in entries.sorted() {
@@ -246,7 +246,7 @@ public struct RgCommand: ParsableBashCommand {
                 .appendingPathComponent(name)
             let childDisplay = (displayPath as NSString)
                 .appendingPathComponent(name)
-            let meta = try? await Shell.current.fileSystem.metadata(childAbs)
+            let meta = try? await Shell.bashCurrent.fileSystem.metadata(childAbs)
             guard let meta else { continue }
             if meta.kind == .directory {
                 await walk(displayPath: childDisplay,
@@ -278,9 +278,9 @@ public struct RgCommand: ParsableBashCommand {
                             opts: OutputOptions) async -> Bool {
         let input: InputSource
         do {
-            input = try await Shell.current.openInputPath(displayPath)
+            input = try await Shell.bashCurrent.openInputPath(displayPath)
         } catch {
-            Shell.current.stderr("rg: \(displayPath): \(error)\n")
+            Shell.bashCurrent.stderr("rg: \(displayPath): \(error)\n")
             return false
         }
         let needsContext = opts.before > 0 || opts.after > 0
@@ -297,12 +297,12 @@ public struct RgCommand: ParsableBashCommand {
                 matchCount += 1
                 if opts.quiet { return true }
                 if opts.filesWithMatches {
-                    Shell.current.stdout(displayPath + "\n")
+                    Shell.bashCurrent.stdout(displayPath + "\n")
                     return true
                 }
                 if needsContext, lastEmitted > 0,
                    lineNum - opts.before > lastEmitted + 1 {
-                    Shell.current.stdout("--\n")
+                    Shell.bashCurrent.stdout("--\n")
                 }
                 for (bn, bl) in beforeBuf.elements where bn > lastEmitted {
                     emit(file: displayPath, lineNum: bn, line: bl,
@@ -334,7 +334,7 @@ public struct RgCommand: ParsableBashCommand {
         var out = file + sep
         if opts.lineNumber { out += "\(lineNum)\(sep)" }
         out += line + "\n"
-        Shell.current.stdout(out)
+        Shell.bashCurrent.stdout(out)
     }
 
     // MARK: Glob rules

@@ -33,7 +33,7 @@ public struct ShoptCommand: Command {
                     case "p": printMode = true
                     case "o": break // we don't differentiate -o options here
                     default:
-                        Shell.current.stderr("shopt: invalid option: -\(c)\n")
+                        Shell.bashCurrent.stderr("shopt: invalid option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -45,16 +45,16 @@ public struct ShoptCommand: Command {
         switch mode {
         case .list:
             let keys = names.isEmpty
-                ? Array(Shell.current.shoptOptions.keys).sorted()
+                ? Array(Shell.bashCurrent.shoptOptions.keys).sorted()
                 : names
             var anyOff = false
             for key in keys {
-                let on = Shell.current.shoptOptions[key] ?? false
+                let on = Shell.bashCurrent.shoptOptions[key] ?? false
                 if printMode {
-                    Shell.current.stdout(
+                    Shell.bashCurrent.stdout(
                         "shopt -\(on ? "s" : "u") \(key)\n")
                 } else {
-                    Shell.current.stdout("\(key)\t\(on ? "on" : "off")\n")
+                    Shell.bashCurrent.stdout("\(key)\t\(on ? "on" : "off")\n")
                 }
                 if !on { anyOff = true }
             }
@@ -63,13 +63,13 @@ public struct ShoptCommand: Command {
         case .set, .unset:
             let value = (mode == .set)
             for key in names {
-                Shell.current.shoptOptions[key] = value
+                Shell.bashCurrent.shoptOptions[key] = value
             }
             return .success
 
         case .quiet:
             for key in names {
-                if !(Shell.current.shoptOptions[key] ?? false) {
+                if !(Shell.bashCurrent.shoptOptions[key] ?? false) {
                     return .failure
                 }
             }

@@ -6,8 +6,8 @@ import Testing
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
         cap.shell.register(name: "capture") { _ in
-            let s = await Shell.current.stdin.readAllString()
-            Shell.current.stdout(s)
+            let s = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(s)
             return .success
         }
         return cap
@@ -215,8 +215,8 @@ import Testing
         let cap = makeShell()
         cap.shell.register(name: "wc-l") { _ in
             var n = 0
-            for await _ in Shell.current.stdin.lines { n += 1 }
-            Shell.current.stdout("\(n)\n")
+            for await _ in Shell.bashCurrent.stdin.lines { n += 1 }
+            Shell.bashCurrent.stdout("\(n)\n")
             return .success
         }
         cap.shell.environment["NAME"] = "world"

@@ -9,7 +9,7 @@ extension Shell {
     /// struct GreetCommand: Command {
     ///     let name = "greet"
     ///     func run(_ argv: [String]) throws -> ExitStatus {
-    ///         Shell.current.stdout("hello\n")
+    ///         Shell.bashCurrent.stdout("hello\n")
     ///         return .success
     ///     }
     /// }
@@ -26,7 +26,7 @@ extension Shell {
     /// ```swift
     /// shell.register(name: "sum") { argv in
     ///     let total = argv.dropFirst().compactMap(Int.init).reduce(0, +)
-    ///     Shell.current.stdout("\(total)\n")
+    ///     Shell.bashCurrent.stdout("\(total)\n")
     ///     return .success
     /// }
     /// try shell.run("sum 1 2 3 4")   // → 10

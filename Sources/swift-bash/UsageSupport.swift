@@ -189,7 +189,7 @@ enum UsageSupport {
         // Construct a fresh shell, register the kit's standard
         // commands directly on it, and union with the language
         // built-ins to get the full set of names a real script can
-        // call. (Earlier this read `Shell.current` which is the
+        // call. (Earlier this read `Shell.bashCurrent` which is the
         // never-bound placeholder — bug; the registration ran on the
         // wrong shell and the local was unused, hence the warning.)
         let shell = Shell()

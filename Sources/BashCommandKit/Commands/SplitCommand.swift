@@ -46,37 +46,37 @@ public struct SplitCommand: ParsableBashCommand {
             }
             if a == "-l" || a == "--lines" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.current.stderr("split: -l requires positive N\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("split: -l requires positive N\n"); return ExitStatus(2)
                 }
                 mode = .lines(n); i += 2; continue
             }
             if a.hasPrefix("--lines=") {
                 guard let n = Int(a.dropFirst("--lines=".count)), n > 0 else {
-                    Shell.current.stderr("split: invalid --lines value\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("split: invalid --lines value\n"); return ExitStatus(2)
                 }
                 mode = .lines(n); i += 1; continue
             }
             if a == "-b" || a == "--bytes" {
                 guard i + 1 < rawArgv.count, let n = parseSize(rawArgv[i + 1]) else {
-                    Shell.current.stderr("split: -b requires SIZE\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("split: -b requires SIZE\n"); return ExitStatus(2)
                 }
                 mode = .bytes(n); i += 2; continue
             }
             if a.hasPrefix("--bytes=") {
                 guard let n = parseSize(String(a.dropFirst("--bytes=".count))) else {
-                    Shell.current.stderr("split: invalid --bytes value\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("split: invalid --bytes value\n"); return ExitStatus(2)
                 }
                 mode = .bytes(n); i += 1; continue
             }
             if a == "-a" || a == "--suffix-length" {
                 guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.current.stderr("split: -a requires positive N\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("split: -a requires positive N\n"); return ExitStatus(2)
                 }
                 suffixLen = n; i += 2; continue
             }
             if a.hasPrefix("--suffix-length=") {
                 guard let n = Int(a.dropFirst("--suffix-length=".count)), n > 0 else {
-                    Shell.current.stderr("split: invalid --suffix-length\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("split: invalid --suffix-length\n"); return ExitStatus(2)
                 }
                 suffixLen = n; i += 1; continue
             }
@@ -96,13 +96,13 @@ public struct SplitCommand: ParsableBashCommand {
             }
             if a == "--additional-suffix" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("split: --additional-suffix requires STR\n")
+                    Shell.bashCurrent.stderr("split: --additional-suffix requires STR\n")
                     return ExitStatus(2)
                 }
                 additional = rawArgv[i + 1]; i += 2; continue
             }
             if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                Shell.current.stderr("split: unknown option: \(a)\n")
+                Shell.bashCurrent.stderr("split: unknown option: \(a)\n")
                 return ExitStatus(2)
             }
             positionals.append(a); i += 1
@@ -114,12 +114,12 @@ public struct SplitCommand: ParsableBashCommand {
         let data: Data
         do {
             if inputPath == "-" {
-                data = await Shell.current.stdin.readAllData()
+                data = await Shell.bashCurrent.stdin.readAllData()
             } else {
-                data = try await Shell.current.readDataAtPath(inputPath)
+                data = try await Shell.bashCurrent.readDataAtPath(inputPath)
             }
         } catch {
-            Shell.current.stderr("split: \(inputPath): \(error)\n")
+            Shell.bashCurrent.stderr("split: \(inputPath): \(error)\n")
             return ExitStatus(2)
         }
 
@@ -136,9 +136,9 @@ public struct SplitCommand: ParsableBashCommand {
                                     numeric: numeric, start: numericStart)
             let path = prefix + suffix + additional
             do {
-                try await Shell.current.writeData(chunk, toPath: path, append: false)
+                try await Shell.bashCurrent.writeData(chunk, toPath: path, append: false)
             } catch {
-                Shell.current.stderr("split: \(path): \(error)\n")
+                Shell.bashCurrent.stderr("split: \(path): \(error)\n")
                 return .failure
             }
         }

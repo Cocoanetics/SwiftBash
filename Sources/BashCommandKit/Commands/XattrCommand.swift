@@ -59,7 +59,7 @@ public struct XattrCommand: ParsableBashCommand {
                     case "c": mode = .clear
                     case "r": recursive = true
                     default:
-                        Shell.current.stderr("xattr: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("xattr: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -74,14 +74,14 @@ public struct XattrCommand: ParsableBashCommand {
         switch mode {
         case .write:
             guard args.count >= 3 else {
-                Shell.current.stderr("xattr: -w requires ATTR VALUE FILE\n")
+                Shell.bashCurrent.stderr("xattr: -w requires ATTR VALUE FILE\n")
                 return ExitStatus(2)
             }
             attrName = args[0]; attrValue = args[1]
             files = Array(args.dropFirst(2))
         case .print, .delete:
             guard args.count >= 2 else {
-                Shell.current.stderr("xattr: option requires ATTR FILE\n")
+                Shell.bashCurrent.stderr("xattr: option requires ATTR FILE\n")
                 return ExitStatus(2)
             }
             attrName = args[0]; attrValue = nil
@@ -92,7 +92,7 @@ public struct XattrCommand: ParsableBashCommand {
         }
 
         guard !files.isEmpty else {
-            Shell.current.stderr("xattr: missing FILE\n")
+            Shell.bashCurrent.stderr("xattr: missing FILE\n")
             return ExitStatus(2)
         }
 
@@ -104,7 +104,7 @@ public struct XattrCommand: ParsableBashCommand {
                                       attrName: attrName, attrValue: attrValue,
                                       multiple: files.count > 1)
             } catch {
-                Shell.current.stderr("xattr: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("xattr: \(f): \(error)\n")
                 hadError = true
             }
         }
@@ -114,15 +114,15 @@ public struct XattrCommand: ParsableBashCommand {
     private func processPath(_ path: String, mode: Mode,
                              recursive: Bool, attrName: String?, attrValue: String?,
                              multiple: Bool) async throws {
-        let resolved = Shell.current.resolvePath(path)
-        let isDir = (try? await Shell.current.fileSystem.metadata(resolved))?.kind == .directory
+        let resolved = Shell.bashCurrent.resolvePath(path)
+        let isDir = (try? await Shell.bashCurrent.fileSystem.metadata(resolved))?.kind == .directory
 
         try await processOne(path, resolved: resolved, mode: mode,
                              attrName: attrName, attrValue: attrValue,
                              multiple: multiple)
 
         if recursive, isDir {
-            let entries = (try? await Shell.current.fileSystem.list(resolved)) ?? []
+            let entries = (try? await Shell.bashCurrent.fileSystem.list(resolved)) ?? []
             for name in entries.sorted() {
                 let childPath = (path as NSString).appendingPathComponent(name)
                 try await processPath(childPath, mode: mode,
@@ -137,22 +137,22 @@ public struct XattrCommand: ParsableBashCommand {
                             mode: Mode, attrName: String?, attrValue: String?,
                             multiple: Bool) async throws {
         let prefix = multiple ? "\(path): " : ""
-        let fs = Shell.current.fileSystem
+        let fs = Shell.bashCurrent.fileSystem
         switch mode {
         case .list:
             let names = try await fs.listXattrs(resolved)
-            for n in names { Shell.current.stdout(prefix + n + "\n") }
+            for n in names { Shell.bashCurrent.stdout(prefix + n + "\n") }
         case .listLong:
             let names = try await fs.listXattrs(resolved)
             for n in names {
                 let v = (try? await fs.getXattr(resolved, name: n)) ?? Data()
                 let str = String(decoding: v, as: UTF8.self)
-                Shell.current.stdout("\(prefix)\(n): \(str)\n")
+                Shell.bashCurrent.stdout("\(prefix)\(n): \(str)\n")
             }
         case .print:
             guard let n = attrName else { return }
             let v = try await fs.getXattr(resolved, name: n)
-            Shell.current.stdout(prefix + String(decoding: v, as: UTF8.self) + "\n")
+            Shell.bashCurrent.stdout(prefix + String(decoding: v, as: UTF8.self) + "\n")
         case .write:
             guard let n = attrName, let v = attrValue else { return }
             try await fs.setXattr(resolved, name: n, value: Data(v.utf8))

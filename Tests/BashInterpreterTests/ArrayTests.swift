@@ -94,9 +94,9 @@ import Testing
         let cap = makeShell()
         cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                Shell.current.stdout("[\(i + 1)]\(a)\n")
+                Shell.bashCurrent.stdout("[\(i + 1)]\(a)\n")
             }
-            Shell.current.stdout("count=\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"""
@@ -109,7 +109,7 @@ import Testing
     @Test func unquotedDollarAtIFSSplits() async throws {
         let cap = makeShell()
         cap.shell.register(name: "args") { argv in
-            Shell.current.stdout("count=\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"""
@@ -150,7 +150,7 @@ import Testing
         let cap = makeShell()
         cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                Shell.current.stdout("[\(i + 1)]\(a)\n")
+                Shell.bashCurrent.stdout("[\(i + 1)]\(a)\n")
             }
             return .success
         }
@@ -379,9 +379,9 @@ import Testing
         let cap = makeShell()
         cap.shell.register(name: "args") { argv in
             for (i, a) in argv.dropFirst().enumerated() {
-                Shell.current.stdout("[\(i + 1)]\(a)\n")
+                Shell.bashCurrent.stdout("[\(i + 1)]\(a)\n")
             }
-            Shell.current.stdout("count=\(argv.count - 1)\n")
+            Shell.bashCurrent.stdout("count=\(argv.count - 1)\n")
             return .success
         }
         try await cap.shell.run(#"""

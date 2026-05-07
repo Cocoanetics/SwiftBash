@@ -27,7 +27,7 @@ public struct YesCommand: ParsableBashCommand {
         // cancellation latency stays under a millisecond.
         while true {
             try Task.checkCancellation()
-            Shell.current.stdout(line)
+            Shell.bashCurrent.stdout(line)
         }
     }
 }

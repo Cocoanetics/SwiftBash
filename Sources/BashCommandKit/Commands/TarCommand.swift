@@ -54,7 +54,7 @@ public struct TarCommand: ParsableBashCommand {
             if a == "-v" || a == "--verbose" { verbose = true; i += 1; continue }
             if a == "-f" || a == "--file" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
                 }
                 archivePath = rawArgv[i + 1]; i += 2; continue
             }
@@ -63,7 +63,7 @@ public struct TarCommand: ParsableBashCommand {
             }
             if a == "-C" || a == "--directory" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("tar: -C requires DIR\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("tar: -C requires DIR\n"); return ExitStatus(2)
                 }
                 changeDir = rawArgv[i + 1]; i += 2; continue
             }
@@ -81,14 +81,14 @@ public struct TarCommand: ParsableBashCommand {
                     case "v": verbose = true
                     case "f": consumeFile = true
                     default:
-                        Shell.current.stderr("tar: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("tar: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
                 i += 1
                 if consumeFile {
                     guard i < rawArgv.count else {
-                        Shell.current.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
+                        Shell.bashCurrent.stderr("tar: -f requires FILE\n"); return ExitStatus(2)
                     }
                     archivePath = rawArgv[i]
                     i += 1
@@ -99,11 +99,11 @@ public struct TarCommand: ParsableBashCommand {
         }
 
         guard let mode else {
-            Shell.current.stderr("tar: must specify one of -c -x -t\n")
+            Shell.bashCurrent.stderr("tar: must specify one of -c -x -t\n")
             return ExitStatus(2)
         }
 
-        let cwd = changeDir.map { Shell.current.resolvePath($0) } ?? Shell.current.environment.workingDirectory
+        let cwd = changeDir.map { Shell.bashCurrent.resolvePath($0) } ?? Shell.bashCurrent.environment.workingDirectory
         switch mode {
         case .create:
             return await createArchive(files: files, archive: archivePath,
@@ -128,7 +128,7 @@ public struct TarCommand: ParsableBashCommand {
                 try await emitEntry(name: f, abs: abs, into: &data,
                                     verbose: verbose)
             } catch {
-                Shell.current.stderr("tar: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("tar: \(f): \(error)\n")
                 return .failure
             }
         }
@@ -136,12 +136,12 @@ public struct TarCommand: ParsableBashCommand {
         data.append(Data(repeating: 0, count: 1024))
         do {
             if let p = archive, p != "-" {
-                try await Shell.current.writeData(data, toPath: p, append: false)
+                try await Shell.bashCurrent.writeData(data, toPath: p, append: false)
             } else {
-                Shell.current.stdout(data)
+                Shell.bashCurrent.stdout(data)
             }
         } catch {
-            Shell.current.stderr("tar: \(error)\n")
+            Shell.bashCurrent.stderr("tar: \(error)\n")
             return .failure
         }
         return .success
@@ -150,10 +150,10 @@ public struct TarCommand: ParsableBashCommand {
     private func emitEntry(name: String, abs: String, into data: inout Data,
                            verbose: Bool) async throws {
         try Task.checkCancellation()
-        guard let meta = try await Shell.current.fileSystem.metadata(abs) else {
+        guard let meta = try await Shell.bashCurrent.fileSystem.metadata(abs) else {
             throw FileSystemError.notFound(name)
         }
-        if verbose { Shell.current.stderr(name + "\n") }
+        if verbose { Shell.bashCurrent.stderr(name + "\n") }
         switch meta.kind {
         case .directory:
             // Header for the dir itself, then walk.
@@ -161,7 +161,7 @@ public struct TarCommand: ParsableBashCommand {
             if !dirName.hasSuffix("/") { dirName += "/" }
             data.append(makeHeader(name: dirName, size: 0, kind: .directory,
                                    mtime: meta.modifiedAt, mode: 0o755))
-            let entries = (try? await Shell.current.fileSystem.list(abs)) ?? []
+            let entries = (try? await Shell.bashCurrent.fileSystem.list(abs)) ?? []
             for child in entries.sorted() {
                 let childAbs = (abs as NSString).appendingPathComponent(child)
                 let childName = (name as NSString).appendingPathComponent(child)
@@ -169,7 +169,7 @@ public struct TarCommand: ParsableBashCommand {
                                     verbose: verbose)
             }
         case .file:
-            let body = try await Shell.current.readDataAtPath(abs)
+            let body = try await Shell.bashCurrent.readDataAtPath(abs)
             data.append(makeHeader(name: name, size: Int64(body.count), kind: .file,
                                    mtime: meta.modifiedAt, mode: 0o644))
             data.append(body)
@@ -250,7 +250,7 @@ public struct TarCommand: ParsableBashCommand {
         // Routes every write through the shell's filesystem — never
         // FileManager.default — so a sandboxed shell can extract into
         // its overlay and the host disk stays untouched.
-        let fs = Shell.current.fileSystem
+        let fs = Shell.bashCurrent.fileSystem
         var pos = 0
         while pos + 512 <= raw.count {
             try? Task.checkCancellation()
@@ -258,7 +258,7 @@ public struct TarCommand: ParsableBashCommand {
             if hdr.allSatisfy({ $0 == 0 }) { break }
             pos += 512
             guard let entry = parseHeader(hdr) else { continue }
-            if verbose { Shell.current.stderr(entry.name + "\n") }
+            if verbose { Shell.bashCurrent.stderr(entry.name + "\n") }
             let dest = (cwd as NSString).appendingPathComponent(entry.name)
             switch entry.type {
             case "5":
@@ -293,9 +293,9 @@ public struct TarCommand: ParsableBashCommand {
             guard let entry = parseHeader(hdr) else { continue }
             if verbose {
                 let kind = entry.type == "5" ? "d" : (entry.type == "2" ? "l" : "-")
-                Shell.current.stdout("\(kind) \(entry.size) \(entry.name)\n")
+                Shell.bashCurrent.stdout("\(kind) \(entry.size) \(entry.name)\n")
             } else {
-                Shell.current.stdout(entry.name + "\n")
+                Shell.bashCurrent.stdout(entry.name + "\n")
             }
             if entry.type != "5" && entry.type != "2" {
                 pos += Int(entry.size)
@@ -309,11 +309,11 @@ public struct TarCommand: ParsableBashCommand {
     private func readArchiveData(archive: String?) async -> Data? {
         do {
             if let p = archive, p != "-" {
-                return try await Shell.current.readDataAtPath(p)
+                return try await Shell.bashCurrent.readDataAtPath(p)
             }
-            return await Shell.current.stdin.readAllData()
+            return await Shell.bashCurrent.stdin.readAllData()
         } catch {
-            Shell.current.stderr("tar: \(error)\n")
+            Shell.bashCurrent.stderr("tar: \(error)\n")
             return nil
         }
     }

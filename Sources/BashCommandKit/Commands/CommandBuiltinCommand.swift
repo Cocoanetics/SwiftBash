@@ -29,13 +29,13 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         guard !names.isEmpty else {
-            Shell.current.stderr("command: missing operand\n")
+            Shell.bashCurrent.stderr("command: missing operand\n")
             return .failure
         }
         if lookup {
             var missing = false
             for name in names {
-                guard Shell.current.commands[name] != nil else {
+                guard Shell.bashCurrent.commands[name] != nil else {
                     missing = true
                     continue
                 }
@@ -43,9 +43,9 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
                 // file-shadowed commands and just the name for
                 // built-ins, exactly matching `which` shape.
                 if let path = BinCatalog.knownPaths[name] {
-                    Shell.current.stdout("\(path)\n")
+                    Shell.bashCurrent.stdout("\(path)\n")
                 } else {
-                    Shell.current.stdout("\(name)\n")
+                    Shell.bashCurrent.stdout("\(name)\n")
                 }
             }
             return missing ? .failure : .success
@@ -54,8 +54,8 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
         // functions/aliases yet, so this reduces to "look up in the
         // registry and call". Same shape as Shell's own dispatch.
         let head = names[0]
-        guard let cmd = Shell.current.commands[head] else {
-            Shell.current.stderr("command: \(head): not found\n")
+        guard let cmd = Shell.bashCurrent.commands[head] else {
+            Shell.bashCurrent.stderr("command: \(head): not found\n")
             return ExitStatus(127)
         }
         return try await cmd.run(names)

@@ -14,12 +14,12 @@ public struct LetCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let exprs = argv.dropFirst()
         if exprs.isEmpty {
-            Shell.current.stderr("let: expression expected\n")
+            Shell.bashCurrent.stderr("let: expression expected\n")
             return ExitStatus(2)
         }
         var lastValue: Int64 = 0
         for expr in exprs {
-            lastValue = try await Shell.current.evaluateArithmetic(expr)
+            lastValue = try await Shell.bashCurrent.evaluateArithmetic(expr)
         }
         return lastValue != 0 ? .success : .failure
     }

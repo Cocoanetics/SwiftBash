@@ -21,7 +21,7 @@ public struct UnsetCommand: Command {
             case "-f": operateOnFunctions = true
             case "-v": operateOnFunctions = false
             default:
-                Shell.current.stderr("unset: invalid option: \(argv[i])\n")
+                Shell.bashCurrent.stderr("unset: invalid option: \(argv[i])\n")
                 return ExitStatus(2)
             }
             i += 1
@@ -32,8 +32,8 @@ public struct UnsetCommand: Command {
             if operateOnFunctions {
                 // Functions live in the command registry alongside
                 // builtins; remove only function-defined commands.
-                if Shell.current.commands[raw] is FunctionCommand {
-                    Shell.current.commands.removeValue(forKey: raw)
+                if Shell.bashCurrent.commands[raw] is FunctionCommand {
+                    Shell.bashCurrent.commands.removeValue(forKey: raw)
                 }
                 continue
             }
@@ -45,29 +45,29 @@ public struct UnsetCommand: Command {
                 let last = raw.index(before: raw.endIndex)
                 let sub = String(raw[after..<last])
 
-                if var assoc = Shell.current.environment.associativeArrays[head] {
+                if var assoc = Shell.bashCurrent.environment.associativeArrays[head] {
                     assoc.removeValue(forKey: sub)
-                    Shell.current.environment.associativeArrays[head] = assoc
+                    Shell.bashCurrent.environment.associativeArrays[head] = assoc
                     continue
                 }
-                if var array = Shell.current.environment.arrays[head] {
+                if var array = Shell.bashCurrent.environment.arrays[head] {
                     if sub == "@" || sub == "*" {
                         // `unset arr[@]` removes the whole array.
-                        Shell.current.environment.arrays.removeValue(forKey: head)
+                        Shell.bashCurrent.environment.arrays.removeValue(forKey: head)
                     } else if let n = Int(sub) {
                         let resolved = n >= 0 ? n
                             : ((array.entries.keys.max() ?? -1) + 1 + n)
                         array[resolved] = nil
-                        Shell.current.environment.arrays[head] = array
+                        Shell.bashCurrent.environment.arrays[head] = array
                     }
                     continue
                 }
                 continue
             }
 
-            Shell.current.environment.variables.removeValue(forKey: raw)
-            Shell.current.environment.arrays.removeValue(forKey: raw)
-            Shell.current.environment.associativeArrays.removeValue(forKey: raw)
+            Shell.bashCurrent.environment.variables.removeValue(forKey: raw)
+            Shell.bashCurrent.environment.arrays.removeValue(forKey: raw)
+            Shell.bashCurrent.environment.associativeArrays.removeValue(forKey: raw)
         }
         return .success
     }

@@ -28,20 +28,20 @@ public struct TypeCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         if names.isEmpty {
-            Shell.current.stderr("type: missing operand\n")
+            Shell.bashCurrent.stderr("type: missing operand\n")
             return .failure
         }
         var missing = false
         for name in names {
-            guard Shell.current.commands[name] != nil else {
-                Shell.current.stderr("type: \(name): not found\n")
+            guard Shell.bashCurrent.commands[name] != nil else {
+                Shell.bashCurrent.stderr("type: \(name): not found\n")
                 missing = true
                 continue
             }
             if let path = BinCatalog.knownPaths[name] {
-                Shell.current.stdout("\(name) is \(path)\n")
+                Shell.bashCurrent.stdout("\(name) is \(path)\n")
             } else {
-                Shell.current.stdout("\(name) is a shell builtin\n")
+                Shell.bashCurrent.stdout("\(name) is a shell builtin\n")
             }
         }
         return missing ? .failure : .success

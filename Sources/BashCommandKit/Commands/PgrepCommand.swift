@@ -35,7 +35,7 @@ public struct PgrepCommand: ParsableBashCommand {
                     case "l": listLong = true
                     case "f": break
                     default:
-                        Shell.current.stderr("pgrep: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("pgrep: unknown option: -\(c)\n")
                         return ExitStatus(2)
                     }
                 }
@@ -44,14 +44,14 @@ public struct PgrepCommand: ParsableBashCommand {
             pattern = a; i += 1
         }
         guard let pat = pattern else {
-            Shell.current.stderr("pgrep: missing pattern\n")
+            Shell.bashCurrent.stderr("pgrep: missing pattern\n")
             return ExitStatus(2)
         }
         guard let regex = try? NSRegularExpression(pattern: pat) else {
-            Shell.current.stderr("pgrep: invalid pattern\n")
+            Shell.bashCurrent.stderr("pgrep: invalid pattern\n")
             return ExitStatus(2)
         }
-        let entries = await Shell.current.processTable.list()
+        let entries = await Shell.bashCurrent.processTable.list()
         let matches = entries.filter { e in
             let ns = e.command as NSString
             return regex.firstMatch(in: e.command,
@@ -59,9 +59,9 @@ public struct PgrepCommand: ParsableBashCommand {
         }
         for e in matches {
             if listLong {
-                Shell.current.stdout("\(e.pid) \(e.command)\n")
+                Shell.bashCurrent.stdout("\(e.pid) \(e.command)\n")
             } else {
-                Shell.current.stdout("\(e.pid)\n")
+                Shell.bashCurrent.stdout("\(e.pid)\n")
             }
         }
         return matches.isEmpty ? ExitStatus(1) : .success

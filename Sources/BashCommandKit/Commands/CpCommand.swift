@@ -21,26 +21,26 @@ public struct CpCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         guard paths.count >= 2 else {
-            Shell.current.stderr("cp: missing operand\n")
+            Shell.bashCurrent.stderr("cp: missing operand\n")
             return .failure
         }
         let sources = paths.dropLast()
         let dest = paths.last!
-        let destAbs = Shell.current.resolvePath(dest)
-        let destMeta = try? await Shell.current.fileSystem.metadata(destAbs)
+        let destAbs = Shell.bashCurrent.resolvePath(dest)
+        let destMeta = try? await Shell.bashCurrent.fileSystem.metadata(destAbs)
         let destIsDir = destMeta?.kind == .directory
 
         if sources.count > 1 && !destIsDir {
-            Shell.current.stderr("cp: target `\(dest)` is not a directory\n")
+            Shell.bashCurrent.stderr("cp: target `\(dest)` is not a directory\n")
             return .failure
         }
 
         var hadError = false
         for src in sources {
-            let srcAbs = Shell.current.resolvePath(src)
-            let srcMeta = try? await Shell.current.fileSystem.metadata(srcAbs)
+            let srcAbs = Shell.bashCurrent.resolvePath(src)
+            let srcMeta = try? await Shell.bashCurrent.fileSystem.metadata(srcAbs)
             if srcMeta?.kind == .directory && !recursive {
-                Shell.current.stderr("cp: \(src): is a directory (use -r)\n")
+                Shell.bashCurrent.stderr("cp: \(src): is a directory (use -r)\n")
                 hadError = true
                 continue
             }
@@ -49,9 +49,9 @@ public struct CpCommand: ParsableBashCommand {
                     (srcAbs as NSString).lastPathComponent)
                 : destAbs
             do {
-                try await Shell.current.fileSystem.copy(from: srcAbs, to: finalDest)
+                try await Shell.bashCurrent.fileSystem.copy(from: srcAbs, to: finalDest)
             } catch {
-                Shell.current.stderr("cp: \(src): \(error)\n")
+                Shell.bashCurrent.stderr("cp: \(src): \(error)\n")
                 hadError = true
             }
         }

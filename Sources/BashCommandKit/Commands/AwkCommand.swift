@@ -53,7 +53,7 @@ public struct AwkCommand: ParsableBashCommand {
             let a = rawArgv[i]
             if a == "-F" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("awk: -F requires an argument\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("awk: -F requires an argument\n"); return ExitStatus(2)
                 }
                 fieldSep = processEscapes(rawArgv[i + 1])
                 i += 2; continue
@@ -64,7 +64,7 @@ public struct AwkCommand: ParsableBashCommand {
             }
             if a == "-v" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("awk: -v requires NAME=VALUE\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("awk: -v requires NAME=VALUE\n"); return ExitStatus(2)
                 }
                 let assn = rawArgv[i + 1]
                 if let eq = assn.firstIndex(of: "=") {
@@ -76,13 +76,13 @@ public struct AwkCommand: ParsableBashCommand {
             }
             if a == "-f" {
                 guard i + 1 < rawArgv.count else {
-                    Shell.current.stderr("awk: -f requires a file\n"); return ExitStatus(2)
+                    Shell.bashCurrent.stderr("awk: -f requires a file\n"); return ExitStatus(2)
                 }
                 do {
-                    let data = try await Shell.current.readDataAtPath(rawArgv[i + 1])
+                    let data = try await Shell.bashCurrent.readDataAtPath(rawArgv[i + 1])
                     programs.append(String(decoding: data, as: UTF8.self))
                 } catch {
-                    Shell.current.stderr("awk: can't open \(rawArgv[i + 1]): \(error)\n")
+                    Shell.bashCurrent.stderr("awk: can't open \(rawArgv[i + 1]): \(error)\n")
                     return ExitStatus(2)
                 }
                 i += 2; continue
@@ -96,7 +96,7 @@ public struct AwkCommand: ParsableBashCommand {
                 continue
             }
             if a.hasPrefix("-") && a != "-" {
-                Shell.current.stderr("awk: unknown option: \(a)\n"); return ExitStatus(2)
+                Shell.bashCurrent.stderr("awk: unknown option: \(a)\n"); return ExitStatus(2)
             }
             if programs.isEmpty {
                 programs.append(a)
@@ -107,7 +107,7 @@ public struct AwkCommand: ParsableBashCommand {
         }
 
         guard !programs.isEmpty else {
-            Shell.current.stderr("awk: missing program\n")
+            Shell.bashCurrent.stderr("awk: missing program\n")
             return ExitStatus(2)
         }
         let source = programs.joined(separator: "\n")
@@ -116,18 +116,18 @@ public struct AwkCommand: ParsableBashCommand {
         do {
             program = try AwkParser.parse(source)
         } catch let e as AwkParseError {
-            Shell.current.stderr("awk: \(e.message)\n")
+            Shell.bashCurrent.stderr("awk: \(e.message)\n")
             return ExitStatus(2)
         }
 
         // Pre-load any files referenced by `getline < "file"` as well
         // as the input files themselves.
         let ctx = AwkContext()
-        ctx.cwd = Shell.current.environment.workingDirectory
+        ctx.cwd = Shell.bashCurrent.environment.workingDirectory
         ctx.FS = fieldSep
         for (name, value) in presetVars { ctx.vars[name] = .string(value) }
         // ENVIRON
-        for (k, v) in Shell.current.environment.variables { ctx.ENVIRON[k] = .string(v) }
+        for (k, v) in Shell.bashCurrent.environment.variables { ctx.ENVIRON[k] = .string(v) }
         // ARGC/ARGV
         ctx.ARGC = files.count + 1
         ctx.ARGV["0"] = .string("awk")
@@ -145,7 +145,7 @@ public struct AwkCommand: ParsableBashCommand {
         for path in collectGetlineTargets(program) {
             do {
                 let resolved = path.hasPrefix("/") ? path : ctx.cwd + "/" + path
-                let data = try await Shell.current.readDataAtPath(resolved)
+                let data = try await Shell.bashCurrent.readDataAtPath(resolved)
                 preloadedFiles[resolved] = String(decoding: data, as: UTF8.self)
                 preloadedFiles[path] = preloadedFiles[resolved]
             } catch {
@@ -177,7 +177,7 @@ public struct AwkCommand: ParsableBashCommand {
             try interp.executeBegin()
             if ctx.shouldExit {
                 try interp.executeEnd()
-                Shell.current.stdout(ctx.output)
+                Shell.bashCurrent.stdout(ctx.output)
                 try await flushFileWrites(ctx)
                 return ExitStatus(Int32(ctx.exitCode))
             }
@@ -186,7 +186,7 @@ public struct AwkCommand: ParsableBashCommand {
                 // also keep filename / FNR). For multiple files we
                 // sequence them, resetting FNR between.
                 if files.isEmpty {
-                    let stdin = await Shell.current.stdin.readAllString()
+                    let stdin = await Shell.bashCurrent.stdin.readAllString()
                     var lines = stdin.components(separatedBy: "\n")
                     if lines.last == "" { lines.removeLast() }
                     ctx.FILENAME = ""
@@ -199,13 +199,13 @@ public struct AwkCommand: ParsableBashCommand {
                         if ctx.shouldExit { break }
                         let chunk: String
                         if f == "-" {
-                            chunk = await Shell.current.stdin.readAllString()
+                            chunk = await Shell.bashCurrent.stdin.readAllString()
                         } else {
                             do {
-                                let data = try await Shell.current.readDataAtPath(f)
+                                let data = try await Shell.bashCurrent.readDataAtPath(f)
                                 chunk = String(decoding: data, as: UTF8.self)
                             } catch {
-                                Shell.current.stderr("awk: \(f): No such file or directory\n")
+                                Shell.bashCurrent.stderr("awk: \(f): No such file or directory\n")
                                 return ExitStatus(2)
                             }
                         }
@@ -222,16 +222,16 @@ public struct AwkCommand: ParsableBashCommand {
             }
             try interp.executeEnd()
         } catch let e as AwkRuntimeError {
-            Shell.current.stderr("awk: \(e.message)\n")
-            Shell.current.stdout(ctx.output)
+            Shell.bashCurrent.stderr("awk: \(e.message)\n")
+            Shell.bashCurrent.stdout(ctx.output)
             try await flushFileWrites(ctx)
             return ExitStatus(2)
         } catch {
-            Shell.current.stderr("awk: \(error)\n")
+            Shell.bashCurrent.stderr("awk: \(error)\n")
             return ExitStatus(2)
         }
 
-        Shell.current.stdout(ctx.output)
+        Shell.bashCurrent.stdout(ctx.output)
         try await flushFileWrites(ctx)
         return ExitStatus(Int32(ctx.exitCode))
     }
@@ -250,7 +250,7 @@ public struct AwkCommand: ParsableBashCommand {
 
     private func flushFileWrites(_ ctx: AwkContext) async throws {
         for (path, content) in ctx.fileWrites {
-            try? await Shell.current.writeData(Data(content.utf8), toPath: path, append: false)
+            try? await Shell.bashCurrent.writeData(Data(content.utf8), toPath: path, append: false)
         }
     }
 

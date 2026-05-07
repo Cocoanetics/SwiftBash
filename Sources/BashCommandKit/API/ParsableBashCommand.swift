@@ -26,7 +26,7 @@ import BashInterpreter
 ///
 ///     func execute() throws -> ExitStatus {
 ///         let msg = loud ? "HELLO \(name.uppercased())" : "hello \(name)"
-///         Shell.current.stdout(msg + "\n")
+///         Shell.bashCurrent.stdout(msg + "\n")
 ///         return .success
 ///     }
 /// }

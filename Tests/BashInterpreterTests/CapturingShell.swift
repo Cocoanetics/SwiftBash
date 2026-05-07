@@ -6,7 +6,7 @@ import Foundation
 typealias ExitStatus = BashInterpreter.ExitStatus
 
 /// A test helper wiring a Shell up to in-memory buffers. Bytes written
-/// by `Shell.current.stdout(_:)` / `Shell.current.stderr(_:)` are UTF-8 decoded and
+/// by `Shell.bashCurrent.stdout(_:)` / `Shell.bashCurrent.stderr(_:)` are UTF-8 decoded and
 /// appended to the `stdout` / `stderr` strings on this instance —
 /// the common case for assertion. The underlying `OutputSink`s still
 /// expose `.bytes` streams if a test needs to consume output live.

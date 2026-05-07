@@ -32,6 +32,14 @@ let package = Package(
         // cross-platform spelling.
         .package(url: "https://github.com/apple/swift-crypto",
                  from: "3.0.0"),
+        // ShellKit owns the virtualised runtime context: IO sinks,
+        // Environment, Sandbox URL gate, NetworkConfig, ProcessTable,
+        // HostInfo, BinCatalog, the Command protocol, and the
+        // `Shell.current` TaskLocal. SwiftBash subclasses
+        // `ShellKit.Shell` to add bash-specific state on top.
+        // Pinned to `main` until ShellKit ships a tagged release.
+        .package(url: "https://github.com/Cocoanetics/ShellKit",
+                 branch: "main"),
     ],
     targets: [
         // Tiny systemLibrary target wrapping the host's zlib so our
@@ -59,6 +67,7 @@ let package = Package(
             name: "BashInterpreter",
             dependencies: [
                 "BashSyntax",
+                .product(name: "ShellKit", package: "ShellKit"),
                 // CXattr is only consumed by RealFileSystem on
                 // non-Apple platforms. Conditional dep so Apple
                 // builds don't pull the systemLibrary in (Apple
