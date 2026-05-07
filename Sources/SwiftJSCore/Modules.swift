@@ -39,7 +39,7 @@ extension JSRuntime {
             return loadFileModule(spec)
         }
 
-        return throwJS("Cannot find module '\(spec)'")
+        return throwJSError("Cannot find module '\(spec)'", code: "MODULE_NOT_FOUND")
     }
 
     /// Look up the cache directly via the JS object (don't go through
@@ -84,7 +84,7 @@ extension JSRuntime {
         }
 
         guard let source = try? String(contentsOfFile: resolved, encoding: .utf8) else {
-            return throwJS("Cannot find module '\(spec)'")
+            return throwJSError("Cannot find module '\(spec)'", code: "MODULE_NOT_FOUND")
         }
 
         // .json files load as parsed JSON (Node behaviour).
@@ -101,12 +101,14 @@ extension JSRuntime {
         // CommonJS `require`d modules.
         let rewritten = ESMRewriter.rewrite(source)
 
-        // CommonJS wrapper. Note: returns module.exports.
-        let wrapped = """
-        (function(exports, require, module, __filename, __dirname) {
-        \(rewritten)
-        })
-        """
+        // CommonJS wrapper. The prefix lives on the same line as the
+        // user's first line of source so JSC's stack-frame line
+        // numbers map directly back to the original file (Node does
+        // the same trick for the same reason). Column numbers on line
+        // 1 are still off by `prefix.count`, but that's the standard
+        // Node offset and tools that consume stack traces handle it.
+        let prefix = "(function(exports, require, module, __filename, __dirname) { "
+        let wrapped = prefix + rewritten + "\n})"
         let url = URL(fileURLWithPath: resolved)
         guard let factory = context.evaluateScript(wrapped, withSourceURL: url),
               !factory.isUndefined else {
@@ -421,7 +423,7 @@ extension JSRuntime {
                 let bytes = Array(data) as [UInt8]
                 return bufferCtor.invokeMethod("from", withArguments: [bytes])!
             } catch {
-                return self.throwJS(error.localizedDescription)
+                return self.throwSystemError(error, syscall: "open", path: path)
             }
         }
         fs.setObject(block(readFileSync as AnyObject),
@@ -437,24 +439,31 @@ extension JSRuntime {
                 try data.write(to: URL(fileURLWithPath: path))
                 return true
             } catch {
-                _ = self.throwJS(error.localizedDescription)
+                _ = self.throwSystemError(error, syscall: "open", path: path)
                 return false
             }
         }
         fs.setObject(block(writeFileSync as AnyObject),
                      forKeyedSubscript: "writeFileSync" as NSString)
 
-        let appendFileSync: @convention(block) (String, JSValue) -> Bool = { path, value in
+        let appendFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
+            guard let self else { return false }
             let data = Self.dataForWrite(value)
             let url = URL(fileURLWithPath: path)
-            if let handle = try? FileHandle(forWritingTo: url) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            } else {
-                try? data.write(to: url)
+            do {
+                if FileManager.default.fileExists(atPath: path) {
+                    let handle = try FileHandle(forWritingTo: url)
+                    defer { try? handle.close() }
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                } else {
+                    try data.write(to: url)
+                }
+                return true
+            } catch {
+                _ = self.throwSystemError(error, syscall: "open", path: path)
+                return false
             }
-            return true
         }
         fs.setObject(block(appendFileSync as AnyObject),
                      forKeyedSubscript: "appendFileSync" as NSString)
@@ -465,8 +474,14 @@ extension JSRuntime {
         fs.setObject(block(existsSync as AnyObject),
                      forKeyedSubscript: "existsSync" as NSString)
 
-        let readdirSync: @convention(block) (String) -> [String] = { path in
-            (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+        let readdirSync: @convention(block) (String) -> Any? = { [weak self] path in
+            guard let self else { return nil }
+            do {
+                return try FileManager.default.contentsOfDirectory(atPath: path)
+            } catch {
+                _ = self.throwSystemError(error, syscall: "scandir", path: path)
+                return nil
+            }
         }
         fs.setObject(block(readdirSync as AnyObject),
                      forKeyedSubscript: "readdirSync" as NSString)
@@ -486,7 +501,7 @@ extension JSRuntime {
                 )
                 return true
             } catch {
-                _ = self.throwJS(error.localizedDescription)
+                _ = self.throwSystemError(error, syscall: "mkdir", path: path)
                 return false
             }
         }
@@ -501,7 +516,9 @@ extension JSRuntime {
                 try FileManager.default.removeItem(atPath: path)
                 return true
             } catch {
-                if !force { _ = self.throwJS(error.localizedDescription) }
+                if !force {
+                    _ = self.throwSystemError(error, syscall: "unlink", path: path)
+                }
                 return false
             }
         }
@@ -515,7 +532,15 @@ extension JSRuntime {
             let fm = FileManager.default
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: path, isDirectory: &isDir) else {
-                return self.throwJS("ENOENT: no such file or directory, stat '\(path)'")
+                return self.throwJSError(
+                    "ENOENT: no such file or directory, stat '\(path)'",
+                    code: "ENOENT",
+                    extras: [
+                        "errno": Int(-ENOENT),
+                        "syscall": "stat",
+                        "path": path,
+                    ]
+                )
             }
             let attrs = (try? fm.attributesOfItem(atPath: path)) ?? [:]
             let size = (attrs[.size] as? NSNumber)?.intValue ?? 0

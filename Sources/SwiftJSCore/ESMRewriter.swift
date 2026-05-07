@@ -223,7 +223,15 @@ public enum ESMRewriter {
                     return "exports.\(alias) = \(name);"
                 }
                 .joined(separator: " ")
-            out += "exports.__esModule = true; " + assignments
+            let replacement = "exports.__esModule = true; " + assignments
+            // Pad with newlines so a multi-line `export { a, b }` block
+            // doesn't shift later line numbers in stack traces.
+            let original = ns.substring(with: m.range)
+            let originalNewlines = original.reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
+            out += replacement
+            if originalNewlines > 0 {
+                out += String(repeating: "\n", count: originalNewlines)
+            }
             cursor = m.range.location + m.range.length
         }
         out += ns.substring(from: cursor)
@@ -235,17 +243,42 @@ public enum ESMRewriter {
     private static func regexReplace(
         in src: String,
         pattern: String,
-        with replacement: String,
+        with template: String,
         options: NSRegularExpression.Options
     ) -> String {
         guard let re = try? NSRegularExpression(pattern: pattern, options: options) else {
             return src
         }
         let ns = src as NSString
-        return re.stringByReplacingMatches(
-            in: src,
-            range: NSRange(location: 0, length: ns.length),
-            withTemplate: replacement
-        )
+        let matches = re.matches(in: src, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return src }
+
+        // Build the output manually so we can pad each replacement
+        // with newlines whenever the original match spanned more
+        // lines than the template produces. This keeps line numbers
+        // in the rewritten source aligned with the user's original
+        // source — JSC stack traces and the exception code-frame
+        // both point back to the right line.
+        var out = ""
+        var cursor = 0
+        for m in matches {
+            let prefix = NSRange(location: cursor, length: m.range.location - cursor)
+            out += ns.substring(with: prefix)
+
+            let replacement = re.replacementString(for: m, in: src, offset: 0,
+                                                   template: template)
+            let originalNewlines = ns.substring(with: m.range)
+                .reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
+            let replacementNewlines = replacement
+                .reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
+            let padding = max(0, originalNewlines - replacementNewlines)
+            out += replacement
+            if padding > 0 {
+                out += String(repeating: "\n", count: padding)
+            }
+            cursor = m.range.location + m.range.length
+        }
+        out += ns.substring(from: cursor)
+        return out
     }
 }
