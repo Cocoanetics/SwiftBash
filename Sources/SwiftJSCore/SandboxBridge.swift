@@ -22,6 +22,42 @@ enum PathAccessIntent: Sendable {
     case delete
 }
 
+/// Resolve a JS-side path against the bound shell's logical CWD when
+/// it's relative. Mirrors Node's `process.chdir` semantics: after
+/// `process.chdir("/work")`, `readFileSync("./x")` opens `/work/x`.
+///
+/// Why this matters for sandbox correctness: under a non-default
+/// `Shell`, `process.chdir(...)` updates `Shell.current.environment
+/// .workingDirectory` but doesn't touch the host process CWD (we
+/// can't, the host is shared with the embedder). Without this
+/// resolver, every relative-path `fs.*` call would resolve against
+/// the host CWD via `URL(fileURLWithPath:)` — so `process.cwd()`
+/// would diverge from where `readFileSync("./x")` actually reads,
+/// and the gate would authorize the wrong path. Pre-resolving here
+/// means the gate sees what the script intended, and the Foundation
+/// hop that follows opens the same file.
+///
+/// Under `Shell.processDefault` the bound CWD mirrors the host
+/// process CWD, so the result is identical to plain
+/// `URL(fileURLWithPath: path).path` — the standalone `swift-js` CLI
+/// behaviour is unchanged.
+func resolveAgainstShellCWD(_ path: String) -> String {
+    let raw: String
+    if (path as NSString).isAbsolutePath {
+        raw = path
+    } else {
+        let cwd = Shell.current === Shell.processDefault
+            ? FileManager.default.currentDirectoryPath
+            : Shell.current.environment.workingDirectory
+        raw = (cwd as NSString).appendingPathComponent(path)
+    }
+    // Collapse `./` and `../` segments so the gate sees a canonical
+    // form. NSString's `standardizingPath` only resolves symlinks
+    // when doing so doesn't alter intermediate path components, so
+    // sandbox prefix matching stays predictable.
+    return (raw as NSString).standardizingPath
+}
+
 /// Authorize a filesystem access against the bound shell's sandbox.
 /// Throws ``ShellKit.Sandbox.Denial`` when the bound sandbox rejects
 /// the path; returns silently when no sandbox is bound.
@@ -91,7 +127,16 @@ func checkNetworkAllowed(
 ) throws {
     if config.dangerouslyAllowFullInternetAccess { return }
     let normalised = method.uppercased()
-    let knownMethod = HTTPMethod(rawValue: normalised) ?? .GET
+    // Unknown verbs (LINK, UNLINK, custom WebDAV, …) must be rejected
+    // outright — falling back to `.GET` would silently grant a method
+    // the embedder never approved, since `fetch(url, { method: "FOO" })`
+    // would be evaluated against GET permissions while the actual
+    // request method stayed `FOO`.
+    guard let knownMethod = HTTPMethod(rawValue: normalised) else {
+        throw NetworkAccessDenied(
+            url: url,
+            reason: "HTTP method \(normalised) not supported by network gate")
+    }
     if !config.allowedMethods.contains(knownMethod) {
         throw NetworkAccessDenied(
             url: url,

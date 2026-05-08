@@ -59,8 +59,15 @@ extension JSRuntime {
     }
 
     private func loadFileModule(_ spec: String) -> Any? {
+        // `require("./x")` with no calling-module context (entry-point
+        // script reading via `vm.runInThisContext` etc.) falls back to
+        // CWD. Use the bound shell's logical CWD, not the host process
+        // CWD, so this stays consistent with `process.cwd()` and with
+        // the `fs.*` resolver that follows.
         let basePath = (currentScriptPath as NSString?)?.deletingLastPathComponent
-            ?? FileManager.default.currentDirectoryPath
+            ?? (Shell.current === Shell.processDefault
+                ? FileManager.default.currentDirectoryPath
+                : Shell.current.environment.workingDirectory)
         var resolved = (spec as NSString).hasPrefix("/")
             ? spec
             : (basePath as NSString).appendingPathComponent(spec)
@@ -438,13 +445,14 @@ extension JSRuntime {
         let readFileSync: @convention(block) (String) -> Any? = { [weak self] path in
             guard let self else { return nil }
             let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .read) }
+                try self.awaitSync { try await authorizePath(resolved, for: .read) }
             } catch {
                 return self.throwSandboxDenial(error, syscall: "open", path: path)
             }
             do {
-                let data = try Data(contentsOf: URL(fileURLWithPath: path))
+                let data = try Data(contentsOf: URL(fileURLWithPath: resolved))
                 let encoding = Self.encodingArg(from: opts)
                 if let encoding {
                     return Self.decode(data, encoding: encoding)
@@ -464,15 +472,16 @@ extension JSRuntime {
         // the JS caller omits trailing optional args.
         let writeFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
             guard let self else { return false }
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .write) }
+                try self.awaitSync { try await authorizePath(resolved, for: .write) }
             } catch {
                 _ = self.throwSandboxDenial(error, syscall: "open", path: path)
                 return false
             }
             do {
                 let data = Self.dataForWrite(value)
-                try data.write(to: URL(fileURLWithPath: path))
+                try data.write(to: URL(fileURLWithPath: resolved))
                 return true
             } catch {
                 _ = self.throwSystemError(error, syscall: "open", path: path)
@@ -484,16 +493,17 @@ extension JSRuntime {
 
         let appendFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
             guard let self else { return false }
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .write) }
+                try self.awaitSync { try await authorizePath(resolved, for: .write) }
             } catch {
                 _ = self.throwSandboxDenial(error, syscall: "open", path: path)
                 return false
             }
             let data = Self.dataForWrite(value)
-            let url = URL(fileURLWithPath: path)
+            let url = URL(fileURLWithPath: resolved)
             do {
-                if FileManager.default.fileExists(atPath: path) {
+                if FileManager.default.fileExists(atPath: resolved) {
                     let handle = try FileHandle(forWritingTo: url)
                     defer { try? handle.close() }
                     handle.seekToEndOfFile()
@@ -515,25 +525,27 @@ extension JSRuntime {
             // for a path it can't stat. Mirror that behaviour for a
             // sandbox denial: the script learns nothing about whether
             // the path exists, only that it can't see it.
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self?.awaitSync { try await authorizePath(path, for: .read) }
+                try self?.awaitSync { try await authorizePath(resolved, for: .read) }
             } catch {
                 return false
             }
-            return FileManager.default.fileExists(atPath: path)
+            return FileManager.default.fileExists(atPath: resolved)
         }
         fs.setObject(block(existsSync as AnyObject),
                      forKeyedSubscript: "existsSync" as NSString)
 
         let readdirSync: @convention(block) (String) -> Any? = { [weak self] path in
             guard let self else { return nil }
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .read) }
+                try self.awaitSync { try await authorizePath(resolved, for: .read) }
             } catch {
                 return self.throwSandboxDenial(error, syscall: "scandir", path: path)
             }
             do {
-                return try FileManager.default.contentsOfDirectory(atPath: path)
+                return try FileManager.default.contentsOfDirectory(atPath: resolved)
             } catch {
                 _ = self.throwSystemError(error, syscall: "scandir", path: path)
                 return nil
@@ -550,15 +562,16 @@ extension JSRuntime {
             guard let self else { return false }
             let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             let recursive = opts?.objectForKeyedSubscript("recursive")?.toBool() ?? false
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .write) }
+                try self.awaitSync { try await authorizePath(resolved, for: .write) }
             } catch {
                 _ = self.throwSandboxDenial(error, syscall: "mkdir", path: path)
                 return false
             }
             do {
                 try FileManager.default.createDirectory(
-                    atPath: path,
+                    atPath: resolved,
                     withIntermediateDirectories: recursive
                 )
                 return true
@@ -574,8 +587,9 @@ extension JSRuntime {
             guard let self else { return false }
             let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             let force = opts?.objectForKeyedSubscript("force")?.toBool() ?? false
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .delete) }
+                try self.awaitSync { try await authorizePath(resolved, for: .delete) }
             } catch {
                 // `force: true` would normally swallow ENOENT — but a
                 // sandbox denial is policy, not a missing file, so
@@ -584,7 +598,7 @@ extension JSRuntime {
                 return false
             }
             do {
-                try FileManager.default.removeItem(atPath: path)
+                try FileManager.default.removeItem(atPath: resolved)
                 return true
             } catch {
                 if !force {
@@ -600,14 +614,15 @@ extension JSRuntime {
 
         let statSync: @convention(block) (String) -> Any? = { [weak self] path in
             guard let self else { return nil }
+            let resolved = resolveAgainstShellCWD(path)
             do {
-                try self.awaitSync { try await authorizePath(path, for: .read) }
+                try self.awaitSync { try await authorizePath(resolved, for: .read) }
             } catch {
                 return self.throwSandboxDenial(error, syscall: "stat", path: path)
             }
             let fm = FileManager.default
             var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: path, isDirectory: &isDir) else {
+            guard fm.fileExists(atPath: resolved, isDirectory: &isDir) else {
                 return self.throwJSError(
                     "ENOENT: no such file or directory, stat '\(path)'",
                     code: "ENOENT",
@@ -618,7 +633,7 @@ extension JSRuntime {
                     ]
                 )
             }
-            let attrs = (try? fm.attributesOfItem(atPath: path)) ?? [:]
+            let attrs = (try? fm.attributesOfItem(atPath: resolved)) ?? [:]
             let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
             let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
             let isDirectory = isDir.boolValue

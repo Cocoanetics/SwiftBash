@@ -221,6 +221,32 @@ final class SandboxGateTests: XCTestCase {
         }
     }
 
+    func testFetchDeniedForUnknownHTTPMethod() async {
+        // Earlier the gate fell back to `.GET` when `HTTPMethod(rawValue:)`
+        // returned nil, so `fetch(url, { method: "FOO" })` would be
+        // evaluated against GET permissions and pass when only GET was
+        // allowed — even though the actual request method stayed `FOO`.
+        // Unknown verbs must be rejected outright.
+        let (r, _, _) = makeRuntime()
+        let config = NetworkConfig(
+            allowedURLPrefixes: [AllowedURLEntry("https://allowed.example.com")],
+            allowedMethods: [.GET, .POST, .PUT, .DELETE, .HEAD, .PATCH, .OPTIONS]
+        )
+
+        await withSandboxedShell(networkConfig: config) {
+            r.run(#"""
+            globalThis.__fetchOutcome = "(unset)";
+            fetch('https://allowed.example.com/x', { method: 'FOO' })
+              .then(_ => { globalThis.__fetchOutcome = 'resolved'; })
+              .catch(e => { globalThis.__fetchOutcome = `${e.code}|${e.message}`; });
+            """#)
+            r.run("(() => { for (let i=0;i<3;i++) Promise.resolve().then(()=>{}); })();")
+            let outcome = r.run("globalThis.__fetchOutcome")?.toString() ?? ""
+            XCTAssertTrue(outcome.contains("HTTP method FOO not supported"),
+                          "got: \(outcome)")
+        }
+    }
+
     // MARK: - child_process gate
 
     func testSpawnDeniedUnderSandbox() async {
@@ -304,6 +330,66 @@ final class SandboxGateTests: XCTestCase {
             """#)
             let outcome = r.run("globalThis.__chdirOutcome")?.toString() ?? ""
             XCTAssertEqual(outcome, "EACCES")
+        }
+    }
+
+    func testRelativePathResolvedAgainstBoundShellCWDAfterChdir() async throws {
+        // After `process.chdir(boundDir)`, a subsequent
+        // `fs.readFileSync("./marker")` must resolve relative to the
+        // bound shell's logical CWD — not the host process CWD. Earlier
+        // the relative-path resolution happened via `URL(fileURLWithPath:)`
+        // which uses host CWD, so `process.cwd()` and the actual file
+        // read diverged: the gate authorised the wrong path and the
+        // open failed (or succeeded against the wrong file).
+        let (r, _, _) = makeRuntime()
+        let (sandbox, root) = makeRootedSandbox()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Drop a sentinel so a relative read can find it once we chdir
+        // the bound shell into `root`.
+        try "inside".data(using: .utf8)!.write(
+            to: root.appendingPathComponent("marker"))
+
+        await withSandboxedShell(sandbox: sandbox, cwd: "/somewhere/else") {
+            // `chdir` into root (an allowed write under the rooted
+            // sandbox), then read `./marker` — which must resolve to
+            // `<root>/marker` for both the gate and the open.
+            let result = r.run(#"""
+            process.chdir('\#(root.path)');
+            require('fs').readFileSync('./marker', 'utf-8');
+            """#)
+            XCTAssertEqual(result?.toString(), "inside")
+        }
+    }
+
+    func testChdirAcceptsRelativePath() async throws {
+        // `process.chdir('./sub')` after `chdir('/work')` must end up
+        // at `/work/sub`. Storing the raw "./sub" into
+        // `Shell.current.environment.workingDirectory` would leave the
+        // bound CWD unusable for any subsequent `fs.*` op.
+        let (r, _, _) = makeRuntime()
+        let (sandbox, root) = makeRootedSandbox()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sub = root.appendingPathComponent("sub", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sub, withIntermediateDirectories: true)
+        try "leaf".data(using: .utf8)!.write(
+            to: sub.appendingPathComponent("file"))
+
+        await withSandboxedShell(sandbox: sandbox, cwd: root.path) {
+            // chdir('./sub') is relative — must compose with the
+            // existing bound CWD (root). Then a relative read
+            // `./file` resolves into <root>/sub/file.
+            let cwd = r.run(#"""
+            process.chdir('./sub');
+            process.cwd();
+            """#)?.toString() ?? ""
+            XCTAssertEqual(cwd, sub.path)
+
+            let leaf = r.run(#"require('fs').readFileSync('./file', 'utf-8')"#)?
+                .toString() ?? ""
+            XCTAssertEqual(leaf, "leaf")
         }
     }
 

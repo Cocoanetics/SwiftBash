@@ -511,21 +511,25 @@ extension JSRuntime {
         process.setObject(block(cwd as AnyObject), forKeyedSubscript: "cwd" as NSString)
 
         let chdir: @convention(block) (String) -> Void = { [weak self] path in
+            // Resolve relative `path` against the current shell-CWD
+            // first — Node accepts `process.chdir("./sub")` and
+            // expects it to compose with the prior cwd. Storing the
+            // raw relative string here would leave the bound CWD
+            // unusable for subsequent `fs.*` ops.
+            let resolved = resolveAgainstShellCWD(path)
             // Sandbox gate: chdir into a denied region is a write —
             // it would let a script position subsequent relative-path
             // ops anywhere. Surface as a Node-style EACCES.
             do {
-                try self?.awaitSync { try await authorizePath(path, for: .write) }
+                try self?.awaitSync { try await authorizePath(resolved, for: .write) }
             } catch {
                 _ = self?.throwSandboxDenial(error, syscall: "chdir", path: path)
                 return
             }
             if Shell.current === Shell.processDefault {
-                FileManager.default.changeCurrentDirectoryPath(path)
-                Shell.current.environment.workingDirectory = path
-            } else {
-                Shell.current.environment.workingDirectory = path
+                FileManager.default.changeCurrentDirectoryPath(resolved)
             }
+            Shell.current.environment.workingDirectory = resolved
         }
         process.setObject(block(chdir as AnyObject), forKeyedSubscript: "chdir" as NSString)
 
