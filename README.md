@@ -40,7 +40,8 @@ try await shell.run("""
 | **`BashInterpreter`**  | Available  | Execute the AST in-process. Streaming pipelines, full bash 4.x semantics.  |
 | **`BashCommandKit`**   | Available  | Catalog of `ls`/`cat`/`grep`/`sed`/`find`/`curl`/… built on Swift Argument Parser. |
 | **`SwiftJSCore`**      | Available (Apple-only) | Node-style JavaScript runtime on JavaScriptCore. `require`, ESM `import`, `node:fs/path/os/crypto/zlib/child_process/…`, `fetch`, `Buffer`, timers, `AbortController`, `WebAssembly`. |
-| **`swift-bash`** (CLI) | Available  | `exec` and `parse` subcommands; sandbox flags for confined execution.       |
+| **`BashSwiftScript`**  | Available  | `#!/usr/bin/env swift-script` shebang dispatch via Cocoanetics' [SwiftScript](https://github.com/Cocoanetics/SwiftScript) tree-walking interpreter. IO / sandbox / identity flow through ShellKit, so a script honors the bash sandbox the same way `gh`/`jq`/etc. do. |
+| **`swift-bash`** (CLI) | Available  | `exec` and `parse` subcommands; sandbox flags for confined execution. Auto-registers SwiftScript so `./hello.swift` runs in-process. |
 | **`swift-js`** (CLI)   | Available (Apple-only) | Drop-in for `node` — `swift-js install` symlinks `node`/`bun` so existing `#!/usr/bin/env node` scripts run unchanged. |
 
 ## Component docs
@@ -53,6 +54,10 @@ try await shell.run("""
   `ls`/`cat`/`grep`-style command + how to add your own typed ones.
 - **[SwiftJS](Docs/SwiftJS.md)** — Node-style JavaScript runtime on
   JavaScriptCore. Embeddable + `swift-js` CLI shadow for `node`/`bun`.
+- **[SwiftScript](Docs/SwiftScript.md)** — `#!/usr/bin/env swift-script`
+  shebang dispatch routing through SwiftScript's tree-walking
+  interpreter. Wires output / stdin / sandbox / network / identity
+  through the bash shell's ShellKit context.
 - **[Sandboxing](Docs/Sandboxing.md)** — the four virtualisation axes
   (filesystem, network, processes, identity) and the `--sandbox` flag.
 - **[Networking](Docs/Networking.md)** — `curl`, the URL allow-list,

@@ -13,11 +13,14 @@ for how the pieces fit together.
 
 - `swift build` — compile.
 - `swift test --no-parallel` — full suite. **Always run before
-  committing.** Currently ~1780 tests; failures from your change
+  committing.** Currently ~1758 tests; failures from your change
   are the first signal something's off.
 - `swift test --no-parallel --filter <name>` — single suite.
 - `swift run swift-bash exec [--sandbox PATH] /dev/stdin <<<'…'`
   — fastest way to verify behaviour end-to-end during development.
+- `swift-bash exec ./script.swift` — runs a Swift script through
+  the in-process SwiftScript interpreter (registered by default).
+  See [Docs/SwiftScript.md](Docs/SwiftScript.md).
 
 ## Where things live
 
@@ -149,6 +152,10 @@ file:
   semantics changed.
 - New CLI flag → [Docs/CLI.md](Docs/CLI.md).
 - Architectural change → [Docs/InterpreterArchitecture.md](Docs/InterpreterArchitecture.md).
+- New script-shebang interpreter → mention in
+  [Docs/BashInterpreter.md](Docs/BashInterpreter.md) (the
+  "Script-shebang interpreters" section). The SwiftScript bridge
+  has its own page at [Docs/SwiftScript.md](Docs/SwiftScript.md).
 
 ## Commits
 

@@ -113,24 +113,48 @@ jobs:
         # are gated to non-Apple-mobile via per-target platforms,
         # but they DO compile on Windows and need their respective
         # libs available.
+        #
+        # zlib alias: SwiftPorts' CZlib modulemap declares `link "z"`
+        # (mirroring libarchive's `linkedLibrary("z")`), which lld-link
+        # translates to `z.lib`. vcpkg's `x64-windows-static-md` triplet
+        # ships zlib as `zs.lib`; older triplets / releases shipped
+        # `zlib.lib`. Either way we copy the chosen artifact to `z.lib`
+        # so lld-link resolves cleanly. This mirrors the alias step in
+        # the upstream SwiftPorts workflow.
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib bzip2 liblzma zstd lz4 --triplet x64-windows-static-md
+          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          Write-Host "vcpkg .lib inventory under $base (recursive):"
+          Get-ChildItem "$base" -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "  $($_.FullName)" }
+          $candidates = @("zs.lib", "zlib.lib", "libzlib.lib", "libz.lib", "z.lib")
+          $zlibLib = $null
+          foreach ($name in $candidates) {
+            $p = Join-Path "$base\lib" $name
+            if (Test-Path $p) { $zlibLib = $p; break }
+          }
+          if (-not $zlibLib) {
+            throw "no zlib library found under $base\lib (looked for: $($candidates -join ', '))"
+          }
+          Write-Host "Using zlib library: $zlibLib"
+          if ($zlibLib -ne (Join-Path "$base\lib" "z.lib")) {
+            Copy-Item -Force $zlibLib "$base\lib\z.lib"
+          }
+          "VCPKG_BASE=$base" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build (Windows)
         shell: pwsh
         run: |
-          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
           swift build --build-tests -v `
-            -Xcc "-I$base\include" `
-            -Xlinker "/LIBPATH:$base\lib"
+            -Xcc "-I$env:VCPKG_BASE\include" `
+            -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
         continue-on-error: true
       - name: Test (Windows)
         shell: pwsh
         run: |
-          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
           swift test -v --skip-build --no-parallel `
-            -Xcc "-I$base\include" `
-            -Xlinker "/LIBPATH:$base\lib"
+            -Xcc "-I$env:VCPKG_BASE\include" `
+            -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
         continue-on-error: true
 
   # Uses skiptools/swift-android-action which wraps the swift.org Android
