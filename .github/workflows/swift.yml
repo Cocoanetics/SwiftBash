@@ -92,9 +92,11 @@ jobs:
         run: swift test -v --skip-build --no-parallel
 
   build-windows:
-    # Investigation job: Windows support is not yet a committed
-    # compatibility target, so collect compiler/test failures without
-    # blocking existing macOS / iOS / Linux CI.
+    # Windows is a committed compatibility target — the build and
+    # test steps fail the job on regression, same as the other
+    # platforms. Tests that don't map to Windows (POSIX execute bit,
+    # `bash FILE` with non-quoted host paths, etc.) carry their own
+    # `#if !os(Windows)` gates at the source level.
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -148,14 +150,12 @@ jobs:
           swift build --build-tests -v `
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
-        continue-on-error: true
       - name: Test (Windows)
         shell: pwsh
         run: |
           swift test -v --skip-build --no-parallel `
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
-        continue-on-error: true
 
   # Uses skiptools/swift-android-action which wraps the swift.org Android
   # SDK setup AND runs the SwiftPM tests on an x86_64 Android emulator.
