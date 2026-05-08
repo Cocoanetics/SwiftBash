@@ -1,5 +1,13 @@
 import Foundation
+
+// GzipKit is gated off on Android in Package.swift (see the
+// `swiftPortsPlatforms` list); guard the import too so this file
+// compiles on Android. The body below additionally requires
+// JavaScriptCore (Apple-only), and Apple platforms always have
+// GzipKit, so the body's reference to `Zlib` is always safe.
+#if canImport(GzipKit)
 import GzipKit
+#endif
 
 #if canImport(JavaScriptCore)
 
