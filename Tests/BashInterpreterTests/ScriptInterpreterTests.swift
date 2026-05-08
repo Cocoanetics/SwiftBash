@@ -257,12 +257,19 @@ import Foundation
         #expect(cap.stderr.contains("command not found"))
     }
 
+    #if !os(Windows)
     @Test func nonExecutableScriptRejectedWithPermissionDenied() async throws {
         // A regular file with a matching shebang but no execute bit
         // is rejected with 126 / "Permission denied" — matches bash
         // `./script` when the file isn't `chmod +x`'d. Without this
         // check, the dispatcher would happily run a 0644 file the
         // user never marked as runnable.
+        //
+        // Skipped on Windows: there's no POSIX execute bit there, so
+        // `setAttributes(posixPermissions:)` is a no-op and the
+        // dispatcher's executable-bit check is disabled (see
+        // `Shell+ExternalScript.swift`). The test concept doesn't
+        // map to the platform.
         let cap = CapturingShell()
         let dir = NSTemporaryDirectory()
             + "swift-bash-shebang-perm-\(UUID().uuidString)"
@@ -283,6 +290,7 @@ import Foundation
         #expect(status.code == 126)
         #expect(cap.stderr.contains("Permission denied"))
     }
+    #endif
 
     @Test func unreadableScriptReportsPermissionDenied() async throws {
         // A path the FS rejects (sandbox denial, EACCES) on `metadata`

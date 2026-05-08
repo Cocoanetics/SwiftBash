@@ -62,11 +62,19 @@ extension Shell {
         // doesn't track POSIX bits report mode 0 — treat those as
         // executable so in-memory test fixtures and the virtual /bin
         // overlay aren't blocked.
+        //
+        // Windows has no POSIX execute bit, so `RealFileSystem`'s
+        // `windowsMetadata` reports `0o644` for every regular file —
+        // applying the check there would block every script. Skip
+        // the gate on Windows; if a script runs at all, the file
+        // already exists and the OS handles the rest.
+        #if !os(Windows)
         if meta.mode != 0, (meta.mode & 0o111) == 0 {
             stderr(
                 "\(errorLocationPrefix())\(head): Permission denied\n")
             return ExitStatus(126)
         }
+        #endif
         let data: Data
         do {
             data = try await fileSystem.readData(resolved)
