@@ -17,6 +17,19 @@ import Foundation
             ofItemAtPath: path)
     }
 
+    /// POSIX-style single-quote a path so it survives bash's word-
+    /// expansion intact. Critical on Windows: `NSTemporaryDirectory()`
+    /// returns paths with `\` separators, and unquoted `\X` is a bash
+    /// escape — the path makes it to `cap.shell.run(...)` with every
+    /// backslash already eaten, so the dispatcher never sees a
+    /// `/`-bearing token and falls through to `command not found`.
+    /// Embedded single quotes are encoded as `'\''` (the standard
+    /// POSIX trick); UUID-bearing test paths don't contain quotes,
+    /// but the helper is correct in general.
+    private static func bashQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     // MARK: parseShebangLine
 
     @Test func parsesPlainShebang() {
@@ -137,7 +150,7 @@ import Foundation
             return .success
         }
 
-        try await cap.shell.run("\(path) one two")
+        try await cap.shell.run("\(Self.bashQuote(path)) one two")
         let ctxs = await sink.contexts
         #expect(ctxs.count == 1)
         #expect(ctxs.first?.scriptPath == path)
@@ -168,7 +181,7 @@ import Foundation
                 "$0=\(Shell.current.scriptName) $@=\(pos.joined(separator: " "))\n")
             return .success
         }
-        try await cap.shell.run("\(path) alpha beta gamma")
+        try await cap.shell.run("\(Self.bashQuote(path)) alpha beta gamma")
         #expect(cap.stdout == "$0=\(path) $@=alpha beta gamma\n")
     }
 
@@ -188,7 +201,7 @@ import Foundation
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in
             return .success
         }
-        try await cap.shell.run("\(path) inner")
+        try await cap.shell.run("\(Self.bashQuote(path)) inner")
         #expect(cap.shell.scriptName == "outer")
         #expect(cap.shell.positionalParameters == ["outerArg"])
     }
@@ -205,7 +218,7 @@ import Foundation
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in
             ExitStatus(7)
         }
-        try await cap.shell.run("\(path); echo $?")
+        try await cap.shell.run("\(Self.bashQuote(path)); echo $?")
         #expect(cap.stdout == "7\n")
     }
 
@@ -226,7 +239,7 @@ import Foundation
             atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in .success }
-        let status = try await cap.shell.run(dir)
+        let status = try await cap.shell.run(Self.bashQuote(dir))
         #expect(status.code == 126)
         #expect(cap.stderr.contains("Is a directory"))
     }
@@ -266,7 +279,7 @@ import Foundation
             Issue.record("interpreter should not have been invoked")
             return .success
         }
-        let status = try await cap.shell.run(path)
+        let status = try await cap.shell.run(Self.bashQuote(path))
         #expect(status.code == 126)
         #expect(cap.stderr.contains("Permission denied"))
     }
@@ -299,7 +312,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let path = dir + "/run.foo"
         try Self.writeExecutable("#!/usr/bin/env nope-lang\n", to: path)
-        let status = try await cap.shell.run("\(path)")
+        let status = try await cap.shell.run("\(Self.bashQuote(path))")
         #expect(status.code == 127)
         #expect(cap.stderr.contains("command not found"))
     }
@@ -319,7 +332,7 @@ import Foundation
             Shell.current.stdout("ok\n")
             return .success
         }
-        try await cap.shell.run("(\(path))")
+        try await cap.shell.run("(\(Self.bashQuote(path)))")
         #expect(cap.stdout == "ok\n")
     }
 
@@ -353,7 +366,7 @@ import Foundation
             await sink.record(ctx.source)
             return .success
         }
-        try await cap.shell.run(path)
+        try await cap.shell.run(Self.bashQuote(path))
         let body = await sink.source ?? ""
         let originalLines = original.split(separator: "\n",
                                            omittingEmptySubsequences: false)
@@ -376,7 +389,7 @@ import Foundation
         try Self.writeExecutable("#!/usr/bin/env foolang\nbody", to: path)
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in .success }
         cap.shell.unregisterScriptInterpreter("foolang")
-        let status = try await cap.shell.run("\(path)")
+        let status = try await cap.shell.run("\(Self.bashQuote(path))")
         #expect(status.code == 127)
     }
 }
