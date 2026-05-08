@@ -143,6 +143,16 @@ import Foundation
     }
 
     // MARK: gzip / gunzip
+    //
+    // The `gzip` / `gunzip` builtins ship via SwiftPorts (`GzipKit`),
+    // which is gated off `.android` in Package.swift — its
+    // transitive C-library graph drags host pkg-config paths onto
+    // ld.lld and breaks Bionic libc resolution. With the SwiftPorts
+    // CLI surface absent on Android, these tests have nothing to
+    // exercise and would fail with "command not found"-style
+    // errors. Skip them on Android until SwiftPorts ships proper
+    // Android support.
+    #if !os(Android)
 
     @Test func gzipRoundTripStdin() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
@@ -228,4 +238,6 @@ import Foundation
         try await cap.shell.run("gzip -c p | gunzip -c")
         #expect(cap.stdout == payload)
     }
+
+    #endif // !os(Android)
 }
