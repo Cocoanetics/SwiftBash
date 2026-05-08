@@ -151,4 +151,4 @@ to bash and SwiftScript scripts.
   bare `URL`) aren't gated yet — a determined script can reach
   the real filesystem through them. Tracked as the broader
   "inventory + gate every IO-shaped Foundation method"
-  follow-up: issue #13.
+  follow-up: [Cocoanetics/SwiftScript#3](https://github.com/Cocoanetics/SwiftScript/issues/3).
