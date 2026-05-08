@@ -77,9 +77,15 @@ extension Shell {
         register(ShasumCommand.self)
         register(CurlCommand.self)
         register(DiffCommand.self)
-        register(GzipCommand.self)
-        register(GunzipCommand.self)
-        register(JqCommand.self)
+        // GzipCommand / GunzipCommand removed — SwiftPorts'
+        // [Gzip](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/GzipKit/GzipCommand/GzipCommand.swift)
+        // / [Gunzip](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/GzipKit/GzipCommand/GzipCommand.swift)
+        // / Zcat / Bzip2 / Xz / Zstd / Lz4 are registered via
+        // ``registerSwiftPortsCommands()`` instead.
+        // JqCommand is registered via ``registerSwiftPortsCommands()`` —
+        // SwiftPorts'
+        // [Jq](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/JqKit/JqCommand/JqCommand.swift)
+        // is the source-of-truth jq builtin now.
         register(AwkCommand.self)
         register(ExprCommand.self)
         register(XargsCommand.self)
@@ -99,7 +105,9 @@ extension Shell {
         register(DuCommand.self)
         register(TimeCommand())
         register(TimeoutCommand())
-        register(TarCommand.self)
+        // TarCommand removed — SwiftPorts'
+        // [TarCommand](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/TarKit/TarCommand/TarCommand.swift)
+        // is registered via ``registerSwiftPortsCommands()`` instead.
         register(UnameCommand.self)
         register(IdCommand.self)
         register(DfCommand.self)
@@ -119,6 +127,26 @@ extension Shell {
         register(LinkCommand.self)
         register(UnlinkCommand.self)
         register(YesCommand.self)
+
+        // The SwiftPorts CLI family — gh / glab / git / jq / tar /
+        // zip / unzip / the gzip+bzip2+xz+zstd+lz4 compression
+        // family. Registered here so a single
+        // `registerStandardCommands()` call lights up everything
+        // SwiftBash ships out of the box.
+        //
+        // Android: SwiftPorts' transitive C-library graph (libgit2,
+        // BoringSSL, swift-archive, the systemLibrary pkg-config
+        // shims for zlib / liblz4 / libzstd / liblzma / libbz2) emits
+        // unconditional `-lz` / `-ldl` and host-pkg-config search
+        // paths that bleed `/lib/x86_64-linux-gnu/` into ld.lld's
+        // resolver, breaking Bionic libc symbol resolution at link
+        // time. Until SwiftPorts ships proper Android gates, skip
+        // the registration on Android — the SwiftPorts product
+        // dependencies are also platform-gated in Package.swift so
+        // these modules don't even compile here.
+        #if !os(Android)
+        registerSwiftPortsCommands()
+        #endif
 
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —

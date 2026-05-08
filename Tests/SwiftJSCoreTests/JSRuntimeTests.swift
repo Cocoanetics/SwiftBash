@@ -340,12 +340,14 @@ final class JSRuntimeTests: XCTestCase {
 
     func testInProcessModeFailsOnExternalBinary() {
         // The default `.inProcess` runtime only knows the SwiftBash
-        // catalog. `git` isn't in it, so execSync must fail rather
-        // than silently fall through to `/bin/sh`.
+        // catalog (which now includes the SwiftPorts CLIs — gh, git,
+        // jq, tar, …). A binary that *isn't* registered must fail
+        // rather than silently fall through to `/bin/sh`. Use a
+        // sentinel name guaranteed not to be a builtin.
         let (r, _, err) = runtime()
         r.run("""
         const cp = require('node:child_process');
-        try { cp.execSync('git --version'); }
+        try { cp.execSync('definitely-not-a-real-binary-zzz --version'); }
         catch (e) { console.error('threw:', e.message.split(String.raw`\n`)[0]); }
         """)
         XCTAssertTrue(err().contains("threw:"))
@@ -405,11 +407,15 @@ final class JSRuntimeTests: XCTestCase {
         // Task rather than serialising them. We measure both the
         // parallel and serial runs in the same test so the assertion
         // is robust to slow CI runners — what matters is the *ratio*,
-        // not the absolute duration.
+        // not the absolute duration. Sleep is 0.3s so per-exec spawn
+        // overhead is a small fraction of the runtime; serialised
+        // ~0.9s, parallel ~0.3s gives a comfortable margin even on
+        // contended GitHub Actions macos-latest runners (an earlier
+        // 0.15s / 0.7-ratio version was flaky there).
         let (r, out, _) = runtime()
         r.run("""
         const cp = require('node:child_process');
-        const sleepCmd = 'sleep 0.15; printf x';
+        const sleepCmd = 'sleep 0.3; printf x';
         (async () => {
           const tPar = Date.now();
           await Promise.all([cp.exec(sleepCmd), cp.exec(sleepCmd), cp.exec(sleepCmd)]);
@@ -422,8 +428,9 @@ final class JSRuntimeTests: XCTestCase {
           const seq = Date.now() - tSeq;
 
           // par should be much less than seq. Even with heavy CI
-          // overhead, parallel < seq * 0.7 means we got real overlap.
-          console.log('result:', par < seq * 0.7 ? 'parallel' : 'serialised',
+          // overhead, parallel < seq * 0.6 still proves real overlap
+          // (true serialisation would land at ~1.0).
+          console.log('result:', par < seq * 0.6 ? 'parallel' : 'serialised',
                       `par=${par}ms seq=${seq}ms`);
         })();
         """)

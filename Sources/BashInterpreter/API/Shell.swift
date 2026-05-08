@@ -372,16 +372,13 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// `functionCallDepth` / `localVarStack`: a subshell isn't
     /// inside any function frame.
     public override func copy() -> Self {
-        let sub = super.copy()
-        // Cast to Self — the base impl uses `type(of: self).init(...)`
-        // so the runtime type is already correct; the static return
-        // type is `Self` thanks to the `Self` marker on the base.
-        guard let bash = sub as? Self else {
-            preconditionFailure(
-                "Shell.copy() returned a non-bash Shell — base should " +
-                "have used type(of: self).init(...) which preserves the " +
-                "subclass.")
-        }
+        // ShellKit's base `copy()` returns `Self`, implemented via
+        // `type(of: self).init(...)` — so the runtime type already
+        // matches the static type and no cast is needed. (An
+        // earlier `guard let bash = sub as? Self` provoked a
+        // "conditional cast from 'Self' to 'Self' always succeeds"
+        // warning across every translation unit that called copy().)
+        let bash = super.copy()
         // Inheritable bash configuration. Mirror the pre-ShellKit
         // copy() exactly — anything not listed here resets to its
         // initializer default in the new subshell instance.

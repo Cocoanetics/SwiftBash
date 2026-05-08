@@ -143,6 +143,16 @@ import Foundation
     }
 
     // MARK: gzip / gunzip
+    //
+    // The `gzip` / `gunzip` builtins ship via SwiftPorts (`GzipKit`),
+    // which is gated off `.android` in Package.swift — its
+    // transitive C-library graph drags host pkg-config paths onto
+    // ld.lld and breaks Bionic libc resolution. With the SwiftPorts
+    // CLI surface absent on Android, these tests have nothing to
+    // exercise and would fail with "command not found"-style
+    // errors. Skip them on Android until SwiftPorts ships proper
+    // Android support.
+    #if !os(Android)
 
     @Test func gzipRoundTripStdin() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
@@ -203,9 +213,17 @@ import Foundation
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
         try await cap.shell.run(
             "printf 'plain text' | gunzip -c")
-        // No assertion on stdout; we just want a non-zero status and
-        // a useful stderr message.
-        #expect(cap.stderr.contains("gunzip:"))
+        // No assertion on stdout; we just want a useful stderr
+        // message indicating the failure. After the SwiftPorts
+        // migration the GzipKit-backed `gunzip` builtin throws
+        // `GzipKitError.decompressionFailed` which the
+        // ParsableCommand bridge formats as `"Error: gzip:
+        // decompression failed: …"`, so accept either the
+        // historical `gunzip:` prefix or the new GzipKit-shaped
+        // error message.
+        #expect(cap.stderr.contains("gunzip:")
+                || cap.stderr.contains("decompression failed"),
+                "stderr was: \(cap.stderr)")
     }
 
     // MARK: round-trip via Foundation gzip
@@ -220,4 +238,6 @@ import Foundation
         try await cap.shell.run("gzip -c p | gunzip -c")
         #expect(cap.stdout == payload)
     }
+
+    #endif // !os(Android)
 }
