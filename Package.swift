@@ -26,6 +26,7 @@ let package = Package(
         .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
         .library(name: "BashCommandKit", targets: ["BashCommandKit"]),
         .library(name: "SwiftJSCore", targets: ["SwiftJSCore"]),
+        .library(name: "BashSwiftScript", targets: ["BashSwiftScript"]),
         .executable(name: "swift-bash", targets: ["swift-bash"]),
         // SwiftJS is a Node-shaped JS runtime built on Apple's
         // JavaScriptCore. Source files are gated on
@@ -59,6 +60,15 @@ let package = Package(
         // they participate fully in pipes / redirection / capture.
         // Pinned to `main` until SwiftPorts ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/SwiftPorts",
+                 branch: "main"),
+        // SwiftScript — Swift tree-walking interpreter that reads
+        // its IO / FS / network / identity / exit through
+        // `ShellKit.Shell.current`. The `BashSwiftScript` target
+        // registers it as a `swift-script` / `swift` shebang
+        // interpreter so `./hello.swift` from a bash script (or
+        // `swift-bash exec hello.swift`) routes through it.
+        // Pinned to `main` until SwiftScript ships a tagged release.
+        .package(url: "https://github.com/Cocoanetics/SwiftScript",
                  branch: "main"),
     ],
     targets: [
@@ -152,6 +162,7 @@ let package = Package(
                 "BashSyntax",
                 "BashInterpreter",
                 "BashCommandKit",
+                "BashSwiftScript",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/swift-bash"
@@ -218,6 +229,34 @@ let package = Package(
             ],
             path: "Tests/SwiftJSCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+
+        // ---- BashSwiftScript — Swift script-shebang interpreter ----
+        // Registers SwiftScript's `Interpreter` as the handler for
+        // `#!/usr/bin/env swift-script` (and `swift`) shebangs on a
+        // SwiftBash `Shell`. The bridge is thin because SwiftScript
+        // already routes its IO / FS / network / identity / exit
+        // through `ShellKit.Shell.current` — the same surface
+        // SwiftBash binds for its bash interpreter. Wire-up:
+        //
+        //   shell.registerStandardCommands()    // BashCommandKit
+        //   shell.registerSwiftScript()         // BashSwiftScript
+        //   try await shell.run("./script.swift")
+        .target(
+            name: "BashSwiftScript",
+            dependencies: [
+                "BashInterpreter",
+                .product(name: "SwiftScriptInterpreter", package: "SwiftScript"),
+            ],
+            path: "Sources/BashSwiftScript"
+        ),
+        .testTarget(
+            name: "BashSwiftScriptTests",
+            dependencies: [
+                "BashSwiftScript",
+                "BashInterpreter",
+            ],
+            path: "Tests/BashSwiftScriptTests"
         ),
     ]
 )

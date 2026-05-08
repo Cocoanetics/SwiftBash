@@ -3,6 +3,9 @@ import BashSyntax
 import BashInterpreter
 import BashCommandKit
 import Foundation
+import ShellKit
+
+import BashSwiftScript
 
 /// `swift-bash exec` — execute a bash script using the SwiftBash
 /// interpreter, inheriting the current process environment and
@@ -89,6 +92,7 @@ struct ExecCommand: AsyncParsableCommand {
         let environment: Environment
         let fileSystem: FileSystem
         let hostInfo: HostInfo
+        let urlSandbox: ShellKit.Sandbox?
         if let sandboxRoot = sandbox {
             do {
                 fileSystem = try SandboxedOverlayFileSystem(.init(
@@ -109,15 +113,36 @@ struct ExecCommand: AsyncParsableCommand {
             env["PWD"] = workspace
             env["TMPDIR"] = "/tmp"
             environment = env
+            // ShellKit-side URL gate. Bash builtins consult the
+            // `fileSystem` overlay above; ShellKit-aware bridges
+            // (the registered SwiftPorts CLIs and the SwiftScript
+            // interpreter) consult `Shell.sandbox` instead.
+            // Bind the same physical root so both confinements stay
+            // in lock-step and a `--sandbox` invocation actually
+            // confines a Swift script the same way it confines a
+            // bash one. Migration target (#10): retire the legacy
+            // `fileSystem` overlay and have bash consult the URL
+            // gate too.
+            urlSandbox = ShellKit.Sandbox.rooted(
+                at: URL(fileURLWithPath: sandboxRoot),
+                allowedHosts: [])
         } else {
             fileSystem = RealFileSystem()
             hostInfo = .real()
             environment = Environment.current()
+            urlSandbox = nil
         }
 
         let shell = Shell(environment: environment, fileSystem: fileSystem)
         shell.hostInfo = hostInfo
+        shell.sandbox = urlSandbox
         shell.registerStandardCommands()
+        // `#!/usr/bin/env swift-script` and `#!/usr/bin/env swift`
+        // shebangs route through the in-process SwiftScript
+        // interpreter, which reads its IO / FS / network / identity
+        // through `Shell.current` — same surface the bash sandbox
+        // and the registered SwiftPorts CLIs use.
+        shell.registerSwiftScript()
         shell.scriptName = scriptPath
         shell.positionalParameters = scriptArgs
 
@@ -148,9 +173,40 @@ struct ExecCommand: AsyncParsableCommand {
         // Shell defaults already forward to FileHandle.standardOutput /
         // .standardError — no additional wiring needed.
 
+        // If the script's first line is a shebang naming a registered
+        // ``ScriptInterpreter`` (e.g. `#!/usr/bin/env swift-script`),
+        // run the script PATH as a bash command line so the
+        // shebang-dispatch fallthrough fires and routes the body to
+        // that interpreter. Otherwise feed the source to bash
+        // directly — bash, sh, dash, and any other shebang the bash
+        // interpreter handles natively (it strips the line itself).
+        //
+        // Stdin / `/dev/fd/N` shorthands always run as bash source —
+        // we already consumed the stream by reading `source`, so a
+        // re-read by the dispatcher would see EOF.
+        let isStreamPath = scriptPath == "-"
+            || scriptPath == "/dev/stdin"
+            || scriptPath.hasPrefix("/dev/fd/")
+        let dispatchAsScript: Bool = {
+            guard !isStreamPath else { return false }
+            let firstLine = source.split(separator: "\n", maxSplits: 1)
+                .first.map(String.init) ?? ""
+            guard let parsed = parseShebangLine(firstLine) else { return false }
+            return shell.scriptInterpreters[parsed.interpreter] != nil
+        }()
+
         let status: ExitStatus
         do {
-            status = try await shell.run(source)
+            if dispatchAsScript {
+                let resolved = shell.resolvePath(scriptPath)
+                var line = Self.bashSingleQuote(resolved)
+                for arg in scriptArgs {
+                    line += " " + Self.bashSingleQuote(arg)
+                }
+                status = try await shell.run(line)
+            } else {
+                status = try await shell.run(source)
+            }
         } catch let err as BashInterpreterError {
             throw CLIError(err.description)
         } catch let err as BashSyntaxError {
@@ -162,6 +218,16 @@ struct ExecCommand: AsyncParsableCommand {
         }
         // Propagate the script's exit code back through ArgumentParser.
         throw ExitCode(status.code)
+    }
+
+    /// Wrap `s` in single quotes for a bash command line, escaping
+    /// any embedded single quotes via the standard `'\''`
+    /// close-then-reopen idiom. Used when synthesising a one-line
+    /// invocation for shebang-dispatch routing — the path and each
+    /// arg are quoted so spaces / shell metacharacters in them stay
+    /// literal.
+    private static func bashSingleQuote(_ s: String) -> String {
+        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Read script source from `path`. Handles three cases that

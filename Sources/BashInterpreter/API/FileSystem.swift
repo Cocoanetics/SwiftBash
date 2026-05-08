@@ -287,4 +287,20 @@ public enum FileSystemError: Error, CustomStringConvertible, Sendable, Equatable
         case .io(let m):               return m
         }
     }
+
+    /// Bash-style short message — what `./script: <message>` should
+    /// print when this error fires probing or reading an explicit
+    /// command path. The path itself is supplied by the caller's
+    /// `errorLocationPrefix`, so this drops the path component to
+    /// avoid the redundant `:path: : <path>` reading.
+    public func shellMessage() -> String {
+        switch self {
+        case .notFound:         return "No such file or directory"
+        case .notADirectory:    return "Not a directory"
+        case .isADirectory:     return "Is a directory"
+        case .alreadyExists:    return "File exists"
+        case .permissionDenied: return "Permission denied"
+        case .io(let m):        return m
+        }
+    }
 }

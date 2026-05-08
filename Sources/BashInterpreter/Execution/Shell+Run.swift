@@ -584,7 +584,13 @@ extension Shell {
 
         let result: ExitStatus
         do {
-            guard let command = commands[argv[0]] else {
+            if let command = commands[argv[0]] {
+                result = try await command.run(argv)
+            } else if let scriptResult =
+                try await dispatchAsExternalScriptIfApplicable(argv: argv)
+            {
+                result = scriptResult
+            } else {
                 // Match bash: report to stderr (with `script:line:`
                 // prefix), return 127, do not abort the script.
                 stderr("\(errorLocationPrefix())\(argv[0]): command not found\n")
@@ -593,7 +599,6 @@ extension Shell {
                 await drainProcessSubs(from: procSubFrame)
                 return ExitStatus(127)
             }
-            result = try await command.run(argv)
         } catch {
             restoreScope()
             restoreRedirects()

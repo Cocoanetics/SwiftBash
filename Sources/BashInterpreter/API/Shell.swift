@@ -138,6 +138,17 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
     var currentSource: String = ""
 
+    // MARK: - Script interpreters
+
+    /// Interpreters keyed by shebang basename — `"swift-script"`,
+    /// `"swift"`, `"python3"`. Consulted by the dispatcher when a
+    /// path-invoked simple command (`./script.swift`,
+    /// `/abs/script.foo`) is a regular file with a `#!`-shebang.
+    /// Empty by default; embedders register what they want to
+    /// support via ``registerScriptInterpreter(_:)`` /
+    /// ``registerScriptInterpreter(name:_:)``.
+    public var scriptInterpreters: [String: ScriptInterpreter] = [:]
+
     // MARK: - Filesystem
 
     /// The filesystem the shell reads and writes through. Defaults
@@ -389,6 +400,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.shoptOptions = shoptOptions
         bash.traps = traps
         bash.currentSource = currentSource
+        bash.scriptInterpreters = scriptInterpreters
         return bash
     }
 

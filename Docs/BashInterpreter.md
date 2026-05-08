@@ -200,6 +200,38 @@ For typed argument parsing via Swift Argument Parser, depend on
 [`BashCommandKit`](BashCommandKit.md) and conform to
 `ParsableBashCommand`.
 
+## Script-shebang interpreters
+
+`./hello.swift` doesn't go through `commands[…]` — it's a path, not
+a command name. SwiftBash treats path-shaped tokens as candidate
+external scripts: it reads the file, parses the `#!`-shebang, and
+dispatches to a registered `ScriptInterpreter`.
+
+```swift
+shell.registerScriptInterpreter(name: "swift-script") { ctx in
+    // ctx.source has the leading "#!…" line stripped (newline kept,
+    // so line numbers in diagnostics still match the original file).
+    try await SwiftScriptInterpreter().eval(ctx.source,
+                                            fileName: ctx.scriptPath)
+    return .success
+}
+try await shell.run("/abs/path/to/hello.swift one two")
+// → ScriptInterpreterContext.argv = [scriptPath, "one", "two"]
+```
+
+`#!/usr/bin/env <name>` and `#!/usr/bin/env -S <name> --flag`
+shebangs are handled — the dispatcher walks past `env`'s flags and
+`KEY=value` pairs to resolve the real interpreter. Diagnostics
+follow bash conventions: missing file → 127, directory → 126,
+unrecognised shebang → falls through to `command not found`. The
+script runs in a fresh `Shell.copy()` so `$0` and positional
+parameters stay scoped.
+
+The official SwiftScript binding ships as the
+[`BashSwiftScript`](SwiftScript.md) library target. The
+`swift-bash exec` CLI auto-registers it; embedders opt in with
+`shell.registerSwiftScript()`.
+
 ## Limitations
 
 - **No subprocess execution.** Every command runs in-process via the
