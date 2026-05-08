@@ -1,4 +1,5 @@
 import Foundation
+import BashInterpreter
 
 #if canImport(JavaScriptCore)
 
@@ -361,10 +362,29 @@ extension JSRuntime {
         // through the EnvProvider. Setting `process.env.X = "y"`
         // calls envProvider.set(...), which for OSEnvProvider also
         // propagates to setenv() so child processes see the change.
+        //
+        // Identity redirect: when an embedder has bound a non-default
+        // Shell (i.e. there's confinement in play), reads and writes
+        // route through `Shell.current.environment.variables` instead
+        // — so a sandboxed JS script sees the bound shell's env, not
+        // the host's. Under `Shell.processDefault` (standalone CLI)
+        // we keep the legacy `OSEnvProvider`-via-`setenv` behaviour
+        // so child processes spawned by the host still see writes.
         let envGet: @convention(block) (String) -> Any? = { [weak self] key in
-            self?.envProvider.get(key)
+            if Shell.current !== Shell.processDefault {
+                return Shell.current.environment.variables[key]
+            }
+            return self?.envProvider.get(key)
         }
         let envSet: @convention(block) (String, JSValue) -> Bool = { [weak self] key, value in
+            if Shell.current !== Shell.processDefault {
+                if value.isNull || value.isUndefined {
+                    Shell.current.environment.variables.removeValue(forKey: key)
+                } else {
+                    Shell.current.environment.variables[key] = value.toString() ?? ""
+                }
+                return true
+            }
             if value.isNull || value.isUndefined {
                 self?.envProvider.set(key, nil)
             } else {
@@ -373,12 +393,22 @@ extension JSRuntime {
             return true
         }
         let envHas: @convention(block) (String) -> Bool = { [weak self] key in
-            self?.envProvider.get(key) != nil
+            if Shell.current !== Shell.processDefault {
+                return Shell.current.environment.variables[key] != nil
+            }
+            return self?.envProvider.get(key) != nil
         }
         let envKeys: @convention(block) () -> [String] = { [weak self] in
-            self?.envProvider.allKeys ?? []
+            if Shell.current !== Shell.processDefault {
+                return Array(Shell.current.environment.variables.keys)
+            }
+            return self?.envProvider.allKeys ?? []
         }
         let envDel: @convention(block) (String) -> Bool = { [weak self] key in
+            if Shell.current !== Shell.processDefault {
+                Shell.current.environment.variables.removeValue(forKey: key)
+                return true
+            }
             self?.envProvider.set(key, nil)
             return true
         }
@@ -421,8 +451,44 @@ extension JSRuntime {
         #endif
 
         process.setObject("v22.0.0-swiftjs", forKeyedSubscript: "version" as NSString)
-        process.setObject(Int(getpid()), forKeyedSubscript: "pid" as NSString)
-        process.setObject(Int(getppid()), forKeyedSubscript: "ppid" as NSString)
+
+        // process.pid / process.ppid: under a bound Shell, return
+        // ``Shell.virtualPID`` (synthetic — defaults to 1) so a
+        // sandboxed script never sees the embedder's real PID. Under
+        // ``Shell.processDefault`` we keep `getpid()` / `getppid()`
+        // so the standalone `swift-js` CLI behaves unchanged.
+        // Defined as Proxy-backed accessors via JS Object.defineProperty
+        // because the value has to be re-read at access time — pid is a
+        // task-local quantity, baking it in at init would freeze the
+        // standalone-mode value into a Shell-bound run.
+        let pidGetter: @convention(block) () -> Int = {
+            if Shell.current === Shell.processDefault {
+                return Int(getpid())
+            }
+            return Int(Shell.current.virtualPID)
+        }
+        let ppidGetter: @convention(block) () -> Int = {
+            if Shell.current === Shell.processDefault {
+                return Int(getppid())
+            }
+            // No virtualPPID concept in ShellKit yet; mirror SwiftScript
+            // and return the same virtualPID (parent of `1` is `1`
+            // under embedded init-style semantics).
+            return Int(Shell.current.virtualPID)
+        }
+        // Bind getters on the local `process` JSValue directly —
+        // `globalThis.process` isn't set until the bottom of this
+        // method, so a getter that reads from globalThis would fire
+        // too early.
+        let pidGetterJS = JSValue(object: block(pidGetter as AnyObject), in: context)!
+        let ppidGetterJS = JSValue(object: block(ppidGetter as AnyObject), in: context)!
+        let installPidProps = context.evaluateScript(#"""
+        (function (process, getPid, getPpid) {
+          Object.defineProperty(process, "pid",  { get: getPid,  enumerable: true, configurable: true });
+          Object.defineProperty(process, "ppid", { get: getPpid, enumerable: true, configurable: true });
+        })
+        """#)!
+        installPidProps.call(withArguments: [process, pidGetterJS, ppidGetterJS])
 
         let exit: @convention(block) (Int32) -> Void = { [weak self] code in
             guard let self else { return }
@@ -437,12 +503,33 @@ extension JSRuntime {
         process.setObject(block(exit as AnyObject), forKeyedSubscript: "exit" as NSString)
 
         let cwd: @convention(block) () -> String = {
-            FileManager.default.currentDirectoryPath
+            if Shell.current === Shell.processDefault {
+                return FileManager.default.currentDirectoryPath
+            }
+            return Shell.current.environment.workingDirectory
         }
         process.setObject(block(cwd as AnyObject), forKeyedSubscript: "cwd" as NSString)
 
-        let chdir: @convention(block) (String) -> Void = { path in
-            FileManager.default.changeCurrentDirectoryPath(path)
+        let chdir: @convention(block) (String) -> Void = { [weak self] path in
+            // Resolve relative `path` against the current shell-CWD
+            // first — Node accepts `process.chdir("./sub")` and
+            // expects it to compose with the prior cwd. Storing the
+            // raw relative string here would leave the bound CWD
+            // unusable for subsequent `fs.*` ops.
+            let resolved = resolveAgainstShellCWD(path)
+            // Sandbox gate: chdir into a denied region is a write —
+            // it would let a script position subsequent relative-path
+            // ops anywhere. Surface as a Node-style EACCES.
+            do {
+                try self?.awaitSync { try await authorizePath(resolved, for: .write) }
+            } catch {
+                _ = self?.throwSandboxDenial(error, syscall: "chdir", path: path)
+                return
+            }
+            if Shell.current === Shell.processDefault {
+                FileManager.default.changeCurrentDirectoryPath(resolved)
+            }
+            Shell.current.environment.workingDirectory = resolved
         }
         process.setObject(block(chdir as AnyObject), forKeyedSubscript: "chdir" as NSString)
 

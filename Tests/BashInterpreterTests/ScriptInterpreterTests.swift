@@ -17,6 +17,19 @@ import Foundation
             ofItemAtPath: path)
     }
 
+    /// POSIX-style single-quote a path so it survives bash's word-
+    /// expansion intact. Critical on Windows: `NSTemporaryDirectory()`
+    /// returns paths with `\` separators, and unquoted `\X` is a bash
+    /// escape — the path makes it to `cap.shell.run(...)` with every
+    /// backslash already eaten, so the dispatcher never sees a
+    /// `/`-bearing token and falls through to `command not found`.
+    /// Embedded single quotes are encoded as `'\''` (the standard
+    /// POSIX trick); UUID-bearing test paths don't contain quotes,
+    /// but the helper is correct in general.
+    private static func bashQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     // MARK: parseShebangLine
 
     @Test func parsesPlainShebang() {
@@ -137,18 +150,23 @@ import Foundation
             return .success
         }
 
-        try await cap.shell.run("\(path) one two")
+        try await cap.shell.run("\(Self.bashQuote(path)) one two")
         let ctxs = await sink.contexts
         #expect(ctxs.count == 1)
-        #expect(ctxs.first?.scriptPath == path)
+        // The dispatcher hands over the *resolved* path (drive-letter
+        // forward-slash form on Windows; identity on Unix). Compute
+        // the expected form via the same `resolvePath` so the
+        // assertion stays platform-independent.
+        let resolvedPath = cap.shell.resolvePath(path)
+        #expect(ctxs.first?.scriptPath == resolvedPath)
         #expect(ctxs.first?.shebang == "#!/usr/bin/env foolang")
-        #expect(ctxs.first?.argv == [path, "one", "two"])
+        #expect(ctxs.first?.argv == [resolvedPath, "one", "two"])
         // Body should be stripped — no leading `#!` survives. The
         // newline is retained so line 2 of the file is still line 2
         // of the body.
         #expect(ctxs.first?.source.hasPrefix("#!") == false)
         #expect(ctxs.first?.source.hasPrefix("\n") == true)
-        #expect(cap.stdout == "ran:\(path),one,two\n")
+        #expect(cap.stdout == "ran:\(resolvedPath),one,two\n")
     }
 
     @Test func dispatchPropagatesPositionalsToScript() async throws {
@@ -168,8 +186,9 @@ import Foundation
                 "$0=\(Shell.current.scriptName) $@=\(pos.joined(separator: " "))\n")
             return .success
         }
-        try await cap.shell.run("\(path) alpha beta gamma")
-        #expect(cap.stdout == "$0=\(path) $@=alpha beta gamma\n")
+        try await cap.shell.run("\(Self.bashQuote(path)) alpha beta gamma")
+        let resolvedPath = cap.shell.resolvePath(path)
+        #expect(cap.stdout == "$0=\(resolvedPath) $@=alpha beta gamma\n")
     }
 
     @Test func parentPositionalsArePreservedAfterDispatch() async throws {
@@ -188,7 +207,7 @@ import Foundation
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in
             return .success
         }
-        try await cap.shell.run("\(path) inner")
+        try await cap.shell.run("\(Self.bashQuote(path)) inner")
         #expect(cap.shell.scriptName == "outer")
         #expect(cap.shell.positionalParameters == ["outerArg"])
     }
@@ -205,7 +224,7 @@ import Foundation
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in
             ExitStatus(7)
         }
-        try await cap.shell.run("\(path); echo $?")
+        try await cap.shell.run("\(Self.bashQuote(path)); echo $?")
         #expect(cap.stdout == "7\n")
     }
 
@@ -226,7 +245,7 @@ import Foundation
             atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in .success }
-        let status = try await cap.shell.run(dir)
+        let status = try await cap.shell.run(Self.bashQuote(dir))
         #expect(status.code == 126)
         #expect(cap.stderr.contains("Is a directory"))
     }
@@ -244,12 +263,19 @@ import Foundation
         #expect(cap.stderr.contains("command not found"))
     }
 
+    #if !os(Windows)
     @Test func nonExecutableScriptRejectedWithPermissionDenied() async throws {
         // A regular file with a matching shebang but no execute bit
         // is rejected with 126 / "Permission denied" — matches bash
         // `./script` when the file isn't `chmod +x`'d. Without this
         // check, the dispatcher would happily run a 0644 file the
         // user never marked as runnable.
+        //
+        // Skipped on Windows: there's no POSIX execute bit there, so
+        // `setAttributes(posixPermissions:)` is a no-op and the
+        // dispatcher's executable-bit check is disabled (see
+        // `Shell+ExternalScript.swift`). The test concept doesn't
+        // map to the platform.
         let cap = CapturingShell()
         let dir = NSTemporaryDirectory()
             + "swift-bash-shebang-perm-\(UUID().uuidString)"
@@ -266,10 +292,11 @@ import Foundation
             Issue.record("interpreter should not have been invoked")
             return .success
         }
-        let status = try await cap.shell.run(path)
+        let status = try await cap.shell.run(Self.bashQuote(path))
         #expect(status.code == 126)
         #expect(cap.stderr.contains("Permission denied"))
     }
+    #endif
 
     @Test func unreadableScriptReportsPermissionDenied() async throws {
         // A path the FS rejects (sandbox denial, EACCES) on `metadata`
@@ -299,7 +326,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let path = dir + "/run.foo"
         try Self.writeExecutable("#!/usr/bin/env nope-lang\n", to: path)
-        let status = try await cap.shell.run("\(path)")
+        let status = try await cap.shell.run("\(Self.bashQuote(path))")
         #expect(status.code == 127)
         #expect(cap.stderr.contains("command not found"))
     }
@@ -319,7 +346,7 @@ import Foundation
             Shell.current.stdout("ok\n")
             return .success
         }
-        try await cap.shell.run("(\(path))")
+        try await cap.shell.run("(\(Self.bashQuote(path)))")
         #expect(cap.stdout == "ok\n")
     }
 
@@ -353,7 +380,7 @@ import Foundation
             await sink.record(ctx.source)
             return .success
         }
-        try await cap.shell.run(path)
+        try await cap.shell.run(Self.bashQuote(path))
         let body = await sink.source ?? ""
         let originalLines = original.split(separator: "\n",
                                            omittingEmptySubsequences: false)
@@ -376,7 +403,7 @@ import Foundation
         try Self.writeExecutable("#!/usr/bin/env foolang\nbody", to: path)
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in .success }
         cap.shell.unregisterScriptInterpreter("foolang")
-        let status = try await cap.shell.run("\(path)")
+        let status = try await cap.shell.run("\(Self.bashQuote(path))")
         #expect(status.code == 127)
     }
 }

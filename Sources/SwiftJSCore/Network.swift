@@ -1,4 +1,5 @@
 import Foundation
+import BashInterpreter
 
 #if canImport(JavaScriptCore)
 
@@ -98,9 +99,11 @@ extension JSRuntime {
 
         var request = URLRequest(url: url)
         var abortSignal: JSValue?
+        var method = "GET"
         if let initVal, initVal.isObject {
             if let m = initVal.objectForKeyedSubscript("method"), m.isString {
                 request.httpMethod = m.toString()
+                method = m.toString() ?? "GET"
             }
             if let h = initVal.objectForKeyedSubscript("headers"), h.isObject {
                 if let dict = h.toDictionary() as? [String: Any] {
@@ -132,6 +135,23 @@ extension JSRuntime {
                     return promise
                 }
             }
+        }
+
+        // Sandbox + network-allow-list gate. Run the async gate
+        // synchronously so a denial rejects the Promise before we
+        // open a socket. The gate is pure policy (URL allow-list +
+        // method gate), no DNS, no TLS — sub-millisecond — so
+        // blocking the JSC thread for it is fine.
+        let gateMethod = method
+        do {
+            try awaitSync {
+                try await authorizeURL(url, method: gateMethod)
+            }
+        } catch {
+            box.reject?.call(withArguments: [
+                makeNetworkDenialError(error, in: ctx, url: urlString)
+            ])
+            return promise
         }
 
         // Add a sentinel timer so `drainPendingWorkIfNeeded` keeps

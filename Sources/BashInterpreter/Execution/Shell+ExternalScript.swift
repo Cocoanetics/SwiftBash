@@ -62,11 +62,19 @@ extension Shell {
         // doesn't track POSIX bits report mode 0 — treat those as
         // executable so in-memory test fixtures and the virtual /bin
         // overlay aren't blocked.
+        //
+        // Windows has no POSIX execute bit, so `RealFileSystem`'s
+        // `windowsMetadata` reports `0o644` for every regular file —
+        // applying the check there would block every script. Skip
+        // the gate on Windows; if a script runs at all, the file
+        // already exists and the OS handles the rest.
+        #if !os(Windows)
         if meta.mode != 0, (meta.mode & 0o111) == 0 {
             stderr(
                 "\(errorLocationPrefix())\(head): Permission denied\n")
             return ExitStatus(126)
         }
+        #endif
         let data: Data
         do {
             data = try await fileSystem.readData(resolved)
@@ -109,7 +117,16 @@ extension Shell {
     /// A token "looks like a path" if it contains a `/` (relative or
     /// absolute). Bare names like `swift-script` are looked up in the
     /// command registry only — they're not paths to script files.
+    ///
+    /// On Windows, `\` is also accepted because `NSTemporaryDirectory()`
+    /// and friends return paths like `C:\Users\…\run.foo`. Without
+    /// this, every Windows-shaped temp path falls through to
+    /// `command not found`.
     private func looksLikePath(_ token: String) -> Bool {
-        token.contains("/")
+        #if os(Windows)
+        return token.contains("/") || token.contains("\\")
+        #else
+        return token.contains("/")
+        #endif
     }
 }
