@@ -109,7 +109,16 @@ extension Shell {
     /// A token "looks like a path" if it contains a `/` (relative or
     /// absolute). Bare names like `swift-script` are looked up in the
     /// command registry only — they're not paths to script files.
+    ///
+    /// On Windows, `\` is also accepted because `NSTemporaryDirectory()`
+    /// and friends return paths like `C:\Users\…\run.foo`. Without
+    /// this, every Windows-shaped temp path falls through to
+    /// `command not found`.
     private func looksLikePath(_ token: String) -> Bool {
-        token.contains("/")
+        #if os(Windows)
+        return token.contains("/") || token.contains("\\")
+        #else
+        return token.contains("/")
+        #endif
     }
 }
