@@ -1,4 +1,5 @@
 import Foundation
+import BashInterpreter
 
 #if canImport(JavaScriptCore)
 
@@ -81,6 +82,16 @@ extension JSRuntime {
             .objectForKeyedSubscript(resolved)),
            !cached.isUndefined, !cached.isNull {
             return cached
+        }
+
+        // Sandbox gate: a `require('./secret')` is a read; route the
+        // resolved path through the bound shell's sandbox before we
+        // touch disk.
+        let gatedPath = resolved
+        do {
+            try awaitSync { try await authorizePath(gatedPath, for: .read) }
+        } catch {
+            return throwSandboxDenial(error, syscall: "open", path: gatedPath)
         }
 
         guard let source = try? String(contentsOfFile: resolved, encoding: .utf8) else {
@@ -428,6 +439,11 @@ extension JSRuntime {
             guard let self else { return nil }
             let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             do {
+                try self.awaitSync { try await authorizePath(path, for: .read) }
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "open", path: path)
+            }
+            do {
                 let data = try Data(contentsOf: URL(fileURLWithPath: path))
                 let encoding = Self.encodingArg(from: opts)
                 if let encoding {
@@ -449,6 +465,12 @@ extension JSRuntime {
         let writeFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
             guard let self else { return false }
             do {
+                try self.awaitSync { try await authorizePath(path, for: .write) }
+            } catch {
+                _ = self.throwSandboxDenial(error, syscall: "open", path: path)
+                return false
+            }
+            do {
                 let data = Self.dataForWrite(value)
                 try data.write(to: URL(fileURLWithPath: path))
                 return true
@@ -462,6 +484,12 @@ extension JSRuntime {
 
         let appendFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
             guard let self else { return false }
+            do {
+                try self.awaitSync { try await authorizePath(path, for: .write) }
+            } catch {
+                _ = self.throwSandboxDenial(error, syscall: "open", path: path)
+                return false
+            }
             let data = Self.dataForWrite(value)
             let url = URL(fileURLWithPath: path)
             do {
@@ -482,14 +510,28 @@ extension JSRuntime {
         fs.setObject(block(appendFileSync as AnyObject),
                      forKeyedSubscript: "appendFileSync" as NSString)
 
-        let existsSync: @convention(block) (String) -> Bool = { path in
-            FileManager.default.fileExists(atPath: path)
+        let existsSync: @convention(block) (String) -> Bool = { [weak self] path in
+            // existsSync swallows errors by spec — Node returns `false`
+            // for a path it can't stat. Mirror that behaviour for a
+            // sandbox denial: the script learns nothing about whether
+            // the path exists, only that it can't see it.
+            do {
+                try self?.awaitSync { try await authorizePath(path, for: .read) }
+            } catch {
+                return false
+            }
+            return FileManager.default.fileExists(atPath: path)
         }
         fs.setObject(block(existsSync as AnyObject),
                      forKeyedSubscript: "existsSync" as NSString)
 
         let readdirSync: @convention(block) (String) -> Any? = { [weak self] path in
             guard let self else { return nil }
+            do {
+                try self.awaitSync { try await authorizePath(path, for: .read) }
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "scandir", path: path)
+            }
             do {
                 return try FileManager.default.contentsOfDirectory(atPath: path)
             } catch {
@@ -509,6 +551,12 @@ extension JSRuntime {
             let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             let recursive = opts?.objectForKeyedSubscript("recursive")?.toBool() ?? false
             do {
+                try self.awaitSync { try await authorizePath(path, for: .write) }
+            } catch {
+                _ = self.throwSandboxDenial(error, syscall: "mkdir", path: path)
+                return false
+            }
+            do {
                 try FileManager.default.createDirectory(
                     atPath: path,
                     withIntermediateDirectories: recursive
@@ -527,6 +575,15 @@ extension JSRuntime {
             let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
             let force = opts?.objectForKeyedSubscript("force")?.toBool() ?? false
             do {
+                try self.awaitSync { try await authorizePath(path, for: .delete) }
+            } catch {
+                // `force: true` would normally swallow ENOENT — but a
+                // sandbox denial is policy, not a missing file, so
+                // surface it regardless.
+                _ = self.throwSandboxDenial(error, syscall: "unlink", path: path)
+                return false
+            }
+            do {
                 try FileManager.default.removeItem(atPath: path)
                 return true
             } catch {
@@ -543,6 +600,11 @@ extension JSRuntime {
 
         let statSync: @convention(block) (String) -> Any? = { [weak self] path in
             guard let self else { return nil }
+            do {
+                try self.awaitSync { try await authorizePath(path, for: .read) }
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "stat", path: path)
+            }
             let fm = FileManager.default
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: path, isDirectory: &isDir) else {
@@ -674,16 +736,40 @@ extension JSRuntime {
     private func makeOsModule() -> JSValue {
         let os = JSValue(newObjectIn: context)!
 
-        let homedir: @convention(block) () -> String = { NSHomeDirectory() }
+        // Identity redirects: when an embedder has bound a non-default
+        // Shell, route through `Shell.current` so a sandboxed script
+        // sees the synthetic identity rather than the host's. Under
+        // `Shell.processDefault` (standalone `swift-js` CLI) we keep
+        // the legacy host-API answers.
+        let homedir: @convention(block) () -> String = {
+            if Shell.current === Shell.processDefault {
+                return NSHomeDirectory()
+            }
+            if let sandboxHome = Shell.current.sandbox?.homeDirectory.path {
+                return sandboxHome
+            }
+            return Shell.current.environment.variables["HOME"] ?? NSHomeDirectory()
+        }
         os.setObject(block(homedir as AnyObject),
                      forKeyedSubscript: "homedir" as NSString)
 
-        let tmpdir: @convention(block) () -> String = { NSTemporaryDirectory() }
+        let tmpdir: @convention(block) () -> String = {
+            if Shell.current === Shell.processDefault {
+                return NSTemporaryDirectory()
+            }
+            if let sandboxTmp = Shell.current.sandbox?.temporaryDirectory.path {
+                return sandboxTmp
+            }
+            return NSTemporaryDirectory()
+        }
         os.setObject(block(tmpdir as AnyObject),
                      forKeyedSubscript: "tmpdir" as NSString)
 
         let hostname: @convention(block) () -> String = {
-            ProcessInfo.processInfo.hostName
+            if Shell.current === Shell.processDefault {
+                return ProcessInfo.processInfo.hostName
+            }
+            return Shell.current.hostInfo.hostName
         }
         os.setObject(block(hostname as AnyObject),
                      forKeyedSubscript: "hostname" as NSString)

@@ -40,6 +40,11 @@ extension JSRuntime {
         // execSync(command, options?) → string | Buffer
         let execSync: @convention(block) (String, JSValue?) -> Any? = { [weak self] cmd, opts in
             guard let self else { return nil }
+            do {
+                try denyProcessIfSandboxed(cmd)
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "spawn")
+            }
             return self.runChildSync(command: cmd, args: nil, opts: opts)
         }
         cp.setObject(block(execSync as AnyObject),
@@ -48,6 +53,11 @@ extension JSRuntime {
         // spawnSync(command, args?, options?) → { status, stdout, stderr, ... }
         let spawnSync: @convention(block) (String, JSValue?, JSValue?) -> Any? = { [weak self] cmd, args, opts in
             guard let self else { return nil }
+            do {
+                try denyProcessIfSandboxed(cmd)
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "spawn")
+            }
             let argList = (args?.toArray() as? [String]) ?? []
             return self.spawnChildSync(command: cmd, args: argList, opts: opts)
         }
@@ -59,6 +69,11 @@ extension JSRuntime {
         // the JS event loop the way node delivers them.
         let spawnImpl: @convention(block) (String, JSValue?, JSValue?) -> JSValue? = { [weak self] cmd, args, opts in
             guard let self else { return nil }
+            do {
+                try denyProcessIfSandboxed(cmd)
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "spawn")
+            }
             let argList = (args?.toArray() as? [String]) ?? []
             return self.runChildSpawn(command: cmd, args: argList, opts: opts)
         }
@@ -74,6 +89,11 @@ extension JSRuntime {
         // ~0.1s, not ~0.3s.
         let exec: @convention(block) (String, JSValue?) -> JSValue? = { [weak self] cmd, opts in
             guard let self else { return nil }
+            do {
+                try denyProcessIfSandboxed(cmd)
+            } catch {
+                return self.throwSandboxDenial(error, syscall: "spawn")
+            }
             return self.runChildAsync(command: cmd, opts: opts)
         }
         cp.setObject(block(exec as AnyObject),
