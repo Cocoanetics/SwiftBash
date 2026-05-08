@@ -58,6 +58,15 @@ import ShellKit
         return (path, dir)
     }
 
+    /// POSIX-single-quote a path so it survives bash's word
+    /// expansion intact. Critical on Windows where
+    /// `NSTemporaryDirectory()` returns `\`-separated paths and
+    /// unquoted `\X` is a bash escape — without quoting the path
+    /// reaches the dispatcher with every backslash already eaten.
+    private static func bashQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     // MARK: smoke
 
     @Test func runsHelloWorldFromShebang() async throws {
@@ -68,7 +77,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        let status = try await shell.run(s.path)
+        let status = try await shell.run(Self.bashQuote(s.path))
         #expect(status.code == 0)
         #expect(cap.stdout == "hello swiftscript\n")
     }
@@ -81,7 +90,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        let status = try await shell.run(s.path)
+        let status = try await shell.run(Self.bashQuote(s.path))
         #expect(status.code == 0)
         #expect(cap.stdout == "42\n")
     }
@@ -98,9 +107,12 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        try await shell.run("\(s.path) one two three")
+        try await shell.run("\(Self.bashQuote(s.path)) one two three")
         let lines = cap.stdout.split(separator: "\n").map(String.init)
-        #expect(lines == [s.path, "one", "two", "three"])
+        // The dispatcher passes the *resolved* path through
+        // `CommandLine.arguments[0]` — on Windows that's the
+        // forward-slash drive-letter form, on Unix it's identity.
+        #expect(lines == [shell.resolvePath(s.path), "one", "two", "three"])
     }
 
     // MARK: exit code
@@ -117,7 +129,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        let status = try await shell.run(s.path)
+        let status = try await shell.run(Self.bashQuote(s.path))
         #expect(status.code == 7)
         #expect(cap.stdout == "before\n")
     }
@@ -132,7 +144,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        try await shell.run("\(s.path); echo $?")
+        try await shell.run("\(Self.bashQuote(s.path)); echo $?")
         #expect(cap.stdout == "3\n")
     }
 
@@ -146,7 +158,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        let status = try await shell.run(s.path)
+        let status = try await shell.run(Self.bashQuote(s.path))
         #expect(status.code == 1)
         #expect(cap.stderr.contains("error:"))
     }
@@ -163,7 +175,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        _ = try await shell.run(s.path)
+        _ = try await shell.run(Self.bashQuote(s.path))
         let captured = cap.stderr
         let mentions3 = captured.contains(":3:") || captured.contains("3 |")
         #expect(mentions3, "expected line-3 reference in stderr")
@@ -181,7 +193,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        try await shell.run("\(s.path) inner")
+        try await shell.run("\(Self.bashQuote(s.path)) inner")
         #expect(shell.scriptName == "outer")
         #expect(shell.positionalParameters == ["outerArg"])
     }
@@ -201,7 +213,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        try await shell.run("echo hello | \(s.path)")
+        try await shell.run("echo hello | \(Self.bashQuote(s.path))")
         #expect(cap.stdout == "got: hello\n")
     }
 
@@ -232,7 +244,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        try await shell.run(s.path)
+        try await shell.run(Self.bashQuote(s.path))
         #expect(cap.stdout == "denied\n")
     }
 
@@ -251,7 +263,7 @@ import ShellKit
             """)
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
-        try await shell.run(s.path)
+        try await shell.run(Self.bashQuote(s.path))
         #expect(cap.stdout == "agent\nsandbox.local\n")
     }
 }

@@ -153,15 +153,20 @@ import Foundation
         try await cap.shell.run("\(Self.bashQuote(path)) one two")
         let ctxs = await sink.contexts
         #expect(ctxs.count == 1)
-        #expect(ctxs.first?.scriptPath == path)
+        // The dispatcher hands over the *resolved* path (drive-letter
+        // forward-slash form on Windows; identity on Unix). Compute
+        // the expected form via the same `resolvePath` so the
+        // assertion stays platform-independent.
+        let resolvedPath = cap.shell.resolvePath(path)
+        #expect(ctxs.first?.scriptPath == resolvedPath)
         #expect(ctxs.first?.shebang == "#!/usr/bin/env foolang")
-        #expect(ctxs.first?.argv == [path, "one", "two"])
+        #expect(ctxs.first?.argv == [resolvedPath, "one", "two"])
         // Body should be stripped — no leading `#!` survives. The
         // newline is retained so line 2 of the file is still line 2
         // of the body.
         #expect(ctxs.first?.source.hasPrefix("#!") == false)
         #expect(ctxs.first?.source.hasPrefix("\n") == true)
-        #expect(cap.stdout == "ran:\(path),one,two\n")
+        #expect(cap.stdout == "ran:\(resolvedPath),one,two\n")
     }
 
     @Test func dispatchPropagatesPositionalsToScript() async throws {
@@ -182,7 +187,8 @@ import Foundation
             return .success
         }
         try await cap.shell.run("\(Self.bashQuote(path)) alpha beta gamma")
-        #expect(cap.stdout == "$0=\(path) $@=alpha beta gamma\n")
+        let resolvedPath = cap.shell.resolvePath(path)
+        #expect(cap.stdout == "$0=\(resolvedPath) $@=alpha beta gamma\n")
     }
 
     @Test func parentPositionalsArePreservedAfterDispatch() async throws {
