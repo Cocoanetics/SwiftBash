@@ -252,21 +252,30 @@ import ShellKit
 
     @Test func subprocessRunRoutesThroughBashCommandRegistry() async throws {
         // The full polyglot story end-to-end: a SwiftScript script
-        // running under SwiftBash uses `import Subprocess` to call out
-        // to `echo`. Because the SwiftBash `Shell`'s default
+        // running under SwiftBash uses `import Subprocess` to call a
+        // command name that **only exists in the bash registry, not
+        // on the host PATH**. Because the SwiftBash `Shell`'s default
         // `processLauncher` is `BashProcessLauncher` (not the
         // `DefaultProcessLauncher` that ShellKit installs), the call
-        // resolves against the bash command registry — `echo` is the
-        // pure-Swift `EchoCommand` builtin, NOT `/bin/echo` from the
-        // host filesystem. This proves a script-side Subprocess call
-        // never reaches `posix_spawn` when bound to a SwiftBash shell,
-        // matching SwiftBash's "no Process / fork / exec" model.
+        // resolves to the registered closure. A regression that
+        // routed through real exec would fail with "executable not
+        // found" because no such binary exists anywhere — that's what
+        // makes this test load-bearing on the routing claim, vs. a
+        // generic `echo` test where bash-builtin and host `/bin/echo`
+        // produce identical bytes.
         let (shell, cap) = makeShell()
+        // Sentinel registered only in this Shell's command table.
+        // Prints a marker that no real binary anywhere would emit.
+        shell.register(name: "swiftbash-only-marker") { argv in
+            let payload = argv.dropFirst().joined(separator: " ")
+            Shell.bashCurrent.stdout("REGISTRY-OK: \(payload)\n")
+            return .success
+        }
         let s = try writeScript("""
             #!/usr/bin/env swift-script
             import Subprocess
             let r = try await Subprocess.run(
-                Executable.name("echo"),
+                Executable.name("swiftbash-only-marker"),
                 arguments: ["hello-from-bash-builtin"],
                 output: Output.string(limit: 4096))
             if let out = r.standardOutput, r.terminationStatus.isSuccess {
@@ -279,9 +288,9 @@ import ShellKit
 
         let status = try await shell.run(Self.bashQuote(s.path))
         #expect(status.code == 0)
-        // `EchoCommand` writes "hello-from-bash-builtin\n", the script
-        // captures that and prints `got=hello-from-bash-builtin\n`.
-        #expect(cap.stdout == "got=hello-from-bash-builtin\n")
+        // The sentinel prefix proves the call landed on the registered
+        // closure, not on a host binary that happens to share the name.
+        #expect(cap.stdout == "got=REGISTRY-OK: hello-from-bash-builtin\n")
     }
 
     @Test func subprocessRunWithCanonicalPathHitsBashBuiltin() async throws {
@@ -291,7 +300,18 @@ import ShellKit
         // `echo` builtin (not the host's `/bin/echo`). Mirrors the
         // `VirtualBinFileSystem` synthesized-file rule from the bash
         // side.
+        //
+        // To make the routing visible (host `/bin/echo` produces
+        // identical output for the same argv), override the registry's
+        // `echo` with a sentinel-prepending closure. A regression that
+        // bypassed `BashProcessLauncher` for canonical-path resolution
+        // would invoke the real `/bin/echo` and miss the prefix.
         let (shell, cap) = makeShell()
+        shell.register(name: "echo") { argv in
+            let payload = argv.dropFirst().joined(separator: " ")
+            Shell.bashCurrent.stdout("BUILTIN: \(payload)\n")
+            return .success
+        }
         let s = try writeScript("""
             #!/usr/bin/env swift-script
             import Subprocess
@@ -304,7 +324,7 @@ import ShellKit
         defer { try? FileManager.default.removeItem(atPath: s.dir) }
 
         try await shell.run(Self.bashQuote(s.path))
-        #expect(cap.stdout == "via-canonical-path\n")
+        #expect(cap.stdout == "BUILTIN: via-canonical-path\n")
     }
 
     // MARK: identity
