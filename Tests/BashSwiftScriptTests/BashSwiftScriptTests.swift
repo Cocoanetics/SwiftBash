@@ -248,6 +248,85 @@ import ShellKit
         #expect(cap.stdout == "denied\n")
     }
 
+    // MARK: subprocess routing
+
+    @Test func subprocessRunRoutesThroughBashCommandRegistry() async throws {
+        // The full polyglot story end-to-end: a SwiftScript script
+        // running under SwiftBash uses `import Subprocess` to call a
+        // command name that **only exists in the bash registry, not
+        // on the host PATH**. Because the SwiftBash `Shell`'s default
+        // `processLauncher` is `BashProcessLauncher` (not the
+        // `DefaultProcessLauncher` that ShellKit installs), the call
+        // resolves to the registered closure. A regression that
+        // routed through real exec would fail with "executable not
+        // found" because no such binary exists anywhere — that's what
+        // makes this test load-bearing on the routing claim, vs. a
+        // generic `echo` test where bash-builtin and host `/bin/echo`
+        // produce identical bytes.
+        let (shell, cap) = makeShell()
+        // Sentinel registered only in this Shell's command table.
+        // Prints a marker that no real binary anywhere would emit.
+        shell.register(name: "swiftbash-only-marker") { argv in
+            let payload = argv.dropFirst().joined(separator: " ")
+            Shell.bashCurrent.stdout("REGISTRY-OK: \(payload)\n")
+            return .success
+        }
+        let s = try writeScript("""
+            #!/usr/bin/env swift-script
+            import Subprocess
+            let r = try await Subprocess.run(
+                Executable.name("swiftbash-only-marker"),
+                arguments: ["hello-from-bash-builtin"],
+                output: Output.string(limit: 4096))
+            if let out = r.standardOutput, r.terminationStatus.isSuccess {
+                print("got=\\(out)", terminator: "")
+            } else {
+                print("bridge dispatch failed")
+            }
+            """)
+        defer { try? FileManager.default.removeItem(atPath: s.dir) }
+
+        let status = try await shell.run(Self.bashQuote(s.path))
+        #expect(status.code == 0)
+        // The sentinel prefix proves the call landed on the registered
+        // closure, not on a host binary that happens to share the name.
+        #expect(cap.stdout == "got=REGISTRY-OK: hello-from-bash-builtin\n")
+    }
+
+    @Test func subprocessRunWithCanonicalPathHitsBashBuiltin() async throws {
+        // `Executable.path("/bin/echo")` is resolved by
+        // `BashProcessLauncher` against `BinCatalog.knownPaths` — the
+        // canonical path matches, so it dispatches to the registered
+        // `echo` builtin (not the host's `/bin/echo`). Mirrors the
+        // `VirtualBinFileSystem` synthesized-file rule from the bash
+        // side.
+        //
+        // To make the routing visible (host `/bin/echo` produces
+        // identical output for the same argv), override the registry's
+        // `echo` with a sentinel-prepending closure. A regression that
+        // bypassed `BashProcessLauncher` for canonical-path resolution
+        // would invoke the real `/bin/echo` and miss the prefix.
+        let (shell, cap) = makeShell()
+        shell.register(name: "echo") { argv in
+            let payload = argv.dropFirst().joined(separator: " ")
+            Shell.bashCurrent.stdout("BUILTIN: \(payload)\n")
+            return .success
+        }
+        let s = try writeScript("""
+            #!/usr/bin/env swift-script
+            import Subprocess
+            let r = try await Subprocess.run(
+                Executable.path("/bin/echo"),
+                arguments: ["via-canonical-path"],
+                output: Output.string(limit: 4096))
+            print(r.standardOutput ?? "<none>", terminator: "")
+            """)
+        defer { try? FileManager.default.removeItem(atPath: s.dir) }
+
+        try await shell.run(Self.bashQuote(s.path))
+        #expect(cap.stdout == "BUILTIN: via-canonical-path\n")
+    }
+
     // MARK: identity
 
     @Test func swiftScriptSeesSandboxIdentity() async throws {
