@@ -11,6 +11,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Cancel in-flight runs on the same ref when a new push lands.
+# `github.ref` is the PR's merge ref on `pull_request` events and
+# the branch ref on `push`, so PR pushes don't cancel main builds
+# (different refs) but successive force-pushes to a PR do.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
 
   build-macos:
