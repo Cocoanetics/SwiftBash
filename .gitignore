@@ -16,3 +16,9 @@ xcuserdata/
 # Claude Code internal state — local-only worktrees, settings,
 # session tasks. Not part of the project.
 .claude/
+
+# Bun's prebuilt JavaScriptCore static archive. ~300 MB per triple,
+# fetched on demand by `scripts/fetch-bun-webkit.sh`. Pinned upstream
+# by the WEBKIT_VERSION constant inside the script — that's what
+# makes builds reproducible, not committing the artifact.
+Vendor/bun-webkit/

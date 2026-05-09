@@ -45,8 +45,11 @@ For non-Apple platforms (Linux / Windows / Android), every JSC-
 touching `.swift` file is wrapped in `#if canImport(JavaScriptCore)`,
 so the package builds everywhere — non-Apple builds register an
 empty `SwiftJSCore` module and a stub `swift-js` that exits with
-`EX_CONFIG`. Real cross-platform support would mean swapping in
-QuickJS-NG; see [§ Cross-platform: who gets what](#cross-platform-who-gets-what).
+`EX_CONFIG`. The static-archive C-API target (`CJavaScriptCore`)
+that links Bun's prebuilt JSC into `swift-jsc-smoke` on those
+platforms is in place; porting the full SwiftJSCore runtime over
+to it is the remaining work. See [§ Cross-platform: JSC everywhere
+via Bun's prebuilt archive](#cross-platform-jsc-everywhere-via-buns-prebuilt-archive).
 
 ## Layout
 
@@ -661,37 +664,50 @@ try {
 }
 ```
 
-## Cross-platform: JavaScriptCore vs QuickJS
+## Cross-platform: JSC everywhere via Bun's prebuilt archive
 
-Researched current state (today: 2026-05-06):
+Researched current state (today: 2026-05-09):
 
-### JavaScriptCore on Linux
+### How Bun does it
 
-- Available only as part of WebKit/WebKitGTK; on Debian/Ubuntu via
-  `libjavascriptcoregtk-4.1-dev`. Pulls in the full WebKit build
-  surface and is ~10–20 MB just for the JSC parts.
-- LGPL 2.1 (whereas Apple's system JSC is a system framework, so
-  on macOS/iOS we don't ship anything ourselves).
-- Wrapper to know about: [JXKit](https://github.com/jectivex/JXKit)
-  exposes JSC across Apple + Linux behind a uniform Swift API.
-  Inherits the LGPL packaging burden.
+[Bun](https://github.com/oven-sh/bun) ships a Node-shaped JS
+runtime on macOS, Linux x64/aarch64 (glibc + musl), Windows
+x64/arm64, and Android — and it links the *same* JavaScriptCore
+on every one of them. They maintain a WebKit fork at
+[oven-sh/WebKit](https://github.com/oven-sh/WebKit) that strips
+out WebCore, WebKit2, the GTK glue, and everything else outside
+`Source/JavaScriptCore` + `Source/WTF` + `Source/bmalloc` + ICU.
+Each autobuild publishes per-triple `bun-webkit-<os>-<arch>.tar.gz`
+release assets containing `lib/libJavaScriptCore.a` (or `.lib`
+on Windows), the WTF/bmalloc/ICU statics, and the full Apple-
+compatible C API headers (`JSContextRef`, `JSValueRef`,
+`JSStringRef`, `JSObjectRef`, `JavaScript.h`).
 
-Verdict: workable but painful to ship. Right answer if you want
-ES2024+ on Linux *and* don't mind the deployment story.
+The C API headers are byte-for-byte the same as Apple's. Swift
+code that only uses the C API recompiles unchanged against the
+Bun headers — that's exactly what JSC's stable C ABI is for.
 
-### QuickJS-NG (recommended for non-Apple)
+### Why this beats `libjavascriptcoregtk-4.1`
 
-- [quickjs-ng/quickjs](https://github.com/quickjs-ng/quickjs),
-  MIT, actively maintained fork of Bellard's QuickJS.
-- ES2023 compliant: modules, async generators, BigInt, Proxy,
-  WeakRef. More than enough for shell scripts.
-- ~370 KB hello-world binary; the engine itself is ~600 KB of C.
-- C API is small (~40 functions). Easy to vendor as SwiftPM
-  `systemLibrary` or as a target compiling the C sources directly.
-- No actively-maintained Swift wrapper found, so we'd write the
-  bridge ourselves. ~200–400 lines.
+The earlier note on this page about "WebKitGTK is 10–20 MB plus
+LGPL packaging burden" measured the wrong artifact. WebKitGTK
+drags in the WebKit2 process model, GLib mainloop, GObject
+bindings, and DBus. Bun's build is JSC-only — same engine,
+different glue, much smaller link surface, no system-package
+dependency. Both are LGPL; the obligation is the same in either
+case (static-link + provide a relink path), and dynamic-linking
+the GTK package buys nothing useful in exchange for the heavier
+runtime footprint.
 
-Verdict: this is the answer for Linux and Windows.
+### Why this beats QuickJS-NG
+
+The earlier recommendation on this page was QuickJS-NG. It's
+still a fine engine — small, MIT, easy to vendor — but it costs
+a full engine-abstraction layer (every JS-facing API split into
+two backends) and carries different ES2023+ semantics from JSC.
+Reusing Bun's JSC keeps a single engine across every platform,
+preserves the existing Apple runtime line-for-line, and gets us
+JSC's JIT performance for free.
 
 ### Engines deliberately rejected
 
@@ -704,65 +720,115 @@ Verdict: this is the answer for Linux and Windows.
 - **Pure-Swift JS interpreter**: nothing production-grade exists,
   and writing one is a multi-year project. Not viable.
 
-## Recommended architecture (if we ever go beyond this experiment)
+## Architecture
 
 ```
-SwiftJSCore (engine-agnostic)
-├── JSEngine protocol  ─── newContext(), evaluate(_, name:),
-│                          installNativeFunction(_, _:), …
-├── JSValueRef protocol ── isString, asString, asInt, asObject, …
-├── stdlib bindings  ───── console, process, fs, path, os
-│                          (all written against the protocols)
-│
-├── JSCEngine.swift  ───── #if canImport(JavaScriptCore) — Apple
-└── QuickJSEngine.swift ── target deps on a vendored C QuickJS-NG
+CJavaScriptCore (C umbrella module)
+├── include/CJavaScriptCore.h ─ #include <JavaScriptCore/JavaScript.h>
+├── module map               ── publishes the C API as a Swift module
+├── header search path       ── Apple: framework | non-Apple: Vendor/bun-webkit/current/include
+└── linker settings          ── Apple: autolink   | non-Apple: -L Vendor/bun-webkit/current/lib
+
+SwiftJSCore (Apple-only today)
+└── #if canImport(JavaScriptCore) — uses ObjC wrappers (JSContext, JSValue)
+
+swift-jsc-smoke (every platform)
+└── pure C API — the CI proof that JSC links and evaluates JS
 ```
 
-The stdlib (console/process/fs/path) is the bulk of the work and
-it's engine-agnostic — strings in, strings out. The engine
-abstraction only needs ~10 primitives. Two engines, one stdlib.
+A SwiftJSCore that compiles on non-Apple needs a Swift-side
+`JSContext`/`JSValue` wrapper over the C API — Apple's framework
+provides those classes, Bun's static archive does not. Estimated
+~200–400 lines of bridging code, deferred to a follow-up.
 
-A reasonable shipping shape inside SwiftBash itself:
+## Status
 
-| target | platforms | engine |
-|---|---|---|
-| `SwiftJSCore` (library) | all | protocol + stdlib |
-| `SwiftJSCore_JSC` | Apple | JSC backend |
-| `SwiftJSCore_QuickJS` | Linux, Windows, optional on Apple | vendored C |
-| `swift-js` (executable) | all | wires whichever backend the platform has |
+| platform | JSC backend | swift-jsc-smoke | swift-js (full runtime) |
+|---|---|---|---|
+| macOS / iOS / tvOS / watchOS / visionOS | system framework | builds + runs | builds + runs |
+| Linux glibc / musl x64 + arm64 | bun-webkit static `.a` | builds + runs | stub (`EX_CONFIG`) |
+| Android (NDK, x64 + arm64) | bun-webkit static `.a` | builds + runs | stub (`EX_CONFIG`) |
+| Windows MSVC x64 + arm64 | bun-webkit static `.lib` | **gated off, see below** | stub (`EX_CONFIG`) |
 
-This mirrors how the parent package handles `CXattr` (conditional
-target dep on Linux/Android only).
+### Windows — pending CRT alignment
 
-## Recommendation
+Bun's Windows `.lib` artifacts are built with MSVC's `/MT` (static
+CRT) flag because their final binary statically links everything
+including the CRT. Swift's runtime on Windows ships with `/MD`
+(dynamic CRT). `lld-link` rejects the mix:
 
-1. **Apple-only as a first step is genuinely useful and almost
-   free.** ~400 lines of Swift, no third-party dependencies, fast,
-   matches `node`'s shebang/argv shape. The experiment in this
-   branch is already that thing minus polish (timers, modules).
+```
+lld-link: error: /failifmismatch: mismatch detected for 'RuntimeLibrary'
+>>> swiftrt.obj has value MD_DynamicRelease
+>>> JavaScriptCore.lib(...) has value MT_StaticRelease
+```
 
-2. **Cross-platform via QuickJS-NG is feasible but a real project.**
-   Plan on engine bridge + stdlib refactor + CI matrix + at least
-   one round of "this works on macOS but the C ABI shifted on
-   Linux" surprises. Probably 2–3 weeks of focused work to reach
-   parity with the Apple build, plus ongoing maintenance.
+The mismatch is unsafe to override: heap allocations from one CRT
+freed by the other corrupt memory (different malloc heaps,
+different `FILE*` tables). Three viable resolutions, none
+suitable for this PR:
 
-3. **Don't try to match Node.** Pick a target audience: "JS as a
-   shell-scripting language with sync fs and JSON". That keeps the
-   surface small enough that two engines can support it, and stops
-   the project from drifting into "build our own Node".
+1. Rebuild bun-webkit with `/MD` and host the artifact ourselves.
+2. Build a Swift static-stdlib toolchain for Windows so the whole
+   binary uses `/MT`.
+3. Switch to a JSC build that ships both CRT variants (Bun's
+   tarballs only publish `/MT` today).
 
-4. **Don't write a JS interpreter in Swift.** Even partial
-   compliance is a year of work and the result will be slower
-   than QuickJS-NG by 10×.
+Until then, `swift-jsc-smoke`'s dependency on `CJavaScriptCore` is
+gated off Windows in `Package.swift`, and the binary's
+`#if canImport(CJavaScriptCore)` falls through to a skip-message
+stub. Tracked as a follow-up.
 
-## Cross-platform: who gets what
+### Linux/Android — JSC teardown skipped
 
-JavaScriptCore is Apple-only. Linux, Windows, and Android don't
-have it (and won't anytime soon — see [Cross-platform: JavaScriptCore vs QuickJS](#javascriptcore-on-linux)
-for the painful path through WebKitGTK). Rather than block the
-whole package on those platforms, every JSC-touching `.swift`
-source file is wrapped in:
+`JSGlobalContextRelease` deadlocks for ~62s then aborts (likely a
+bmalloc heap-shutdown assert against an unfinished worker on
+Bun's static archive). All four C-API calls during normal
+execution succeed; only teardown trips. The smoke binary exits
+directly via `exit(0)` after printing the result instead of
+running `defer`-based cleanup; OS process exit reclaims the
+memory anyway. A real long-lived runtime that creates/destroys
+many contexts would need a proper fix here — the smoke binary
+doesn't.
+
+Outstanding: port SwiftJSCore from `JSContext`/`JSValue` to a
+thin Swift wrapper over the C API so the full runtime compiles
+on non-Apple. Tracked separately.
+
+## How the build links bun-webkit
+
+```
+$ ./scripts/fetch-bun-webkit.sh        # one-time per WebKit version
+fetch-bun-webkit: downloading bun-webkit-linux-amd64.tar.gz
+                  from https://github.com/oven-sh/WebKit/releases/...
+fetch-bun-webkit: extracted to Vendor/bun-webkit/linux-amd64-88b2f7a...
+fetch-bun-webkit: Vendor/bun-webkit/current -> linux-amd64-88b2f7a...
+fetch-bun-webkit: ready
+
+$ swift build --product swift-jsc-smoke
+Compiling CJavaScriptCore CJavaScriptCore.c
+Compiling swift_jsc_smoke main.swift
+Linking swift-jsc-smoke
+$ .build/debug/swift-jsc-smoke
+swift-jsc-smoke: 1 + 2 = 3  [bun-webkit static archive]
+```
+
+The fetcher pins a WebKit-fork commit SHA — bumping that constant
+is how we pick up newer JSC. CI runs the fetcher on Linux,
+Windows, and Android before `swift build`; on macOS it's a no-op
+(the system framework is already on the search path).
+
+LGPL compliance: Bun static-links and ships a relink path in
+their LICENSE. SwiftBash mirrors that template — distribute
+`libJavaScriptCore.a` from a known WebKit-fork commit, point
+recipients at the relink instructions, ship a NOTICE alongside
+the binary.
+
+## Source-level platform gating (legacy)
+
+Until the SwiftJSCore port to the JSC C API lands, the existing
+runtime stays Apple-only at the source level. Every JSC-touching
+`.swift` source file is wrapped in:
 
 ```swift
 import Foundation
@@ -784,21 +850,18 @@ The `swift-js` executable target also has a non-Apple branch
 that prints a clear error and exits with `EX_CONFIG`:
 
 ```
-$ swift-js --version       # on Linux (hypothetical)
+$ swift-js --version       # on Linux today
 swift-js: JavaScriptCore is not available on this platform.
           Apple platforms (macOS, iOS, tvOS, watchOS) are supported.
-          For Linux / Windows we'd need a different engine
-          (e.g. QuickJS-NG); see Docs/SwiftJS.md.
 ```
 
 The test target's `JSRuntimeTests` is similarly guarded so
-non-Apple CI runs just skip those tests instead of failing
-to compile.
+non-Apple CI runs just skip those tests instead of failing to
+compile.
 
-The net effect: when this experiment is folded back into the
-main `Package.swift`, no Linux/Windows/Android builds break.
-The targets get registered everywhere; on non-Apple they
-compile to (essentially) empty modules and a stub executable.
+This will be revisited once the C-API wrapper lands — at that
+point the runtime targets every platform `swift-jsc-smoke`
+already supports.
 
 ## Status of this branch
 

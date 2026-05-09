@@ -1,5 +1,35 @@
 // swift-tools-version:6.2
 import PackageDescription
+import Foundation
+
+// Absolute path to the package root, used to feed `-L` to the
+// linker on non-Apple platforms (relative paths don't work — the
+// linker's CWD is the SwiftPM build dir, not the package root).
+let packageRoot = URL(fileURLWithPath: #filePath, isDirectory: false)
+    .deletingLastPathComponent().path
+
+// Bun's prebuilt JavaScriptCore static archive lives here after
+// `scripts/fetch-bun-webkit.sh` runs. The script symlinks `current`
+// at the per-triple stage dir; CJavaScriptCore's header / library
+// search paths point at this stable name. The linker settings below
+// reference an absolute path because SwiftPM's `unsafeFlags` are
+// passed through to the linker verbatim.
+let bunWebKitDir = "\(packageRoot)/Vendor/bun-webkit/current"
+let bunWebKitLib = "\(bunWebKitDir)/lib"
+let bunWebKitFetched = FileManager.default.fileExists(
+    atPath: "\(bunWebKitDir)/include/JavaScriptCore/JavaScript.h")
+
+// `swift-jsc-smoke` proves end-to-end JSC linkage. Apple gets the
+// system framework (autolink), so it always builds. On non-Apple
+// hosts we only register it when the static archive has been
+// staged; otherwise a plain `swift build` without the fetcher
+// having run would fail to link. CI on Linux/Windows/Android runs
+// the fetcher unconditionally, so the smoke target is built there.
+#if canImport(Darwin)
+let registerJSCSmoke = true
+#else
+let registerJSCSmoke = bunWebKitFetched
+#endif
 
 // Platforms where the SwiftPorts dep graph links cleanly. Android
 // is excluded: SwiftPorts pulls in libgit2, BoringSSL,
@@ -13,6 +43,32 @@ let swiftPortsPlatforms: [Platform] = [
     .macOS, .iOS, .tvOS, .watchOS, .visionOS, .linux, .windows,
 ]
 
+var products: [Product] = [
+    .library(name: "BashSyntax", targets: ["BashSyntax"]),
+    .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
+    .library(name: "BashCommandKit", targets: ["BashCommandKit"]),
+    .library(name: "SwiftJSCore", targets: ["SwiftJSCore"]),
+    .library(name: "BashSwiftScript", targets: ["BashSwiftScript"]),
+    .executable(name: "swift-bash", targets: ["swift-bash"]),
+    // SwiftJS is a Node-shaped JS runtime built on Apple's
+    // JavaScriptCore. Source files are gated on
+    // `canImport(JavaScriptCore)` so the products register
+    // everywhere but compile to empty modules / a stub binary
+    // on Linux / Windows / Android. See Docs/SwiftJS.md.
+    .executable(name: "swift-js", targets: ["swift-js"]),
+]
+if registerJSCSmoke {
+    // `swift-jsc-smoke` proves end-to-end JSC linkage on every
+    // platform — Apple via the system framework, the others via
+    // Bun's prebuilt static archive (oven-sh/WebKit autobuild)
+    // staged by `scripts/fetch-bun-webkit.sh`. Registered only
+    // when JSC is reachable on the host so a fetcher-less
+    // `swift build` on non-Apple still succeeds for the rest of
+    // the package. See Docs/SwiftJS.md § Cross-platform.
+    products.append(
+        .executable(name: "swift-jsc-smoke", targets: ["swift-jsc-smoke"]))
+}
+
 let package = Package(
     name: "SwiftBash",
     platforms: [
@@ -21,20 +77,7 @@ let package = Package(
         .tvOS(.v16),
         .watchOS(.v9),
     ],
-    products: [
-        .library(name: "BashSyntax", targets: ["BashSyntax"]),
-        .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
-        .library(name: "BashCommandKit", targets: ["BashCommandKit"]),
-        .library(name: "SwiftJSCore", targets: ["SwiftJSCore"]),
-        .library(name: "BashSwiftScript", targets: ["BashSwiftScript"]),
-        .executable(name: "swift-bash", targets: ["swift-bash"]),
-        // SwiftJS is a Node-shaped JS runtime built on Apple's
-        // JavaScriptCore. Source files are gated on
-        // `canImport(JavaScriptCore)` so the products register
-        // everywhere but compile to empty modules / a stub binary
-        // on Linux / Windows / Android. See Docs/SwiftJS.md.
-        .executable(name: "swift-js", targets: ["swift-js"]),
-    ],
+    products: products,
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser",
                  from: "1.3.0"),
@@ -258,5 +301,165 @@ let package = Package(
             ],
             path: "Tests/BashSwiftScriptTests"
         ),
-    ]
+
+        // ---- CJavaScriptCore — JSC C-API umbrella module ----
+        // Re-exports the stable JavaScriptCore C API (`JSContextRef`,
+        // `JSValueRef`, etc.) so Swift code can `import CJavaScriptCore`
+        // and call into the engine without depending on Apple's
+        // Objective-C wrapper layer (`JSContext` / `JSValue`).
+        //
+        //   Apple    →  resolves to `JavaScriptCore.framework`
+        //               (system include path + autolink).
+        //   non-Apple → resolves to Bun's prebuilt archive staged
+        //               under Vendor/bun-webkit/current/{include,lib}
+        //               by `scripts/fetch-bun-webkit.sh`.
+        //
+        // SwiftJSCore stays Apple-only at the source level for now
+        // (it uses `JSContext` / `JSValue`, which don't ship in the
+        // Bun tarball). Wiring SwiftJSCore through CJavaScriptCore
+        // on non-Apple is a follow-up that needs a Swift-side
+        // `JSContext` / `JSValue` wrapper over the C API.
+        .target(
+            name: "CJavaScriptCore",
+            path: "Sources/CJavaScriptCore",
+            publicHeadersPath: "include",
+            cSettings: [
+                // Absolute `-I` to the staged Bun-WebKit headers.
+                // Tried `.headerSearchPath("../../Vendor/...")`
+                // first — the path is documented as relative to
+                // the target source dir, but under SwiftPM 6.2 it
+                // didn't reach the clang module build triggered
+                // by the Swift importer, and CI consistently
+                // failed with `'JavaScriptCore/JavaScript.h' file
+                // not found`. Absolute path via `unsafeFlags`
+                // sidesteps the relative-path resolution entirely.
+                .unsafeFlags(
+                    ["-I\(bunWebKitDir)/include"],
+                    .when(platforms: [.linux, .windows, .android])),
+                // JSC's C API headers decorate every export with
+                // `__declspec(dllimport)` on Windows by default,
+                // which forces consumers to link a `.dll`. Bun's
+                // tarball ships static `.lib`s instead, so we
+                // need to disable that decoration. WebKit's
+                // convention is the `STATICALLY_LINKED_WITH_*`
+                // macros — defining them on JSC and WTF flips
+                // the export macro to a no-op for static linkage.
+                // Harmless on Linux/Android (those headers gate
+                // dllimport on `_WIN32`), but defining it
+                // unconditionally on every non-Apple platform
+                // keeps the configuration uniform.
+                .define("STATICALLY_LINKED_WITH_JavaScriptCore",
+                        .when(platforms: [.linux, .windows, .android])),
+                .define("STATICALLY_LINKED_WITH_WTF",
+                        .when(platforms: [.linux, .windows, .android])),
+            ],
+            linkerSettings: [
+                // Linux / Android — link Bun's static archive.
+                // `-L` needs absolute path because the linker's
+                // CWD is the SwiftPM build dir, not the repo root.
+                .unsafeFlags(["-L\(bunWebKitLib)"],
+                             .when(platforms: [.linux, .android])),
+                .linkedLibrary("JavaScriptCore",
+                               .when(platforms: [.linux, .android])),
+                .linkedLibrary("WTF",
+                               .when(platforms: [.linux, .android])),
+                .linkedLibrary("bmalloc",
+                               .when(platforms: [.linux, .android])),
+                .linkedLibrary("icui18n",
+                               .when(platforms: [.linux, .android])),
+                .linkedLibrary("icuuc",
+                               .when(platforms: [.linux, .android])),
+                .linkedLibrary("icudata",
+                               .when(platforms: [.linux, .android])),
+                // pthread / dl / m are separate `.so`s on glibc but
+                // collapsed into Bionic's libc on Android (no
+                // `libpthread.so` / `libdl.so` / `libm.so` ship in
+                // the NDK), so the Android NDK linker hard-errors
+                // with "unable to find library -lpthread" if we
+                // emit `-lpthread`. Linux glibc only.
+                .linkedLibrary("pthread", .when(platforms: [.linux])),
+                .linkedLibrary("dl", .when(platforms: [.linux])),
+                .linkedLibrary("m", .when(platforms: [.linux])),
+                // libc++ on Android (NDK), libstdc++ on glibc Linux.
+                .linkedLibrary("stdc++", .when(platforms: [.linux])),
+                .linkedLibrary("c++", .when(platforms: [.android])),
+                // Bun's Android JSC archive calls into the NDK's
+                // logging API (`__android_log_print` /
+                // `__android_log_write`); resolve via `-llog`.
+                .linkedLibrary("log", .when(platforms: [.android])),
+
+                // Windows MSVC. `linkedLibrary("Foo")` becomes
+                // `Foo.lib`; Bun's Windows tarball ships static ICU
+                // as `sicuin.lib` / `sicuuc.lib` / `sicudt.lib`.
+                .unsafeFlags(["-L\(bunWebKitLib)"],
+                             .when(platforms: [.windows])),
+                .linkedLibrary("JavaScriptCore",
+                               .when(platforms: [.windows])),
+                .linkedLibrary("WTF",
+                               .when(platforms: [.windows])),
+                .linkedLibrary("bmalloc",
+                               .when(platforms: [.windows])),
+                .linkedLibrary("sicuin",
+                               .when(platforms: [.windows])),
+                .linkedLibrary("sicuuc",
+                               .when(platforms: [.windows])),
+                .linkedLibrary("sicudt",
+                               .when(platforms: [.windows])),
+                // Apple platforms autolink the framework via the
+                // umbrella header's `#include <JavaScriptCore/...>`
+                // — no explicit linkerSetting needed.
+            ]
+        ),
+    ] + (registerJSCSmoke ? [
+        // Smoke check that CJavaScriptCore actually links and the
+        // engine evaluates JavaScript end-to-end. CI runs this
+        // binary after each build; if it prints `1 + 2 = 3` the
+        // toolchain on that platform has a working JSC.
+        //
+        // Registered only when JSC is reachable on the host (Apple
+        // always; non-Apple iff the bun-webkit fetcher has run) so
+        // that `swift build` doesn't fail on non-Apple developer
+        // machines that haven't fetched the static archive.
+        .executableTarget(
+            name: "swift-jsc-smoke",
+            // Gated off Windows: Bun's `.lib`s are MSVC `/MT` (static
+            // CRT) but Swift's runtime is `/MD` (dynamic CRT), and
+            // `lld-link` hard-rejects mixing the two with
+            // `failifmismatch RuntimeLibrary`. No fix from
+            // Package.swift alone — needs either a `/MD` Bun rebuild
+            // or a Swift static-stdlib toolchain. The smoke binary's
+            // `#if canImport(CJavaScriptCore)` falls through to a
+            // skip-message stub on Windows. Tracked in
+            // Docs/SwiftJS.md § Cross-platform.
+            dependencies: [
+                .target(
+                    name: "CJavaScriptCore",
+                    condition: .when(platforms: [
+                        .macOS, .iOS, .tvOS, .watchOS, .visionOS,
+                        .linux, .android,
+                    ])),
+            ],
+            path: "Sources/swift-jsc-smoke",
+            // The `import CJavaScriptCore` in the smoke binary's
+            // Swift source triggers a clang module build of the
+            // C target's umbrella header. That clang invocation
+            // doesn't always pick up the C target's cSettings, so
+            // we also pass `-Xcc -I<abs>` at this consumer's
+            // Swift driver level to make the include resolution
+            // unambiguous.
+            //
+            // `.v5` because Swift 6 strict concurrency rejects
+            // direct use of the platform's `stderr` global on
+            // Linux / Android (Glibc.stderr is a `var`). Matches
+            // the language mode the rest of this package runs in.
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
+        ),
+    ] : [])
 )
