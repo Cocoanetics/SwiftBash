@@ -46,8 +46,6 @@ jobs:
         run: swift --version
       - name: Build (macOS)
         run: swift build --build-tests -v
-      - name: Test (macOS)
-        run: swift test -v --skip-build --no-parallel
       # JSC linkage smoke check — uses the system JavaScriptCore
       # framework on Apple. Mirror of the non-Apple verification
       # below so CI proves the same C-API path on every platform.
@@ -60,10 +58,13 @@ jobs:
       # macOS doesn't ship `timeout(1)`; install via coreutils so the
       # loop semantics match Linux (kernel-enforced cap per variant
       # plus per-variant exit codes printed for the data table).
+      # Runs BEFORE the test step so a long / cancelled test phase
+      # can't truncate the diag output (observed once when Linux
+      # tests hit the 15 min job timeout and the diag step ran into
+      # the cancellation grace period).
       - name: Install coreutils (for timeout)
         run: brew list --versions coreutils >/dev/null 2>&1 || brew install coreutils
       - name: JSC shutdown diagnostics (macOS)
-        if: always()
         run: |
           set +e
           for variant in plain evaluated gc-then-release group-release no-release; do
@@ -74,6 +75,8 @@ jobs:
             echo "::endgroup::"
           done
           exit 0
+      - name: Test (macOS)
+        run: swift test -v --skip-build --no-parallel
 
   build-ios:
     # Compile-only check on `generic/platform=iOS` (no simulator boots).
@@ -141,8 +144,6 @@ jobs:
           ls -la Vendor/bun-webkit/current/include/JavaScriptCore/JavaScript.h
       - name: Build (Linux)
         run: swift build --build-tests -v
-      - name: Test (Linux)
-        run: swift test -v --skip-build --no-parallel
       - name: JSC smoke (Linux)
         run: .build/debug/swift-jsc-smoke
       # Research probe for oven-sh/bun#30434. Each variant is run
@@ -155,9 +156,13 @@ jobs:
       # external `timeout` is enforced by the kernel and reliably
       # frees the loop so subsequent variants still get exercised.
       # `--preserve-status` propagates the binary's exit code (or 124
-      # on timeout) so we can tell pass / hang / abort apart in logs.
+      # on timeout / 137 on SIGKILL after grace period) so we can
+      # distinguish pass / hang / abort in the data table. Runs BEFORE
+      # the test step so a long / cancelled test phase can't truncate
+      # the diag output (observed once when Linux tests hit the 15 min
+      # job timeout and the diag step ran into the cancellation grace
+      # period).
       - name: JSC shutdown diagnostics (Linux)
-        if: always()
         run: |
           set +e
           for variant in plain evaluated gc-then-release group-release no-release; do
@@ -170,6 +175,8 @@ jobs:
           # Step itself always succeeds; analyse via the per-variant
           # exit codes printed above.
           exit 0
+      - name: Test (Linux)
+        run: swift test -v --skip-build --no-parallel
 
   build-windows:
     # Windows is a committed compatibility target — the build and
