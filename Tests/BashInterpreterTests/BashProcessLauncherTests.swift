@@ -42,11 +42,11 @@ import Testing
         #expect(buffer.text == "hello alice\n")
     }
 
-    @Test func launcherDispatchesByPathBasename() async throws {
-        // `Executable.path("/usr/bin/echo")` should reach the shell's
-        // registered `echo` — SwiftBash's virtual `/bin` and
-        // `/usr/bin` already make this true on the bash side, and
-        // basename-resolution mirrors that for any launcher consumer.
+    @Test func launcherDispatchesCanonicalBinPath() async throws {
+        // `Executable.path("/bin/echo")` should reach the shell's
+        // registered `echo` — that's the canonical bin path per
+        // `BinCatalog`, so it matches `VirtualBinFileSystem`'s
+        // synthesized-file rule on the bash side.
         let shell = Shell()
         shell.register(name: "echo") { argv in
             Shell.bashCurrent.stdout(argv.dropFirst().joined(separator: " ") + "\n")
@@ -56,7 +56,7 @@ import Testing
         let buffer = BufferingSink()
         let record = try await shell.withCurrent {
             try await shell.processLauncher.launch(
-                .path("/usr/bin/echo"),
+                .path("/bin/echo"),
                 arguments: ["hi"],
                 environment: shell.environment,
                 workingDirectory: nil,
@@ -67,6 +67,29 @@ import Testing
 
         #expect(record.terminationStatus.isSuccess)
         #expect(buffer.text == "hi\n")
+    }
+
+    @Test func launcherRefusesNonCanonicalPath() async {
+        // `/tmp/echo` is NOT a canonical bin path — basename-resolving
+        // it to the registered `echo` would change exact-path
+        // subprocess semantics (the caller asked for a specific file
+        // location, not the registry). Throws `ProcessLaunchUnresolved`
+        // instead of silently dispatching.
+        let shell = Shell()
+        shell.register(name: "echo") { _ in .success }
+
+        await #expect(throws: ProcessLaunchUnresolved.self) {
+            try await shell.withCurrent {
+                _ = try await shell.processLauncher.launch(
+                    .path("/tmp/echo"),
+                    arguments: [],
+                    environment: shell.environment,
+                    workingDirectory: nil,
+                    input: .empty,
+                    output: .discard,
+                    error: .discard)
+            }
+        }
     }
 
     // MARK: Resolve miss
@@ -172,6 +195,37 @@ import Testing
 
         #expect(bridgeBuffer.text == "captured\n")
         #expect(parentBuffer.text == "")
+    }
+
+    // MARK: exit-code conversion
+
+    @Test func launcherTranslatesExitToTerminationStatus() async throws {
+        // A launched command that calls `exit N` (the bash builtin
+        // throws an internal `ShellExit` to unwind) must surface as a
+        // clean `ExecutionRecord` with `.exited(N)` — NOT as a thrown
+        // error. Subprocess-style callers (a SwiftScript / SwiftJSCore
+        // bridge running `Subprocess.run(.name("exit-2"))`) expect a
+        // record back so they can branch on success / failure.
+        let shell = Shell()
+        // The default `exit` builtin is registered by `defaultCommands()`
+        // — exercise it directly.
+
+        let record = try await shell.withCurrent {
+            try await shell.processLauncher.launch(
+                .name("exit"),
+                arguments: ["7"],
+                environment: shell.environment,
+                workingDirectory: nil,
+                input: .empty,
+                output: .discard,
+                error: .discard)
+        }
+
+        guard case .exited(let code) = record.terminationStatus else {
+            Issue.record("expected .exited, got \(record.terminationStatus)")
+            return
+        }
+        #expect(code == 7)
     }
 
     @Test func launcherEnvironmentMutationsDontLeakToParent() async throws {
