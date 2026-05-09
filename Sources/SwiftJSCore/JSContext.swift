@@ -107,13 +107,33 @@ public final class JSContext {
             // Drop the context ref first (VM refcount 2 → 1, no
             // `~VM`), then the group ref (VM refcount 1 → 0, runs
             // `~VM` under `JSContextGroupRelease`'s `JSLockHolder`
-            // scope). On Apple this matches the framework's standard
-            // lifecycle; on bun-webkit it sidesteps the
-            // `JSGlobalContextRelease` hang (oven-sh/bun#30434).
+            // scope). On Apple this matches the framework's
+            // standard lifecycle and runs in single-digit ms.
+            //
+            // On bun-webkit (Linux/Android) the same lifecycle
+            // works fine for a single VM-per-process (the
+            // `swift-jsc-shutdown-diag` `group-release` variant
+            // exits clean in 6 ms there) — but accumulating the
+            // teardown across many VMs in one process hangs.
+            // Test suites that spin up dozens of `JSContext`s
+            // (e.g. `JSRuntimeTests`) freeze at the ~50th teardown.
+            // Symptom is consistent with VM-internal state (ICU
+            // tables, bmalloc IsoHeaps) not fully releasing
+            // between VM destructions on the fork's stripped-lock
+            // C-API surface — see oven-sh/bun#30434.
+            //
+            // Until that lands upstream we skip the release on
+            // non-Apple. Per-context VM state leaks but is bounded
+            // (one VM's worth per `JSContext` ever created in
+            // this process, freed by the kernel at exit). The
+            // group structure stays intact so removing the gate
+            // is a one-line revert when the patch ships.
+            #if canImport(Darwin)
             JSGlobalContextRelease(raw)
             if let group = group {
                 JSContextGroupRelease(group)
             }
+            #endif
         }
     }
 
