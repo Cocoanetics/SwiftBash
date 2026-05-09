@@ -216,11 +216,19 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         hostInfo: HostInfo = .synthetic,
         processTable: ProcessTable = ProcessTable(),
         virtualPID: Int32 = 1,
-        commands: [String: Command] = [:]
+        commands: [String: Command] = [:],
+        processLauncher: (any ProcessLauncher)? = nil
     ) {
         // FileSystem is bash-specific (legacy protocol). The
         // VirtualBinFileSystem wrap happens after super.init.
         self._fileSystem = VirtualBinFileSystem(backing: RealFileSystem())
+        // SwiftBash is sandbox-by-default and never spawns real OS
+        // subprocesses. Resolve `nil` to ``BashProcessLauncher`` so a
+        // launcher consumer (a SwiftScript / SwiftJSCore script
+        // calling `Shell.current.processLauncher.launch(...)`)
+        // reaches this shell's command registry instead of falling
+        // through to `DefaultProcessLauncher`'s real-exec path that
+        // ShellKit installs by default.
         super.init(
             stdin: stdin,
             stdout: stdout,
@@ -234,7 +242,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             hostInfo: hostInfo,
             processTable: processTable,
             virtualPID: virtualPID,
-            commands: commands)
+            commands: commands,
+            processLauncher: processLauncher ?? BashProcessLauncher())
     }
 
     /// Convenience initializer matching SwiftBash's pre-migration
@@ -245,7 +254,11 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
                             commands: [String: Command] = Shell.defaultCommands(),
                             fileSystem: FileSystem = RealFileSystem())
     {
+        // `stdin:` is passed explicitly to disambiguate this call from
+        // the convenience init (which doesn't have a `stdin:` parameter)
+        // — without it the overload set is ambiguous between the two.
         self.init(
+            stdin: .empty,
             stdout: stdout ?? .forwarding(to: FileHandle.standardOutput),
             stderr: stderr ?? .forwarding(to: FileHandle.standardError),
             environment: environment,
