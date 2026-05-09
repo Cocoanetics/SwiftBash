@@ -40,6 +40,11 @@ jobs:
         run: swift build --build-tests -v
       - name: Test (macOS)
         run: swift test -v --skip-build --no-parallel
+      # JSC linkage smoke check — uses the system JavaScriptCore
+      # framework on Apple. Mirror of the non-Apple verification
+      # below so CI proves the same C-API path on every platform.
+      - name: JSC smoke (macOS)
+        run: .build/debug/swift-jsc-smoke
 
   build-ios:
     # Compile-only check on `generic/platform=iOS` (no simulator boots).
@@ -86,10 +91,19 @@ jobs:
                                   libzstd-dev liblz4-dev
       - name: Verify Swift version
         run: swift --version
+      # Bun's prebuilt JavaScriptCore static archive (oven-sh/WebKit
+      # autobuild). Stages headers + libJavaScriptCore.a etc. under
+      # Vendor/bun-webkit/<triple>/, with a `current` symlink that
+      # CJavaScriptCore's header / library search paths follow. Must
+      # run before `swift build` so the linker resolves -lJavaScriptCore.
+      - name: Fetch bun-webkit (Linux)
+        run: ./scripts/fetch-bun-webkit.sh
       - name: Build (Linux)
         run: swift build --build-tests -v
       - name: Test (Linux)
         run: swift test -v --skip-build --no-parallel
+      - name: JSC smoke (Linux)
+        run: .build/debug/swift-jsc-smoke
 
   build-windows:
     # Windows is a committed compatibility target — the build and
@@ -144,6 +158,13 @@ jobs:
             Copy-Item -Force $zlibLib "$base\lib\z.lib"
           }
           "VCPKG_BASE=$base" | Out-File -FilePath $env:GITHUB_ENV -Append
+      # Bun's prebuilt JavaScriptCore (oven-sh/WebKit autobuild —
+      # the Windows MSVC variant ships .lib files directly). Same
+      # role as the Linux fetch step. The script is bash; Git Bash
+      # is preinstalled on windows-latest.
+      - name: Fetch bun-webkit (Windows)
+        shell: bash
+        run: ./scripts/fetch-bun-webkit.sh
       - name: Build (Windows)
         shell: pwsh
         run: |
@@ -156,6 +177,9 @@ jobs:
           swift test -v --skip-build --no-parallel `
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
+      - name: JSC smoke (Windows)
+        shell: pwsh
+        run: .\.build\debug\swift-jsc-smoke.exe
 
   # Uses skiptools/swift-android-action which wraps the swift.org Android
   # SDK setup AND runs the SwiftPM tests on an x86_64 Android emulator.
@@ -175,6 +199,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+      # Bun's Android-targeted JSC archive. Cross-build from the
+      # ubuntu-latest x86_64 host into the Android emulator's
+      # arch — the action's default emulator is x86_64 / amd64,
+      # so we pin the matching tarball explicitly. Runs before the
+      # action because Package.swift's bunWebKitFetched probe reads
+      # the path during package resolution.
+      - name: Fetch bun-webkit (Android target)
+        env:
+          BUN_WEBKIT_ASSET: bun-webkit-linux-amd64-android.tar.gz
+        run: ./scripts/fetch-bun-webkit.sh
       - name: Build & Test (Android emulator)
         uses: skiptools/swift-android-action@v2
         with:
