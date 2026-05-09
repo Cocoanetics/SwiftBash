@@ -1,17 +1,15 @@
+#if !os(Windows)
+
 import Foundation
 
-// GzipKit is gated off on Android in Package.swift (see the
-// `swiftPortsPlatforms` list); guard the import too so this file
-// compiles on Android. The body below additionally requires
-// JavaScriptCore (Apple-only), and Apple platforms always have
-// GzipKit, so the body's reference to `Zlib` is always safe.
+// GzipKit is gated off on Android in Package.swift (the SwiftPorts
+// dep graph isn't viable on Bionic). Guard the whole file's
+// implementation so SwiftJSCore still compiles there — Android
+// scripts that `require('zlib')` get an empty module instead of
+// the gzip/deflate suite, which is acceptable since the embedder
+// already opted out of GzipKit.
 #if canImport(GzipKit)
 import GzipKit
-#endif
-
-#if canImport(JavaScriptCore)
-
-import JavaScriptCore
 
 /// `node:zlib` — gzip/gunzip/deflate/inflate.
 ///
@@ -37,9 +35,9 @@ extension JSRuntime {
         // Each *Sync entry funnels through `bridge`, which decorates a
         // failed compress/decompress with the underlying zlib message
         // and a Node-shaped `code`.
-        let bridge: (String, @escaping (Data) throws -> Data) -> @convention(block) (JSValue) -> Any? = { [weak self] op, body in
-            { input in
-                guard let self else { return nil }
+        let bridge: (String, @escaping (Data) throws -> Data) -> JSValue = { [weak self] op, body in
+            return self!.block { args in
+                guard let self, let input = args.first else { return nil }
                 let bytes = JSRuntime.dataForZlibInput(input)
                 do {
                     let out = try body(bytes)
@@ -60,29 +58,18 @@ extension JSRuntime {
             }
         }
 
-        let gzipSync = bridge("gzip") { try Zlib.compressSync($0, wrap: .gzip) }
-        zlib.setObject(block(gzipSync as AnyObject),
-                       forKeyedSubscript: "gzipSync" as NSString)
-
-        let gunzipSync = bridge("gunzip") { try Zlib.decompressSync($0, wrap: .gzip) }
-        zlib.setObject(block(gunzipSync as AnyObject),
-                       forKeyedSubscript: "gunzipSync" as NSString)
-
-        let deflateSync = bridge("deflate") { try Zlib.compressSync($0, wrap: .zlib) }
-        zlib.setObject(block(deflateSync as AnyObject),
-                       forKeyedSubscript: "deflateSync" as NSString)
-
-        let inflateSync = bridge("inflate") { try Zlib.decompressSync($0, wrap: .zlib) }
-        zlib.setObject(block(inflateSync as AnyObject),
-                       forKeyedSubscript: "inflateSync" as NSString)
-
-        let deflateRawSync = bridge("deflateRaw") { try Zlib.compressSync($0, wrap: .raw) }
-        zlib.setObject(block(deflateRawSync as AnyObject),
-                       forKeyedSubscript: "deflateRawSync" as NSString)
-
-        let inflateRawSync = bridge("inflateRaw") { try Zlib.decompressSync($0, wrap: .raw) }
-        zlib.setObject(block(inflateRawSync as AnyObject),
-                       forKeyedSubscript: "inflateRawSync" as NSString)
+        zlib.setObject(bridge("gzip") { try Zlib.compressSync($0, wrap: .gzip) },
+                       forKeyedSubscript: "gzipSync")
+        zlib.setObject(bridge("gunzip") { try Zlib.decompressSync($0, wrap: .gzip) },
+                       forKeyedSubscript: "gunzipSync")
+        zlib.setObject(bridge("deflate") { try Zlib.compressSync($0, wrap: .zlib) },
+                       forKeyedSubscript: "deflateSync")
+        zlib.setObject(bridge("inflate") { try Zlib.decompressSync($0, wrap: .zlib) },
+                       forKeyedSubscript: "inflateSync")
+        zlib.setObject(bridge("deflateRaw") { try Zlib.compressSync($0, wrap: .raw) },
+                       forKeyedSubscript: "deflateRawSync")
+        zlib.setObject(bridge("inflateRaw") { try Zlib.decompressSync($0, wrap: .raw) },
+                       forKeyedSubscript: "inflateRawSync")
 
         return zlib
     }
@@ -103,4 +90,17 @@ extension JSRuntime {
         return Data()
     }
 }
+
+#else  // !canImport(GzipKit) — Android
+
+extension JSRuntime {
+    /// Stub module on platforms without GzipKit. Returns an empty
+    /// JS object so `require('zlib')` doesn't fail outright, but
+    /// none of the gzip/deflate methods are available.
+    func makeZlibModule() -> JSValue {
+        return JSValue(newObjectIn: context)!
+    }
+}
+
 #endif
+#endif  // !os(Windows)

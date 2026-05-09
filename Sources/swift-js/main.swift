@@ -1,23 +1,21 @@
 import Foundation
 import SwiftJSCore
 
-#if !canImport(JavaScriptCore)
-// JavaScriptCore is Apple-only. On Linux / Windows / Android the
-// SwiftJSCore module compiles to nothing useful (its types are
-// gated on `canImport(JavaScriptCore)`), so the executable can't
-// run JS. Print a clear message and exit instead of confusing
-// build failures.
+// Windows is the one platform without a working JSC backend yet
+// (Bun's static `.lib`s are MSVC `/MT`, Swift's runtime is `/MD`,
+// `lld-link` rejects the mix — see Docs/SwiftJS.md). On every
+// other platform `SwiftJSCore` talks to JSC's C API directly,
+// resolved through Apple's framework on Apple and Bun's vendored
+// archive elsewhere.
+#if os(Windows)
 FileHandle.standardError.write(Data(
-    "swift-js: JavaScriptCore is not available on this platform.\n".utf8
+    "swift-js: JavaScriptCore is not currently available on Windows.\n".utf8
 ))
 FileHandle.standardError.write(Data(
-    "          Apple platforms (macOS, iOS, tvOS, watchOS) are supported.\n".utf8
+    "          See Docs/SwiftJS.md § Cross-platform for the CRT-alignment\n".utf8
 ))
 FileHandle.standardError.write(Data(
-    "          For Linux / Windows we'd need a different engine\n".utf8
-))
-FileHandle.standardError.write(Data(
-    "          (e.g. QuickJS-NG); see Docs/SwiftJS.md.\n".utf8
+    "          status with Bun's prebuilt JSC archive.\n".utf8
 ))
 exit(78)  // EX_CONFIG
 #else

@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 
 /// Static rewrite from ES module syntax to CommonJS.
@@ -282,3 +284,4 @@ public enum ESMRewriter {
         return out
     }
 }
+#endif  // !os(Windows)

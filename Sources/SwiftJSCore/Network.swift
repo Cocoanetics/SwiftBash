@@ -1,9 +1,16 @@
+#if !os(Windows)
+
 import Foundation
+// swift-corelibs-foundation splits URLSession / URLRequest /
+// HTTPURLResponse out into a separate module. Apple platforms
+// have these in plain Foundation, so the conditional import is
+// a no-op there.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import BashInterpreter
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 
 /// Mutable holder for the resolve/reject handles of a Promise, used
 /// so the URLSession callback (non-isolated) can post the JSValues
@@ -28,11 +35,12 @@ extension JSRuntime {
     /// second counter through.
     func installFetch() {
         // The JS-callable entry point. Returns a Promise.
-        let fetchImpl: @convention(block) (JSValue, JSValue?) -> JSValue? = { [weak self] urlVal, initVal in
-            guard let self else { return nil }
+        let fetchImpl = block { [weak self] args in
+            guard let self, let urlVal = args.first else { return nil }
+            let initVal: JSValue? = args.count >= 2 ? args[1] : nil
             return self.makeFetchPromise(urlVal: urlVal, initVal: initVal)
         }
-        setGlobal("fetch", block(fetchImpl as AnyObject))
+        setGlobal("fetch", fetchImpl)
 
         // Headers, Response, Request — minimal JS shims so the
         // returned object behaves the way a script expects.
@@ -75,11 +83,13 @@ extension JSRuntime {
         let ctx = context
         let box = PromiseHandles()
 
-        let handler: @convention(block) (JSValue, JSValue) -> Void = { resolve, reject in
-            box.resolve = resolve
-            box.reject = reject
+        let handlerJS = block { args in
+            if args.count >= 2 {
+                box.resolve = args[0]
+                box.reject = args[1]
+            }
+            return nil
         }
-        let handlerJS = JSValue(object: block(handler as AnyObject), in: ctx)!
         let promiseClass = ctx.objectForKeyedSubscript("Promise")!
         let promise = promiseClass.construct(withArguments: [handlerJS])!
 
@@ -106,7 +116,11 @@ extension JSRuntime {
                 method = m.toString() ?? "GET"
             }
             if let h = initVal.objectForKeyedSubscript("headers"), h.isObject {
-                if let dict = h.toDictionary() as? [String: Any] {
+                // `toDictionary()` already returns `[String: Any]?`,
+                // so the `as? [String: Any]` was a no-op cast that
+                // tripped a "conditional downcast does nothing"
+                // warning under Swift 6.
+                if let dict = h.toDictionary() {
                     for (k, v) in dict {
                         request.setValue(String(describing: v), forHTTPHeaderField: k)
                     }
@@ -164,13 +178,29 @@ extension JSRuntime {
         pendingTimers[sentinelID] = sentinel
         sentinel.resume()
 
+        // Bind `var abortSignal` into a local `let` so the
+        // URLSession callback below can keep it alive without
+        // capturing a `var` directly (Swift 6 strict concurrency
+        // rejects that across the @Sendable boundary).
+        let abortSignalRef = abortSignal
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            _ = abortSignal // capture so it stays alive across the call
+            _ = abortSignalRef // capture so it stays alive across the call
             // We're on URLSession's queue. Hop to main where JSValue
             // is safe to touch.
             let bytes = Array(data ?? Data())
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let headers = (response as? HTTPURLResponse)?.allHeaderFields ?? [:]
+            // `[AnyHashable: Any]` from `allHeaderFields` is not
+            // Sendable, so flatten to `[String: String]` here on
+            // URLSession's queue before crossing the dispatch hop.
+            let headers: [String: String] = {
+                guard let http = response as? HTTPURLResponse
+                else { return [:] }
+                var out: [String: String] = [:]
+                for (k, v) in http.allHeaderFields {
+                    out[String(describing: k)] = String(describing: v)
+                }
+                return out
+            }()
             let respondedURL = response?.url?.absoluteString ?? urlString
             let errorDesc = error?.localizedDescription
             let errorCode = Self.fetchErrorCode(error)
@@ -178,7 +208,7 @@ extension JSRuntime {
                 guard let urlError = error as? URLError else { return nil }
                 return urlError.errorCode
             }()
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
                     s.cancel()
@@ -215,10 +245,10 @@ extension JSRuntime {
         // the URLSessionDataTask. We do this by registering a JS
         // listener that calls a Swift bridge.
         if let signal = abortSignal {
-            let cancel: @convention(block) () -> Void = { [weak task] in
+            let cancelJS = block { [weak task] _ in
                 task?.cancel()
+                return nil
             }
-            let cancelJS = JSValue(object: block(cancel as AnyObject), in: ctx)!
             // signal.addEventListener("abort", cancelJS)
             _ = signal.invokeMethod("addEventListener",
                                     withArguments: ["abort", cancelJS])
@@ -258,7 +288,7 @@ extension JSRuntime {
     private func makeResponseObject(
         bytes: [UInt8],
         status: Int,
-        headers: [AnyHashable: Any],
+        headers: [String: String],
         url: String
     ) -> JSValue {
         // Build a Response-shaped object in JS so methods on it (.text(),
@@ -268,8 +298,7 @@ extension JSRuntime {
         let bytesValue = JSValue(object: bytes, in: ctx)!
         let headersDict = JSValue(newObjectIn: ctx)!
         for (k, v) in headers {
-            headersDict.setObject(String(describing: v),
-                                  forKeyedSubscript: String(describing: k) as NSString)
+            headersDict.setObject(v, forKeyedSubscript: k)
         }
 
         let factory = ctx.evaluateScript(#"""
@@ -299,4 +328,4 @@ extension JSRuntime {
         return factory.call(withArguments: [bytesValue, status, headersDict, url])!
     }
 }
-#endif
+#endif  // !os(Windows)

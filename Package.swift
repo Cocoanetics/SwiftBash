@@ -227,21 +227,40 @@ let package = Package(
         ),
 
         // ---- SwiftJS — JavaScript runtime + CLI ----
-        // Apple-only at the source level (`#if canImport(JavaScriptCore)`).
-        // Targets register on every platform; on non-Apple they
-        // compile to (essentially) empty modules.
+        // Universal: SwiftJSCore talks to the JSC C API exclusively
+        // (via `CJavaScriptCore`), so it compiles unchanged on every
+        // platform. Engine binary differs per platform — Apple
+        // resolves `<JavaScriptCore/JavaScript.h>` through the system
+        // framework, non-Apple through Bun's prebuilt static archive
+        // staged by `scripts/fetch-bun-webkit.sh`. See Docs/SwiftJS.md.
         .target(
             name: "SwiftJSCore",
             dependencies: [
                 "BashInterpreter",
                 "BashCommandKit",
-                // GzipKit backs the `node:zlib` JS module. Same
-                // Android caveat as the SwiftPorts CLIs above —
-                // GzipKit's `CZlib` systemLibrary uses pkgConfig
-                // and bleeds host glibc paths onto Android's link
-                // line. JavaScriptCore is Apple-only anyway, so
-                // SwiftJSCore on non-Apple compiles to a near-empty
-                // module — gating GzipKit off Android is consistent.
+                // CJavaScriptCore is the only path through which any
+                // JSC symbol enters SwiftJSCore. On Apple it auto-
+                // links the system framework via the umbrella
+                // header; on Linux/Android it pulls Bun's static
+                // archive through the linker settings on
+                // CJavaScriptCore itself. Gated off Windows pending
+                // CRT alignment (see Docs/SwiftJS.md § Cross-platform).
+                .target(name: "CJavaScriptCore",
+                        condition: .when(platforms: [
+                            .macOS, .iOS, .tvOS, .watchOS, .visionOS,
+                            .linux, .android,
+                        ])),
+                // swift-crypto backs `node:crypto`. On Apple
+                // platforms `Crypto` is a thin re-export of the
+                // built-in `CryptoKit`; on Linux/Android it ships
+                // its own implementation. Same call sites either
+                // way, so SwiftJSCore depends on `Crypto`
+                // unconditionally.
+                .product(name: "Crypto", package: "swift-crypto"),
+                // GzipKit backs the `node:zlib` JS module. Gated
+                // off Android because GzipKit's `CZlib` systemLibrary
+                // uses pkgConfig and bleeds host glibc paths onto
+                // Android's link line.
                 .product(name: "GzipKit", package: "SwiftPorts",
                          condition: .when(platforms: swiftPortsPlatforms)),
             ],
@@ -251,17 +270,43 @@ let package = Package(
             // can't prove that statically; the workarounds would
             // obscure the runtime, so we run in v5 mode.
             //
-            // No `linkedLibrary("z", ...)` here — GzipKit (which
-            // owns the `node:zlib` backing now) carries its own zlib
-            // linkage transitively.
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            // `import CJavaScriptCore` in this target's Swift sources
+            // makes Swift build a clang module from the C target's
+            // umbrella header (`#include <JavaScriptCore/JavaScript.h>`).
+            // That clang invocation needs the bun-webkit header path
+            // and the static-linkage defines explicitly via `-Xcc`
+            // — `cSettings` on the C target alone doesn't reach it.
+            // Same plumbing that swift-jsc-smoke uses (PR #20).
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
         .executableTarget(
             name: "swift-js",
             dependencies: ["SwiftJSCore"],
             path: "Sources/swift-js",
             exclude: ["Resources"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            // `import SwiftJSCore` here makes Swift build (or
+            // re-build) the CJavaScriptCore clang module on the
+            // consumer side. SwiftPM doesn't propagate
+            // `swiftSettings.unsafeFlags` across target deps, so
+            // the same `-Xcc -I<Vendor>` + `-DSTATICALLY_LINKED_*`
+            // flags from SwiftJSCore have to be repeated here or
+            // the umbrella header's
+            // `#include <JavaScriptCore/JavaScript.h>` fails.
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
         .testTarget(
             name: "SwiftJSCoreTests",
@@ -271,7 +316,18 @@ let package = Package(
                 "BashCommandKit",
             ],
             path: "Tests/SwiftJSCoreTests",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            // `@testable import SwiftJSCore` here can re-trigger the
+            // clang module build for `CJavaScriptCore`; mirror the
+            // SwiftJSCore target's `-Xcc` flags so the test binary
+            // links cleanly on Linux + Android.
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
 
         // ---- BashSwiftScript — Swift script-shebang interpreter ----
@@ -354,23 +410,26 @@ let package = Package(
                         .when(platforms: [.linux, .windows, .android])),
             ],
             linkerSettings: [
-                // Linux / Android — link Bun's static archive.
-                // `-L` needs absolute path because the linker's
-                // CWD is the SwiftPM build dir, not the repo root.
-                .unsafeFlags(["-L\(bunWebKitLib)"],
-                             .when(platforms: [.linux, .android])),
-                .linkedLibrary("JavaScriptCore",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("WTF",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("bmalloc",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("icui18n",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("icuuc",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("icudata",
-                               .when(platforms: [.linux, .android])),
+                // Linux / Android — link Bun's static archives by
+                // absolute path. `-l<name>` would search through
+                // every `-L` path on the link line, and SwiftPorts'
+                // transitive deps add `-L/usr/lib/x86_64-linux-gnu`
+                // ahead of our Vendor path; `-licui18n` then resolves
+                // to the system ICU (e.g. ICU 70 on ubuntu-latest)
+                // instead of the version-matched one Bun bundled.
+                // WTF.a calls ICU symbols at version 75, system ICU
+                // exports them at version 70, so the link fails with
+                // hundreds of `undefined reference to 'ucol_close_75'`.
+                // Passing the .a paths positionally pins the resolution
+                // to Bun's archive, no search-order ambiguity.
+                .unsafeFlags([
+                    "\(bunWebKitLib)/libJavaScriptCore.a",
+                    "\(bunWebKitLib)/libWTF.a",
+                    "\(bunWebKitLib)/libbmalloc.a",
+                    "\(bunWebKitLib)/libicui18n.a",
+                    "\(bunWebKitLib)/libicuuc.a",
+                    "\(bunWebKitLib)/libicudata.a",
+                ], .when(platforms: [.linux, .android])),
                 // pthread / dl / m are separate `.so`s on glibc but
                 // collapsed into Bionic's libc on Android (no
                 // `libpthread.so` / `libdl.so` / `libm.so` ship in

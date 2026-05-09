@@ -3,7 +3,22 @@ import XCTest
 import BashInterpreter
 import BashCommandKit
 
-#if canImport(JavaScriptCore)
+// `testStandalonePidIsRealPID` calls `getpid()` directly, which
+// only resolves through Foundation on Apple. Pick up the libc
+// module explicitly so the test compiles on Linux + Android too.
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
+#if !os(Windows)  // SwiftJSCore links the JSC C API everywhere except Windows for now
 
 /// Verifies that every host-touching JS surface in SwiftJSCore consults
 /// the bound `Shell`'s `sandbox` / `networkConfig` and the synthetic

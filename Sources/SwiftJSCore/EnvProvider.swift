@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 import BashInterpreter
 
@@ -151,3 +153,4 @@ public final class ShellArgvProvider: ArgvProvider {
         shell.positionalParameters = Array(value.dropFirst(2))
     }
 }
+#endif  // !os(Windows)

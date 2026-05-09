@@ -1,9 +1,25 @@
+#if !os(Windows)
+
 import Foundation
 import BashInterpreter
 
-#if canImport(JavaScriptCore)
-
-import JavaScriptCore
+// Foundation pulls libc through transitively on Apple and Linux,
+// but the Android Swift toolchain doesn't re-export Bionic's
+// `getpid` / `getppid` / etc. via Foundation. Pick up the libc
+// module explicitly. The Android module name varies between Swift
+// toolchains (`Android` in skiptools/swift-android-action,
+// `Bionic` in some upstream snapshots), so we try both.
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 
 extension JSRuntime {
 
@@ -32,10 +48,10 @@ extension JSRuntime {
     /// itself runs before `installModules` and can't materialise the
     /// stream eagerly.
     func installProcessStdin(on process: JSValue) {
-        let stdinGet: @convention(block) () -> Any? = { [weak self] in
+        let stdinGet = block { [weak self] _ in
             self?.lazyProcessStdin()
         }
-        setGlobal("__swiftjs_stdinGet", block(stdinGet as AnyObject))
+        setGlobal("__swiftjs_stdinGet", stdinGet)
         context.evaluateScript(#"""
         (() => {
           Object.defineProperty(process, "stdin", {
@@ -83,10 +99,11 @@ extension JSRuntime {
         guard let stdin = context.evaluateScript(factory) else { return nil }
         cachedStdin = stdin
 
-        let startStdin: @convention(block) (JSValue) -> Void = { [weak self] s in
-            self?.beginStdinRead(into: s)
+        let startStdin = block { [weak self] args in
+            if let s = args.first { self?.beginStdinRead(into: s) }
+            return nil
         }
-        setGlobal("__swiftjs_startStdin", block(startStdin as AnyObject))
+        setGlobal("__swiftjs_startStdin", startStdin)
         return stdin
     }
 
@@ -130,8 +147,8 @@ extension JSRuntime {
             }
             let bytes = Array(data)
             DispatchQueue.main.async {
-                guard let ctx = streamJS.context,
-                      let bufCtor = ctx.objectForKeyedSubscript("Buffer"),
+                let ctx = streamJS.context
+                guard let bufCtor = ctx.objectForKeyedSubscript("Buffer"),
                       let buf = bufCtor.invokeMethod("from", withArguments: [bytes])
                 else { return }
                 _ = streamJS.invokeMethod("_push", withArguments: [buf])
@@ -140,11 +157,11 @@ extension JSRuntime {
 
         // Wire the destroy hook so iterator early-exit (or an
         // explicit `process.stdin.destroy()`) tears the reader down.
-        let destroy: @convention(block) () -> Void = {
+        let destroy = block { _ in
             teardown()
+            return nil
         }
-        streamJS.setObject(block(destroy as AnyObject),
-                           forKeyedSubscript: "_onDestroy" as NSString)
+        streamJS.setObject(destroy, forKeyedSubscript: "_onDestroy")
     }
 
     private func installPerformance() {
@@ -152,14 +169,14 @@ extension JSRuntime {
         // (per the WHATWG spec). Backed by mach_absolute_time via
         // DispatchTime.uptimeNanoseconds.
         let start = DispatchTime.now().uptimeNanoseconds
-        let now: @convention(block) () -> Double = {
+        let now = block { _ in
             let elapsedNs = DispatchTime.now().uptimeNanoseconds - start
             return Double(elapsedNs) / 1_000_000.0
         }
         let timeOrigin: Double = Double(start) / 1_000_000.0
         let perf = JSValue(newObjectIn: context)!
-        perf.setObject(block(now as AnyObject), forKeyedSubscript: "now" as NSString)
-        perf.setObject(timeOrigin, forKeyedSubscript: "timeOrigin" as NSString)
+        perf.setObject(now, forKeyedSubscript: "now")
+        perf.setObject(timeOrigin, forKeyedSubscript: "timeOrigin")
         setGlobal("performance", perf)
     }
 
@@ -248,7 +265,7 @@ extension JSRuntime {
     private func installEntryModuleScope() {
         let module = JSValue(newObjectIn: context)!
         let exports = JSValue(newObjectIn: context)!
-        module.setObject(exports, forKeyedSubscript: "exports" as NSString)
+        module.setObject(exports, forKeyedSubscript: "exports")
         setGlobal("module", module)
         setGlobal("exports", exports)
     }
@@ -258,22 +275,22 @@ extension JSRuntime {
     private func installConsole() {
         let console = JSValue(newObjectIn: context)!
 
-        let log: @convention(block) () -> Void = { [weak self] in
-            guard let self else { return }
-            let args = JSContext.currentArguments()?.compactMap { $0 as? JSValue } ?? []
+        let log = block { [weak self] args in
+            guard let self else { return nil }
             self.stdout(self.formatArgs(args) + "\n")
+            return nil
         }
-        let err: @convention(block) () -> Void = { [weak self] in
-            guard let self else { return }
-            let args = JSContext.currentArguments()?.compactMap { $0 as? JSValue } ?? []
+        let err = block { [weak self] args in
+            guard let self else { return nil }
             self.stderr(self.formatArgs(args) + "\n")
+            return nil
         }
 
         for name in ["log", "info", "debug", "trace"] {
-            console.setObject(block(log as AnyObject), forKeyedSubscript: name as NSString)
+            console.setObject(log, forKeyedSubscript: name)
         }
         for name in ["error", "warn"] {
-            console.setObject(block(err as AnyObject), forKeyedSubscript: name as NSString)
+            console.setObject(err, forKeyedSubscript: name)
         }
         setGlobal("console", console)
 
@@ -356,7 +373,7 @@ extension JSRuntime {
         // reference (don't propagate back to the provider).
         // Embedders that need to update it mid-run can call
         // ``JSRuntime.refreshArgv()`` to re-sync from the provider.
-        process.setObject(argvProvider.argv(), forKeyedSubscript: "argv" as NSString)
+        process.setObject(argvProvider.argv(), forKeyedSubscript: "argv")
 
         // process.env is a JS Proxy that routes every read/write
         // through the EnvProvider. Setting `process.env.X = "y"`
@@ -370,13 +387,18 @@ extension JSRuntime {
         // the host's. Under `Shell.processDefault` (standalone CLI)
         // we keep the legacy `OSEnvProvider`-via-`setenv` behaviour
         // so child processes spawned by the host still see writes.
-        let envGet: @convention(block) (String) -> Any? = { [weak self] key in
+        let envGet = block { [weak self] args in
+            guard let key = args.first?.toString() else { return nil }
             if Shell.current !== Shell.processDefault {
                 return Shell.current.environment.variables[key]
             }
             return self?.envProvider.get(key)
         }
-        let envSet: @convention(block) (String, JSValue) -> Bool = { [weak self] key, value in
+        let envSet = block { [weak self] args in
+            guard args.count >= 2,
+                  let key = args[0].toString()
+            else { return false }
+            let value = args[1]
             if Shell.current !== Shell.processDefault {
                 if value.isNull || value.isUndefined {
                     Shell.current.environment.variables.removeValue(forKey: key)
@@ -392,19 +414,21 @@ extension JSRuntime {
             }
             return true
         }
-        let envHas: @convention(block) (String) -> Bool = { [weak self] key in
+        let envHas = block { [weak self] args in
+            guard let key = args.first?.toString() else { return false }
             if Shell.current !== Shell.processDefault {
                 return Shell.current.environment.variables[key] != nil
             }
             return self?.envProvider.get(key) != nil
         }
-        let envKeys: @convention(block) () -> [String] = { [weak self] in
+        let envKeys = block { [weak self] _ in
             if Shell.current !== Shell.processDefault {
                 return Array(Shell.current.environment.variables.keys)
             }
             return self?.envProvider.allKeys ?? []
         }
-        let envDel: @convention(block) (String) -> Bool = { [weak self] key in
+        let envDel = block { [weak self] args in
+            guard let key = args.first?.toString() else { return false }
             if Shell.current !== Shell.processDefault {
                 Shell.current.environment.variables.removeValue(forKey: key)
                 return true
@@ -412,11 +436,11 @@ extension JSRuntime {
             self?.envProvider.set(key, nil)
             return true
         }
-        setGlobal("__swiftjs_envGet", block(envGet as AnyObject))
-        setGlobal("__swiftjs_envSet", block(envSet as AnyObject))
-        setGlobal("__swiftjs_envHas", block(envHas as AnyObject))
-        setGlobal("__swiftjs_envKeys", block(envKeys as AnyObject))
-        setGlobal("__swiftjs_envDel", block(envDel as AnyObject))
+        setGlobal("__swiftjs_envGet", envGet)
+        setGlobal("__swiftjs_envSet", envSet)
+        setGlobal("__swiftjs_envHas", envHas)
+        setGlobal("__swiftjs_envKeys", envKeys)
+        setGlobal("__swiftjs_envDel", envDel)
 
         let envProxy = context.evaluateScript(#"""
         new Proxy({}, {
@@ -432,25 +456,29 @@ extension JSRuntime {
           },
         });
         """#)!
-        process.setObject(envProxy, forKeyedSubscript: "env" as NSString)
+        process.setObject(envProxy, forKeyedSubscript: "env")
 
         #if os(macOS)
-        process.setObject("darwin", forKeyedSubscript: "platform" as NSString)
+        process.setObject("darwin", forKeyedSubscript: "platform")
         #elseif os(iOS)
-        process.setObject("ios", forKeyedSubscript: "platform" as NSString)
+        process.setObject("ios", forKeyedSubscript: "platform")
+        #elseif os(Linux)
+        process.setObject("linux", forKeyedSubscript: "platform")
+        #elseif os(Android)
+        process.setObject("android", forKeyedSubscript: "platform")
         #else
-        process.setObject("unknown", forKeyedSubscript: "platform" as NSString)
+        process.setObject("unknown", forKeyedSubscript: "platform")
         #endif
 
         #if arch(arm64)
-        process.setObject("arm64", forKeyedSubscript: "arch" as NSString)
+        process.setObject("arm64", forKeyedSubscript: "arch")
         #elseif arch(x86_64)
-        process.setObject("x64", forKeyedSubscript: "arch" as NSString)
+        process.setObject("x64", forKeyedSubscript: "arch")
         #else
-        process.setObject("unknown", forKeyedSubscript: "arch" as NSString)
+        process.setObject("unknown", forKeyedSubscript: "arch")
         #endif
 
-        process.setObject("v22.0.0-swiftjs", forKeyedSubscript: "version" as NSString)
+        process.setObject("v22.0.0-swiftjs", forKeyedSubscript: "version")
 
         // process.pid / process.ppid: under a bound Shell, return
         // ``Shell.virtualPID`` (synthetic — defaults to 1) so a
@@ -461,13 +489,13 @@ extension JSRuntime {
         // because the value has to be re-read at access time — pid is a
         // task-local quantity, baking it in at init would freeze the
         // standalone-mode value into a Shell-bound run.
-        let pidGetter: @convention(block) () -> Int = {
+        let pidGetter = block { _ in
             if Shell.current === Shell.processDefault {
                 return Int(getpid())
             }
             return Int(Shell.current.virtualPID)
         }
-        let ppidGetter: @convention(block) () -> Int = {
+        let ppidGetter = block { _ in
             if Shell.current === Shell.processDefault {
                 return Int(getppid())
             }
@@ -480,37 +508,39 @@ extension JSRuntime {
         // `globalThis.process` isn't set until the bottom of this
         // method, so a getter that reads from globalThis would fire
         // too early.
-        let pidGetterJS = JSValue(object: block(pidGetter as AnyObject), in: context)!
-        let ppidGetterJS = JSValue(object: block(ppidGetter as AnyObject), in: context)!
         let installPidProps = context.evaluateScript(#"""
         (function (process, getPid, getPpid) {
           Object.defineProperty(process, "pid",  { get: getPid,  enumerable: true, configurable: true });
           Object.defineProperty(process, "ppid", { get: getPpid, enumerable: true, configurable: true });
         })
         """#)!
-        installPidProps.call(withArguments: [process, pidGetterJS, ppidGetterJS])
+        installPidProps.call(withArguments: [process, pidGetter, ppidGetter])
 
-        let exit: @convention(block) (Int32) -> Void = { [weak self] code in
-            guard let self else { return }
+        let exit = block { [weak self] args in
+            guard let self else { return nil }
+            let code = args.first?.toInt32() ?? 0
             self.didExit = true
             self.exitCode = code
             // Cancel pending timers so the runloop drains immediately.
             for (_, timer) in self.pendingTimers { timer.cancel() }
             self.pendingTimers.removeAll()
-            let ex = JSValue(object: ["__swiftjs_exit": true, "code": code], in: self.context)
+            let ex = JSValue(object: ["__swiftjs_exit": true, "code": code],
+                             in: self.context)
             self.context.exception = ex
+            return nil
         }
-        process.setObject(block(exit as AnyObject), forKeyedSubscript: "exit" as NSString)
+        process.setObject(exit, forKeyedSubscript: "exit")
 
-        let cwd: @convention(block) () -> String = {
+        let cwd = block { _ in
             if Shell.current === Shell.processDefault {
                 return FileManager.default.currentDirectoryPath
             }
             return Shell.current.environment.workingDirectory
         }
-        process.setObject(block(cwd as AnyObject), forKeyedSubscript: "cwd" as NSString)
+        process.setObject(cwd, forKeyedSubscript: "cwd")
 
-        let chdir: @convention(block) (String) -> Void = { [weak self] path in
+        let chdir = block { [weak self] args in
+            guard let path = args.first?.toString() else { return nil }
             // Resolve relative `path` against the current shell-CWD
             // first — Node accepts `process.chdir("./sub")` and
             // expects it to compose with the prior cwd. Storing the
@@ -524,60 +554,67 @@ extension JSRuntime {
                 try self?.awaitSync { try await authorizePath(resolved, for: .write) }
             } catch {
                 _ = self?.throwSandboxDenial(error, syscall: "chdir", path: path)
-                return
+                return nil
             }
             if Shell.current === Shell.processDefault {
-                FileManager.default.changeCurrentDirectoryPath(resolved)
+                _ = FileManager.default.changeCurrentDirectoryPath(resolved)
             }
             Shell.current.environment.workingDirectory = resolved
+            return nil
         }
-        process.setObject(block(chdir as AnyObject), forKeyedSubscript: "chdir" as NSString)
+        process.setObject(chdir, forKeyedSubscript: "chdir")
 
-        let hrtime: @convention(block) () -> [Int] = {
+        let hrtime = block { _ in
             let now = DispatchTime.now().uptimeNanoseconds
             return [Int(now / 1_000_000_000), Int(now % 1_000_000_000)]
         }
-        process.setObject(block(hrtime as AnyObject), forKeyedSubscript: "hrtime" as NSString)
+        process.setObject(hrtime, forKeyedSubscript: "hrtime")
 
         // process.stdout.write(string) / .stderr.write(string)
         // — print without an automatic trailing newline.
-        let stdoutWrite: @convention(block) (JSValue) -> Bool = { [weak self] v in
+        let stdoutWrite = block { [weak self] args in
+            guard let v = args.first else { return false }
             self?.stdout(JSRuntime.stringFromWritable(v))
             return true
         }
-        let stderrWrite: @convention(block) (JSValue) -> Bool = { [weak self] v in
+        let stderrWrite = block { [weak self] args in
+            guard let v = args.first else { return false }
             self?.stderr(JSRuntime.stringFromWritable(v))
             return true
         }
         let stdoutObj = JSValue(newObjectIn: context)!
-        stdoutObj.setObject(block(stdoutWrite as AnyObject), forKeyedSubscript: "write" as NSString)
-        stdoutObj.setObject(true, forKeyedSubscript: "isTTY" as NSString)
-        process.setObject(stdoutObj, forKeyedSubscript: "stdout" as NSString)
+        stdoutObj.setObject(stdoutWrite, forKeyedSubscript: "write")
+        stdoutObj.setObject(true, forKeyedSubscript: "isTTY")
+        process.setObject(stdoutObj, forKeyedSubscript: "stdout")
         let stderrObj = JSValue(newObjectIn: context)!
-        stderrObj.setObject(block(stderrWrite as AnyObject), forKeyedSubscript: "write" as NSString)
-        stderrObj.setObject(true, forKeyedSubscript: "isTTY" as NSString)
-        process.setObject(stderrObj, forKeyedSubscript: "stderr" as NSString)
+        stderrObj.setObject(stderrWrite, forKeyedSubscript: "write")
+        stderrObj.setObject(true, forKeyedSubscript: "isTTY")
+        process.setObject(stderrObj, forKeyedSubscript: "stderr")
 
         // process.on('event', fn) — only `exit` is honoured.
-        let on: @convention(block) (String, JSValue) -> JSValue? = { [weak self] event, fn in
-            guard let self else { return nil }
+        let on = block { [weak self] args in
+            guard let self, args.count >= 2,
+                  let event = args[0].toString()
+            else { return nil }
+            let fn = args[1]
             if event == "exit" { self.exitListeners.append(fn) }
             // Return process for chaining (Node convention).
             return self.context.objectForKeyedSubscript("process")
         }
-        process.setObject(block(on as AnyObject), forKeyedSubscript: "on" as NSString)
+        process.setObject(on, forKeyedSubscript: "on")
 
         // process.exitCode — getter/setter via Object.defineProperty.
         // Stored on a hidden field; the CLI reads `runtime.exitCode`
         // directly.
-        let exitCodeGet: @convention(block) () -> Int32 = { [weak self] in
+        let exitCodeGet = block { [weak self] _ in
             self?.exitCode ?? 0
         }
-        let exitCodeSet: @convention(block) (JSValue) -> Void = { [weak self] v in
-            self?.exitCode = v.toInt32()
+        let exitCodeSet = block { [weak self] args in
+            self?.exitCode = args.first?.toInt32() ?? 0
+            return nil
         }
-        setGlobal("__swiftjs_exitCodeGet", block(exitCodeGet as AnyObject))
-        setGlobal("__swiftjs_exitCodeSet", block(exitCodeSet as AnyObject))
+        setGlobal("__swiftjs_exitCodeGet", exitCodeGet)
+        setGlobal("__swiftjs_exitCodeSet", exitCodeSet)
 
         setGlobal("process", process)
 
@@ -618,47 +655,47 @@ extension JSRuntime {
         // its API).
         let native = JSValue(newObjectIn: context)!
 
-        let utf8Encode: @convention(block) (String) -> [UInt8] = { s in
-            Array(s.utf8)
+        let utf8Encode = block { args in
+            guard let s = args.first?.toString() else { return [UInt8]() }
+            return Array(s.utf8)
         }
-        native.setObject(block(utf8Encode as AnyObject),
-                         forKeyedSubscript: "utf8Encode" as NSString)
+        native.setObject(utf8Encode, forKeyedSubscript: "utf8Encode")
 
-        let utf8Decode: @convention(block) (JSValue) -> String = { value in
+        let utf8Decode = block { args in
+            guard let value = args.first else { return "" }
             // Accept either a Uint8Array or a plain Array of bytes.
             let bytes = Self.bytes(from: value)
             return String(decoding: bytes, as: UTF8.self)
         }
-        native.setObject(block(utf8Decode as AnyObject),
-                         forKeyedSubscript: "utf8Decode" as NSString)
+        native.setObject(utf8Decode, forKeyedSubscript: "utf8Decode")
 
-        let toBase64: @convention(block) (JSValue) -> String = { value in
-            Data(Self.bytes(from: value)).base64EncodedString()
+        let toBase64 = block { args in
+            guard let value = args.first else { return "" }
+            return Data(Self.bytes(from: value)).base64EncodedString()
         }
-        native.setObject(block(toBase64 as AnyObject),
-                         forKeyedSubscript: "toBase64" as NSString)
+        native.setObject(toBase64, forKeyedSubscript: "toBase64")
 
-        let fromBase64: @convention(block) (String) -> [UInt8] = { s in
-            Array(Data(base64Encoded: s) ?? Data())
+        let fromBase64 = block { args in
+            guard let s = args.first?.toString() else { return [UInt8]() }
+            return Array(Data(base64Encoded: s) ?? Data())
         }
-        native.setObject(block(fromBase64 as AnyObject),
-                         forKeyedSubscript: "fromBase64" as NSString)
+        native.setObject(fromBase64, forKeyedSubscript: "fromBase64")
 
-        let toHex: @convention(block) (JSValue) -> String = { value in
-            Self.bytes(from: value).map { String(format: "%02x", $0) }.joined()
+        let toHex = block { args in
+            guard let value = args.first else { return "" }
+            return Self.bytes(from: value).map { String(format: "%02x", $0) }.joined()
         }
-        native.setObject(block(toHex as AnyObject),
-                         forKeyedSubscript: "toHex" as NSString)
+        native.setObject(toHex, forKeyedSubscript: "toHex")
 
-        let fromHex: @convention(block) (String) -> [UInt8] = { s in
-            stride(from: 0, to: s.count, by: 2).compactMap { i -> UInt8? in
+        let fromHex = block { args in
+            guard let s = args.first?.toString() else { return [UInt8]() }
+            return stride(from: 0, to: s.count, by: 2).compactMap { i -> UInt8? in
                 let start = s.index(s.startIndex, offsetBy: i)
                 let end = s.index(start, offsetBy: 2, limitedBy: s.endIndex) ?? s.endIndex
                 return UInt8(s[start..<end], radix: 16)
             }
         }
-        native.setObject(block(fromHex as AnyObject),
-                         forKeyedSubscript: "fromHex" as NSString)
+        native.setObject(fromHex, forKeyedSubscript: "fromHex")
 
         setGlobal("__swiftjs_native", native)
 
@@ -775,33 +812,38 @@ extension JSRuntime {
         // Bridge URL parsing to URLComponents so we don't have to
         // reimplement the WHATWG URL state machine. Good enough for
         // most shell scripts; not 100% spec compliant.
-        let parseURL: @convention(block) (String, JSValue?) -> Any? = { href, base in
+        let parseURL = block { args in
+            guard let href = args.first?.toString() else { return nil }
             var resolvedHref = href
-            if let base, base.isString, let baseStr = base.toString() {
-                if let baseURL = URL(string: baseStr),
-                   let resolved = URL(string: href, relativeTo: baseURL) {
-                    resolvedHref = resolved.absoluteString
+            if args.count >= 2 {
+                let base = args[1]
+                if base.isString, let baseStr = base.toString() {
+                    if let baseURL = URL(string: baseStr),
+                       let resolved = URL(string: href, relativeTo: baseURL) {
+                        resolvedHref = resolved.absoluteString
+                    }
                 }
             }
             guard let url = URL(string: resolvedHref),
-                  let comps = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+                  let comps = URLComponents(url: url, resolvingAgainstBaseURL: true)
+            else {
                 return nil
             }
             let ctx = JSContext.current()!
             let obj = JSValue(newObjectIn: ctx)!
-            obj.setObject(url.absoluteString, forKeyedSubscript: "href" as NSString)
-            obj.setObject((comps.scheme ?? "") + ":", forKeyedSubscript: "protocol" as NSString)
-            obj.setObject(comps.host ?? "", forKeyedSubscript: "hostname" as NSString)
-            obj.setObject(comps.port.map(String.init) ?? "", forKeyedSubscript: "port" as NSString)
+            obj.setObject(url.absoluteString, forKeyedSubscript: "href")
+            obj.setObject((comps.scheme ?? "") + ":", forKeyedSubscript: "protocol")
+            obj.setObject(comps.host ?? "", forKeyedSubscript: "hostname")
+            obj.setObject(comps.port.map(String.init) ?? "", forKeyedSubscript: "port")
             let host = (comps.host ?? "") + (comps.port.map { ":\($0)" } ?? "")
-            obj.setObject(host, forKeyedSubscript: "host" as NSString)
-            obj.setObject(comps.path, forKeyedSubscript: "pathname" as NSString)
-            obj.setObject(comps.query.map { "?\($0)" } ?? "", forKeyedSubscript: "search" as NSString)
-            obj.setObject(comps.fragment.map { "#\($0)" } ?? "", forKeyedSubscript: "hash" as NSString)
-            obj.setObject((comps.scheme ?? "") + "://" + host, forKeyedSubscript: "origin" as NSString)
+            obj.setObject(host, forKeyedSubscript: "host")
+            obj.setObject(comps.path, forKeyedSubscript: "pathname")
+            obj.setObject(comps.query.map { "?\($0)" } ?? "", forKeyedSubscript: "search")
+            obj.setObject(comps.fragment.map { "#\($0)" } ?? "", forKeyedSubscript: "hash")
+            obj.setObject((comps.scheme ?? "") + "://" + host, forKeyedSubscript: "origin")
             return obj
         }
-        setGlobal("__swiftjs_parseURL", block(parseURL as AnyObject))
+        setGlobal("__swiftjs_parseURL", parseURL)
 
         let urlShim = #"""
         (() => {
@@ -821,4 +863,4 @@ extension JSRuntime {
         context.evaluateScript(urlShim)
     }
 }
-#endif
+#endif  // !os(Windows)
