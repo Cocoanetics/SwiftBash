@@ -367,6 +367,10 @@ let package = Package(
                 // libc++ on Android (NDK), libstdc++ on glibc Linux.
                 .linkedLibrary("stdc++", .when(platforms: [.linux])),
                 .linkedLibrary("c++", .when(platforms: [.android])),
+                // Bun's Android JSC archive calls into the NDK's
+                // logging API (`__android_log_print` /
+                // `__android_log_write`); resolve via `-llog`.
+                .linkedLibrary("log", .when(platforms: [.android])),
 
                 // Windows MSVC. `linkedLibrary("Foo")` becomes
                 // `Foo.lib`; Bun's Windows tarball ships static ICU
