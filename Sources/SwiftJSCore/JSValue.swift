@@ -134,10 +134,28 @@ public final class JSValue {
         return exception == nil ? n : .nan
     }
 
+    /// Implements the JS `ToInt32` abstract operation
+    /// (https://tc39.es/ecma262/#sec-toint32):
+    ///
+    /// 1. NaN, +∞, −∞ → 0
+    /// 2. otherwise, take the integer value (truncated towards 0),
+    ///    reduce modulo 2^32, and reinterpret as a two's-complement
+    ///    `Int32`.
+    ///
+    /// Doing this directly is important: `Int64(d)` traps on
+    /// finite values outside `Int64`'s range, so the previous
+    /// `Int32(truncatingIfNeeded: Int64(n))` shape would crash the
+    /// host process whenever a script handed us a huge Number
+    /// (e.g. through `process.exit(2 ** 53)` or a timer ID).
     public func toInt32() -> Int32 {
         let n = toNumber()
-        if n.isNaN || n.isInfinite { return 0 }
-        return Int32(truncatingIfNeeded: Int64(n))
+        guard n.isFinite else { return 0 }
+        let truncated = n.rounded(.towardZero)
+        let mod: Double = 4_294_967_296            // 2^32
+        var u = truncated.truncatingRemainder(dividingBy: mod)
+        if u < 0 { u += mod }                       // wrap to [0, 2^32)
+        if u >= 2_147_483_648 { u -= mod }          // 2^31 → negative
+        return Int32(u)
     }
 
     public func toBool() -> Bool {
@@ -351,11 +369,25 @@ public final class JSValue {
     // MARK: - Internal helpers
 
     /// Pull a Swift `String` out of a `JSStringRef`.
+    /// Pull a Swift `String` out of a `JSStringRef`, preserving any
+    /// embedded NUL bytes the JavaScript value contains.
+    /// `JSStringGetUTF8CString` writes UTF-8 bytes followed by a
+    /// trailing NUL and returns the total byte count *including* that
+    /// terminator. Decoding from `[byte 0, written - 1)` keeps the
+    /// JS string's own NULs in the result, where `String(cString:)`
+    /// would silently truncate at the first one.
     static func string(from ref: JSStringRef) -> String {
         let maxLen = JSStringGetMaximumUTF8CStringSize(ref)
-        var buffer = [CChar](repeating: 0, count: maxLen)
-        JSStringGetUTF8CString(ref, &buffer, maxLen)
-        return String(cString: buffer)
+        guard maxLen > 0 else { return "" }
+        var buffer = [UInt8](repeating: 0, count: maxLen)
+        let written = buffer.withUnsafeMutableBufferPointer { buf -> Int in
+            guard let base = buf.baseAddress else { return 0 }
+            return base.withMemoryRebound(to: CChar.self, capacity: maxLen) { cBase in
+                JSStringGetUTF8CString(ref, cBase, maxLen)
+            }
+        }
+        let byteCount = max(0, written - 1)
+        return String(decoding: buffer.prefix(byteCount), as: UTF8.self)
     }
 
     /// Stringify any reasonable key shape — `String`, `NSString`,

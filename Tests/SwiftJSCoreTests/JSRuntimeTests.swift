@@ -1248,6 +1248,49 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "saw a\nclose fired\ndestroyed: true\n")
     }
+
+    // MARK: - JSValue conversion edge cases (regression tests for
+    // PR #23 / Codex review feedback).
+
+    /// `toInt32` must implement JS `ToInt32`: NaN/±∞ → 0, otherwise
+    /// truncate-towards-zero then take modulo 2^32 as two's-complement.
+    /// The previous `Int32(truncatingIfNeeded: Int64(n))` implementation
+    /// trapped at runtime for finite-but-out-of-Int64-range Doubles
+    /// (e.g. `2 ** 53` passed to `process.exit`), crashing the host.
+    func testToInt32CoercesOutOfRangeWithoutCrashing() {
+        let (r, _, _) = runtime()
+        // Sentinel values exercising the four branches: NaN, +∞, -∞,
+        // and a finite value that overflows Int64.
+        let nan = r.run("NaN")?.toInt32()
+        let posInf = r.run("Infinity")?.toInt32()
+        let negInf = r.run("-Infinity")?.toInt32()
+        // 2^53 is exactly representable in Double and far outside
+        // Int64's Int32-truncated range. Per spec ToInt32 = 0 because
+        // 2^53 mod 2^32 = 0.
+        let big = r.run("Math.pow(2, 53)")?.toInt32()
+        // 2^31 wraps to Int32.min.
+        let wrap = r.run("Math.pow(2, 31)")?.toInt32()
+        // Negative wrap (one below Int32.min).
+        let negWrap = r.run("-Math.pow(2, 31) - 1")?.toInt32()
+
+        XCTAssertEqual(nan, 0)
+        XCTAssertEqual(posInf, 0)
+        XCTAssertEqual(negInf, 0)
+        XCTAssertEqual(big, 0)
+        XCTAssertEqual(wrap, Int32.min)
+        XCTAssertEqual(negWrap, Int32.max)
+    }
+
+    /// JS strings can contain embedded NUL bytes. The previous
+    /// `String(cString:)` decode silently truncated at the first one,
+    /// corrupting any value coming back through `toString()`. Use the
+    /// length JSC reports instead.
+    func testToStringPreservesEmbeddedNulBytes() {
+        let (r, _, _) = runtime()
+        let result = r.run(#"'a\u0000b\u0000c'"#)?.toString()
+        XCTAssertEqual(result, "a\u{0000}b\u{0000}c")
+        XCTAssertEqual(result?.count, 5)
+    }
 }
 
 #endif
