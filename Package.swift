@@ -67,6 +67,15 @@ if registerJSCSmoke {
     // the package. See Docs/SwiftJS.md § Cross-platform.
     products.append(
         .executable(name: "swift-jsc-smoke", targets: ["swift-jsc-smoke"]))
+    // Research probe for the bun-webkit standalone-mode teardown
+    // stall (oven-sh/bun#30434). Each invocation runs ONE variant
+    // of the JSGlobalContext lifecycle with a 10-second watchdog.
+    // Used by the `JSC shutdown diagnostics` matrix in the CI
+    // workflow on this branch — collect timing data, not a permanent
+    // part of the package. Will be removed once we have a fix.
+    products.append(
+        .executable(name: "swift-jsc-shutdown-diag",
+                    targets: ["swift-jsc-shutdown-diag"]))
 }
 
 let package = Package(
@@ -511,6 +520,28 @@ let package = Package(
             // direct use of the platform's `stderr` global on
             // Linux / Android (Glibc.stderr is a `var`). Matches
             // the language mode the rest of this package runs in.
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
+        ),
+        // Research probe for oven-sh/bun#30434 — see comment on the
+        // product entry above.
+        .executableTarget(
+            name: "swift-jsc-shutdown-diag",
+            dependencies: [
+                .target(
+                    name: "CJavaScriptCore",
+                    condition: .when(platforms: [
+                        .macOS, .iOS, .tvOS, .watchOS, .visionOS,
+                        .linux, .android,
+                    ])),
+            ],
+            path: "Sources/swift-jsc-shutdown-diag",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .unsafeFlags(

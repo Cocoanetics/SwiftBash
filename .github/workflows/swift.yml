@@ -53,6 +53,18 @@ jobs:
       # below so CI proves the same C-API path on every platform.
       - name: JSC smoke (macOS)
         run: .build/debug/swift-jsc-smoke
+      # Research probe for oven-sh/bun#30434 — this run gives the
+      # Apple baseline (every variant should complete within
+      # milliseconds). Compare against the Linux output to localise
+      # which path Bun's standalone-mode teardown breaks on.
+      - name: JSC shutdown diagnostics (macOS)
+        if: always()
+        run: |
+          for variant in plain evaluated gc-then-release group-release no-release; do
+            echo "::group::variant=$variant"
+            time .build/debug/swift-jsc-shutdown-diag "$variant" || true
+            echo "::endgroup::"
+          done
 
   build-ios:
     # Compile-only check on `generic/platform=iOS` (no simulator boots).
@@ -124,6 +136,19 @@ jobs:
         run: swift test -v --skip-build --no-parallel
       - name: JSC smoke (Linux)
         run: .build/debug/swift-jsc-smoke
+      # Research probe for oven-sh/bun#30434. Each variant is run
+      # separately so a hang in one doesn't block the others. The
+      # `|| true` is intentional — we want the timing data
+      # regardless of whether the binary aborts. The 10-s watchdog
+      # baked into the binary keeps each variant capped.
+      - name: JSC shutdown diagnostics (Linux)
+        if: always()
+        run: |
+          for variant in plain evaluated gc-then-release group-release no-release; do
+            echo "::group::variant=$variant"
+            time .build/debug/swift-jsc-shutdown-diag "$variant" || true
+            echo "::endgroup::"
+          done
 
   build-windows:
     # Windows is a committed compatibility target — the build and
