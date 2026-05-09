@@ -248,6 +248,65 @@ import ShellKit
         #expect(cap.stdout == "denied\n")
     }
 
+    // MARK: subprocess routing
+
+    @Test func subprocessRunRoutesThroughBashCommandRegistry() async throws {
+        // The full polyglot story end-to-end: a SwiftScript script
+        // running under SwiftBash uses `import Subprocess` to call out
+        // to `echo`. Because the SwiftBash `Shell`'s default
+        // `processLauncher` is `BashProcessLauncher` (not the
+        // `DefaultProcessLauncher` that ShellKit installs), the call
+        // resolves against the bash command registry — `echo` is the
+        // pure-Swift `EchoCommand` builtin, NOT `/bin/echo` from the
+        // host filesystem. This proves a script-side Subprocess call
+        // never reaches `posix_spawn` when bound to a SwiftBash shell,
+        // matching SwiftBash's "no Process / fork / exec" model.
+        let (shell, cap) = makeShell()
+        let s = try writeScript("""
+            #!/usr/bin/env swift-script
+            import Subprocess
+            let r = try await Subprocess.run(
+                Executable.name("echo"),
+                arguments: ["hello-from-bash-builtin"],
+                output: Output.string(limit: 4096))
+            if let out = r.standardOutput, r.terminationStatus.isSuccess {
+                print("got=\\(out)", terminator: "")
+            } else {
+                print("bridge dispatch failed")
+            }
+            """)
+        defer { try? FileManager.default.removeItem(atPath: s.dir) }
+
+        let status = try await shell.run(Self.bashQuote(s.path))
+        #expect(status.code == 0)
+        // `EchoCommand` writes "hello-from-bash-builtin\n", the script
+        // captures that and prints `got=hello-from-bash-builtin\n`.
+        #expect(cap.stdout == "got=hello-from-bash-builtin\n")
+    }
+
+    @Test func subprocessRunWithCanonicalPathHitsBashBuiltin() async throws {
+        // `Executable.path("/bin/echo")` is resolved by
+        // `BashProcessLauncher` against `BinCatalog.knownPaths` — the
+        // canonical path matches, so it dispatches to the registered
+        // `echo` builtin (not the host's `/bin/echo`). Mirrors the
+        // `VirtualBinFileSystem` synthesized-file rule from the bash
+        // side.
+        let (shell, cap) = makeShell()
+        let s = try writeScript("""
+            #!/usr/bin/env swift-script
+            import Subprocess
+            let r = try await Subprocess.run(
+                Executable.path("/bin/echo"),
+                arguments: ["via-canonical-path"],
+                output: Output.string(limit: 4096))
+            print(r.standardOutput ?? "<none>", terminator: "")
+            """)
+        defer { try? FileManager.default.removeItem(atPath: s.dir) }
+
+        try await shell.run(Self.bashQuote(s.path))
+        #expect(cap.stdout == "via-canonical-path\n")
+    }
+
     // MARK: identity
 
     @Test func swiftScriptSeesSandboxIdentity() async throws {
