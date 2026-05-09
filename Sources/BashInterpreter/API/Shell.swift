@@ -216,7 +216,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         hostInfo: HostInfo = .synthetic,
         processTable: ProcessTable = ProcessTable(),
         virtualPID: Int32 = 1,
-        commands: [String: Command] = [:]
+        commands: [String: Command] = [:],
+        processLauncher: (any ProcessLauncher)? = nil
     ) {
         // FileSystem is bash-specific (legacy protocol). The
         // VirtualBinFileSystem wrap happens after super.init.
@@ -234,7 +235,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             hostInfo: hostInfo,
             processTable: processTable,
             virtualPID: virtualPID,
-            commands: commands)
+            commands: commands,
+            processLauncher: processLauncher)
     }
 
     /// Convenience initializer matching SwiftBash's pre-migration
