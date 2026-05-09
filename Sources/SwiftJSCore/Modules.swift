@@ -1,9 +1,7 @@
 import Foundation
 import BashInterpreter
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 
 extension JSRuntime {
 
@@ -22,11 +20,11 @@ extension JSRuntime {
         let cacheKey = "__swiftjs_module_cache"
         context.evaluateScript("globalThis.\(cacheKey) = {};")
 
-        let requireImpl: @convention(block) (String) -> Any? = { [weak self] spec in
-            guard let self else { return nil }
+        let requireImpl = block { [weak self] args in
+            guard let self, let spec = args.first?.toString() else { return nil }
             return self.resolveRequire(spec)
         }
-        setGlobal("require", block(requireImpl as AnyObject))
+        setGlobal("require", requireImpl)
     }
 
     /// Resolve a require spec. Returns the module's `exports` value.
@@ -440,11 +438,9 @@ extension JSRuntime {
         let fs = JSValue(newObjectIn: context)!
 
         // readFileSync: returns Buffer if no encoding, String otherwise.
-        // No optional trailing arg in the block — read it via
-        // JSContext.currentArguments() instead.
-        let readFileSync: @convention(block) (String) -> Any? = { [weak self] path in
-            guard let self else { return nil }
-            let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
+        let readFileSync = block { [weak self] args in
+            guard let self, let path = args.first?.toString() else { return nil }
+            let opts: JSValue? = args.count >= 2 ? args[1] : nil
             let resolved = resolveAgainstShellCWD(path)
             do {
                 try self.awaitSync { try await authorizePath(resolved, for: .read) }
@@ -464,14 +460,13 @@ extension JSRuntime {
                 return self.throwSystemError(error, syscall: "open", path: path)
             }
         }
-        fs.setObject(block(readFileSync as AnyObject),
-                     forKeyedSubscript: "readFileSync" as NSString)
+        fs.setObject(readFileSync, forKeyedSubscript: "readFileSync")
 
-        // Side-effect-only ops return Void. Returning a JSValue from
-        // an `Any?`-typed block confuses JSC's argument binder when
-        // the JS caller omits trailing optional args.
-        let writeFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
-            guard let self else { return false }
+        let writeFileSync = block { [weak self] args in
+            guard let self, args.count >= 2,
+                  let path = args[0].toString()
+            else { return false }
+            let value = args[1]
             let resolved = resolveAgainstShellCWD(path)
             do {
                 try self.awaitSync { try await authorizePath(resolved, for: .write) }
@@ -488,11 +483,13 @@ extension JSRuntime {
                 return false
             }
         }
-        fs.setObject(block(writeFileSync as AnyObject),
-                     forKeyedSubscript: "writeFileSync" as NSString)
+        fs.setObject(writeFileSync, forKeyedSubscript: "writeFileSync")
 
-        let appendFileSync: @convention(block) (String, JSValue) -> Bool = { [weak self] path, value in
-            guard let self else { return false }
+        let appendFileSync = block { [weak self] args in
+            guard let self, args.count >= 2,
+                  let path = args[0].toString()
+            else { return false }
+            let value = args[1]
             let resolved = resolveAgainstShellCWD(path)
             do {
                 try self.awaitSync { try await authorizePath(resolved, for: .write) }
@@ -517,14 +514,14 @@ extension JSRuntime {
                 return false
             }
         }
-        fs.setObject(block(appendFileSync as AnyObject),
-                     forKeyedSubscript: "appendFileSync" as NSString)
+        fs.setObject(appendFileSync, forKeyedSubscript: "appendFileSync")
 
-        let existsSync: @convention(block) (String) -> Bool = { [weak self] path in
+        let existsSync = block { [weak self] args in
             // existsSync swallows errors by spec — Node returns `false`
             // for a path it can't stat. Mirror that behaviour for a
             // sandbox denial: the script learns nothing about whether
             // the path exists, only that it can't see it.
+            guard let path = args.first?.toString() else { return false }
             let resolved = resolveAgainstShellCWD(path)
             do {
                 try self?.awaitSync { try await authorizePath(resolved, for: .read) }
@@ -533,11 +530,10 @@ extension JSRuntime {
             }
             return FileManager.default.fileExists(atPath: resolved)
         }
-        fs.setObject(block(existsSync as AnyObject),
-                     forKeyedSubscript: "existsSync" as NSString)
+        fs.setObject(existsSync, forKeyedSubscript: "existsSync")
 
-        let readdirSync: @convention(block) (String) -> Any? = { [weak self] path in
-            guard let self else { return nil }
+        let readdirSync = block { [weak self] args in
+            guard let self, let path = args.first?.toString() else { return nil }
             let resolved = resolveAgainstShellCWD(path)
             do {
                 try self.awaitSync { try await authorizePath(resolved, for: .read) }
@@ -551,16 +547,11 @@ extension JSRuntime {
                 return nil
             }
         }
-        fs.setObject(block(readdirSync as AnyObject),
-                     forKeyedSubscript: "readdirSync" as NSString)
+        fs.setObject(readdirSync, forKeyedSubscript: "readdirSync")
 
-        // Avoid optional trailing-arg blocks: JSC's bridge raises a
-        // spurious "undefined is not an object" on the call
-        // expression when the JS caller omits the optional. Use
-        // `JSContext.currentArguments()` to read variadic args.
-        let mkdirSync: @convention(block) (String) -> Bool = { [weak self] path in
-            guard let self else { return false }
-            let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
+        let mkdirSync = block { [weak self] args in
+            guard let self, let path = args.first?.toString() else { return false }
+            let opts: JSValue? = args.count >= 2 ? args[1] : nil
             let recursive = opts?.objectForKeyedSubscript("recursive")?.toBool() ?? false
             let resolved = resolveAgainstShellCWD(path)
             do {
@@ -580,12 +571,11 @@ extension JSRuntime {
                 return false
             }
         }
-        fs.setObject(block(mkdirSync as AnyObject),
-                     forKeyedSubscript: "mkdirSync" as NSString)
+        fs.setObject(mkdirSync, forKeyedSubscript: "mkdirSync")
 
-        let rmSync: @convention(block) (String) -> Bool = { [weak self] path in
-            guard let self else { return false }
-            let opts = (JSContext.currentArguments()?.dropFirst().first as? JSValue)
+        let rmSync = block { [weak self] args in
+            guard let self, let path = args.first?.toString() else { return false }
+            let opts: JSValue? = args.count >= 2 ? args[1] : nil
             let force = opts?.objectForKeyedSubscript("force")?.toBool() ?? false
             let resolved = resolveAgainstShellCWD(path)
             do {
@@ -607,13 +597,11 @@ extension JSRuntime {
                 return false
             }
         }
-        fs.setObject(block(rmSync as AnyObject),
-                     forKeyedSubscript: "rmSync" as NSString)
-        fs.setObject(block(rmSync as AnyObject),
-                     forKeyedSubscript: "unlinkSync" as NSString)
+        fs.setObject(rmSync, forKeyedSubscript: "rmSync")
+        fs.setObject(rmSync, forKeyedSubscript: "unlinkSync")
 
-        let statSync: @convention(block) (String) -> Any? = { [weak self] path in
-            guard let self else { return nil }
+        let statSync = block { [weak self] args in
+            guard let self, let path = args.first?.toString() else { return nil }
             let resolved = resolveAgainstShellCWD(path)
             do {
                 try self.awaitSync { try await authorizePath(resolved, for: .read) }
@@ -638,18 +626,15 @@ extension JSRuntime {
             let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
             let isDirectory = isDir.boolValue
             let obj = JSValue(newObjectIn: self.context)!
-            obj.setObject(size, forKeyedSubscript: "size" as NSString)
-            obj.setObject(mtime * 1000, forKeyedSubscript: "mtimeMs" as NSString)
-            let isDirImpl: @convention(block) () -> Bool = { isDirectory }
-            let isFileImpl: @convention(block) () -> Bool = { !isDirectory }
-            obj.setObject(self.block(isDirImpl as AnyObject),
-                          forKeyedSubscript: "isDirectory" as NSString)
-            obj.setObject(self.block(isFileImpl as AnyObject),
-                          forKeyedSubscript: "isFile" as NSString)
+            obj.setObject(size, forKeyedSubscript: "size")
+            obj.setObject(mtime * 1000, forKeyedSubscript: "mtimeMs")
+            let isDirImpl = self.block { _ in isDirectory }
+            let isFileImpl = self.block { _ in !isDirectory }
+            obj.setObject(isDirImpl, forKeyedSubscript: "isDirectory")
+            obj.setObject(isFileImpl, forKeyedSubscript: "isFile")
             return obj
         }
-        fs.setObject(block(statSync as AnyObject),
-                     forKeyedSubscript: "statSync" as NSString)
+        fs.setObject(statSync, forKeyedSubscript: "statSync")
 
         return fs
     }
@@ -756,7 +741,7 @@ extension JSRuntime {
         // sees the synthetic identity rather than the host's. Under
         // `Shell.processDefault` (standalone `swift-js` CLI) we keep
         // the legacy host-API answers.
-        let homedir: @convention(block) () -> String = {
+        let homedir = block { _ in
             if Shell.current === Shell.processDefault {
                 return NSHomeDirectory()
             }
@@ -765,10 +750,9 @@ extension JSRuntime {
             }
             return Shell.current.environment.variables["HOME"] ?? NSHomeDirectory()
         }
-        os.setObject(block(homedir as AnyObject),
-                     forKeyedSubscript: "homedir" as NSString)
+        os.setObject(homedir, forKeyedSubscript: "homedir")
 
-        let tmpdir: @convention(block) () -> String = {
+        let tmpdir = block { _ in
             if Shell.current === Shell.processDefault {
                 return NSTemporaryDirectory()
             }
@@ -777,31 +761,32 @@ extension JSRuntime {
             }
             return NSTemporaryDirectory()
         }
-        os.setObject(block(tmpdir as AnyObject),
-                     forKeyedSubscript: "tmpdir" as NSString)
+        os.setObject(tmpdir, forKeyedSubscript: "tmpdir")
 
-        let hostname: @convention(block) () -> String = {
+        let hostname = block { _ in
             if Shell.current === Shell.processDefault {
                 return ProcessInfo.processInfo.hostName
             }
             return Shell.current.hostInfo.hostName
         }
-        os.setObject(block(hostname as AnyObject),
-                     forKeyedSubscript: "hostname" as NSString)
+        os.setObject(hostname, forKeyedSubscript: "hostname")
 
-        let platform: @convention(block) () -> String = {
+        let platform = block { _ in
             #if os(macOS)
             return "darwin"
             #elseif os(iOS)
             return "ios"
+            #elseif os(Linux)
+            return "linux"
+            #elseif os(Android)
+            return "android"
             #else
             return "unknown"
             #endif
         }
-        os.setObject(block(platform as AnyObject),
-                     forKeyedSubscript: "platform" as NSString)
+        os.setObject(platform, forKeyedSubscript: "platform")
 
-        let arch: @convention(block) () -> String = {
+        let arch = block { _ in
             #if arch(arm64)
             return "arm64"
             #elseif arch(x86_64)
@@ -810,10 +795,9 @@ extension JSRuntime {
             return "unknown"
             #endif
         }
-        os.setObject(block(arch as AnyObject),
-                     forKeyedSubscript: "arch" as NSString)
+        os.setObject(arch, forKeyedSubscript: "arch")
 
-        os.setObject("\n", forKeyedSubscript: "EOL" as NSString)
+        os.setObject("\n", forKeyedSubscript: "EOL")
         return os
     }
 
@@ -875,4 +859,3 @@ extension JSRuntime {
         return context.evaluateScript(source)!
     }
 }
-#endif

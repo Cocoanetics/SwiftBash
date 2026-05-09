@@ -1,8 +1,6 @@
 import Foundation
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 import CryptoKit
 
 extension JSRuntime {
@@ -25,47 +23,47 @@ extension JSRuntime {
         // across the JS↔Swift boundary because the data lifetime of a
         // single hash op is short — accumulate bytes in a JS-owned
         // Buffer and finalize on digest.
-        let createHash: @convention(block) (String) -> JSValue? = { [weak self] algorithm in
-            guard let self else { return nil }
+        let createHash = block { [weak self] args in
+            guard let self, let algorithm = args.first?.toString()
+            else { return nil }
             return self.makeHasher(algorithm: algorithm.lowercased(), key: nil)
         }
-        crypto.setObject(block(createHash as AnyObject),
-                         forKeyedSubscript: "createHash" as NSString)
+        crypto.setObject(createHash, forKeyedSubscript: "createHash")
 
-        let createHmac: @convention(block) (String, JSValue) -> JSValue? = { [weak self] algorithm, key in
-            guard let self else { return nil }
-            let keyBytes = Self.bytesFor(key)
+        let createHmac = block { [weak self] args in
+            guard let self, args.count >= 2,
+                  let algorithm = args[0].toString()
+            else { return nil }
+            let keyBytes = Self.bytesFor(args[1])
             return self.makeHasher(algorithm: algorithm.lowercased(), key: keyBytes)
         }
-        crypto.setObject(block(createHmac as AnyObject),
-                         forKeyedSubscript: "createHmac" as NSString)
+        crypto.setObject(createHmac, forKeyedSubscript: "createHmac")
 
-        let randomBytes: @convention(block) (Int) -> JSValue? = { [weak self] count in
-            guard let self else { return nil }
+        let randomBytes = block { [weak self] args in
+            guard let self, let count = args.first.map({ Int($0.toInt32()) })
+            else { return nil }
             var bytes = [UInt8](repeating: 0, count: max(0, count))
             _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
             let bufCtor = self.context.objectForKeyedSubscript("Buffer")!
             return bufCtor.invokeMethod("from", withArguments: [bytes])
         }
-        crypto.setObject(block(randomBytes as AnyObject),
-                         forKeyedSubscript: "randomBytes" as NSString)
+        crypto.setObject(randomBytes, forKeyedSubscript: "randomBytes")
 
-        let randomUUID: @convention(block) () -> String = {
+        let randomUUID = block { _ in
             UUID().uuidString.lowercased()
         }
-        crypto.setObject(block(randomUUID as AnyObject),
-                         forKeyedSubscript: "randomUUID" as NSString)
+        crypto.setObject(randomUUID, forKeyedSubscript: "randomUUID")
 
-        let timingSafeEqual: @convention(block) (JSValue, JSValue) -> Bool = { a, b in
-            let aBytes = Self.bytesFor(a)
-            let bBytes = Self.bytesFor(b)
+        let timingSafeEqual = block { args in
+            guard args.count >= 2 else { return false }
+            let aBytes = Self.bytesFor(args[0])
+            let bBytes = Self.bytesFor(args[1])
             guard aBytes.count == bBytes.count else { return false }
             var diff: UInt8 = 0
             for i in 0..<aBytes.count { diff |= aBytes[i] ^ bBytes[i] }
             return diff == 0
         }
-        crypto.setObject(block(timingSafeEqual as AnyObject),
-                         forKeyedSubscript: "timingSafeEqual" as NSString)
+        crypto.setObject(timingSafeEqual, forKeyedSubscript: "timingSafeEqual")
 
         return crypto
     }
@@ -81,14 +79,14 @@ extension JSRuntime {
 
         let obj = JSValue(newObjectIn: ctx)!
 
-        let update: @convention(block) (JSValue) -> JSValue? = { [obj] value in
+        let update = block { [obj] args in
+            guard let value = args.first else { return obj }
             state.append(Self.bytesFor(value))
             return obj // chainable
         }
-        obj.setObject(block(update as AnyObject),
-                      forKeyedSubscript: "update" as NSString)
+        obj.setObject(update, forKeyedSubscript: "update")
 
-        let digest: @convention(block) (JSValue?) -> Any? = { [weak self] encoding in
+        let digest = block { [weak self] args in
             guard let self else { return nil }
             guard let bytes = state.finalize() else {
                 return self.throwJSError(
@@ -96,7 +94,8 @@ extension JSRuntime {
                     code: "ERR_OSSL_EVP_UNSUPPORTED"
                 )
             }
-            if let encoding, encoding.isString {
+            // First arg is the optional encoding.
+            if let encoding = args.first, encoding.isString {
                 let enc = encoding.toString()?.lowercased() ?? "hex"
                 switch enc {
                 case "hex":     return bytes.map { String(format: "%02x", $0) }.joined()
@@ -110,8 +109,7 @@ extension JSRuntime {
             let bufCtor = self.context.objectForKeyedSubscript("Buffer")!
             return bufCtor.invokeMethod("from", withArguments: [bytes])
         }
-        obj.setObject(block(digest as AnyObject),
-                      forKeyedSubscript: "digest" as NSString)
+        obj.setObject(digest, forKeyedSubscript: "digest")
 
         return obj
     }
@@ -176,4 +174,3 @@ private final class HashState {
         }
     }
 }
-#endif

@@ -1,8 +1,6 @@
 import Foundation
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 
 extension JSRuntime {
 
@@ -222,4 +220,3 @@ extension JSRuntime {
     }
 }
 
-#endif

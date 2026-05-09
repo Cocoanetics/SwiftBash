@@ -1,9 +1,5 @@
 import Foundation
 
-#if canImport(JavaScriptCore)
-
-import JavaScriptCore
-
 /// A configured JavaScriptCore context with a Node-ish runtime
 /// bolted on top. Layers:
 ///
@@ -117,9 +113,9 @@ public final class JSRuntime {
         stdout: @escaping (String) -> Void = { Swift.print($0, terminator: "") },
         stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
     ) {
-        guard let ctx = JSContext() else {
-            preconditionFailure("Failed to create JSContext")
-        }
+        // Wrapper init is non-failable — it preconditionFailure's
+        // internally if JSGlobalContextCreate returns nil.
+        let ctx = JSContext()
         self.context = ctx
         self.argvProvider = argvProvider
         self.envProvider = envProvider
@@ -243,11 +239,21 @@ extension JSRuntime {
         return obj
     }
 
-    /// Convert a Swift function-block reference into a JS-callable
-    /// value the way `setObject` wants it. Centralised so the
-    /// unsafeBitCast happens in one place.
-    func block(_ closure: AnyObject) -> AnyObject {
-        unsafeBitCast(closure, to: AnyObject.self)
+    /// Wrap a Swift closure as a JS-callable function value. Replaces
+    /// the Apple-only `@convention(block)` + `unsafeBitCast` pattern
+    /// the runtime used to use — the new wrapper layer goes through
+    /// JSC's C API (`JSObjectMakeFunctionWithCallback`-style class
+    /// machinery in `JSCallback.swift`) so the same code works on
+    /// every platform with a JSC backend.
+    ///
+    /// Per-callsite migration: a typed
+    /// `let f: @convention(block) (T1, T2) -> R = { a, b in ... }`
+    /// becomes `let f = block { args in /* unpack args[0]/args[1] */ }`,
+    /// and the consumer's `setObject(block(f as AnyObject), …)`
+    /// becomes `setObject(f, …)` since `block` already returns a
+    /// JSValue ready to assign.
+    func block(_ closure: @escaping ([JSValue]) -> Any?) -> JSValue {
+        JSValue(callback: closure, in: context)
     }
 
     /// Throw a JS Error in the current context, returning the
@@ -468,4 +474,3 @@ extension JSRuntime {
         return frame
     }
 }
-#endif

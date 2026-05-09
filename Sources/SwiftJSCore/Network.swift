@@ -1,9 +1,7 @@
 import Foundation
 import BashInterpreter
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 
 /// Mutable holder for the resolve/reject handles of a Promise, used
 /// so the URLSession callback (non-isolated) can post the JSValues
@@ -28,11 +26,12 @@ extension JSRuntime {
     /// second counter through.
     func installFetch() {
         // The JS-callable entry point. Returns a Promise.
-        let fetchImpl: @convention(block) (JSValue, JSValue?) -> JSValue? = { [weak self] urlVal, initVal in
-            guard let self else { return nil }
+        let fetchImpl = block { [weak self] args in
+            guard let self, let urlVal = args.first else { return nil }
+            let initVal: JSValue? = args.count >= 2 ? args[1] : nil
             return self.makeFetchPromise(urlVal: urlVal, initVal: initVal)
         }
-        setGlobal("fetch", block(fetchImpl as AnyObject))
+        setGlobal("fetch", fetchImpl)
 
         // Headers, Response, Request — minimal JS shims so the
         // returned object behaves the way a script expects.
@@ -75,11 +74,13 @@ extension JSRuntime {
         let ctx = context
         let box = PromiseHandles()
 
-        let handler: @convention(block) (JSValue, JSValue) -> Void = { resolve, reject in
-            box.resolve = resolve
-            box.reject = reject
+        let handlerJS = block { args in
+            if args.count >= 2 {
+                box.resolve = args[0]
+                box.reject = args[1]
+            }
+            return nil
         }
-        let handlerJS = JSValue(object: block(handler as AnyObject), in: ctx)!
         let promiseClass = ctx.objectForKeyedSubscript("Promise")!
         let promise = promiseClass.construct(withArguments: [handlerJS])!
 
@@ -215,10 +216,10 @@ extension JSRuntime {
         // the URLSessionDataTask. We do this by registering a JS
         // listener that calls a Swift bridge.
         if let signal = abortSignal {
-            let cancel: @convention(block) () -> Void = { [weak task] in
+            let cancelJS = block { [weak task] _ in
                 task?.cancel()
+                return nil
             }
-            let cancelJS = JSValue(object: block(cancel as AnyObject), in: ctx)!
             // signal.addEventListener("abort", cancelJS)
             _ = signal.invokeMethod("addEventListener",
                                     withArguments: ["abort", cancelJS])
@@ -299,4 +300,3 @@ extension JSRuntime {
         return factory.call(withArguments: [bytesValue, status, headersDict, url])!
     }
 }
-#endif

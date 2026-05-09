@@ -227,33 +227,45 @@ let package = Package(
         ),
 
         // ---- SwiftJS — JavaScript runtime + CLI ----
-        // Apple-only at the source level (`#if canImport(JavaScriptCore)`).
-        // Targets register on every platform; on non-Apple they
-        // compile to (essentially) empty modules.
+        // Universal: SwiftJSCore talks to the JSC C API exclusively
+        // (via `CJavaScriptCore`), so it compiles unchanged on every
+        // platform. Engine binary differs per platform — Apple
+        // resolves `<JavaScriptCore/JavaScript.h>` through the system
+        // framework, non-Apple through Bun's prebuilt static archive
+        // staged by `scripts/fetch-bun-webkit.sh`. See Docs/SwiftJS.md.
         .target(
             name: "SwiftJSCore",
             dependencies: [
                 "BashInterpreter",
                 "BashCommandKit",
-                // GzipKit backs the `node:zlib` JS module. Same
-                // Android caveat as the SwiftPorts CLIs above —
-                // GzipKit's `CZlib` systemLibrary uses pkgConfig
-                // and bleeds host glibc paths onto Android's link
-                // line. JavaScriptCore is Apple-only anyway, so
-                // SwiftJSCore on non-Apple compiles to a near-empty
-                // module — gating GzipKit off Android is consistent.
+                // CJavaScriptCore is the only path through which any
+                // JSC symbol enters SwiftJSCore. On Apple it auto-
+                // links the system framework via the umbrella
+                // header; on Linux/Android it pulls Bun's static
+                // archive through the linker settings on
+                // CJavaScriptCore itself. Gated off Windows pending
+                // CRT alignment (see Docs/SwiftJS.md § Cross-platform).
+                .target(name: "CJavaScriptCore",
+                        condition: .when(platforms: [
+                            .macOS, .iOS, .tvOS, .watchOS, .visionOS,
+                            .linux, .android,
+                        ])),
+                // GzipKit backs the `node:zlib` JS module. Gated
+                // off Android because GzipKit's `CZlib` systemLibrary
+                // uses pkgConfig and bleeds host glibc paths onto
+                // Android's link line.
                 .product(name: "GzipKit", package: "SwiftPorts",
                          condition: .when(platforms: swiftPortsPlatforms)),
             ],
             path: "Sources/SwiftJSCore",
+            // TEMPORARY during the C-API migration: each legacy
+            // file is excluded as it's migrated to the new wrapper,
+            // and re-enabled file-by-file. Final state: this list
+            // is empty and the runtime compiles unconditionally.
             // The runtime is single-threaded — every JSValue touch
             // happens on the main queue. Swift 6 strict concurrency
             // can't prove that statically; the workarounds would
             // obscure the runtime, so we run in v5 mode.
-            //
-            // No `linkedLibrary("z", ...)` here — GzipKit (which
-            // owns the `node:zlib` backing now) carries its own zlib
-            // linkage transitively.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(

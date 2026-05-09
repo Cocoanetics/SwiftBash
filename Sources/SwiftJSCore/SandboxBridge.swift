@@ -1,9 +1,7 @@
 import Foundation
 import BashInterpreter
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 
 // MARK: - Host hooks (sandbox / network / identity gating)
 //
@@ -243,4 +241,3 @@ extension JSRuntime {
     }
 }
 
-#endif

@@ -2,9 +2,7 @@ import Foundation
 import BashInterpreter
 import BashCommandKit
 
-#if canImport(JavaScriptCore)
 
-import JavaScriptCore
 
 /// Holder for resolve/reject of an async child_process Promise.
 /// Mirrors the one in Network.swift; access fenced by the main
@@ -38,8 +36,9 @@ extension JSRuntime {
         let cp = JSValue(newObjectIn: context)!
 
         // execSync(command, options?) → string | Buffer
-        let execSync: @convention(block) (String, JSValue?) -> Any? = { [weak self] cmd, opts in
-            guard let self else { return nil }
+        let execSync = block { [weak self] args in
+            guard let self, let cmd = args.first?.toString() else { return nil }
+            let opts: JSValue? = args.count >= 2 ? args[1] : nil
             do {
                 try denyProcessIfSandboxed(cmd)
             } catch {
@@ -47,38 +46,39 @@ extension JSRuntime {
             }
             return self.runChildSync(command: cmd, args: nil, opts: opts)
         }
-        cp.setObject(block(execSync as AnyObject),
-                     forKeyedSubscript: "execSync" as NSString)
+        cp.setObject(execSync, forKeyedSubscript: "execSync")
 
         // spawnSync(command, args?, options?) → { status, stdout, stderr, ... }
-        let spawnSync: @convention(block) (String, JSValue?, JSValue?) -> Any? = { [weak self] cmd, args, opts in
-            guard let self else { return nil }
+        let spawnSync = block { [weak self] args in
+            guard let self, let cmd = args.first?.toString() else { return nil }
+            let argsVal: JSValue? = args.count >= 2 ? args[1] : nil
+            let opts: JSValue? = args.count >= 3 ? args[2] : nil
             do {
                 try denyProcessIfSandboxed(cmd)
             } catch {
                 return self.throwSandboxDenial(error, syscall: "spawn")
             }
-            let argList = (args?.toArray() as? [String]) ?? []
+            let argList = (argsVal?.toArray() as? [String]) ?? []
             return self.spawnChildSync(command: cmd, args: argList, opts: opts)
         }
-        cp.setObject(block(spawnSync as AnyObject),
-                     forKeyedSubscript: "spawnSync" as NSString)
+        cp.setObject(spawnSync, forKeyedSubscript: "spawnSync")
 
         // spawn(command, args?, options?) → ChildProcess with live
         // stdout/stderr/stdin streams. Non-blocking; chunks arrive on
         // the JS event loop the way node delivers them.
-        let spawnImpl: @convention(block) (String, JSValue?, JSValue?) -> JSValue? = { [weak self] cmd, args, opts in
-            guard let self else { return nil }
+        let spawnImpl = block { [weak self] args in
+            guard let self, let cmd = args.first?.toString() else { return nil }
+            let argsVal: JSValue? = args.count >= 2 ? args[1] : nil
+            let opts: JSValue? = args.count >= 3 ? args[2] : nil
             do {
                 try denyProcessIfSandboxed(cmd)
             } catch {
                 return self.throwSandboxDenial(error, syscall: "spawn")
             }
-            let argList = (args?.toArray() as? [String]) ?? []
+            let argList = (argsVal?.toArray() as? [String]) ?? []
             return self.runChildSpawn(command: cmd, args: argList, opts: opts)
         }
-        cp.setObject(block(spawnImpl as AnyObject),
-                     forKeyedSubscript: "spawn" as NSString)
+        cp.setObject(spawnImpl, forKeyedSubscript: "spawn")
 
         // exec(command, opts?) → Promise<{stdout, stderr, code}>.
         //
@@ -87,8 +87,9 @@ extension JSRuntime {
         // exec() calls really do run in parallel — Promise.all([exec,
         // exec, exec]) of three `sleep 0.1` commands wall-clocks at
         // ~0.1s, not ~0.3s.
-        let exec: @convention(block) (String, JSValue?) -> JSValue? = { [weak self] cmd, opts in
-            guard let self else { return nil }
+        let exec = block { [weak self] args in
+            guard let self, let cmd = args.first?.toString() else { return nil }
+            let opts: JSValue? = args.count >= 2 ? args[1] : nil
             do {
                 try denyProcessIfSandboxed(cmd)
             } catch {
@@ -96,8 +97,7 @@ extension JSRuntime {
             }
             return self.runChildAsync(command: cmd, opts: opts)
         }
-        cp.setObject(block(exec as AnyObject),
-                     forKeyedSubscript: "exec" as NSString)
+        cp.setObject(exec, forKeyedSubscript: "exec")
 
         return cp
     }
@@ -339,16 +339,18 @@ extension JSRuntime {
         onEnd: @escaping @Sendable () -> Void
     ) {
         guard let stream else { return }
-        let writeImpl: @convention(block) (JSValue) -> Void = { chunk in
-            onWrite(JSRuntime.dataFromChunk(chunk))
+        let writeImpl = block { args in
+            if let chunk = args.first {
+                onWrite(JSRuntime.dataFromChunk(chunk))
+            }
+            return nil
         }
-        let endImpl: @convention(block) () -> Void = {
+        let endImpl = block { _ in
             onEnd()
+            return nil
         }
-        stream.setObject(block(writeImpl as AnyObject),
-                         forKeyedSubscript: "_onWrite" as NSString)
-        stream.setObject(block(endImpl as AnyObject),
-                         forKeyedSubscript: "_onEnd" as NSString)
+        stream.setObject(writeImpl, forKeyedSubscript: "_onWrite")
+        stream.setObject(endImpl, forKeyedSubscript: "_onEnd")
     }
 
     /// Drain an ``OutputSink`` until it finishes, hopping to main on
@@ -401,8 +403,8 @@ extension JSRuntime {
     /// Push raw bytes into a JS-side ``Readable`` as a Buffer. Must
     /// be called on the main queue.
     private static func pushBytes(_ bytes: [UInt8], to stream: JSValue) {
-        guard let ctx = stream.context,
-              let bufCtor = ctx.objectForKeyedSubscript("Buffer"),
+        let ctx = stream.context
+        guard let bufCtor = ctx.objectForKeyedSubscript("Buffer"),
               let buf = bufCtor.invokeMethod("from", withArguments: [bytes])
         else { return }
         stream.invokeMethod("_push", withArguments: [buf])
@@ -462,11 +464,13 @@ extension JSRuntime {
         let ctx = context
         let handles = ChildPromiseHandles()
 
-        let handler: @convention(block) (JSValue, JSValue) -> Void = { resolve, reject in
-            handles.resolve = resolve
-            handles.reject = reject
+        let handlerJS = block { args in
+            if args.count >= 2 {
+                handles.resolve = args[0]
+                handles.reject = args[1]
+            }
+            return nil
         }
-        let handlerJS = JSValue(object: block(handler as AnyObject), in: ctx)!
         let promiseClass = ctx.objectForKeyedSubscript("Promise")!
         let promise = promiseClass.construct(withArguments: [handlerJS])!
 
@@ -800,4 +804,3 @@ extension JSRuntime {
         }
     }
 }
-#endif

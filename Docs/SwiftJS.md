@@ -729,25 +729,46 @@ CJavaScriptCore (C umbrella module)
 ├── header search path       ── Apple: framework | non-Apple: Vendor/bun-webkit/current/include
 └── linker settings          ── Apple: autolink   | non-Apple: -L Vendor/bun-webkit/current/lib
 
-SwiftJSCore (Apple-only today)
-└── #if canImport(JavaScriptCore) — uses ObjC wrappers (JSContext, JSValue)
+SwiftJSCore (universal — single source tree, no per-platform branches)
+├── JSContext.swift   ── Swift class wrapping JSGlobalContextRef
+├── JSValue.swift     ── Swift class wrapping JSValueRef + Apple-API-shape methods
+├── JSBridging.swift  ── Swift⟷JS type bridging (JSValue.from / value.toSwiftAny)
+├── JSCallback.swift  ── @convention(c) trampoline for closures-as-JS-functions
+└── runtime layer    ─── Globals, Modules, Network, Timers, ChildProcess, …
+                         talks only to the wrapper classes above; identical code
+                         path on every platform
 
-swift-jsc-smoke (every platform)
-└── pure C API — the CI proof that JSC links and evaluates JS
+swift-jsc-smoke (Apple/Linux/Android)
+└── pure C API — minimal CI proof that JSC links and evaluates JS
+
+swift-js (Apple/Linux/Android)
+└── full Node-shaped runtime — `node`/`bun` shebang shadow + REPL
 ```
 
-A SwiftJSCore that compiles on non-Apple needs a Swift-side
-`JSContext`/`JSValue` wrapper over the C API — Apple's framework
-provides those classes, Bun's static archive does not. Estimated
-~200–400 lines of bridging code, deferred to a follow-up.
+The runtime stopped touching Apple's ObjC `JSContext`/`JSValue`
+classes. Both sides — Apple's `JavaScriptCore.framework` and
+Bun's vendored static archive — expose the same JSC C API
+(`JSGlobalContextCreate`, `JSEvaluateScript`,
+`JSObjectMakeFunctionWithCallback`, the type-predicate +
+conversion family, etc.). The wrapper classes (`JSContext`,
+`JSValue`, `JSCallbackBox`) are the entire abstraction layer;
+they're what every other file in `Sources/SwiftJSCore/` builds
+against.
+
+The `@convention(block)` ObjC-bridged closure pattern Apple's
+JSC API supported is replaced by `JSValue(callback:in:)` — a
+`@convention(c)` trampoline plus a `JSClassDefinition` with
+`callAsFunction` + `finalize` callbacks. Closure capture is
+stored in the JSObject's private slot and released by the
+finalizer when JSC's GC reclaims the function object.
 
 ## Status
 
 | platform | JSC backend | swift-jsc-smoke | swift-js (full runtime) |
 |---|---|---|---|
 | macOS / iOS / tvOS / watchOS / visionOS | system framework | builds + runs | builds + runs |
-| Linux glibc / musl x64 + arm64 | bun-webkit static `.a` | builds + runs | stub (`EX_CONFIG`) |
-| Android (NDK, x64 + arm64) | bun-webkit static `.a` | builds + runs | stub (`EX_CONFIG`) |
+| Linux glibc / musl x64 + arm64 | bun-webkit static `.a` | builds + runs | builds + runs |
+| Android (NDK, x64 + arm64) | bun-webkit static `.a` | builds + runs | builds + runs |
 | Windows MSVC x64 + arm64 | bun-webkit static `.lib` | **gated off, see below** | stub (`EX_CONFIG`) |
 
 ### Windows — pending CRT alignment
@@ -783,13 +804,13 @@ stub. Tracked as a follow-up.
 
 `JSGlobalContextRelease` deadlocks for ~62s then aborts (likely a
 bmalloc heap-shutdown assert against an unfinished worker on
-Bun's static archive). All four C-API calls during normal
-execution succeed; only teardown trips. The smoke binary exits
-directly via `exit(0)` after printing the result instead of
-running `defer`-based cleanup; OS process exit reclaims the
-memory anyway. A real long-lived runtime that creates/destroys
-many contexts would need a proper fix here — the smoke binary
-doesn't.
+Bun's static archive). All other C-API calls during normal
+execution succeed; only teardown trips. `JSContext.deinit` skips
+`JSGlobalContextRelease` on non-Apple as a workaround — the OS
+reclaims memory at process exit, and per-context leakage is
+bounded (each runtime owns a single long-lived context). The
+gate lifts when upstream resolves the assert; tracked alongside
+the Windows item.
 
 Outstanding: port SwiftJSCore from `JSContext`/`JSValue` to a
 thin Swift wrapper over the C API so the full runtime compiles
@@ -824,44 +845,15 @@ their LICENSE. SwiftBash mirrors that template — distribute
 recipients at the relink instructions, ship a NOTICE alongside
 the binary.
 
-## Source-level platform gating (legacy)
+## Source-level platform gating
 
-Until the SwiftJSCore port to the JSC C API lands, the existing
-runtime stays Apple-only at the source level. Every JSC-touching
-`.swift` source file is wrapped in:
-
-```swift
-import Foundation
-import JavaScriptCore
-
-#if canImport(JavaScriptCore)
-
-// ... runtime code ...
-
-#endif
-```
-
-That includes `JSRuntime`, `Globals`, `Modules`, `Crypto`,
-`Network`, `Timers`, `ChildProcess`, and `Zlib`. `ESMRewriter`
-and `EnvProvider` are pure Foundation (the protocol is useful
-on any platform) and stay unguarded.
-
-The `swift-js` executable target also has a non-Apple branch
-that prints a clear error and exits with `EX_CONFIG`:
-
-```
-$ swift-js --version       # on Linux today
-swift-js: JavaScriptCore is not available on this platform.
-          Apple platforms (macOS, iOS, tvOS, watchOS) are supported.
-```
-
-The test target's `JSRuntimeTests` is similarly guarded so
-non-Apple CI runs just skip those tests instead of failing to
-compile.
-
-This will be revisited once the C-API wrapper lands — at that
-point the runtime targets every platform `swift-jsc-smoke`
-already supports.
+The runtime no longer carries `#if canImport(JavaScriptCore)`
+gates — every file in `Sources/SwiftJSCore/` compiles on every
+platform with a working JSC backend. The single platform
+exclusion left is Windows, where the bun-webkit `.lib` ships
+`/MT` but Swift's runtime is `/MD`; the swift-js executable +
+test files use `#if !os(Windows)` to skip there until the CRT
+alignment lands.
 
 ## Status of this branch
 

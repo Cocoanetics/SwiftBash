@@ -3,7 +3,7 @@ import XCTest
 import BashInterpreter
 import BashCommandKit
 
-#if canImport(JavaScriptCore)
+#if !os(Windows)  // SwiftJSCore links the JSC C API everywhere except Windows for now
 
 final class JSRuntimeTests: XCTestCase {
 
