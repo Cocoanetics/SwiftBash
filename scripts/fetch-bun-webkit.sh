@@ -65,8 +65,15 @@ detect_asset() {
             || [[ -f /etc/alpine-release ]]; then
             libc="-musl"
         fi
-        # Android (Bionic) is detected via ANDROID_ROOT or NDK env.
-        if [[ -n "${ANDROID_ROOT:-${ANDROID_NDK_ROOT:-}}" ]]; then
+        # Android (Bionic) detection: `uname -o` returns "Android"
+        # on Termux / Bionic devices but "GNU/Linux" on glibc and
+        # "Linux" on musl. Don't sniff `ANDROID_NDK_ROOT` etc. —
+        # GitHub's `ubuntu-latest` runner ships the NDK preinstalled
+        # and exports those vars, which mis-routed the Linux CI
+        # job to the Android-target tarball. Cross-builds (host
+        # = Linux, target = Android) must set `BUN_WEBKIT_ASSET`
+        # explicitly; the workflow's Android job does so.
+        if [[ "$(uname -o 2>/dev/null || true)" == "Android" ]]; then
             libc="-android"
         fi
     fi
