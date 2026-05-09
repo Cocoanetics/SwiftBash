@@ -1,4 +1,11 @@
 import Foundation
+// swift-corelibs-foundation splits URLSession / URLRequest /
+// HTTPURLResponse out into a separate module. Apple platforms
+// have these in plain Foundation, so the conditional import is
+// a no-op there.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import BashInterpreter
 
 

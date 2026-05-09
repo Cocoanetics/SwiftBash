@@ -1,6 +1,20 @@
 import Foundation
 import BashInterpreter
 
+// Foundation pulls libc through transitively on Apple and Linux,
+// but the Android Swift toolchain doesn't re-export Bionic's
+// `getpid` / `getppid` / etc. via Foundation. Pick up the libc
+// module explicitly so this file compiles on every platform.
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
 extension JSRuntime {
 
     func installGlobals() {
