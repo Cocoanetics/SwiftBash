@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 import BashInterpreter
 
@@ -859,3 +861,4 @@ extension JSRuntime {
         return context.evaluateScript(source)!
     }
 }
+#endif  // !os(Windows)

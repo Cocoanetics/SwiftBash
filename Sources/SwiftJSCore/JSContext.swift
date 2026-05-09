@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 // SwiftJSCore's `JSContext` — a Swift class wrapping the JSC C API's
 // `JSGlobalContextRef`. Replaces the platform `JSContext` ObjC class
 // from Apple's `JavaScriptCore.framework` so the same source compiles
@@ -203,3 +205,4 @@ final class WeakRef<T: AnyObject> {
     weak var value: T?
     init(_ v: T) { self.value = v }
 }
+#endif  // !os(Windows)

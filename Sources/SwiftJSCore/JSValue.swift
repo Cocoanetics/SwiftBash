@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 // SwiftJSCore's `JSValue` — Swift class wrapping `JSValueRef` /
 // `JSObjectRef` from JSC's C API. Replaces the platform `JSValue`
 // ObjC class so SwiftJSCore source compiles unchanged on every
@@ -401,3 +403,4 @@ public final class JSValue {
         return String(describing: key)
     }
 }
+#endif  // !os(Windows)

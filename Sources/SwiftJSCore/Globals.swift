@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 import BashInterpreter
 
@@ -861,3 +863,4 @@ extension JSRuntime {
         context.evaluateScript(urlShim)
     }
 }
+#endif  // !os(Windows)

@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 // Swift ⟷ JS type bridging. Used by `JSValue(object:in:)`, the
 // keyed-subscript setter, the call/invoke argument lists, and the
 // closure trampoline's return-value conversion.
@@ -159,3 +161,4 @@ extension JSValue {
     }
     #endif
 }
+#endif  // !os(Windows)

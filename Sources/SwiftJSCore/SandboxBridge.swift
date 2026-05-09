@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 import BashInterpreter
 
@@ -241,3 +243,4 @@ extension JSRuntime {
     }
 }
 
+#endif  // !os(Windows)

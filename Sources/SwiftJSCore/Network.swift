@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 // swift-corelibs-foundation splits URLSession / URLRequest /
 // HTTPURLResponse out into a separate module. Apple platforms
@@ -326,3 +328,4 @@ extension JSRuntime {
         return factory.call(withArguments: [bytesValue, status, headersDict, url])!
     }
 }
+#endif  // !os(Windows)

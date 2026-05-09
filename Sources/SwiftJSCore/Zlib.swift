@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 
 // GzipKit is gated off on Android in Package.swift (the SwiftPorts
@@ -101,3 +103,4 @@ extension JSRuntime {
 }
 
 #endif
+#endif  // !os(Windows)

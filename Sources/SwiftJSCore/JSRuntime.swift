@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 
 /// A configured JavaScriptCore context with a Node-ish runtime
@@ -481,3 +483,4 @@ extension JSRuntime {
         return frame
     }
 }
+#endif  // !os(Windows)

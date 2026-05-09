@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 // swift-crypto re-exports `Crypto`, which on Apple is a thin
 // re-export of `CryptoKit` (so HMAC/SHA*/Insecure.MD5 etc. resolve
@@ -186,3 +188,4 @@ private final class HashState {
         }
     }
 }
+#endif  // !os(Windows)

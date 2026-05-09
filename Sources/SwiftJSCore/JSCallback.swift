@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 // Closure-as-JS-function plumbing. Replaces the Apple-only
 // `JSValue(object: someBlock, in: ctx)` pattern that depends on
 // ObjC's block-bridging machinery. Works on every platform with a
@@ -183,3 +185,4 @@ extension JSContext {
         return JSContext(rawNonOwning: global)
     }
 }
+#endif  // !os(Windows)

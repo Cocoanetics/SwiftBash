@@ -1,3 +1,5 @@
+#if !os(Windows)
+
 import Foundation
 
 extension JSRuntime {
@@ -79,3 +81,4 @@ extension JSRuntime {
         return id
     }
 }
+#endif  // !os(Windows)
