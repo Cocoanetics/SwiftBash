@@ -251,19 +251,28 @@ extension JSRuntime {
             }
         )
 
-        // Two flags so we only emit 'close' once both streams finished.
+        // Three flags so we only emit 'close' once stdout, stderr,
+        // and the process itself have all finished. The `finalized`
+        // latch makes `finalize()` idempotent — without it, two
+        // callbacks landing in close succession after the third
+        // flag flipped would each see `ready == true` and dispatch
+        // `finalizeSpawn` twice, which then emits `'exit'` and
+        // `'close'` to the JS side twice.
         let stateLock = NSLock()
         var stdoutDone = false
         var stderrDone = false
         var processDone = false
+        var finalized = false
         var exitStatus: Int32 = 0
         let runtime = self
         let finalize: @Sendable () -> Void = {
             stateLock.lock()
-            let ready = stdoutDone && stderrDone && processDone
+            let shouldFire =
+                stdoutDone && stderrDone && processDone && !finalized
+            if shouldFire { finalized = true }
             let status = exitStatus
             stateLock.unlock()
-            guard ready else { return }
+            guard shouldFire else { return }
             DispatchQueue.main.async {
                 Self.finalizeSpawn(runtime: runtime, handles: handles,
                                    sentinelID: sentinelID, status: status)

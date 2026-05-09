@@ -4,9 +4,13 @@ import BashInterpreter
 // Foundation pulls libc through transitively on Apple and Linux,
 // but the Android Swift toolchain doesn't re-export Bionic's
 // `getpid` / `getppid` / etc. via Foundation. Pick up the libc
-// module explicitly so this file compiles on every platform.
+// module explicitly. The Android module name varies between Swift
+// toolchains (`Android` in skiptools/swift-android-action,
+// `Bionic` in some upstream snapshots), so we try both.
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Android)
+import Android
 #elseif canImport(Bionic)
 import Bionic
 #elseif canImport(Glibc)

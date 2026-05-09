@@ -1,15 +1,13 @@
 import Foundation
 
-// GzipKit is gated off on Android in Package.swift (see the
-// `swiftPortsPlatforms` list); guard the import too so this file
-// compiles on Android. The body below additionally requires
-// JavaScriptCore (Apple-only), and Apple platforms always have
-// GzipKit, so the body's reference to `Zlib` is always safe.
+// GzipKit is gated off on Android in Package.swift (the SwiftPorts
+// dep graph isn't viable on Bionic). Guard the whole file's
+// implementation so SwiftJSCore still compiles there — Android
+// scripts that `require('zlib')` get an empty module instead of
+// the gzip/deflate suite, which is acceptable since the embedder
+// already opted out of GzipKit.
 #if canImport(GzipKit)
 import GzipKit
-#endif
-
-
 
 /// `node:zlib` — gzip/gunzip/deflate/inflate.
 ///
@@ -90,3 +88,16 @@ extension JSRuntime {
         return Data()
     }
 }
+
+#else  // !canImport(GzipKit) — Android
+
+extension JSRuntime {
+    /// Stub module on platforms without GzipKit. Returns an empty
+    /// JS object so `require('zlib')` doesn't fail outright, but
+    /// none of the gzip/deflate methods are available.
+    func makeZlibModule() -> JSValue {
+        return JSValue(newObjectIn: context)!
+    }
+}
+
+#endif
