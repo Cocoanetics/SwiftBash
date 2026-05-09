@@ -408,7 +408,13 @@ let package = Package(
             // we also pass `-Xcc -I<abs>` at this consumer's
             // Swift driver level to make the include resolution
             // unambiguous.
+            //
+            // `.v5` because Swift 6 strict concurrency rejects
+            // direct use of the platform's `stderr` global on
+            // Linux / Android (Glibc.stderr is a `var`). Matches
+            // the language mode the rest of this package runs in.
             swiftSettings: [
+                .swiftLanguageMode(.v5),
                 .unsafeFlags(
                     ["-Xcc", "-I\(bunWebKitDir)/include"],
                     .when(platforms: [.linux, .windows, .android])),
