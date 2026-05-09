@@ -9,43 +9,71 @@
 // pull the same dependency graph anyway, and a top-level executable
 // keeps the smoke check observable in CI logs ("1 + 2 = 3" lands
 // at the end of the build job).
+//
+// Stage markers are printed and flushed before each JSC C-API
+// call so a runtime crash (`Aborted (core dumped)` with no other
+// output) localises to the last marker that made it to the log.
 import Foundation
 import CJavaScriptCore
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(ucrt)
+import ucrt
+#endif
+
+func stage(_ message: String) {
+    print("swift-jsc-smoke: [stage] \(message)")
+    fflush(stdout)
+}
+
 func evaluate(_ source: String) -> Double {
+    stage("JSGlobalContextCreate")
     guard let ctx = JSGlobalContextCreate(nil) else {
-        fputs("swift-jsc-smoke: JSGlobalContextCreate returned nil\n",
-              stderr)
+        print("swift-jsc-smoke: JSGlobalContextCreate returned nil")
+        fflush(stdout)
         exit(1)
     }
     defer { JSGlobalContextRelease(ctx) }
 
+    stage("JSStringCreateWithUTF8CString")
     guard let scriptRef = source.withCString(JSStringCreateWithUTF8CString)
     else {
-        fputs("swift-jsc-smoke: JSStringCreateWithUTF8CString failed\n",
-              stderr)
+        print("swift-jsc-smoke: JSStringCreateWithUTF8CString failed")
+        fflush(stdout)
         exit(1)
     }
     defer { JSStringRelease(scriptRef) }
 
+    stage("JSEvaluateScript")
     var exception: JSValueRef?
     guard let result = JSEvaluateScript(ctx, scriptRef, nil, nil, 0,
                                         &exception)
     else {
-        fputs("swift-jsc-smoke: JSEvaluateScript returned nil\n",
-              stderr)
+        print("swift-jsc-smoke: JSEvaluateScript returned nil")
+        fflush(stdout)
         exit(1)
     }
     if exception != nil {
-        fputs("swift-jsc-smoke: script raised an exception\n", stderr)
+        print("swift-jsc-smoke: script raised an exception")
+        fflush(stdout)
         exit(1)
     }
+
+    stage("JSValueToNumber")
     return JSValueToNumber(ctx, result, nil)
 }
 
 let result = evaluate("1 + 2")
 guard result == 3.0 else {
-    fputs("swift-jsc-smoke: expected 3.0, got \(result)\n", stderr)
+    print("swift-jsc-smoke: expected 3.0, got \(result)")
+    fflush(stdout)
     exit(1)
 }
 

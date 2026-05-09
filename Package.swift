@@ -336,6 +336,22 @@ let package = Package(
                 .unsafeFlags(
                     ["-I\(bunWebKitDir)/include"],
                     .when(platforms: [.linux, .windows, .android])),
+                // JSC's C API headers decorate every export with
+                // `__declspec(dllimport)` on Windows by default,
+                // which forces consumers to link a `.dll`. Bun's
+                // tarball ships static `.lib`s instead, so we
+                // need to disable that decoration. WebKit's
+                // convention is the `STATICALLY_LINKED_WITH_*`
+                // macros — defining them on JSC and WTF flips
+                // the export macro to a no-op for static linkage.
+                // Harmless on Linux/Android (those headers gate
+                // dllimport on `_WIN32`), but defining it
+                // unconditionally on every non-Apple platform
+                // keeps the configuration uniform.
+                .define("STATICALLY_LINKED_WITH_JavaScriptCore",
+                        .when(platforms: [.linux, .windows, .android])),
+                .define("STATICALLY_LINKED_WITH_WTF",
+                        .when(platforms: [.linux, .windows, .android])),
             ],
             linkerSettings: [
                 // Linux / Android — link Bun's static archive.
@@ -423,7 +439,9 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .unsafeFlags(
-                    ["-Xcc", "-I\(bunWebKitDir)/include"],
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
                     .when(platforms: [.linux, .windows, .android])),
             ]
         ),
