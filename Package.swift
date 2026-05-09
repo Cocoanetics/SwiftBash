@@ -410,23 +410,26 @@ let package = Package(
                         .when(platforms: [.linux, .windows, .android])),
             ],
             linkerSettings: [
-                // Linux / Android — link Bun's static archive.
-                // `-L` needs absolute path because the linker's
-                // CWD is the SwiftPM build dir, not the repo root.
-                .unsafeFlags(["-L\(bunWebKitLib)"],
-                             .when(platforms: [.linux, .android])),
-                .linkedLibrary("JavaScriptCore",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("WTF",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("bmalloc",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("icui18n",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("icuuc",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("icudata",
-                               .when(platforms: [.linux, .android])),
+                // Linux / Android — link Bun's static archives by
+                // absolute path. `-l<name>` would search through
+                // every `-L` path on the link line, and SwiftPorts'
+                // transitive deps add `-L/usr/lib/x86_64-linux-gnu`
+                // ahead of our Vendor path; `-licui18n` then resolves
+                // to the system ICU (e.g. ICU 70 on ubuntu-latest)
+                // instead of the version-matched one Bun bundled.
+                // WTF.a calls ICU symbols at version 75, system ICU
+                // exports them at version 70, so the link fails with
+                // hundreds of `undefined reference to 'ucol_close_75'`.
+                // Passing the .a paths positionally pins the resolution
+                // to Bun's archive, no search-order ambiguity.
+                .unsafeFlags([
+                    "\(bunWebKitLib)/libJavaScriptCore.a",
+                    "\(bunWebKitLib)/libWTF.a",
+                    "\(bunWebKitLib)/libbmalloc.a",
+                    "\(bunWebKitLib)/libicui18n.a",
+                    "\(bunWebKitLib)/libicuuc.a",
+                    "\(bunWebKitLib)/libicudata.a",
+                ], .when(platforms: [.linux, .android])),
                 // pthread / dl / m are separate `.so`s on glibc but
                 // collapsed into Bionic's libc on Android (no
                 // `libpthread.so` / `libdl.so` / `libm.so` ship in
