@@ -422,7 +422,23 @@ let package = Package(
         // machines that haven't fetched the static archive.
         .executableTarget(
             name: "swift-jsc-smoke",
-            dependencies: ["CJavaScriptCore"],
+            // Gated off Windows: Bun's `.lib`s are MSVC `/MT` (static
+            // CRT) but Swift's runtime is `/MD` (dynamic CRT), and
+            // `lld-link` hard-rejects mixing the two with
+            // `failifmismatch RuntimeLibrary`. No fix from
+            // Package.swift alone — needs either a `/MD` Bun rebuild
+            // or a Swift static-stdlib toolchain. The smoke binary's
+            // `#if canImport(CJavaScriptCore)` falls through to a
+            // skip-message stub on Windows. Tracked in
+            // Docs/SwiftJS.md § Cross-platform.
+            dependencies: [
+                .target(
+                    name: "CJavaScriptCore",
+                    condition: .when(platforms: [
+                        .macOS, .iOS, .tvOS, .watchOS, .visionOS,
+                        .linux, .android,
+                    ])),
+            ],
             path: "Sources/swift-jsc-smoke",
             // The `import CJavaScriptCore` in the smoke binary's
             // Swift source triggers a clang module build of the

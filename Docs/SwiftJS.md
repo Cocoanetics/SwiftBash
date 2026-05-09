@@ -747,8 +747,49 @@ provides those classes, Bun's static archive does not. Estimated
 |---|---|---|---|
 | macOS / iOS / tvOS / watchOS / visionOS | system framework | builds + runs | builds + runs |
 | Linux glibc / musl x64 + arm64 | bun-webkit static `.a` | builds + runs | stub (`EX_CONFIG`) |
-| Windows MSVC x64 + arm64 | bun-webkit static `.lib` | builds + runs | stub (`EX_CONFIG`) |
 | Android (NDK, x64 + arm64) | bun-webkit static `.a` | builds + runs | stub (`EX_CONFIG`) |
+| Windows MSVC x64 + arm64 | bun-webkit static `.lib` | **gated off, see below** | stub (`EX_CONFIG`) |
+
+### Windows — pending CRT alignment
+
+Bun's Windows `.lib` artifacts are built with MSVC's `/MT` (static
+CRT) flag because their final binary statically links everything
+including the CRT. Swift's runtime on Windows ships with `/MD`
+(dynamic CRT). `lld-link` rejects the mix:
+
+```
+lld-link: error: /failifmismatch: mismatch detected for 'RuntimeLibrary'
+>>> swiftrt.obj has value MD_DynamicRelease
+>>> JavaScriptCore.lib(...) has value MT_StaticRelease
+```
+
+The mismatch is unsafe to override: heap allocations from one CRT
+freed by the other corrupt memory (different malloc heaps,
+different `FILE*` tables). Three viable resolutions, none
+suitable for this PR:
+
+1. Rebuild bun-webkit with `/MD` and host the artifact ourselves.
+2. Build a Swift static-stdlib toolchain for Windows so the whole
+   binary uses `/MT`.
+3. Switch to a JSC build that ships both CRT variants (Bun's
+   tarballs only publish `/MT` today).
+
+Until then, `swift-jsc-smoke`'s dependency on `CJavaScriptCore` is
+gated off Windows in `Package.swift`, and the binary's
+`#if canImport(CJavaScriptCore)` falls through to a skip-message
+stub. Tracked as a follow-up.
+
+### Linux/Android — JSC teardown skipped
+
+`JSGlobalContextRelease` deadlocks for ~62s then aborts (likely a
+bmalloc heap-shutdown assert against an unfinished worker on
+Bun's static archive). All four C-API calls during normal
+execution succeed; only teardown trips. The smoke binary exits
+directly via `exit(0)` after printing the result instead of
+running `defer`-based cleanup; OS process exit reclaims the
+memory anyway. A real long-lived runtime that creates/destroys
+many contexts would need a proper fix here — the smoke binary
+doesn't.
 
 Outstanding: port SwiftJSCore from `JSContext`/`JSValue` to a
 thin Swift wrapper over the C API so the full runtime compiles
