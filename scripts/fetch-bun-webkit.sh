@@ -53,11 +53,15 @@ detect_asset() {
     esac
 
     # Linux glibc vs musl — the tarballs are link-incompatible
-    # because libc++ on each side has a different C++ ABI.
-    # ldd's stderr/stdout differs across Alpine/Ubuntu, so we sniff
-    # the dynamic loader of /bin/sh, which always exists.
+    # because libc++ on each side has a different C++ ABI. We
+    # check `ldd --version` for a "musl" banner, but musl's ldd
+    # commonly exits non-zero (it has no `--version` flag and
+    # prints help to stderr instead). With `set -o pipefail` that
+    # would poison `ldd ... | grep -qi musl` and we'd select the
+    # wrong tarball. The `{ ...; || true; }` group neutralises the
+    # exit status before the pipe so grep's status alone decides.
     if [[ "$os" == "linux" ]]; then
-        if ldd --version 2>&1 | grep -qi musl \
+        if { ldd --version 2>&1 || true; } | grep -qi musl \
             || [[ -f /etc/alpine-release ]]; then
             libc="-musl"
         fi
