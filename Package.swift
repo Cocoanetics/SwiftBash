@@ -291,7 +291,22 @@ let package = Package(
             dependencies: ["SwiftJSCore"],
             path: "Sources/swift-js",
             exclude: ["Resources"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            // `import SwiftJSCore` here makes Swift build (or
+            // re-build) the CJavaScriptCore clang module on the
+            // consumer side. SwiftPM doesn't propagate
+            // `swiftSettings.unsafeFlags` across target deps, so
+            // the same `-Xcc -I<Vendor>` + `-DSTATICALLY_LINKED_*`
+            // flags from SwiftJSCore have to be repeated here or
+            // the umbrella header's
+            // `#include <JavaScriptCore/JavaScript.h>` fails.
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
         .testTarget(
             name: "SwiftJSCoreTests",
