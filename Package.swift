@@ -250,6 +250,13 @@ let package = Package(
                             .macOS, .iOS, .tvOS, .watchOS, .visionOS,
                             .linux, .android,
                         ])),
+                // swift-crypto backs `node:crypto`. On Apple
+                // platforms `Crypto` is a thin re-export of the
+                // built-in `CryptoKit`; on Linux/Android it ships
+                // its own implementation. Same call sites either
+                // way, so SwiftJSCore depends on `Crypto`
+                // unconditionally.
+                .product(name: "Crypto", package: "swift-crypto"),
                 // GzipKit backs the `node:zlib` JS module. Gated
                 // off Android because GzipKit's `CZlib` systemLibrary
                 // uses pkgConfig and bleeds host glibc paths onto

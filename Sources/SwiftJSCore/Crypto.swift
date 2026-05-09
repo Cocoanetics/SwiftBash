@@ -1,7 +1,10 @@
 import Foundation
-
-
-import CryptoKit
+// swift-crypto re-exports `Crypto`, which on Apple is a thin
+// re-export of `CryptoKit` (so HMAC/SHA*/Insecure.MD5 etc. resolve
+// to the same types) and on Linux/Android ships its own
+// implementation. Single import keeps the call sites below
+// platform-agnostic.
+import Crypto
 
 extension JSRuntime {
 
@@ -13,7 +16,8 @@ extension JSRuntime {
     ///   - randomUUID() → string
     ///   - timingSafeEqual(a, b) → boolean
     ///
-    /// CryptoKit is built into the Apple SDK so no extra dependency.
+    /// Backed by swift-crypto so the same runtime compiles on
+    /// every platform with a working JSC backend.
     func makeCryptoModule() -> JSValue {
         let crypto = JSValue(newObjectIn: context)!
 
@@ -42,8 +46,16 @@ extension JSRuntime {
         let randomBytes = block { [weak self] args in
             guard let self, let count = args.first.map({ Int($0.toInt32()) })
             else { return nil }
+            // `SystemRandomNumberGenerator` reads from the OS
+            // CSPRNG everywhere — `arc4random_buf` on Apple,
+            // `getrandom`/`/dev/urandom` on Linux, `getrandom` on
+            // Android. Replaces `SecRandomCopyBytes`, which only
+            // exists in Security.framework on Apple platforms.
+            var rng = SystemRandomNumberGenerator()
             var bytes = [UInt8](repeating: 0, count: max(0, count))
-            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            for i in 0..<bytes.count {
+                bytes[i] = UInt8.random(in: 0...255, using: &rng)
+            }
             let bufCtor = self.context.objectForKeyedSubscript("Buffer")!
             return bufCtor.invokeMethod("from", withArguments: [bytes])
         }
