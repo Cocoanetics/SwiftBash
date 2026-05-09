@@ -39,10 +39,10 @@ try await shell.run("""
 | **`BashSyntax`**       | Available  | Parse bash into a typed AST. Smart tokeniser for shell-aware splitting.    |
 | **`BashInterpreter`**  | Available  | Execute the AST in-process. Streaming pipelines, full bash 4.x semantics.  |
 | **`BashCommandKit`**   | Available  | Catalog of `ls`/`cat`/`grep`/`sed`/`find`/`curl`/… built on Swift Argument Parser. |
-| **`SwiftJSCore`**      | Available (Apple-only) | Node-style JavaScript runtime on JavaScriptCore. `require`, ESM `import`, `node:fs/path/os/crypto/zlib/child_process/…`, `fetch`, `Buffer`, timers, `AbortController`, `WebAssembly`. |
+| **`SwiftJSCore`**      | Available (Apple); engine linked on Linux + Android, runtime port pending | Node-style JavaScript runtime on JavaScriptCore. `require`, ESM `import`, `node:fs/path/os/crypto/zlib/child_process/…`, `fetch`, `Buffer`, timers, `AbortController`, `WebAssembly`. |
 | **`BashSwiftScript`**  | Available  | `#!/usr/bin/env swift-script` shebang dispatch via Cocoanetics' [SwiftScript](https://github.com/Cocoanetics/SwiftScript) tree-walking interpreter. IO / sandbox / identity flow through ShellKit, so a script honors the bash sandbox the same way `gh`/`jq`/etc. do. |
 | **`swift-bash`** (CLI) | Available  | `exec` and `parse` subcommands; sandbox flags for confined execution. Auto-registers SwiftScript so `./hello.swift` runs in-process. |
-| **`swift-js`** (CLI)   | Available (Apple-only) | Drop-in for `node` — `swift-js install` symlinks `node`/`bun` so existing `#!/usr/bin/env node` scripts run unchanged. |
+| **`swift-js`** (CLI)   | Available (Apple); Linux + Android pending runtime port | Drop-in for `node` — `swift-js install` symlinks `node`/`bun` so existing `#!/usr/bin/env node` scripts run unchanged. |
 
 ## Component docs
 
@@ -54,6 +54,12 @@ try await shell.run("""
   `ls`/`cat`/`grep`-style command + how to add your own typed ones.
 - **[SwiftJS](Docs/SwiftJS.md)** — Node-style JavaScript runtime on
   JavaScriptCore. Embeddable + `swift-js` CLI shadow for `node`/`bun`.
+  Apple platforms use the system `JavaScriptCore.framework`; Linux
+  and Android link the engine from
+  [Bun's prebuilt JSC archive](Docs/SwiftJS.md#cross-platform-jsc-everywhere-via-buns-prebuilt-archive)
+  via the `CJavaScriptCore` C-API target. End-to-end smoke
+  (`JSGlobalContextCreate` → `JSEvaluateScript("1 + 2")` → `3.0`) is
+  verified in CI on macOS, iOS, Linux, and Android.
 - **[SwiftScript](Docs/SwiftScript.md)** — `#!/usr/bin/env swift-script`
   shebang dispatch routing through SwiftScript's tree-walking
   interpreter. Wires output / stdin / sandbox / network / identity
