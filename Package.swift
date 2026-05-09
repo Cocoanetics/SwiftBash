@@ -265,15 +265,26 @@ let package = Package(
                          condition: .when(platforms: swiftPortsPlatforms)),
             ],
             path: "Sources/SwiftJSCore",
-            // TEMPORARY during the C-API migration: each legacy
-            // file is excluded as it's migrated to the new wrapper,
-            // and re-enabled file-by-file. Final state: this list
-            // is empty and the runtime compiles unconditionally.
             // The runtime is single-threaded — every JSValue touch
             // happens on the main queue. Swift 6 strict concurrency
             // can't prove that statically; the workarounds would
             // obscure the runtime, so we run in v5 mode.
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            //
+            // `import CJavaScriptCore` in this target's Swift sources
+            // makes Swift build a clang module from the C target's
+            // umbrella header (`#include <JavaScriptCore/JavaScript.h>`).
+            // That clang invocation needs the bun-webkit header path
+            // and the static-linkage defines explicitly via `-Xcc`
+            // — `cSettings` on the C target alone doesn't reach it.
+            // Same plumbing that swift-jsc-smoke uses (PR #20).
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
         .executableTarget(
             name: "swift-js",
@@ -290,7 +301,18 @@ let package = Package(
                 "BashCommandKit",
             ],
             path: "Tests/SwiftJSCoreTests",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            // `@testable import SwiftJSCore` here can re-trigger the
+            // clang module build for `CJavaScriptCore`; mirror the
+            // SwiftJSCore target's `-Xcc` flags so the test binary
+            // links cleanly on Linux + Android.
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_JavaScriptCore",
+                     "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
 
         // ---- BashSwiftScript — Swift script-shebang interpreter ----
