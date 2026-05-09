@@ -57,14 +57,23 @@ jobs:
       # Apple baseline (every variant should complete within
       # milliseconds). Compare against the Linux output to localise
       # which path Bun's standalone-mode teardown breaks on.
+      # macOS doesn't ship `timeout(1)`; install via coreutils so the
+      # loop semantics match Linux (kernel-enforced cap per variant
+      # plus per-variant exit codes printed for the data table).
+      - name: Install coreutils (for timeout)
+        run: brew list --versions coreutils >/dev/null 2>&1 || brew install coreutils
       - name: JSC shutdown diagnostics (macOS)
         if: always()
         run: |
+          set +e
           for variant in plain evaluated gc-then-release group-release no-release; do
             echo "::group::variant=$variant"
-            time .build/debug/swift-jsc-shutdown-diag "$variant" || true
+            gtimeout --preserve-status --kill-after=5s 20s \
+              .build/debug/swift-jsc-shutdown-diag "$variant"
+            echo "[exit=$?]"
             echo "::endgroup::"
           done
+          exit 0
 
   build-ios:
     # Compile-only check on `generic/platform=iOS` (no simulator boots).
@@ -137,18 +146,30 @@ jobs:
       - name: JSC smoke (Linux)
         run: .build/debug/swift-jsc-smoke
       # Research probe for oven-sh/bun#30434. Each variant is run
-      # separately so a hang in one doesn't block the others. The
-      # `|| true` is intentional — we want the timing data
-      # regardless of whether the binary aborts. The 10-s watchdog
-      # baked into the binary keeps each variant capped.
+      # separately so a hang in one doesn't block the others. Both
+      # the in-process 10 s watchdog AND an external `timeout 20s`
+      # cap each invocation: when the bun-webkit teardown hangs the
+      # main thread it can wedge stdio so badly the watchdog's own
+      # `raise(SIGABRT)` doesn't escape — observed in the first run,
+      # where `plain` froze and the bash for-loop never advanced. The
+      # external `timeout` is enforced by the kernel and reliably
+      # frees the loop so subsequent variants still get exercised.
+      # `--preserve-status` propagates the binary's exit code (or 124
+      # on timeout) so we can tell pass / hang / abort apart in logs.
       - name: JSC shutdown diagnostics (Linux)
         if: always()
         run: |
+          set +e
           for variant in plain evaluated gc-then-release group-release no-release; do
             echo "::group::variant=$variant"
-            time .build/debug/swift-jsc-shutdown-diag "$variant" || true
+            timeout --preserve-status --kill-after=5s 20s \
+              .build/debug/swift-jsc-shutdown-diag "$variant"
+            echo "[exit=$?]"
             echo "::endgroup::"
           done
+          # Step itself always succeeds; analyse via the per-variant
+          # exit codes printed above.
+          exit 0
 
   build-windows:
     # Windows is a committed compatibility target — the build and
