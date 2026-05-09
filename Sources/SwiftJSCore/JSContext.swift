@@ -25,6 +25,13 @@ public final class JSContext {
     /// callback trampoline's fallback path).
     let raw: JSGlobalContextRef
 
+    /// The explicit context group that owns the VM. Held alongside
+    /// `raw` so we can release context-then-group on `deinit` —
+    /// the only release path that exits cleanly on Bun's
+    /// `bun-webkit` static archive (oven-sh/bun#30434). `nil` for
+    /// non-owning wrappers built by the callback trampoline.
+    private let group: JSContextGroupRef?
+
     /// `true` when this wrapper owns its underlying context — the
     /// normal case via the public `init()`. `false` for ephemeral
     /// wrappers built by the callback trampoline when a registered
@@ -45,11 +52,36 @@ public final class JSContext {
     // MARK: - Lifecycle
 
     public init() {
-        guard let ctx = JSGlobalContextCreate(nil) else {
+        // Construct the VM via an explicit context group rather than
+        // the bare `JSGlobalContextCreate(nil)`. Both produce a fresh
+        // single-context VM; the difference is the teardown path.
+        //
+        // Bun's `bun-webkit` fork stripped `JSLockHolder` from
+        // `JSGlobalContextRelease` (oven-sh/WebKit at 88b2f7a2,
+        // `Source/JavaScriptCore/API/JSContextRef.cpp`) but kept it in
+        // `JSContextGroupRelease`. Releasing the bare context drives
+        // `~VM` without the API lock held, with the wrong atom string
+        // table on the thread, and hangs ~25 s before SIGKILL on
+        // Linux/Android. Releasing context-then-group runs `~VM` from
+        // inside `JSContextGroupRelease`'s `JSLockHolder` scope, which
+        // exits cleanly in single-digit ms on every platform we test.
+        //
+        // Filed as oven-sh/bun#30434; once the patch ships in a
+        // bun-webkit release the workflow stays correct (the group
+        // path is the standard Apple-supported lifecycle anyway).
+        guard let group = JSContextGroupCreate() else {
             preconditionFailure(
-                "JSGlobalContextCreate returned nil — the engine " +
+                "JSContextGroupCreate returned nil — the engine " +
                 "is in an unrecoverable state.")
         }
+        guard let ctx = JSGlobalContextCreateInGroup(group, nil) else {
+            // Drop the group ref we just took before bailing.
+            JSContextGroupRelease(group)
+            preconditionFailure(
+                "JSGlobalContextCreateInGroup returned nil — the " +
+                "engine is in an unrecoverable state.")
+        }
+        self.group = group
         self.raw = ctx
         self.ownsContext = true
         registerForCallbacks()
@@ -60,6 +92,7 @@ public final class JSContext {
     /// Doesn't retain or release the underlying context.
     init(rawNonOwning ctx: JSGlobalContextRef) {
         self.raw = ctx
+        self.group = nil
         self.ownsContext = false
     }
 
@@ -67,20 +100,20 @@ public final class JSContext {
         if ownsContext {
             unregisterForCallbacks()
             // `exception` and any user-held JSValues hold protect
-            // counts against this context's GC; `JSGlobalContextRelease`
+            // counts against this context's GC; the context release
             // only tears the engine state down once those have
             // dropped.
             //
-            // Skip the release on non-Apple to dodge a known
-            // shutdown stall in Bun's prebuilt JSC archive — the
-            // bmalloc heap shutdown asserts ~62s after teardown
-            // begins (see `swift-jsc-smoke` for the same workaround
-            // and Docs/SwiftJS.md § Cross-platform for context).
-            // Memory leaks per-context are bounded; fix lands when
-            // upstream resolves the assert.
-            #if canImport(Darwin)
+            // Drop the context ref first (VM refcount 2 → 1, no
+            // `~VM`), then the group ref (VM refcount 1 → 0, runs
+            // `~VM` under `JSContextGroupRelease`'s `JSLockHolder`
+            // scope). On Apple this matches the framework's standard
+            // lifecycle; on bun-webkit it sidesteps the
+            // `JSGlobalContextRelease` hang (oven-sh/bun#30434).
             JSGlobalContextRelease(raw)
-            #endif
+            if let group = group {
+                JSContextGroupRelease(group)
+            }
         }
     }
 

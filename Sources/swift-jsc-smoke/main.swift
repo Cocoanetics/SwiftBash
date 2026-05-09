@@ -39,20 +39,26 @@ func stage(_ message: String) {
 }
 
 func evaluate(_ source: String) -> Double {
-    stage("JSGlobalContextCreate")
-    guard let ctx = JSGlobalContextCreate(nil) else {
-        print("swift-jsc-smoke: JSGlobalContextCreate returned nil")
+    // Use the explicit context-group lifecycle (`JSContextGroupCreate`
+    // + `JSGlobalContextCreateInGroup` + release context, then group)
+    // rather than the bare `JSGlobalContextCreate(nil)` /
+    // `JSGlobalContextRelease` pair. Same VM, but the teardown runs
+    // from inside `JSContextGroupRelease`'s `JSLockHolder` scope,
+    // which is the only release path that exits cleanly on Bun's
+    // `bun-webkit` static archive (oven-sh/bun#30434). On Apple's
+    // framework JSC the two paths are equivalent.
+    stage("JSContextGroupCreate")
+    guard let group = JSContextGroupCreate() else {
+        print("swift-jsc-smoke: JSContextGroupCreate returned nil")
         fflush(stdout)
         exit(1)
     }
-    // Note: deliberately *not* calling JSGlobalContextRelease /
-    // JSStringRelease here. Bun's static-archive JSC crashes
-    // ~62s after teardown begins (likely the GC's bmalloc heap
-    // shutdown asserting against an unfinished worker), even
-    // though every C API call returns cleanly. Process exit
-    // reclaims everything anyway, and this binary's whole job
-    // is "did the engine evaluate `1 + 2`" — exit before
-    // teardown runs, document as a follow-up.
+    stage("JSGlobalContextCreateInGroup")
+    guard let ctx = JSGlobalContextCreateInGroup(group, nil) else {
+        print("swift-jsc-smoke: JSGlobalContextCreateInGroup returned nil")
+        fflush(stdout)
+        exit(1)
+    }
 
     stage("JSStringCreateWithUTF8CString")
     guard let scriptRef = source.withCString(JSStringCreateWithUTF8CString)
@@ -67,11 +73,17 @@ func evaluate(_ source: String) -> Double {
     guard let result = JSEvaluateScript(ctx, scriptRef, nil, nil, 0,
                                         &exception)
     else {
+        JSStringRelease(scriptRef)
+        JSGlobalContextRelease(ctx)
+        JSContextGroupRelease(group)
         print("swift-jsc-smoke: JSEvaluateScript returned nil")
         fflush(stdout)
         exit(1)
     }
     if exception != nil {
+        JSStringRelease(scriptRef)
+        JSGlobalContextRelease(ctx)
+        JSContextGroupRelease(group)
         print("swift-jsc-smoke: script raised an exception")
         fflush(stdout)
         exit(1)
@@ -80,6 +92,17 @@ func evaluate(_ source: String) -> Double {
     stage("JSValueToNumber")
     let n = JSValueToNumber(ctx, result, nil)
     stage("JSValueToNumber returned: \(n)")
+
+    // Tear everything down deliberately — context first, then group.
+    // Used to be skipped because `JSGlobalContextRelease` hangs on
+    // bun-webkit; the group-release path doesn't.
+    stage("JSStringRelease")
+    JSStringRelease(scriptRef)
+    stage("JSGlobalContextRelease (drops ctx ref)")
+    JSGlobalContextRelease(ctx)
+    stage("JSContextGroupRelease (drops group ref → ~VM)")
+    JSContextGroupRelease(group)
+    stage("teardown complete")
     return n
 }
 
@@ -98,9 +121,6 @@ let backend = "bun-webkit static archive"
 #endif
 print("swift-jsc-smoke: 1 + 2 = \(Int(result))  [\(backend)]")
 fflush(stdout)
-// Skip Swift's atexit / Foundation teardown chain by exiting
-// directly. Same reason as above — anything that touches JSC
-// state on shutdown trips the bmalloc assert on Linux.
 exit(0)
 
 #else  // !canImport(CJavaScriptCore)
