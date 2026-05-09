@@ -22,6 +22,18 @@ private final class SpawnHandles: @unchecked Sendable {
     var stdinS: JSValue?
 }
 
+/// Mutable state shared across the readability handlers, the
+/// termination handler, and the `finalize()` closure of
+/// `startHostShellSpawn`. All access is fenced by `lock`.
+private final class HostSpawnState: @unchecked Sendable {
+    let lock = NSLock()
+    var stdoutDone = false
+    var stderrDone = false
+    var processDone = false
+    var finalized = false
+    var exitStatus: Int32 = 0
+}
+
 extension JSRuntime {
 
     /// Build the `node:child_process` module.
@@ -211,9 +223,17 @@ extension JSRuntime {
             await outDrain
             await errDrain
 
+            // Bind the loop's `var status` and the outer-closure's
+            // `var self` (from `[weak self]`) into local lets so
+            // the inner `MainActor.run` closure captures stable
+            // values — Swift 6 strict concurrency rejects capturing
+            // `var` directly across the @Sendable boundary.
+            let finalStatus = status
+            let runtime = self
             await MainActor.run {
-                Self.finalizeSpawn(runtime: self, handles: handles,
-                                   sentinelID: sentinelID, status: status)
+                Self.finalizeSpawn(runtime: runtime, handles: handles,
+                                   sentinelID: sentinelID,
+                                   status: finalStatus)
             }
         }
     }
@@ -251,27 +271,24 @@ extension JSRuntime {
             }
         )
 
-        // Three flags so we only emit 'close' once stdout, stderr,
-        // and the process itself have all finished. The `finalized`
-        // latch makes `finalize()` idempotent — without it, two
-        // callbacks landing in close succession after the third
-        // flag flipped would each see `ready == true` and dispatch
-        // `finalizeSpawn` twice, which then emits `'exit'` and
-        // `'close'` to the JS side twice.
-        let stateLock = NSLock()
-        var stdoutDone = false
-        var stderrDone = false
-        var processDone = false
-        var finalized = false
-        var exitStatus: Int32 = 0
+        // Holder for the host-shell spawn's three "done" flags plus
+        // the one-shot `finalized` latch and the captured exit
+        // status. Wrapped in a class so the multiple `@Sendable`
+        // closures below (readability handlers, termination handler)
+        // can share state by reference instead of capturing a heap
+        // of local `var`s — Swift 6 rejects the latter.
+        //
+        // `@unchecked Sendable` because every mutation goes through
+        // `lock`; nothing reads or writes any field outside that.
+        let state = HostSpawnState()
         let runtime = self
         let finalize: @Sendable () -> Void = {
-            stateLock.lock()
-            let shouldFire =
-                stdoutDone && stderrDone && processDone && !finalized
-            if shouldFire { finalized = true }
-            let status = exitStatus
-            stateLock.unlock()
+            state.lock.lock()
+            let shouldFire = state.stdoutDone && state.stderrDone
+                && state.processDone && !state.finalized
+            if shouldFire { state.finalized = true }
+            let status = state.exitStatus
+            state.lock.unlock()
             guard shouldFire else { return }
             DispatchQueue.main.async {
                 Self.finalizeSpawn(runtime: runtime, handles: handles,
@@ -283,9 +300,9 @@ extension JSRuntime {
             on: outPipe.fileHandleForReading,
             target: handles.stdoutS,
             onEOF: {
-                stateLock.lock()
-                stdoutDone = true
-                stateLock.unlock()
+                state.lock.lock()
+                state.stdoutDone = true
+                state.lock.unlock()
                 finalize()
             }
         )
@@ -293,18 +310,18 @@ extension JSRuntime {
             on: errPipe.fileHandleForReading,
             target: handles.stderrS,
             onEOF: {
-                stateLock.lock()
-                stderrDone = true
-                stateLock.unlock()
+                state.lock.lock()
+                state.stderrDone = true
+                state.lock.unlock()
                 finalize()
             }
         )
 
         process.terminationHandler = { proc in
-            stateLock.lock()
-            processDone = true
-            exitStatus = proc.terminationStatus
-            stateLock.unlock()
+            state.lock.lock()
+            state.processDone = true
+            state.exitStatus = proc.terminationStatus
+            state.lock.unlock()
             finalize()
         }
 
@@ -499,7 +516,10 @@ extension JSRuntime {
             } else {
                 result = await Self.runBashInterpreterAsync(command: command)
             }
-            await MainActor.run {
+            // Re-capture `self` weakly for the inner `MainActor.run`
+            // closure — capturing it from the outer `[weak self]` var
+            // would warn under Swift 6 strict concurrency.
+            await MainActor.run { [weak self] in
                 guard let self else { return }
                 if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
                     s.cancel()

@@ -114,7 +114,11 @@ extension JSRuntime {
                 method = m.toString() ?? "GET"
             }
             if let h = initVal.objectForKeyedSubscript("headers"), h.isObject {
-                if let dict = h.toDictionary() as? [String: Any] {
+                // `toDictionary()` already returns `[String: Any]?`,
+                // so the `as? [String: Any]` was a no-op cast that
+                // tripped a "conditional downcast does nothing"
+                // warning under Swift 6.
+                if let dict = h.toDictionary() {
                     for (k, v) in dict {
                         request.setValue(String(describing: v), forHTTPHeaderField: k)
                     }
@@ -172,13 +176,29 @@ extension JSRuntime {
         pendingTimers[sentinelID] = sentinel
         sentinel.resume()
 
+        // Bind `var abortSignal` into a local `let` so the
+        // URLSession callback below can keep it alive without
+        // capturing a `var` directly (Swift 6 strict concurrency
+        // rejects that across the @Sendable boundary).
+        let abortSignalRef = abortSignal
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            _ = abortSignal // capture so it stays alive across the call
+            _ = abortSignalRef // capture so it stays alive across the call
             // We're on URLSession's queue. Hop to main where JSValue
             // is safe to touch.
             let bytes = Array(data ?? Data())
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let headers = (response as? HTTPURLResponse)?.allHeaderFields ?? [:]
+            // `[AnyHashable: Any]` from `allHeaderFields` is not
+            // Sendable, so flatten to `[String: String]` here on
+            // URLSession's queue before crossing the dispatch hop.
+            let headers: [String: String] = {
+                guard let http = response as? HTTPURLResponse
+                else { return [:] }
+                var out: [String: String] = [:]
+                for (k, v) in http.allHeaderFields {
+                    out[String(describing: k)] = String(describing: v)
+                }
+                return out
+            }()
             let respondedURL = response?.url?.absoluteString ?? urlString
             let errorDesc = error?.localizedDescription
             let errorCode = Self.fetchErrorCode(error)
@@ -186,7 +206,7 @@ extension JSRuntime {
                 guard let urlError = error as? URLError else { return nil }
                 return urlError.errorCode
             }()
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
                     s.cancel()
@@ -266,7 +286,7 @@ extension JSRuntime {
     private func makeResponseObject(
         bytes: [UInt8],
         status: Int,
-        headers: [AnyHashable: Any],
+        headers: [String: String],
         url: String
     ) -> JSValue {
         // Build a Response-shaped object in JS so methods on it (.text(),
@@ -276,8 +296,7 @@ extension JSRuntime {
         let bytesValue = JSValue(object: bytes, in: ctx)!
         let headersDict = JSValue(newObjectIn: ctx)!
         for (k, v) in headers {
-            headersDict.setObject(String(describing: v),
-                                  forKeyedSubscript: String(describing: k) as NSString)
+            headersDict.setObject(v, forKeyedSubscript: k)
         }
 
         let factory = ctx.evaluateScript(#"""

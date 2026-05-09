@@ -555,7 +555,7 @@ extension JSRuntime {
                 return nil
             }
             if Shell.current === Shell.processDefault {
-                FileManager.default.changeCurrentDirectoryPath(resolved)
+                _ = FileManager.default.changeCurrentDirectoryPath(resolved)
             }
             Shell.current.environment.workingDirectory = resolved
             return nil

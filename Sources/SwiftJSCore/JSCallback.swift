@@ -47,15 +47,17 @@ final class JSCallbackBox {
     }
 
     /// The shared `JSClassRef` for callback objects. Lazily created
-    /// once per process.
+    /// once per process. JSC stores `JSClassDefinition.className`
+    /// by reference and reads it indefinitely, so the buffer needs
+    /// to outlive the JSClass — which is forever. We deliberately
+    /// leak a heap copy here (one allocation per process) rather
+    /// than relying on `NSString.utf8String`, which is deprecated
+    /// on platforms without Objective-C autorelease pools.
     static let classRef: JSClassRef = {
-        // `className` must outlive the class. Static C-string constant.
-        let name = ("__SwiftJSCallback" as NSString).utf8String
-
         var def = JSClassDefinition()
         def.version = 0
         def.attributes = JSClassAttributes(kJSClassAttributeNone)
-        def.className = name
+        def.className = JSCallbackBox.classNamePointer
         def.callAsFunction = jsCallbackTrampoline
         def.finalize = jsCallbackFinalize
 
@@ -63,6 +65,24 @@ final class JSCallbackBox {
             preconditionFailure("JSClassCreate returned nil for callback class")
         }
         return cls
+    }()
+
+    /// Heap-allocated, NUL-terminated C string used as the
+    /// callback JSClass's name. Allocated once at process start
+    /// and never freed — `JSClassDefinition.className` is borrowed
+    /// by JSC for the lifetime of the class, which matches the
+    /// process. Replaces `("..." as NSString).utf8String` (deprecated
+    /// on non-Apple platforms because they lack ObjC autorelease
+    /// pools to keep the autoreleased buffer alive).
+    private static let classNamePointer: UnsafePointer<CChar> = {
+        let chars = Array("__SwiftJSCallback".utf8CString)
+        let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: chars.count)
+        chars.withUnsafeBufferPointer { src in
+            if let base = src.baseAddress {
+                buffer.update(from: base, count: chars.count)
+            }
+        }
+        return UnsafePointer(buffer)
     }()
 }
 

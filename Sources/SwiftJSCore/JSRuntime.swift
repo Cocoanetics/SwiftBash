@@ -11,7 +11,14 @@ import Foundation
 /// The point is to make scripts written for Node/Bun on macOS run
 /// under JSC by providing custom Swift implementations of the
 /// platform APIs they touch.
-public final class JSRuntime {
+/// `@unchecked Sendable` because the runtime is single-threaded
+/// by design — every `JSValue` touch happens on the main queue,
+/// and the few helpers that hop off-main (URLSession callbacks,
+/// `Task.detached` spawn drains) bounce back to main before
+/// touching JSC state. Without the annotation, every closure that
+/// crosses an `@Sendable` boundary (DispatchQueue.main.async,
+/// MainActor.run) would warn under Swift 6 strict concurrency.
+public final class JSRuntime: @unchecked Sendable {
 
     public let context: JSContext
 
