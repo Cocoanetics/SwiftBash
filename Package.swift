@@ -355,12 +355,15 @@ let package = Package(
                                .when(platforms: [.linux, .android])),
                 .linkedLibrary("icudata",
                                .when(platforms: [.linux, .android])),
-                .linkedLibrary("pthread",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("dl",
-                               .when(platforms: [.linux, .android])),
-                .linkedLibrary("m",
-                               .when(platforms: [.linux, .android])),
+                // pthread / dl / m are separate `.so`s on glibc but
+                // collapsed into Bionic's libc on Android (no
+                // `libpthread.so` / `libdl.so` / `libm.so` ship in
+                // the NDK), so the Android NDK linker hard-errors
+                // with "unable to find library -lpthread" if we
+                // emit `-lpthread`. Linux glibc only.
+                .linkedLibrary("pthread", .when(platforms: [.linux])),
+                .linkedLibrary("dl", .when(platforms: [.linux])),
+                .linkedLibrary("m", .when(platforms: [.linux])),
                 // libc++ on Android (NDK), libstdc++ on glibc Linux.
                 .linkedLibrary("stdc++", .when(platforms: [.linux])),
                 .linkedLibrary("c++", .when(platforms: [.android])),
