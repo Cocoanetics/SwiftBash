@@ -103,9 +103,13 @@ final class JSRuntimeTests: XCTestCase {
 
     func testFsStatSync() {
         let (r, out, _) = runtime()
+        // `/tmp` doesn't exist on Android — `os.tmpdir()` is the
+        // platform-correct path everywhere (`/data/local/tmp` on
+        // Android, `/var/folders/.../T/` on Apple, `/tmp` on Linux).
         r.run("""
         const fs = require('fs');
-        const s = fs.statSync('/tmp');
+        const os = require('os');
+        const s = fs.statSync(os.tmpdir());
         console.log(s.isDirectory(), s.isFile());
         """)
         XCTAssertEqual(out(), "true false\n")
@@ -353,6 +357,7 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertTrue(err().contains("threw:"))
     }
 
+    #if !os(Android)
     func testHostShellModeRunsExternalBinary() {
         // A runtime constructed with `.hostShell` matches node:
         // every call forks /bin/sh, any binary on PATH works.
@@ -371,6 +376,7 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out, "true\n")
     }
+    #endif
 
     func testExecSyncEchoStringRoundTrip() {
         let (r, out, _) = runtime()
@@ -905,6 +911,7 @@ final class JSRuntimeTests: XCTestCase {
 
     // MARK: - node:zlib
 
+    #if !os(Android)
     func testZlibGzipRoundTrip() {
         let (r, out, _) = runtime()
         r.run("""
@@ -917,7 +924,9 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "true true\n")
     }
+    #endif
 
+    #if !os(Android)
     func testZlibDeflateRoundTrip() {
         let (r, out, _) = runtime()
         r.run("""
@@ -930,7 +939,9 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(),
             "the quick brown fox jumps over the lazy dog the quick brown fox true\n")
     }
+    #endif
 
+    #if !os(Android)
     func testZlibRawRoundTrip() {
         let (r, out, _) = runtime()
         r.run("""
@@ -941,6 +952,7 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "true\n")
     }
+    #endif
 
     // MARK: - node:assert
 
@@ -1050,6 +1062,7 @@ final class JSRuntimeTests: XCTestCase {
         return (r, { out }, { err })
     }
 
+    #if !os(Android)
     func testSpawnDataEvent() {
         let (r, out, _) = hostShellRuntime()
         r.run("""
@@ -1061,7 +1074,9 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "code=0 hi\n")
     }
+    #endif
 
+    #if !os(Android)
     func testSpawnForAwait() {
         let (r, out, _) = hostShellRuntime()
         r.run("""
@@ -1075,7 +1090,9 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "lines: a|b|c\n")
     }
+    #endif
 
+    #if !os(Android)
     func testSpawnPipeToProcessStdout() {
         let (r, out, _) = hostShellRuntime()
         // pipe() forwards every 'data' chunk to dest.write(...). The
@@ -1089,6 +1106,7 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "piped:ok")
     }
+    #endif
 
     func testSpawnInProcessBackend() {
         // BashInterpreter backend — `echo` is a registered command so
@@ -1104,6 +1122,7 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "done 0 streamed\n")
     }
 
+    #if !os(Android)
     func testSpawnExitCodeOnFailure() {
         let (r, out, _) = hostShellRuntime()
         r.run("""
@@ -1113,7 +1132,9 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "exit 7\n")
     }
+    #endif
 
+    #if !os(Android)
     func testSpawnStderrSeparateChannel() {
         let (r, out, _) = hostShellRuntime()
         r.run("""
@@ -1126,7 +1147,9 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "o=out e=err\n")
     }
+    #endif
 
+    #if !os(Android)
     func testSpawnStdinWriteEnd() {
         let (r, out, _) = hostShellRuntime()
         r.run("""
@@ -1141,6 +1164,7 @@ final class JSRuntimeTests: XCTestCase {
         """)
         XCTAssertEqual(out(), "echoed: hello world\n")
     }
+    #endif
 
     func testStreamModuleExportsClasses() {
         let (r, out, _) = runtime()
@@ -1200,6 +1224,7 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "drained: buf end: 1 close: 1\n")
     }
 
+    #if !os(Android)
     func testSpawnStdinEndsOnChildExit() {
         // Regression for #8 review: when the child process closes,
         // proc.stdin should flip to non-writable. Otherwise user code
@@ -1219,6 +1244,7 @@ final class JSRuntimeTests: XCTestCase {
         // returns false instead of pretending the bytes went somewhere.
         XCTAssertEqual(out(), "writable=false wroteAfter=false\n")
     }
+    #endif
 
     func testReadableForAwaitBreakDestroysStream() {
         // Regression for #8 review (P1): early exit from `for await`
