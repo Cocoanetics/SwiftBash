@@ -98,6 +98,18 @@ jobs:
       # run before `swift build` so the linker resolves -lJavaScriptCore.
       - name: Fetch bun-webkit (Linux)
         run: ./scripts/fetch-bun-webkit.sh
+      # Diagnostic — if the build fails on missing JSC headers,
+      # this step's output reveals whether the fetch actually
+      # produced them, where, and the absolute path the Package.swift
+      # `bunWebKitDir` constant resolves to. Cheap insurance.
+      - name: Inspect bun-webkit staging (Linux)
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la Vendor/bun-webkit/
+          echo "---"
+          ls -la Vendor/bun-webkit/current/ || true
+          echo "---"
+          ls -la Vendor/bun-webkit/current/include/JavaScriptCore/JavaScript.h
       - name: Build (Linux)
         run: swift build --build-tests -v
       - name: Test (Linux)

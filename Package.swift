@@ -324,8 +324,17 @@ let package = Package(
             path: "Sources/CJavaScriptCore",
             publicHeadersPath: "include",
             cSettings: [
-                .headerSearchPath(
-                    "../../Vendor/bun-webkit/current/include",
+                // Absolute `-I` to the staged Bun-WebKit headers.
+                // Tried `.headerSearchPath("../../Vendor/...")`
+                // first — the path is documented as relative to
+                // the target source dir, but under SwiftPM 6.2 it
+                // didn't reach the clang module build triggered
+                // by the Swift importer, and CI consistently
+                // failed with `'JavaScriptCore/JavaScript.h' file
+                // not found`. Absolute path via `unsafeFlags`
+                // sidesteps the relative-path resolution entirely.
+                .unsafeFlags(
+                    ["-I\(bunWebKitDir)/include"],
                     .when(platforms: [.linux, .windows, .android])),
             ],
             linkerSettings: [
@@ -391,7 +400,19 @@ let package = Package(
         .executableTarget(
             name: "swift-jsc-smoke",
             dependencies: ["CJavaScriptCore"],
-            path: "Sources/swift-jsc-smoke"
+            path: "Sources/swift-jsc-smoke",
+            // The `import CJavaScriptCore` in the smoke binary's
+            // Swift source triggers a clang module build of the
+            // C target's umbrella header. That clang invocation
+            // doesn't always pick up the C target's cSettings, so
+            // we also pass `-Xcc -I<abs>` at this consumer's
+            // Swift driver level to make the include resolution
+            // unambiguous.
+            swiftSettings: [
+                .unsafeFlags(
+                    ["-Xcc", "-I\(bunWebKitDir)/include"],
+                    .when(platforms: [.linux, .windows, .android])),
+            ]
         ),
     ] : [])
 )
