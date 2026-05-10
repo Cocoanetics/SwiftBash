@@ -29,14 +29,14 @@ extension Shell {
             return String(lookup(name).count)
 
         case .defaultValue(let name, let checkEmpty, let value):
-            let raw = environment[name]
+            let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
                 return try await recursivelyExpand(value)
             }
             return raw ?? ""
 
         case .assignDefault(let name, let checkEmpty, let value):
-            let raw = environment[name]
+            let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
                 let expanded = try await recursivelyExpand(value)
                 environment[name] = expanded
@@ -45,7 +45,7 @@ extension Shell {
             return raw ?? ""
 
         case .errorIfUnset(let name, let checkEmpty, let message):
-            let raw = environment[name]
+            let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
                 let msg = message.isEmpty
                     ? "parameter null or not set"
@@ -60,7 +60,7 @@ extension Shell {
             return raw ?? ""
 
         case .alternative(let name, let checkEmpty, let value):
-            let raw = environment[name]
+            let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
                 return ""
             }
@@ -135,6 +135,51 @@ extension Shell {
     }
 
     // MARK: Lookup helper
+
+    /// Optional-returning sibling of ``lookup(_:)`` that distinguishes
+    /// "unset" (`nil`) from "set but empty" (`""`). Used by the
+    /// `${var:-default}`, `${var:=default}`, `${var:+alt}`, and
+    /// `${var:?msg}` forms — they need that distinction to decide
+    /// whether to substitute / assign / error.
+    ///
+    /// Without this routine those forms would call `environment[name]`
+    /// directly, which only consults the *named* variables map and
+    /// silently skips positional parameters: `${1:-fallback}` would
+    /// always evaluate to `fallback` even when `$1` is set, because
+    /// `environment["1"]` is `nil`. Routing through here closes that
+    /// bug.
+    private func lookupOptional(_ name: String) -> String? {
+        // Special parameters — `$?` `$$` `$#` `$@` `$*` `$0` are
+        // always "set", and digit-only names are positional params.
+        switch name {
+        case "?": return "\(lastExitStatus.code)"
+        case "$": return "\(virtualPID)"
+        case "#": return "\(positionalParameters.count)"
+        case "0": return scriptName
+        case "@", "*":
+            // Same join behaviour as `lookup` — we don't have IFS here
+            // because the caller (parameter expansion) handles word-
+            // splitting separately. Always-set: empty array still
+            // returns "" (set), not nil (unset).
+            return positionalParameters.joined(separator: " ")
+        default:
+            break
+        }
+        if !name.isEmpty, name.allSatisfy(\.isNumber),
+           let n = Int(name), n >= 1
+        {
+            let idx = n - 1
+            return idx < positionalParameters.count
+                ? positionalParameters[idx]
+                : nil
+        }
+        // Indexed-array reference falls through to lookup() — arrays
+        // never appear as `${arr[0]:-…}` against unset vs. empty in a
+        // way the regular environment subscript can't already answer
+        // (`environment[name]` for `arr[0]` is the element value or
+        // nil if unset).
+        return environment[name]
+    }
 
     private func lookup(_ name: String) -> String {
         // Special parameters first.
