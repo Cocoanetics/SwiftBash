@@ -42,10 +42,20 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         return line
     }
 
+    /// When `true`, ``errorLocationPrefix()`` drops the `: line N:`
+    /// portion. Embedders running each user keystroke as its own
+    /// `Shell.run(line)` call set this so error diagnostics read
+    /// `iBash: ./foo: not found` rather than `iBash: line 1: ./foo:
+    /// not found` — real bash's interactive REPL behaves the same
+    /// way. Defaults to `false` (script-style prefix).
+    public var interactive: Bool = false
+
     /// `script:line:` prefix for diagnostics, or just `script:` when
-    /// no command is currently being executed.
+    /// no command is currently being executed. When ``interactive``
+    /// is `true`, the line number is suppressed since each REPL
+    /// input is its own implicit line 1.
     public func errorLocationPrefix() -> String {
-        if let r = currentCommandRange {
+        if let r = currentCommandRange, !interactive {
             return "\(scriptName): line \(lineNumber(for: r.lowerBound)): "
         }
         return "\(scriptName): "
