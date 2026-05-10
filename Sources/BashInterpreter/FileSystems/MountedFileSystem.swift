@@ -149,24 +149,21 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     private func canonicalGate(_ r: (mount: Mount, host: String),
                                virtual: String) async throws -> String {
         if isSyntheticBinPath(virtual) { return r.host }
-        // Allow not-yet-existing paths: a write to a brand-new file
-        // standardises to itself. Existing paths get realpath
-        // resolution so symlinks under the mount can't escape.
-        //
-        // Both the path AND the mount root are pushed through the
-        // backing's `canonicalize` — on Windows / NTFS the mount.host
-        // we stored may be a shortname form (e.g. `RUNNER~1`) while
-        // the canonical path comes back as the long form
-        // (`runneradmin`). Comparing pre-canonicalisation strings
-        // would mismatch even when the path is genuinely inside the
-        // mount.
+        // Canonicalise BOTH sides via the deepest-existing-ancestor
+        // walk. On Windows / NTFS `canonicalize(allowMissing: true)`
+        // doesn't expand shortname components (`RUNNER~1` →
+        // `runneradmin`) when the leaf doesn't exist yet, so a write
+        // to a brand-new file under a mount whose host *does* exist
+        // would normalise asymmetrically and trip the prefix check
+        // even though the path is genuinely inside the mount.
+        // Walking up to the deepest existing parent and
+        // canonicalising THAT yields a normalised prefix we can
+        // safely compare.
         let canonicalPath: String
         let canonicalRoot: String
         do {
-            canonicalPath = try await backing.canonicalize(r.host,
-                                                           allowMissing: true)
-            canonicalRoot = try await backing.canonicalize(r.mount.host,
-                                                           allowMissing: true)
+            canonicalPath = try await canonicalizeDeepest(r.host)
+            canonicalRoot = try await canonicalizeDeepest(r.mount.host)
         } catch {
             throw FileSystemError.notFound(virtual)
         }
@@ -184,6 +181,43 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
             throw FileSystemError.notFound(virtual)
         }
         return r.host
+    }
+
+    /// Resolve `path` to its canonical form by walking up to the
+    /// deepest ancestor that actually exists, canonicalising that,
+    /// and re-attaching the missing tail components.
+    ///
+    /// This sidesteps a Windows-only quirk: `canonicalize(_,
+    /// allowMissing: true)` on a non-existent path may leave shortname
+    /// components (`RUNNER~1`) un-expanded because the OS APIs that
+    /// expand them require an existing inode to query. Once we've
+    /// canonicalised an existing prefix, the result is a stable form
+    /// that compares correctly against any other deepest-ancestor
+    /// resolution under the same root.
+    private func canonicalizeDeepest(_ path: String) async throws -> String {
+        var probe = (path as NSString).standardizingPath
+        var tail: [String] = []
+        while !probe.isEmpty {
+            if let canon = try? await backing.canonicalize(probe,
+                                                           allowMissing: false) {
+                return tail.reversed().reduce(canon) { acc, name in
+                    (acc as NSString).appendingPathComponent(name)
+                }
+            }
+            let parent = (probe as NSString).deletingLastPathComponent
+            let leaf = (probe as NSString).lastPathComponent
+            // `deletingLastPathComponent` on `/` returns `/` — bail
+            // out before we loop forever. Same for Windows volume
+            // roots like `C:\` where the parent is itself.
+            if parent == probe || leaf.isEmpty { break }
+            tail.append(leaf)
+            probe = parent
+        }
+        // Nothing on the path exists. Fall back to lexical
+        // standardisation so the caller still has a usable string;
+        // the prefix check downstream will fail naturally if this
+        // path isn't under any real mount.
+        return (path as NSString).standardizingPath
     }
 
     // MARK: - FileSystem conformance
