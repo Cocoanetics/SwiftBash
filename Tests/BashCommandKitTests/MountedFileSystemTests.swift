@@ -126,6 +126,54 @@ struct MountedFileSystemTests {
                 == "/")
     }
 
+    @Test("symlink under mount pointing outside is rejected (no escape)")
+    func symlinkEscapeRejected() async throws {
+        let bench = try makeBench()
+        defer {
+            try? FileManager.default.removeItem(at: bench.sandboxRoot)
+            try? FileManager.default.removeItem(at: bench.tmpRoot)
+        }
+
+        // Plant a symlink under the sandbox that points to /etc on the
+        // host filesystem. A naive lexical confinement check would
+        // accept reads through it because the symlink path itself
+        // lives under the sandbox; canonicalisation has to catch it.
+        let escape = bench.sandboxRoot.appendingPathComponent("escape")
+        try FileManager.default.createSymbolicLink(
+            at: escape,
+            withDestinationURL: URL(fileURLWithPath: "/etc"))
+
+        // `cat /escape/passwd` should report ENOENT, not the contents
+        // of /etc/passwd.
+        let status = try await bench.cap.shell.run("cat /escape/passwd")
+        #expect(!status.isSuccess)
+        #expect(!bench.cap.stdout.contains("root:"))
+        #expect(bench.cap.stderr.contains("/escape/passwd"))
+    }
+
+    @Test("symlink target is stored verbatim, not remapped")
+    func symlinkTargetVerbatim() async throws {
+        let bench = try makeBench()
+        defer {
+            try? FileManager.default.removeItem(at: bench.sandboxRoot)
+            try? FileManager.default.removeItem(at: bench.tmpRoot)
+        }
+
+        // `ln -s foo bar` from inside the mount should land on disk
+        // as a symlink with target literally `foo` (not the host
+        // path of foo). Verify by reading the link's destination via
+        // FileManager.
+        try "hi".write(to: bench.sandboxRoot.appendingPathComponent("foo"),
+                       atomically: true, encoding: .utf8)
+        let status = try await bench.cap.shell.run("cd /; ln -s foo bar")
+        #expect(status == .success)
+
+        let bar = bench.sandboxRoot.appendingPathComponent("bar")
+        let dest = try FileManager.default
+            .destinationOfSymbolicLink(atPath: bar.path)
+        #expect(dest == "foo")
+    }
+
     @Test("read-only mount rejects writes")
     func readOnlyMount() async throws {
         let sandbox = URL(fileURLWithPath: NSTemporaryDirectory())

@@ -43,13 +43,14 @@ extension Shell {
                     childShell: .inProcess,
                     stdout: { shell.stdout($0) },
                     stderr: { shell.stderr($0) })
-                do {
-                    _ = try runtime.runFile(context.scriptPath)
-                } catch {
-                    shell.stderr("\(context.scriptPath): \(error.localizedDescription)\n")
-                    runtime.fireExitListeners()
-                    return ExitStatus(1)
-                }
+                // Use the source the dispatcher already read through
+                // `Shell.fileSystem`, NOT `runtime.runFile(scriptPath)`
+                // — the latter reads from the host filesystem and
+                // skips the embedder's filesystem mounts. With a
+                // virtualised shell (e.g. `MountedFileSystem`),
+                // `context.scriptPath` is a virtual path like
+                // `/foo.js` that doesn't exist on the host.
+                _ = runtime.run(context.source, name: context.scriptPath)
                 runtime.fireExitListeners()
                 return ExitStatus(Int32(runtime.exitCode))
             })

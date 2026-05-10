@@ -118,19 +118,57 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         return dirs.contains(parent)
     }
 
-    private func gateRead(_ path: String) throws -> String {
+    private func gateRead(_ path: String) async throws -> String {
         guard let r = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
-        return r.host
+        return try await canonicalGate(r, virtual: path)
     }
 
-    private func gateWrite(_ path: String) throws -> String {
+    private func gateWrite(_ path: String) async throws -> String {
         guard let r = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
         if r.mount.readOnly {
             throw FileSystemError.permissionDenied(path)
+        }
+        return try await canonicalGate(r, virtual: path)
+    }
+
+    /// Resolve symlinks on the host side and re-verify the canonical
+    /// host path is still inside the mount's host root. Without this
+    /// step a symlink stored under the mount could point to `/etc`,
+    /// `/Users`, or anywhere else on the real disk and the gate would
+    /// happily delegate the read to the backing FS — undermining the
+    /// chrooted-shell guarantee scripts depend on.
+    ///
+    /// Synthetic-bin paths (`/bin/cat`, `/usr/bin/grep`, etc.) skip
+    /// the canonical check: they're handed off to
+    /// `VirtualBinFileSystem` which synthesises responses from the
+    /// command registry, not from disk.
+    private func canonicalGate(_ r: (mount: Mount, host: String),
+                               virtual: String) async throws -> String {
+        if isSyntheticBinPath(virtual) { return r.host }
+        // Allow not-yet-existing paths: a write to a brand-new file
+        // standardises to itself. Existing paths get realpath
+        // resolution so symlinks under the mount can't escape.
+        let canonical: String
+        do {
+            canonical = try await backing.canonicalize(r.host,
+                                                       allowMissing: true)
+        } catch {
+            // Backing FS refused to canonicalise — treat as gate
+            // failure (the chrooted-shell answer is "no such file").
+            throw FileSystemError.notFound(virtual)
+        }
+        let mountHost = (r.mount.host as NSString).standardizingPath
+        if canonical == mountHost { return r.host }
+        let prefix = mountHost.hasSuffix("/") ? mountHost : mountHost + "/"
+        guard canonical.hasPrefix(prefix) else {
+            // Symlink (or `..` traversal that survived
+            // standardisation) escaped the mount. Hide the host
+            // path; report ENOENT against the virtual path.
+            throw FileSystemError.notFound(virtual)
         }
         return r.host
     }
@@ -142,11 +180,20 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // not a thrown error, just `nil`, so test idioms like
         // `[ -f /etc/passwd ]` behave as on a chrooted shell.
         guard let r = resolve(path) else { return nil }
-        return try await backing.metadata(r.host)
+        // The same chrooted-shell answer for symlinks escaping the
+        // mount: report nil rather than a thrown error so `[ -f ]`
+        // tests stay quiet.
+        let host: String
+        do {
+            host = try await canonicalGate(r, virtual: path)
+        } catch FileSystemError.notFound {
+            return nil
+        }
+        return try await backing.metadata(host)
     }
 
     public func list(_ path: String) async throws -> [String] {
-        try await backing.list(try gateRead(path))
+        try await backing.list(try await gateRead(path))
     }
 
     public func canonicalize(_ path: String,
@@ -157,52 +204,58 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         guard let r = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
-        // Verify the host path is canonicalisable; let the backing FS
-        // throw notFound if `allowMissing == false` and nothing's there.
-        _ = try await backing.canonicalize(r.host, allowMissing: allowMissing)
+        // Verify the host path is canonicalisable AND that any
+        // symlink chain stays inside the mount.
+        _ = try await canonicalGate(r, virtual: path)
+        if !allowMissing {
+            // Honour the contract: throw if the path doesn't exist
+            // and `allowMissing == false`.
+            _ = try await backing.canonicalize(r.host, allowMissing: false)
+        }
         return (path as NSString).standardizingPath
     }
 
     public func readData(_ path: String) async throws -> Data {
-        try await backing.readData(try gateRead(path))
+        try await backing.readData(try await gateRead(path))
     }
 
     public func openRead(_ path: String) async throws -> InputSource {
-        try await backing.openRead(try gateRead(path))
+        try await backing.openRead(try await gateRead(path))
     }
 
     public func writeData(_ data: Data, to path: String,
                           append: Bool) async throws {
-        try await backing.writeData(data, to: try gateWrite(path), append: append)
+        try await backing.writeData(data, to: try await gateWrite(path),
+                                    append: append)
     }
 
     public func openWrite(_ path: String,
                           append: Bool) async throws -> OutputSink {
-        try await backing.openWrite(try gateWrite(path), append: append)
+        try await backing.openWrite(try await gateWrite(path), append: append)
     }
 
     public func touch(_ path: String) async throws {
-        try await backing.touch(try gateWrite(path))
+        try await backing.touch(try await gateWrite(path))
     }
 
     public func createDirectory(_ path: String,
                                 intermediates: Bool) async throws {
-        try await backing.createDirectory(try gateWrite(path),
+        try await backing.createDirectory(try await gateWrite(path),
                                           intermediates: intermediates)
     }
 
     public func remove(_ path: String, recursive: Bool) async throws {
-        try await backing.remove(try gateWrite(path), recursive: recursive)
+        try await backing.remove(try await gateWrite(path), recursive: recursive)
     }
 
     public func move(from: String, to: String) async throws {
-        try await backing.move(from: try gateWrite(from),
-                               to: try gateWrite(to))
+        try await backing.move(from: try await gateWrite(from),
+                               to: try await gateWrite(to))
     }
 
     public func copy(from: String, to: String) async throws {
-        try await backing.copy(from: try gateRead(from),
-                               to: try gateWrite(to))
+        try await backing.copy(from: try await gateRead(from),
+                               to: try await gateWrite(to))
     }
 
     public func makeTempPath(prefix: String) async throws -> String {
@@ -215,7 +268,7 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
             return "/tmp/\(prefix)\(suffix)"
         }
         let fallback = "/.tmp/\(prefix)\(UUID().uuidString.prefix(12))"
-        if let host = try? gateWrite(fallback) {
+        if let host = try? await gateWrite(fallback) {
             try? await backing.createDirectory(
                 (host as NSString).deletingLastPathComponent,
                 intermediates: true)
@@ -224,38 +277,48 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func chmod(_ path: String, mode: UInt16) async throws {
-        try await backing.chmod(try gateWrite(path), mode: mode)
+        try await backing.chmod(try await gateWrite(path), mode: mode)
     }
 
     public func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
-        try await backing.chown(try gateWrite(path), uid: uid, gid: gid)
+        try await backing.chown(try await gateWrite(path), uid: uid, gid: gid)
     }
 
     public func symlink(target: String, at linkPath: String) async throws {
-        // Both ends are virtual — guard them both, then translate.
-        try await backing.symlink(target: try gateRead(target),
-                                  at: try gateWrite(linkPath))
+        // Symlink targets are stored verbatim — they may be relative
+        // (`ln -s foo bar`) or absolute, and resolution happens at
+        // *use* time through the same gate as any other path access.
+        // Translating the target through `gateRead` would (a) break
+        // relative-target semantics and (b) leak the host's mount
+        // path into the link's stored target text. Only the link
+        // *site* needs to be remapped through the mount table.
+        try await backing.symlink(target: target,
+                                  at: try await gateWrite(linkPath))
     }
 
     public func hardlink(target: String, at linkPath: String) async throws {
-        try await backing.hardlink(target: try gateRead(target),
-                                   at: try gateWrite(linkPath))
+        // Hardlinks resolve immediately to an inode and the target
+        // file must already exist, so gate the read side too — the
+        // `target` stored on disk is the path used at link-creation
+        // time, not text resolved later.
+        try await backing.hardlink(target: try await gateRead(target),
+                                   at: try await gateWrite(linkPath))
     }
 
     public func listXattrs(_ path: String) async throws -> [String] {
-        try await backing.listXattrs(try gateRead(path))
+        try await backing.listXattrs(try await gateRead(path))
     }
 
     public func getXattr(_ path: String, name: String) async throws -> Data {
-        try await backing.getXattr(try gateRead(path), name: name)
+        try await backing.getXattr(try await gateRead(path), name: name)
     }
 
     public func setXattr(_ path: String, name: String, value: Data) async throws {
-        try await backing.setXattr(try gateWrite(path),
+        try await backing.setXattr(try await gateWrite(path),
                                    name: name, value: value)
     }
 
     public func removeXattr(_ path: String, name: String) async throws {
-        try await backing.removeXattr(try gateWrite(path), name: name)
+        try await backing.removeXattr(try await gateWrite(path), name: name)
     }
 }
