@@ -161,10 +161,17 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
             // failure (the chrooted-shell answer is "no such file").
             throw FileSystemError.notFound(virtual)
         }
-        let mountHost = (r.mount.host as NSString).standardizingPath
-        if canonical == mountHost { return r.host }
-        let prefix = mountHost.hasSuffix("/") ? mountHost : mountHost + "/"
-        guard canonical.hasPrefix(prefix) else {
+        // Path-component comparison via URL keeps the check
+        // separator-agnostic, so a canonical Windows path like
+        // `C:\Users\runner\Temp\sandbox\foo` correctly matches a
+        // mount host of `C:\Users\runner\Temp\sandbox` instead of
+        // tripping over the `+ "/"` literal a string-prefix check
+        // would have used.
+        let canonicalComps = URL(fileURLWithPath: canonical)
+            .standardizedFileURL.pathComponents
+        let mountComps = URL(fileURLWithPath: r.mount.host)
+            .standardizedFileURL.pathComponents
+        guard canonicalComps.starts(with: mountComps) else {
             // Symlink (or `..` traversal that survived
             // standardisation) escaped the mount. Hide the host
             // path; report ENOENT against the virtual path.

@@ -3,6 +3,15 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+// POSIX permission bits aren't meaningful on Windows — Foundation's
+// `setAttributes(.posixPermissions:)` is a best-effort no-op there
+// (NTFS uses ACLs, not Unix mode bits), so any test that asserts the
+// file ended up at exactly `0o755` will fail. Gate the whole suite
+// on non-Windows; the parser logic is platform-independent and runs
+// on every other supported target. Mirrors the `#if !os(Windows)`
+// gate around the exec-bit check inside `dispatchAsExternalScript…`.
+#if !os(Windows)
+
 /// Symbolic-mode chmod parser tests. Numeric mode handling already lives
 /// in the broader filesystem suite; this file pins the `u+x`/`go-w`/
 /// `u=rwx,go=rx` parsing added with iBash adoption.
@@ -135,3 +144,5 @@ struct ChmodSymbolicTests {
         #expect(cap.stderr.contains("invalid mode"))
     }
 }
+
+#endif // !os(Windows)
