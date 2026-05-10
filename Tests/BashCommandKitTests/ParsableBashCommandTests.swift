@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import ArgumentParser
 @testable import BashInterpreter
 @testable import BashCommandKit
@@ -57,6 +58,19 @@ private struct Nameless: ParsableBashCommand {
     mutating func execute() async throws -> ExitStatus {
         Shell.bashCurrent.stdout("\(word)\n")
         return .success
+    }
+}
+
+/// Throws a `Sandbox.Denial` mid-execution. Stand-in for the
+/// real-world case where a SwiftPorts command (e.g. `gh`) tries to
+/// access a path outside the embedder's sandbox root.
+private struct DenyingCommand: ParsableBashCommand {
+    static let configuration = CommandConfiguration(commandName: "deny")
+    mutating func execute() async throws -> ExitStatus {
+        throw Sandbox.Denial(
+            url: URL(fileURLWithPath: "/secret/host/path/Documents/Untitled.ibash"),
+            reason: "file URL is outside sandbox root",
+            suggestion: URL(fileURLWithPath: "/secret/host/path/Documents/Untitled.ibash/home"))
     }
 }
 
@@ -157,6 +171,27 @@ private struct Nameless: ParsableBashCommand {
         cap.shell.register(GreetCommand.self)
         let status = try await cap.shell.run("greet --count notanumber oliver")
         #expect(!status.isSuccess)
+    }
+
+    /// `Sandbox.Denial` is a plain struct whose default
+    /// `String(describing:)` would dump the host file URL and the
+    /// "would-have-landed-at" suggestion — both of which leak the
+    /// embedder's sandbox root path. The bridge must catch the
+    /// denial and surface ONLY the reason, so a `gh issue list` from
+    /// inside an iOS-app-as-sandbox doesn't end up showing
+    /// `/Users/.../Containers/.../Documents/Untitled.ibash/home`
+    /// in stderr.
+    @Test func sandboxDenialDoesNotLeakHostPath() async throws {
+        let cap = CapturingShell()
+        cap.shell.register(DenyingCommand.self)
+        let status = try await cap.shell.run("deny")
+        #expect(!status.isSuccess)
+        #expect(cap.stderr.contains("file URL is outside sandbox root"),
+                "expected reason in stderr, got:\n\(cap.stderr)")
+        #expect(!cap.stderr.contains("/secret/host/path"),
+                "host path leaked into stderr:\n\(cap.stderr)")
+        #expect(!cap.stderr.contains("suggestion"),
+                "suggestion field leaked into stderr:\n\(cap.stderr)")
     }
 
     // MARK: Repeated parsed arguments
