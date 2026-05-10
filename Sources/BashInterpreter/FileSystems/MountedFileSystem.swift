@@ -152,26 +152,32 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // Allow not-yet-existing paths: a write to a brand-new file
         // standardises to itself. Existing paths get realpath
         // resolution so symlinks under the mount can't escape.
-        let canonical: String
+        //
+        // Both the path AND the mount root are pushed through the
+        // backing's `canonicalize` — on Windows / NTFS the mount.host
+        // we stored may be a shortname form (e.g. `RUNNER~1`) while
+        // the canonical path comes back as the long form
+        // (`runneradmin`). Comparing pre-canonicalisation strings
+        // would mismatch even when the path is genuinely inside the
+        // mount.
+        let canonicalPath: String
+        let canonicalRoot: String
         do {
-            canonical = try await backing.canonicalize(r.host,
-                                                       allowMissing: true)
+            canonicalPath = try await backing.canonicalize(r.host,
+                                                           allowMissing: true)
+            canonicalRoot = try await backing.canonicalize(r.mount.host,
+                                                           allowMissing: true)
         } catch {
-            // Backing FS refused to canonicalise — treat as gate
-            // failure (the chrooted-shell answer is "no such file").
             throw FileSystemError.notFound(virtual)
         }
         // Path-component comparison via URL keeps the check
-        // separator-agnostic, so a canonical Windows path like
-        // `C:\Users\runner\Temp\sandbox\foo` correctly matches a
-        // mount host of `C:\Users\runner\Temp\sandbox` instead of
-        // tripping over the `+ "/"` literal a string-prefix check
-        // would have used.
-        let canonicalComps = URL(fileURLWithPath: canonical)
+        // separator-agnostic — Windows backslashes, Unix forward
+        // slashes, mixed case on NTFS all roll up the same way.
+        let pathComps = URL(fileURLWithPath: canonicalPath)
             .standardizedFileURL.pathComponents
-        let mountComps = URL(fileURLWithPath: r.mount.host)
+        let rootComps = URL(fileURLWithPath: canonicalRoot)
             .standardizedFileURL.pathComponents
-        guard canonicalComps.starts(with: mountComps) else {
+        guard pathComps.starts(with: rootComps) else {
             // Symlink (or `..` traversal that survived
             // standardisation) escaped the mount. Hide the host
             // path; report ENOENT against the virtual path.
