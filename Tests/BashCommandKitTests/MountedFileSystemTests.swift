@@ -110,6 +110,42 @@ struct MountedFileSystemTests {
         #expect(!bench.cap.stdout.contains(bench.sandboxRoot.path))
     }
 
+    @Test("`..` crossing an autofs-shaped virtual name resolves lexically")
+    func dotDotAcrossAutofsName() async throws {
+        let sandbox = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ibash-mount-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: sandbox,
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        try "hi".write(
+            to: sandbox.appendingPathComponent("marker.txt"),
+            atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(
+            at: sandbox.appendingPathComponent("home"),
+            withIntermediateDirectories: true)
+
+        // Call MountedFileSystem.list directly with a virtual path that
+        // still contains `..`. This mirrors what tab-completion code in
+        // an embedder does — it builds a `virtualDir = "/home/.."`
+        // string and asks the FS to enumerate it, bypassing the shell's
+        // `resolvePath` (which would have normalised lexically first).
+        //
+        // On macOS, the host's real `/home` is an autofs symlink to
+        // `/System/Volumes/Data/home`. With `NSString.standardizingPath`
+        // (which consults the host filesystem), `/home/..` standardises
+        // to `/System/Volumes/Data`, misses the mount table, and the
+        // list returns nothing — every read/list/completion through
+        // that path silently fails. The fix uses `Shell.normalizePath`
+        // for purely lexical normalisation, so `/home/..` stays `/`.
+        let mounted = MountedFileSystem(
+            mounts: [.init(virtual: "/", host: sandbox.path)],
+            backing: RealFileSystem())
+        let entries = try await mounted.list("/home/..").sorted()
+        #expect(entries.contains("marker.txt"))
+        #expect(entries.contains("home"))
+    }
+
     @Test("`cd ..` from `/` stays at `/`")
     func dotDotFromRoot() async throws {
         let bench = try makeBench()

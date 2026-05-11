@@ -87,7 +87,16 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // Standardise the virtual path so `/tmp/../home/foo` resolves
         // to `/home/foo` BEFORE we route it. Otherwise `..` could
         // escape its mount.
-        let std = (virtual as NSString).standardizingPath
+        //
+        // Use `Shell.normalizePath` (purely lexical) rather than
+        // `NSString.standardizingPath`, which consults the host
+        // filesystem and resolves any symlinks it finds. On macOS
+        // `/home` is an autofs symlink to `/System/Volumes/Data/home`,
+        // so `(/home/..) standardizingPath` yields
+        // `/System/Volumes/Data` and misses the mount table entirely —
+        // breaking any script that lands a `..`-crossing virtual path
+        // here (e.g. tab completion of `cd ../ex` from `/home`).
+        let std = Shell.normalizePath(virtual)
         for mount in mounts {
             if mount.virtual == "/" {
                 // Root mount — every path lands here unless an earlier
