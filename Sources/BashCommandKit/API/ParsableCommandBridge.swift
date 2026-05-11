@@ -21,6 +21,18 @@ struct ParsableCommandBridge<Parsed: ParsableBashCommand>: Command {
             // CancellationError is and would render it as a stray
             // "Error: CancellationError()" usage diagnostic.
             throw CancellationError()
+        } catch let denial as Sandbox.Denial {
+            // ShellKit's `Sandbox.Denial` is a plain struct with `url`,
+            // `reason`, and `suggestion` fields. Through ArgumentParser's
+            // `fullMessage(for:)` it would land on `String(describing:)`
+            // and dump every field — including `suggestion`, which is
+            // the embedder's host sandbox root + the requested path.
+            // For an iOS-app-as-sandbox embedder that means leaking
+            // the full container path into a `gh issue list`-style
+            // error. Render just the reason; the user already knows
+            // which command they ran.
+            Shell.bashCurrent.stderr("\(name): \(denial.reason)\n")
+            return ExitStatus(1)
         } catch {
             // ArgumentParser uses the error type to convey both real
             // usage errors *and* clean non-error exits like `--help`.
