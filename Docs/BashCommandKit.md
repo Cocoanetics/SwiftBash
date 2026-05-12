@@ -109,6 +109,8 @@ a formatted error on stderr and a non-zero exit.
 | `rev` | Reverse each line's characters (grapheme-aware). |
 | `wc` | Count lines (`-l`), words (`-w`), bytes (`-c`). |
 | `split` | Split a file into N-line / N-byte chunks. |
+| `less` | Pager — interactive view via the embedder's [InteractivePresenter](../Sources/BashInterpreter/API/InteractivePresenter.swift) when `Shell.stdoutIsTTY` is true, falls back to `cat` otherwise. Supports `-N` / `-i` / `-S` / `-F` / `-R` / `-X` / `+G` and the `LESS` env prefix. |
+| `more` | Same dispatch as `less` with the simpler `more(1)` key set. `-s` collapses runs of blank lines. |
 
 ### Searching
 

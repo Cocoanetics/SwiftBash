@@ -128,6 +128,13 @@ extension Shell {
         register(UnlinkCommand.self)
         register(YesCommand.self)
 
+        // Pagers. They request a host-side scrollable view via
+        // ``Shell/interactivePresenter`` when one is installed and
+        // stdout is interactive; otherwise they cat content through,
+        // matching real `less(1)` / `more(1)` on a non-TTY.
+        register(LessCommand.self)
+        register(MoreCommand.self)
+
         // The SwiftPorts CLI family — gh / glab / git / jq / tar /
         // zip / unzip / the gzip+bzip2+xz+zstd+lz4 compression
         // family. Registered here so a single

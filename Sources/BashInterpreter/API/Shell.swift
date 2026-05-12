@@ -136,6 +136,31 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// run the consumer with the captured bytes as stdin).
     var pendingProcessSubs: [ProcessSub] = []
 
+    // MARK: - Interactive UI
+
+    /// Embedder hook for builtins that want to drive a host-side
+    /// interactive view (`less`, `more`, future `nano`/`fzf`/`man`).
+    /// `nil` — the default — means no host UI is available, so the
+    /// builtins fall back to non-interactive behaviour (real `less`
+    /// on a non-TTY just cats its input).
+    public var interactivePresenter: (any InteractivePresenter)? = nil
+
+    /// `true` when this shell's `stdout` writes to an interactive
+    /// surface (a terminal emulator, a SwiftUI text view, …) rather
+    /// than a file/pipe/discard. Pager builtins consult this to
+    /// decide whether to engage their interactive UI (via
+    /// ``interactivePresenter``) or pass content through unchanged
+    /// — same logic real `less(1)` uses via `isatty(1)`.
+    ///
+    /// Pipeline stages whose stdout is the inter-stage `OutputSink`
+    /// override this to `false` so `git log | less | cat` makes
+    /// `less` behave as `cat`, matching real bash.
+    ///
+    /// Defaults to `false` (the safe answer for non-interactive
+    /// embedders like batch scripts and test harnesses). Embedders
+    /// that connect a UI sink set this to `true`.
+    public var stdoutIsTTY: Bool = false
+
     /// One pending `<(cmd)` or `>(cmd)` substitution.
     struct ProcessSub: Sendable {
         enum Kind: Sendable { case input, output }
@@ -423,6 +448,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.traps = traps
         bash.currentSource = currentSource
         bash.scriptInterpreters = scriptInterpreters
+        bash.interactivePresenter = interactivePresenter
+        bash.stdoutIsTTY = stdoutIsTTY
         return bash
     }
 
