@@ -165,26 +165,23 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// to ``RealFileSystem`` (the host's real `FileManager`). Swap in
     /// `InMemoryFileSystem` or similar to sandbox scripts.
     ///
-    /// Whatever is assigned is automatically wrapped in
-    /// ``VirtualBinFileSystem`` so `/bin`, `/usr/bin`, and
-    /// `/usr/local/bin` always reflect this shell's command registry
-    /// rather than whatever the host might (or might not) have at
-    /// those paths. Wrapping is idempotent — assigning a fileSystem
-    /// that's already a ``VirtualBinFileSystem`` doesn't double-wrap.
-    ///
-    /// **Migration note.** This is the legacy `FileSystem` protocol
-    /// surface; SwiftBash will retire it in favour of ShellKit's
-    /// `Sandbox` URL-gate model in a follow-up PR. For now both
-    /// coexist on the bash interpreter — code that needs URL-level
-    /// gating should call `ShellKit.Shell.current.sandbox?.authorize(_:)`
-    /// directly and only use `fileSystem` for the legacy path-based
-    /// reads/writes.
+    /// Whatever is assigned is automatically wrapped in an
+    /// ``OverlayFileSystem`` carrying a default ``BinCatalogOverlay``
+    /// so `/bin`, `/usr/bin`, and `/usr/local/bin` always reflect
+    /// this shell's command registry rather than whatever the host
+    /// might (or might not) have at those paths. Embedders that want
+    /// additional virtual content (an `/examples` tree from an app
+    /// bundle, for instance) can assign their own pre-built
+    /// `OverlayFileSystem` with the desired provider list — the
+    /// setter detects an already-wrapped FS and doesn't double-wrap.
     public var fileSystem: FileSystem {
         get { _fileSystem }
         set {
-            _fileSystem = (newValue is VirtualBinFileSystem)
+            _fileSystem = (newValue is OverlayFileSystem)
                 ? newValue
-                : VirtualBinFileSystem(backing: newValue)
+                : OverlayFileSystem(
+                    backing: newValue,
+                    providers: [BinCatalogOverlay()])
         }
     }
     private var _fileSystem: FileSystem
@@ -230,8 +227,10 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         processLauncher: (any ProcessLauncher)? = nil
     ) {
         // FileSystem is bash-specific (legacy protocol). The
-        // VirtualBinFileSystem wrap happens after super.init.
-        self._fileSystem = VirtualBinFileSystem(backing: RealFileSystem())
+        // OverlayFileSystem wrap happens after super.init.
+        self._fileSystem = OverlayFileSystem(
+            backing: RealFileSystem(),
+            providers: [BinCatalogOverlay()])
         // SwiftBash is sandbox-by-default and never spawns real OS
         // subprocesses. Resolve `nil` to ``BashProcessLauncher`` so a
         // launcher consumer (a SwiftScript / SwiftJSCore script

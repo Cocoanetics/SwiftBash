@@ -79,8 +79,8 @@ public struct ChmodCommand: ParsableBashCommand {
         guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(path),
               meta.kind == .directory else { return }
         let entries = (try? await Shell.bashCurrent.fileSystem.list(path)) ?? []
-        for name in entries {
-            let child = (path as NSString).appendingPathComponent(name)
+        for entry in entries {
+            let child = (path as NSString).appendingPathComponent(entry.name)
             try? await applyMode(to: child,
                                  symbolic: symbolic,
                                  octalMode: octalMode)

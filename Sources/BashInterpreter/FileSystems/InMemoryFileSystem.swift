@@ -93,7 +93,7 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         }
     }
 
-    public func list(_ path: String) async throws -> [String] {
+    public func list(_ path: String) async throws -> [FileEntry] {
         try lock.withLock {
             guard let node = resolveLocked(path) else {
                 throw FileSystemError.notFound(path)
@@ -101,7 +101,9 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
             guard case .directory(let children) = node.kind else {
                 throw FileSystemError.notADirectory(path)
             }
-            return Array(children.keys)
+            return children.map { name, child in
+                FileEntry(name: name, metadata: Self.toMetadata(child))
+            }
         }
     }
 

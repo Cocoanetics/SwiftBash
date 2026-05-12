@@ -85,7 +85,7 @@ import Foundation
                       atomically: true, encoding: .utf8)
         let fs = try makeFs(root: root)
         let names = try await fs.list("/batch")
-        #expect(Set(names) == ["a.txt", "b.txt"])
+        #expect(Set(names.map(\.name)) == ["a.txt", "b.txt"])
     }
 
     @Test func metadataSizeFromHost() async throws {
@@ -148,7 +148,7 @@ import Foundation
         #expect(try await fs.metadata("/batch/g.txt") == nil)
         // List no longer surfaces it.
         let names = try await fs.list("/batch")
-        #expect(names.contains("g.txt") == false)
+        #expect(names.contains(where: { $0.name == "g.txt" }) == false)
         // Host file untouched.
         #expect(FileManager.default.fileExists(atPath: root + "/g.txt"))
     }
@@ -242,7 +242,7 @@ import Foundation
                        atomically: true, encoding: .utf8)
 
         let fs = try makeFs(root: root)
-        let entries = try await fs.list("/batch")
+        let entries = try await fs.list("/batch").map(\.name)
         #expect(entries.contains("keep.txt"),
                 "regular files must still be listed")
         #expect(!entries.contains("escape-link"),
@@ -261,7 +261,7 @@ import Foundation
                          atomically: true, encoding: .utf8)
 
         let fs = try makeFs(root: root)
-        let entries = try await fs.list("/batch")
+        let entries = try await fs.list("/batch").map(\.name)
         #expect(entries.contains("visible"))
         #expect(!entries.contains("dangling"),
                 "dangling symlink leaked into listing: \(entries)")

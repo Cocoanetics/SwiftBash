@@ -111,8 +111,8 @@ import Foundation
         try await cap.shell.run("echo hi > >(cat)")
         // /tmp/swift-bash directory may exist (we made it) but no
         // procsub-out-* leftovers should remain.
-        let entries = (try? await cap.shell.fileSystem.list(
-            "/tmp/swift-bash")) ?? []
+        let entries = ((try? await cap.shell.fileSystem.list(
+            "/tmp/swift-bash")) ?? []).map(\.name)
         let leftovers = entries.filter { $0.hasPrefix("procsub-out-") }
         #expect(leftovers.isEmpty,
                 "temp file should be cleaned up: \(leftovers)")

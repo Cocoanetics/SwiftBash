@@ -114,20 +114,14 @@ public struct LsCommand: ParsableBashCommand {
 
     private func listDirectory(path: String, fullPath: String,
                                showHeader: Bool, leadingNewline: Bool) async throws {
-        let rawNames = try await Shell.bashCurrent.fileSystem.list(fullPath)
-        var names: [String] = rawNames
-        if !(all || almostAll) {
-            names = names.filter { !$0.hasPrefix(".") }
-        }
-
-        // Stat every entry up front — sort orders and -l output both
-        // need it. For pure name sort we'd skip this, but stating is
-        // cheap on small dirs and uniform code is simpler.
-        var entries: [Entry] = []
-        for n in names {
-            let p = joinPath(fullPath, n)
-            let meta = (try? await Shell.bashCurrent.fileSystem.metadata(p)) ?? nil
-            entries.append(Entry(name: n, meta: meta))
+        let rawEntries = try await Shell.bashCurrent.fileSystem.list(fullPath)
+        // FileEntry now carries metadata inline — no need to round-trip
+        // back through metadata(_:) per name. Filter hidden first.
+        let visible: [FileEntry] = (all || almostAll)
+            ? rawEntries
+            : rawEntries.filter { !$0.name.hasPrefix(".") }
+        var entries: [Entry] = visible.map {
+            Entry(name: $0.name, meta: $0.metadata)
         }
 
         if all {

@@ -94,7 +94,8 @@ public struct DuCommand: ParsableBashCommand {
             return meta.size
         }
         var total: Int64 = 0
-        let entries = (try? await Shell.bashCurrent.fileSystem.list(abs)) ?? []
+        let entries = ((try? await Shell.bashCurrent.fileSystem.list(abs)) ?? [])
+            .map(\.name)
         for name in entries.sorted() {
             let childAbs = (abs as NSString).appendingPathComponent(name)
             let childDisplay = displayPath == "." ? "./\(name)"

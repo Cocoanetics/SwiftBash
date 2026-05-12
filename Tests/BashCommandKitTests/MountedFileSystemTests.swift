@@ -141,7 +141,8 @@ struct MountedFileSystemTests {
         let mounted = MountedFileSystem(
             mounts: [.init(virtual: "/", host: sandbox.path)],
             backing: RealFileSystem())
-        let entries = try await mounted.list("/home/..").sorted()
+        let entries = try await mounted.list("/home/..")
+            .map(\.name).sorted()
         #expect(entries.contains("marker.txt"))
         #expect(entries.contains("home"))
     }

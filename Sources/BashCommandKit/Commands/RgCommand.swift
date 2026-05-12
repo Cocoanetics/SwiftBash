@@ -235,7 +235,8 @@ public struct RgCommand: ParsableBashCommand {
                       visit: (String, String) async -> Bool) async {
         let entries: [String]
         do {
-            entries = try await Shell.bashCurrent.fileSystem.list(absolutePath)
+            entries = try await Shell.bashCurrent.fileSystem
+                .list(absolutePath).map(\.name)
         } catch {
             Shell.bashCurrent.stderr("rg: \(displayPath): \(error)\n")
             return

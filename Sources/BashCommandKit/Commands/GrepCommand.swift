@@ -186,7 +186,8 @@ public struct GrepCommand: ParsableBashCommand {
         var result: [Source] = []
         let entries: [String]
         do {
-            entries = try await Shell.bashCurrent.fileSystem.list(absolutePath)
+            entries = try await Shell.bashCurrent.fileSystem
+                .list(absolutePath).map(\.name)
         } catch {
             Shell.bashCurrent.stderr("grep: \(displayPath): \(error)\n")
             return []

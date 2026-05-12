@@ -173,7 +173,7 @@ import Foundation
     @Test func newCommandsAppearInUsrBin() async throws {
         let cap = makeShell()
         let entries = try await cap.shell.withCurrent {
-            try await cap.shell.fileSystem.list("/usr/bin")
+            try await cap.shell.fileSystem.list("/usr/bin").map(\.name)
         }
         for name in ["mktemp", "truncate", "groups", "yes"] {
             #expect(entries.contains(name),
@@ -181,7 +181,7 @@ import Foundation
         }
         // /bin entries: link and unlink.
         let bin = try await cap.shell.withCurrent {
-            try await cap.shell.fileSystem.list("/bin")
+            try await cap.shell.fileSystem.list("/bin").map(\.name)
         }
         for name in ["link", "unlink"] {
             #expect(bin.contains(name),

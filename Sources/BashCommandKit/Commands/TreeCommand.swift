@@ -82,14 +82,11 @@ public struct TreeCommand: ParsableBashCommand {
         if Task.isCancelled { return }
         if let m = maxDepth, depth > m { return }
         var entries = (try? await Shell.bashCurrent.fileSystem.list(dir)) ?? []
-        if !showHidden { entries = entries.filter { !$0.hasPrefix(".") } }
-        entries.sort()
-        var visible: [(name: String, meta: FileMetadata?)] = []
-        for n in entries {
-            let p = (dir as NSString).appendingPathComponent(n)
-            let meta = (try? await Shell.bashCurrent.fileSystem.metadata(p)) ?? nil
-            if dirsOnly && meta?.kind != .directory { continue }
-            visible.append((n, meta))
+        if !showHidden { entries = entries.filter { !$0.name.hasPrefix(".") } }
+        entries.sort { $0.name < $1.name }
+        let visible: [(name: String, meta: FileMetadata?)] = entries.compactMap {
+            if dirsOnly && $0.metadata.kind != .directory { return nil }
+            return (name: $0.name, meta: $0.metadata)
         }
         for (idx, (name, meta)) in visible.enumerated() {
             let isLast = idx == visible.count - 1

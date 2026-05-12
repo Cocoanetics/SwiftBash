@@ -71,7 +71,7 @@ import Foundation
         }
         let fs = RealFileSystem()
         let entries = try await fs.list(root)
-        #expect(Set(entries) == ["a", "b", "c"])
+        #expect(Set(entries.map(\.name)) == ["a", "b", "c"])
     }
 
     @Test func listMissingThrowsNotFound() async throws {

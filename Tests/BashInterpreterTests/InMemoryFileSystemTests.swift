@@ -62,7 +62,7 @@ import Foundation
             "/a": Data(), "/b": Data(), "/c": Data(),
         ])
         let entries = try await fs.list("/")
-        #expect(Set(entries) == ["a", "b", "c"])
+        #expect(Set(entries.map(\.name)) == ["a", "b", "c"])
     }
 
     @Test func listOnFileThrowsNotADirectory() async throws {

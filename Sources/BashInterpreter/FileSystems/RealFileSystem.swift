@@ -78,15 +78,29 @@ public struct RealFileSystem: FileSystem {
         #endif
     }
 
-    public func list(_ path: String) async throws -> [String] {
+    public func list(_ path: String) async throws -> [FileEntry] {
+        let names: [String]
         do {
-            return try fm.contentsOfDirectory(atPath: path)
+            names = try fm.contentsOfDirectory(atPath: path)
         } catch let e as NSError where e.code == NSFileReadNoSuchFileError {
             throw FileSystemError.notFound(path)
         } catch let e as NSError where e.code == NSFileReadUnknownError
                                     || e.code == 256 {
             throw FileSystemError.notADirectory(path)
         }
+        // Pair each name with its metadata so callers get types in
+        // one round-trip. Missing-metadata entries (race with delete,
+        // unreadable subdirs, etc.) drop silently — matching how
+        // `ls -1` skips an entry it can't stat.
+        var entries: [FileEntry] = []
+        entries.reserveCapacity(names.count)
+        for name in names {
+            let child = (path as NSString).appendingPathComponent(name)
+            if let meta = try? await metadata(child) {
+                entries.append(FileEntry(name: name, metadata: meta))
+            }
+        }
+        return entries
     }
 
     public func canonicalize(_ path: String,

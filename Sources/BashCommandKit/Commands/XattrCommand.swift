@@ -122,7 +122,8 @@ public struct XattrCommand: ParsableBashCommand {
                              multiple: multiple)
 
         if recursive, isDir {
-            let entries = (try? await Shell.bashCurrent.fileSystem.list(resolved)) ?? []
+            let entries = ((try? await Shell.bashCurrent.fileSystem.list(resolved)) ?? [])
+                .map(\.name)
             for name in entries.sorted() {
                 let childPath = (path as NSString).appendingPathComponent(name)
                 try await processPath(childPath, mode: mode,

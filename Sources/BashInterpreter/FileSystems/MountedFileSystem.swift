@@ -34,9 +34,10 @@ import Foundation
 /// ```
 ///
 /// Mount precedence is "longest virtual prefix wins" — `/tmp/foo`
-/// matches the `/tmp` mount, not `/`. Synthetic `/bin/*` paths
-/// supplied by `VirtualBinFileSystem` always fall through (so
-/// `which cat` still resolves) regardless of mounts.
+/// matches the `/tmp` mount, not `/`. Synthetic paths supplied by
+/// any ``OverlayProvider`` layered above this mount table (e.g.
+/// ``BinCatalogOverlay``'s `/bin/cat`) never reach this layer —
+/// the overlay short-circuits reads before resolution.
 public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public struct Mount: Sendable {
@@ -76,14 +77,6 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     /// Translate a virtual path to a host path, or return `nil` when
     /// no mount matches. `(mount, hostPath, readOnly)`.
     private func resolve(_ virtual: String) -> (mount: Mount, host: String)? {
-        // Synthetic /bin paths are handed verbatim to the backing FS
-        // (VirtualBinFileSystem expects them at the virtual position
-        // they advertise). Don't try to remap.
-        if isSyntheticBinPath(virtual) {
-            return (Mount(virtual: "/__virtual_bin__", host: virtual,
-                          readOnly: true),
-                    virtual)
-        }
         // Standardise the virtual path so `/tmp/../home/foo` resolves
         // to `/home/foo` BEFORE we route it. Otherwise `..` could
         // escape its mount.
@@ -120,13 +113,6 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         return nil
     }
 
-    private func isSyntheticBinPath(_ path: String) -> Bool {
-        let dirs: Set<String> = ["/bin", "/usr/bin", "/usr/local/bin"]
-        if dirs.contains(path) { return true }
-        let parent = (path as NSString).deletingLastPathComponent
-        return dirs.contains(parent)
-    }
-
     private func gateRead(_ path: String) async throws -> String {
         guard let r = resolve(path) else {
             throw FileSystemError.notFound(path)
@@ -150,14 +136,8 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     /// `/Users`, or anywhere else on the real disk and the gate would
     /// happily delegate the read to the backing FS — undermining the
     /// chrooted-shell guarantee scripts depend on.
-    ///
-    /// Synthetic-bin paths (`/bin/cat`, `/usr/bin/grep`, etc.) skip
-    /// the canonical check: they're handed off to
-    /// `VirtualBinFileSystem` which synthesises responses from the
-    /// command registry, not from disk.
     private func canonicalGate(_ r: (mount: Mount, host: String),
                                virtual: String) async throws -> String {
-        if isSyntheticBinPath(virtual) { return r.host }
         // Canonicalise BOTH sides via the deepest-existing-ancestor
         // walk. On Windows / NTFS `canonicalize(allowMissing: true)`
         // doesn't expand shortname components (`RUNNER~1` →
@@ -248,7 +228,7 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         return try await backing.metadata(host)
     }
 
-    public func list(_ path: String) async throws -> [String] {
+    public func list(_ path: String) async throws -> [FileEntry] {
         try await backing.list(try await gateRead(path))
     }
 

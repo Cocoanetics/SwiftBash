@@ -124,30 +124,25 @@ extension Shell {
 
         // Plain segment: list the dir, match each entry.
         let resolvedBase = resolvePath(base)
-        let entries: [String]
+        let entries: [FileEntry]
         do { entries = try await fileSystem.list(resolvedBase) }
         catch { return [] }
 
         let includeHidden = seg.hasPrefix(".")
             || shoptOptions["dotglob"] == true
         var out: [String] = []
-        for name in entries.sorted() {
+        for entry in entries.sorted(by: { $0.name < $1.name }) {
+            let name = entry.name
             if !includeHidden && name.hasPrefix(".") { continue }
             if !matches(pattern: seg, string: name) { continue }
             let next = base == "/" ? "/" + name
                 : (base == "." ? name : base + "/" + name)
             if isLast {
                 out.append(pretty(next, isAbsolute: isAbsolute))
-            } else {
-                // Must be a directory (or symlink to one) to descend.
-                let nextAbs = resolvePath(next)
-                if let meta = try? await fileSystem.metadata(nextAbs),
-                   meta.kind == .directory
-                {
-                    out.append(contentsOf: await globRecursive(
-                        base: next, segments: segments, segIdx: segIdx + 1,
-                        isAbsolute: isAbsolute))
-                }
+            } else if entry.metadata.kind == .directory {
+                out.append(contentsOf: await globRecursive(
+                    base: next, segments: segments, segIdx: segIdx + 1,
+                    isAbsolute: isAbsolute))
             }
         }
         return out
@@ -167,21 +162,18 @@ extension Shell {
         var out: [String] = []
         let baseAbs = resolvePath(base)
         let entries = (try? await fileSystem.list(baseAbs)) ?? []
-        for name in entries.sorted() {
+        for entry in entries.sorted(by: { $0.name < $1.name }) {
+            let name = entry.name
             // Globstar excludes hidden dirs unless dotglob is on.
             if shoptOptions["dotglob"] != true, name.hasPrefix(".") {
                 continue
             }
+            guard entry.metadata.kind == .directory else { continue }
             let child = base == "/" ? "/" + name
                 : (base == "." ? name : base + "/" + name)
-            let childAbs = resolvePath(child)
-            if let meta = try? await fileSystem.metadata(childAbs),
-               meta.kind == .directory
-            {
-                out.append(child)
-                out.append(contentsOf:
-                            await listDirectoriesRecursive(under: child))
-            }
+            out.append(child)
+            out.append(contentsOf:
+                        await listDirectoriesRecursive(under: child))
         }
         return out
     }

@@ -181,9 +181,9 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         }
     }
 
-    public func list(_ path: String) async throws -> [String] {
+    public func list(_ path: String) async throws -> [FileEntry] {
         let normalized = try Self.normalizePath(path)
-        return try lock.withLock {
+        let names: [String] = try lock.withLock {
             if deleted.contains(normalized) {
                 throw fsError(.notFound, virtualPath: path)
             }
@@ -245,6 +245,18 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
             }
             return Array(entries)
         }
+        // Stat each child outside the lock. Drop entries we can't
+        // resolve (race with delete, host symlink swap, etc.) so
+        // listings agree with reachability.
+        let childPrefix = normalized == "/" ? "/" : normalized + "/"
+        var result: [FileEntry] = []
+        result.reserveCapacity(names.count)
+        for name in names {
+            if let meta = try? await metadata(childPrefix + name) {
+                result.append(FileEntry(name: name, metadata: meta))
+            }
+        }
+        return result
     }
 
     public func canonicalize(_ path: String,

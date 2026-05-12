@@ -142,7 +142,8 @@ public struct FindCommand: Command {
         if canDescend {
             let entries: [String]
             do {
-                entries = try await Shell.bashCurrent.fileSystem.list(absolutePath)
+                entries = try await Shell.bashCurrent.fileSystem
+                    .list(absolutePath).map(\.name)
             } catch {
                 Shell.bashCurrent.stderr("find: \(displayPath): \(error)\n")
                 if ctx.opts.depthFirst, depthOK {

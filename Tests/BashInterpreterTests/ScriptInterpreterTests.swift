@@ -417,7 +417,7 @@ private struct FailingFileSystem: FileSystem {
     func metadata(_ path: String) async throws -> FileMetadata? {
         throw FileSystemError.permissionDenied(path)
     }
-    func list(_ path: String) async throws -> [String] {
+    func list(_ path: String) async throws -> [FileEntry] {
         throw FileSystemError.permissionDenied(path)
     }
     func canonicalize(_ path: String, allowMissing: Bool) async throws -> String {

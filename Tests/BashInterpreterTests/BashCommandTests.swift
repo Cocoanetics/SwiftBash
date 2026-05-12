@@ -177,7 +177,7 @@ import Foundation
     @Test func bashShDashAppearInBin() async throws {
         let shell = Shell(fileSystem: InMemoryFileSystem())
         let entries = try await shell.withCurrent {
-            try await shell.fileSystem.list("/bin")
+            try await shell.fileSystem.list("/bin").map(\.name)
         }
         for name in ["bash", "sh", "dash"] {
             #expect(entries.contains(name),

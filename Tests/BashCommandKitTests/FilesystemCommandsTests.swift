@@ -243,7 +243,7 @@ private struct RejectingFileSystem: FileSystem {
     func metadata(_ path: String) async throws -> FileMetadata? {
         throw FileSystemError.io("nope: \(path)")
     }
-    func list(_ path: String) async throws -> [String] {
+    func list(_ path: String) async throws -> [FileEntry] {
         throw FileSystemError.io("nope: \(path)")
     }
     func canonicalize(_ path: String, allowMissing: Bool) async throws -> String {

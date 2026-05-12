@@ -17,9 +17,13 @@ public protocol FileSystem: Sendable {
     /// Metadata for `path`, or `nil` if nothing exists there.
     func metadata(_ path: String) async throws -> FileMetadata?
 
-    /// Directory entry names (not full paths), unsorted. Throws if
-    /// `path` isn't a directory.
-    func list(_ path: String) async throws -> [String]
+    /// Directory entries (basename + metadata), unsorted. Throws if
+    /// `path` isn't a directory. Returning entries with metadata in
+    /// one call means callers don't have to round-trip back into
+    /// `metadata(_:)` for each name just to find out whether it's a
+    /// file or a directory; it also lets ``OverlayFileSystem`` merge
+    /// provider listings with backing listings without re-querying.
+    func list(_ path: String) async throws -> [FileEntry]
 
     /// Canonical absolute path with symlinks resolved and `.` / `..`
     /// normalised. If `allowMissing` is false, throws
@@ -217,10 +221,31 @@ final class FileSystemWriteBuffer: @unchecked Sendable {
     }
 }
 
+// MARK: Directory entry
+
+/// One row in a directory listing — a `name` (basename, no path)
+/// paired with the file system's ``FileMetadata`` for the entry.
+///
+/// Returning rich entries from ``FileSystem/list(_:)`` (instead of
+/// just `[String]`) means callers iterating a directory don't have
+/// to follow up with one `metadata(_:)` call per name. It also
+/// lets ``OverlayFileSystem`` and ``OverlayProvider`` speak in the
+/// same value type as the underlying file system, so layering
+/// providers on top of a backing FS is dedup-by-name on
+/// `[FileEntry]` arrays — no conversion at the seam.
+public struct FileEntry: Sendable, Equatable, Hashable {
+    public let name: String
+    public let metadata: FileMetadata
+    public init(name: String, metadata: FileMetadata) {
+        self.name = name
+        self.metadata = metadata
+    }
+}
+
 // MARK: Metadata
 
-public struct FileMetadata: Sendable, Equatable {
-    public enum Kind: Sendable, Equatable {
+public struct FileMetadata: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
         case file, directory, symlink, other
     }
 
