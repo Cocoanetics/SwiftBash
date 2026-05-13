@@ -92,6 +92,8 @@ public struct SetCommand: Command {
         switch ch {
         case "e": Shell.bashCurrent.errexit = on
         case "u": Shell.bashCurrent.nounset = on
+        case "x": Shell.bashCurrent.xtrace = on
+        case "v": Shell.bashCurrent.verbose = on
         default:
             return "set: -\(ch): invalid option\n"
         }
@@ -104,6 +106,8 @@ public struct SetCommand: Command {
         case "errexit":  Shell.bashCurrent.errexit = on
         case "pipefail": Shell.bashCurrent.pipefail = on
         case "nounset":  Shell.bashCurrent.nounset = on
+        case "xtrace":   Shell.bashCurrent.xtrace = on
+        case "verbose":  Shell.bashCurrent.verbose = on
         default:
             return "set: -o: invalid option name: \(name)\n"
         }

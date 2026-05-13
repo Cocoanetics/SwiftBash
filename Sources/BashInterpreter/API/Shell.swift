@@ -73,8 +73,22 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
     /// `set -u` / `set -o nounset` — when `true`, expanding an unset
     /// parameter is an error rather than silently producing "".
-    /// Reserved for future implementation; currently unused.
     public var nounset: Bool = false
+
+    /// `set -x` / `set -o xtrace` — when `true`, the shell prints
+    /// each simple command (after expansion) to stderr prefixed
+    /// with the expanded value of `$PS4` (default `"+ "`). The trace
+    /// hook lives in ``executeSimpleCommand``; embedders just flip
+    /// this flag to opt in. Propagates through ``copy()`` so a
+    /// pipeline stage inherits its parent's trace state.
+    public var xtrace: Bool = false
+
+    /// `set -v` / `set -o verbose` — when `true`, the shell echoes
+    /// each command's source slice to stderr immediately before
+    /// executing it. Differs from ``xtrace`` in that the *source*
+    /// is echoed (pre-expansion) rather than the *resolved* argv.
+    /// Propagates through ``copy()``.
+    public var verbose: Bool = false
 
     /// `shopt`-controlled options. Most map directly to glob/expansion
     /// behaviour; unknown options accept assignments but are otherwise
@@ -444,6 +458,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.errexit = errexit
         bash.pipefail = pipefail
         bash.nounset = nounset
+        bash.xtrace = xtrace
+        bash.verbose = verbose
         bash.shoptOptions = shoptOptions
         bash.traps = traps
         bash.currentSource = currentSource

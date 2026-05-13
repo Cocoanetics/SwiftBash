@@ -381,6 +381,16 @@ extension Shell {
             currentCommandRange = first.range
         }
         defer { currentCommandRange = savedCommandRange }
+        // Full source span of the simple command (first-part start →
+        // last-part end). The error-prefix range is intentionally
+        // narrower (line of `parts.first`), but `set -v` needs the
+        // whole statement so the trace echoes `echo hi`, not just
+        // `echo`.
+        let simpleCommandRange: Range<Int>? = {
+            guard let first = parts.first?.range else { return nil }
+            let upper = parts.last?.range.upperBound ?? first.upperBound
+            return first.lowerBound..<max(first.upperBound, upper)
+        }()
 
         let procSubFrame = pendingProcessSubs.count
         var assignments: [(String, String)] = []
@@ -580,6 +590,31 @@ extension Shell {
             restoreRedirects()
             await drainProcessSubs(from: procSubFrame)
             return .success
+        }
+
+        // `set -v` / `set -o verbose` — echo the raw source slice of
+        // the simple command to stderr before execution. Runs *here*
+        // (after we know we have a real command word) so empty
+        // statements like a bare assignment block don't fire a
+        // phantom blank trace line. Uses the full first-part →
+        // last-part span so multi-word commands echo intact
+        // (`echo hi`, not just `echo`).
+        if verbose, let range = simpleCommandRange {
+            let chars = Array(currentSource)
+            let upper = min(range.upperBound, chars.count)
+            if range.lowerBound < upper {
+                stderr.write(
+                    String(chars[range.lowerBound..<upper]) + "\n")
+            }
+        }
+        // `set -x` / `set -o xtrace` — echo the resolved argv with
+        // the `$PS4` prefix (default `"+ "`). Matches real bash's
+        // post-expansion trace; pipelines and subshells inherit
+        // `xtrace` through ``copy()`` so a `set -x` inside a script
+        // traces every nested simple command.
+        if xtrace {
+            let ps4 = environment["PS4"] ?? "+ "
+            stderr.write(ps4 + argv.joined(separator: " ") + "\n")
         }
 
         let result: ExitStatus

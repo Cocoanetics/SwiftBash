@@ -35,75 +35,90 @@ public struct BashCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
 
-        // bash --version
-        if args.first == "--version" {
-            Shell.bashCurrent.stdout(SwiftBashVersion.banner + "\n")
-            return .success
-        }
-        // bash --help
-        if args.first == "--help" {
-            Shell.bashCurrent.stdout(Self.helpText(name: name))
-            return .success
-        }
-
-        // bash -c CMD [name [arg1 …]]
-        if args.first == "-c" {
-            guard args.count >= 2 else {
-                Shell.bashCurrent.stderr(
-                    "\(name): -c: option requires an argument\n")
-                return ExitStatus(2)
-            }
-            let source = args[1]
-            let scriptName = args.count >= 3 ? args[2] : name
-            let scriptArgs = Array(args.dropFirst(3))
-            return try await runScript(
-                source: source, scriptName: scriptName, args: scriptArgs)
-        }
-
-        // No args — read from stdin.
-        if args.isEmpty {
-            let data = await drainStdin()
-            if data.isEmpty { return .success }
-            let source = String(decoding: data, as: UTF8.self)
-            return try await runScript(
-                source: source, scriptName: name, args: [])
-        }
-
-        // Parse options before the file argument. Real bash supports
-        // a small set of mode flags here — at minimum `-n`
-        // (syntax-check only, don't execute), `-x` (xtrace) and `--`
-        // (end-of-options). Without this branch any flag is taken as
-        // a file path and the user sees "No such file or directory".
+        // Parse options. Real bash accepts `--version` / `--help`
+        // anywhere in argv (not just position 0), `-c CMD …` to run
+        // a literal command string, and a small set of mode flags
+        // (`-n -e -u -x -v`) that apply to the subshell before its
+        // run loop starts. Anything else is the positional script
+        // path. The single loop here keeps `bash -e -c 'echo hi'` /
+        // `bash -ex script.sh` working uniformly.
         var parseOnly = false
+        var modeFlags = SubshellModeFlags()
         var sawDoubleDash = false
+        var dashCSource: String? = nil
+        var dashCName: String? = nil
+        var dashCExtra: [String] = []
         var i = 0
-        while i < args.count {
+        parseLoop: while i < args.count {
             let a = args[i]
+            if sawDoubleDash { break }
             if a == "--" { sawDoubleDash = true; i += 1; break }
-            if a.hasPrefix("-"), a.count > 1, !sawDoubleDash {
-                // Combined short-flag bundle.
-                for ch in a.dropFirst() {
-                    switch ch {
-                    case "n": parseOnly = true
-                    case "x", "v", "e", "u":
-                        // Accept-and-ignore: `-x` / `-v` matter for
-                        // diagnostics we don't synthesise yet; `-e` /
-                        // `-u` only make sense set inside the script.
-                        // Passing them through unchanged means
-                        // `bash -x foo.sh` runs the script instead of
-                        // erroring out the way it used to.
-                        break
-                    default:
-                        Shell.bashCurrent.stderr(
-                            "\(name): -\(ch): invalid option\n")
-                        return ExitStatus(2)
-                    }
-                }
-                i += 1
-                continue
+            if a == "--version" {
+                Shell.bashCurrent.stdout(SwiftBashVersion.banner + "\n")
+                return .success
             }
-            // First positional — that's the script path.
-            break
+            if a == "--help" {
+                Shell.bashCurrent.stdout(Self.helpText(name: name))
+                return .success
+            }
+            if !a.hasPrefix("-") || a.count <= 1 {
+                // First positional — script path.
+                break
+            }
+            // Short-flag bundle. `-c` is special: everything after
+            // its argument goes to the command, not back to the
+            // parse loop. Other characters accumulate into mode
+            // flags. We walk character-by-character so combos like
+            // `-eux` work.
+            for (j, ch) in a.dropFirst().enumerated() {
+                switch ch {
+                case "n": parseOnly = true
+                case "e": modeFlags.errexit = true
+                case "u": modeFlags.nounset = true
+                case "x": modeFlags.xtrace = true
+                case "v": modeFlags.verbose = true
+                case "c":
+                    // Anything in the same bundle after `c` is part
+                    // of the CMD (real bash treats `-exc 'cmd'`
+                    // identically to `-ex -c 'cmd'`). The CMD's
+                    // value is the NEXT argv element.
+                    let tail = a.dropFirst(j + 2)
+                    if !tail.isEmpty {
+                        // `-cCMD` form — rare but allowed.
+                        dashCSource = String(tail)
+                    } else {
+                        guard i + 1 < args.count else {
+                            Shell.bashCurrent.stderr(
+                                "\(name): -c: option requires an argument\n")
+                            return ExitStatus(2)
+                        }
+                        dashCSource = args[i + 1]
+                        i += 1
+                    }
+                    // `$0` for the -c body, then positionals.
+                    if i + 1 < args.count {
+                        dashCName = args[i + 1]
+                        dashCExtra = Array(args.dropFirst(i + 2))
+                    }
+                    i += 1
+                    break parseLoop
+                default:
+                    Shell.bashCurrent.stderr(
+                        "\(name): -\(ch): invalid option\n")
+                    return ExitStatus(2)
+                }
+            }
+            i += 1
+        }
+
+        // -c form short-circuits — runs the literal CMD as the
+        // script source, no file read.
+        if let source = dashCSource {
+            return try await runScript(
+                source: source,
+                scriptName: dashCName ?? name,
+                args: dashCExtra,
+                mode: modeFlags)
         }
         let positional = Array(args[i...])
         guard let path = positional.first else {
@@ -114,7 +129,7 @@ public struct BashCommand: Command {
             let source = String(decoding: data, as: UTF8.self)
             if parseOnly { return try parseCheck(source: source) }
             return try await runScript(
-                source: source, scriptName: name, args: [])
+                source: source, scriptName: name, args: [], mode: modeFlags)
         }
         let scriptArgs = Array(positional.dropFirst())
         let data: Data
@@ -132,7 +147,19 @@ public struct BashCommand: Command {
         let source = String(decoding: data, as: UTF8.self)
         if parseOnly { return try parseCheck(source: source) }
         return try await runScript(
-            source: source, scriptName: path, args: scriptArgs)
+            source: source, scriptName: path, args: scriptArgs,
+            mode: modeFlags)
+    }
+
+    /// Mode flags parsed from `bash`'s argv that need to be applied
+    /// to the subshell before its run loop starts. Kept as a value
+    /// type so the two call sites (file + stdin) hand the same shape
+    /// to ``runScript``.
+    private struct SubshellModeFlags {
+        var errexit: Bool = false
+        var nounset: Bool = false
+        var xtrace: Bool = false
+        var verbose: Bool = false
     }
 
     /// `bash -n` — parse `source` and report any syntax error to
@@ -157,10 +184,14 @@ public struct BashCommand: Command {
 
     /// Run `source` in a fresh subshell with the given `$0` and
     /// positional parameters. Strips a leading `#!shebang` line so
-    /// script files don't choke the parser.
+    /// script files don't choke the parser. `mode` carries the
+    /// `bash -euxv` flags parsed from argv — they layer onto the
+    /// copied shell BEFORE the run loop starts so they affect every
+    /// command in the script, including the first one.
     private func runScript(source: String,
                            scriptName: String,
-                           args: [String]) async throws -> ExitStatus
+                           args: [String],
+                           mode: SubshellModeFlags) async throws -> ExitStatus
     {
         var src = source
         if src.hasPrefix("#!"), let nl = src.firstIndex(of: "\n") {
@@ -169,6 +200,10 @@ public struct BashCommand: Command {
         let sub = Shell.bashCurrent.copy()
         sub.scriptName = scriptName
         sub.positionalParameters = args
+        if mode.errexit { sub.errexit = true }
+        if mode.nounset { sub.nounset = true }
+        if mode.xtrace  { sub.xtrace = true }
+        if mode.verbose { sub.verbose = true }
         // Once we hand control to the sub-shell, its stdin is
         // whatever the parent had; we already inherited that
         // through `copy()`. `exit N` inside the script unwinds at

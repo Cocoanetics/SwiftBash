@@ -13,9 +13,28 @@ extension Shell {
         let form = try await expandingSubscripts(in: form)
         switch form {
         case .plain(let name):
+            // `set -u` / `set -o nounset` — bare `$var` or `${var}`
+            // on a truly-unset name is an error. Default-form
+            // expansions (`${var:-…}`, `${var:?…}`, etc.) get their
+            // own cases below and handle unset explicitly, so this
+            // only catches the bare-reference path. Match the
+            // `${var:?…}` error shape — stderr + ShellExit — so the
+            // status propagates the same way through subshells.
+            if nounset, lookupOptional(name) == nil {
+                stderr("\(errorLocationPrefix())\(name): unbound variable\n")
+                throw ShellExit(status: ExitStatus(1))
+            }
             return lookup(name)
 
         case .length(let name):
+            if nounset, lookupOptional(name) == nil,
+               // `${#arr[@]}` always answers 0 rather than erroring
+               // even when the array is unset — matches real bash.
+               !(parseSubscriptedName(name).map { $0.1 == "@" || $0.1 == "*" } ?? false)
+            {
+                stderr("\(errorLocationPrefix())\(name): unbound variable\n")
+                throw ShellExit(status: ExitStatus(1))
+            }
             // `${#arr[@]}` / `${#arr[*]}` returns element COUNT, not
             // the joined string's character length.
             if let (arrName, sub) = parseSubscriptedName(name),
