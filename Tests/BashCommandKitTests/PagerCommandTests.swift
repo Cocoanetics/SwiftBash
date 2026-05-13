@@ -27,14 +27,20 @@ import Foundation
 
     @Test func lessNoPresenterReadsFile() async throws {
         let cap = makeShell()
-        try await cap.shell.run("printf 'hello\\n' > /tmp/less-fixture.txt")
-        try await cap.shell.run("less /tmp/less-fixture.txt")
+        // `/tmp` doesn't exist on Windows CI; use the platform temp
+        // dir via `NSTemporaryDirectory()` (the convention the rest
+        // of the suite already follows).
+        let path = NSTemporaryDirectory() + "less-fixture-\(UUID()).txt"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try await cap.shell.run("printf 'hello\\n' > '\(path)'")
+        try await cap.shell.run("less '\(path)'")
         #expect(cap.stdout.hasSuffix("hello\n"))
     }
 
     @Test func lessMissingFile() async throws {
         let cap = makeShell()
-        try await cap.shell.run("less /tmp/does-not-exist-xyz.txt; echo done=$?")
+        let path = NSTemporaryDirectory() + "less-missing-\(UUID()).txt"
+        try await cap.shell.run("less '\(path)'; echo done=$?")
         #expect(cap.stderr.contains("No such file or directory"))
         #expect(cap.stdout.contains("done=1"))
     }
@@ -42,11 +48,18 @@ import Foundation
     @Test func lessSqueezesMultiFileHeaders() async throws {
         // -s belongs to `more`; here we just verify multi-file headers.
         let cap = makeShell()
-        try await cap.shell.run("printf 'A\\n' > /tmp/p1.txt")
-        try await cap.shell.run("printf 'B\\n' > /tmp/p2.txt")
-        try await cap.shell.run("less /tmp/p1.txt /tmp/p2.txt")
-        #expect(cap.stdout.contains("/tmp/p1.txt"))
-        #expect(cap.stdout.contains("/tmp/p2.txt"))
+        let tag = UUID().uuidString
+        let p1 = NSTemporaryDirectory() + "less-p1-\(tag).txt"
+        let p2 = NSTemporaryDirectory() + "less-p2-\(tag).txt"
+        defer {
+            try? FileManager.default.removeItem(atPath: p1)
+            try? FileManager.default.removeItem(atPath: p2)
+        }
+        try await cap.shell.run("printf 'A\\n' > '\(p1)'")
+        try await cap.shell.run("printf 'B\\n' > '\(p2)'")
+        try await cap.shell.run("less '\(p1)' '\(p2)'")
+        #expect(cap.stdout.contains(p1))
+        #expect(cap.stdout.contains(p2))
         #expect(cap.stdout.contains("A"))
         #expect(cap.stdout.contains("B"))
     }
