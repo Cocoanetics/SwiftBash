@@ -229,51 +229,178 @@ enum ParameterFormParser {
 
     /// Parse a substring form: `offset` or `offset:length`. Bash
     /// evaluates both as arithmetic expressions at expansion time
-    /// — so `${text:$i:1}`, `${arr:i+2:k}`, and `${s: -1}` all work
-    /// even though their offset / length aren't literal integers
-    /// here. We capture the raw text up to the next unparenthesised
-    /// `:` (offset) and up to `}` (length); the evaluator hands the
-    /// captured strings to `evaluateArithmetic` at use time.
+    /// — `${text:$i:1}`, `${arr:i+2:k}`, `${s: -1}`,
+    /// `${var:i?a:b:1}`, `${var:$(cmd):1}`, `${var:${other}:1}` all
+    /// work. We capture the raw text up to the next *outermost* `:`
+    /// (offset) and up to end-of-body (length); the evaluator hands
+    /// the captured strings to `evaluateArithmetic` at use time.
     private static func parseSubstring(name: String,
                                        chars: [Character],
                                        from: Int) throws -> ParameterForm {
         var i = from
-        let offset = readArithExpression(chars, &i, terminators: [":"])
+        let offset = readSubstringField(chars, &i, terminatesOnColon: true)
         if offset.trimmingCharacters(in: .whitespaces).isEmpty {
-            throw BashInterpreterError.parameter("malformed substring: `\(String(chars[from...]))`")
+            throw BashInterpreterError.parameter(
+                "malformed substring: `\(String(chars[from...]))`")
         }
         if i == chars.count {
             return .substring(name: name, offset: offset, length: nil)
         }
         // Skip the `:` separator.
         i += 1
-        let length = readArithExpression(chars, &i, terminators: [])
+        let length = readSubstringField(chars, &i, terminatesOnColon: false)
         if length.trimmingCharacters(in: .whitespaces).isEmpty {
-            throw BashInterpreterError.parameter("malformed substring: `\(String(chars[from...]))`")
+            // `${var:1:}` — bash flags an empty length as a syntax
+            // error, not "no length supplied". Match that.
+            throw BashInterpreterError.parameter(
+                "malformed substring: `\(String(chars[from...]))`")
         }
         return .substring(name: name, offset: offset, length: length)
     }
 
-    /// Capture the raw text of an arithmetic expression up to the
-    /// first character in `terminators` that appears at parenthesis
-    /// depth 0 (so a `:` inside `${var: a?b:c:d}`'s ternary doesn't
-    /// terminate the offset — bash uses paren depth here too).
-    private static func readArithExpression(
+    /// Capture one arithmetic-expression field — `offset` or
+    /// `length` — from the substring body. Walks character by
+    /// character maintaining a nesting stack so the field
+    /// separator `:` is only recognised at the outermost level,
+    /// matching bash's own tokenizer.
+    ///
+    /// Tracked nestings:
+    /// - `'…'`         single-quote — `:` inside is literal
+    /// - `"…"`         double-quote — `:` inside is literal; `$…`
+    ///                 expansions inside still open sub-states
+    /// - `` `…` ``     backtick command substitution
+    /// - `$( … )`      `$(`-style command substitution
+    /// - `$(( … ))`    arithmetic expansion (nests as `$(`+`(`)
+    /// - `${ … }`      parameter expansion
+    /// - `( … )`       parenthesised arithmetic / grouping
+    /// - `\X`          backslash escape: takes the next char literally
+    ///                 (only outside single quotes)
+    /// - `? … :`       arithmetic ternary at the outermost level —
+    ///                 the `:` belongs to the ternary, not the field
+    ///                 separator
+    ///
+    /// `terminatesOnColon == false` reads through end-of-input,
+    /// used for the trailing length field.
+    private static func readSubstringField(
         _ chars: [Character],
         _ i: inout Int,
-        terminators: Set<Character>
+        terminatesOnColon: Bool
     ) -> String {
         var out = ""
-        var depth = 0
+        var stack: [NestState] = []
+        var ternaryDepth = 0  // only meaningful when `stack` is empty
+
         while i < chars.count {
             let c = chars[i]
-            if depth == 0, terminators.contains(c) { break }
-            if c == "(" { depth += 1 }
-            if c == ")" { depth = max(0, depth - 1) }
+            let next: Character? = (i + 1 < chars.count) ? chars[i + 1] : nil
+            let nextNext: Character? = (i + 2 < chars.count) ? chars[i + 2] : nil
+            let inside = stack.last
+
+            // Single quote: nothing except `'` ends it. Even `\` is
+            // literal here.
+            if inside == .singleQuote {
+                if c == "'" { stack.removeLast() }
+                out.append(c); i += 1; continue
+            }
+
+            // Backslash escape — anywhere except inside single
+            // quotes. Consumes the pair without inspecting the
+            // following char so `\:` or `\$` don't change state.
+            if c == "\\", let n = next {
+                out.append(c); out.append(n)
+                i += 2; continue
+            }
+
+            // Backtick: nothing except a literal `` ` `` ends it
+            // (we already stripped backslash-escaped backticks above).
+            if inside == .backtick {
+                if c == "`" { stack.removeLast() }
+                out.append(c); i += 1; continue
+            }
+
+            // Field terminator. Only at the *outermost* level —
+            // inside any nesting or unresolved ternary, the colon
+            // belongs to that sub-form.
+            if stack.isEmpty,
+               terminatesOnColon,
+               c == ":",
+               ternaryDepth == 0
+            {
+                break
+            }
+
+            // State transitions.
+            switch c {
+            case "'":
+                // Inside double quotes single quotes don't open a
+                // new region (bash treats them as literal there).
+                if inside != .doubleQuote { stack.append(.singleQuote) }
+            case "\"":
+                if inside == .doubleQuote { stack.removeLast() }
+                else { stack.append(.doubleQuote) }
+            case "`":
+                stack.append(.backtick)
+            case "$":
+                if next == "{" {
+                    stack.append(.dollarBrace)
+                    out.append(c); out.append("{")
+                    i += 2; continue
+                }
+                if next == "(" {
+                    // `$((` opens arithmetic — treat as `$(` + `(`
+                    // so the matching `))` closes by popping the
+                    // inner paren then the dollarParen.
+                    if nextNext == "(" {
+                        stack.append(.dollarParen)
+                        stack.append(.paren)
+                        out.append(c); out.append("("); out.append("(")
+                        i += 3; continue
+                    }
+                    stack.append(.dollarParen)
+                    out.append(c); out.append("(")
+                    i += 2; continue
+                }
+            case "(":
+                stack.append(.paren)
+            case ")":
+                if inside == .paren { stack.removeLast() }
+                else if inside == .dollarParen { stack.removeLast() }
+            case "{":
+                // A bare `{` that isn't part of `${`. Push so a
+                // stray `:` inside doesn't split.
+                stack.append(.brace)
+            case "}":
+                if inside == .brace || inside == .dollarBrace {
+                    stack.removeLast()
+                }
+                // Otherwise: stray `}` — leave it in the captured
+                // text and let the arithmetic evaluator complain.
+            case "?":
+                if stack.isEmpty { ternaryDepth += 1 }
+            case ":":
+                // We already checked the terminator case at the top
+                // of the loop. Reaching here means we ARE inside a
+                // ternary at outer level — bind this `:` to it.
+                if stack.isEmpty, ternaryDepth > 0 { ternaryDepth -= 1 }
+            default:
+                break
+            }
+
             out.append(c)
             i += 1
         }
         return out
+    }
+
+    /// One frame of `readSubstringField`'s nesting stack.
+    private enum NestState {
+        case singleQuote
+        case doubleQuote
+        case backtick
+        case paren
+        case brace
+        case dollarParen
+        case dollarBrace
     }
 
 

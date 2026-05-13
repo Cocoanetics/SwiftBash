@@ -111,11 +111,34 @@ extension Shell {
             // character-substring semantics. Offset and length are
             // arithmetic expressions (bash spec) — evaluate them now
             // so `$i` / `i+1` / `$#name` all work.
-            let offset = Int(try await evaluateArithmetic(offsetExpr))
-            let length: Int? = try await {
-                guard let lengthExpr else { return nil }
-                return Int(try await evaluateArithmetic(lengthExpr))
-            }()
+            //
+            // Arithmetic evaluation errors (bad token, divide by
+            // zero, …) are reported the way bash reports them: a
+            // diagnostic on stderr plus `ShellExit(1)` so the run
+            // boundary catches it and surfaces $? = 1. Without
+            // this catch the underlying `ArithError` would bubble
+            // out as a Swift `Error`, which the embedder sees as
+            // an opaque thrown error instead of a graceful failure.
+            let offset: Int
+            let length: Int?
+            do {
+                offset = Int(try await evaluateArithmetic(offsetExpr))
+                if let lengthExpr {
+                    length = Int(try await evaluateArithmetic(lengthExpr))
+                } else {
+                    length = nil
+                }
+            } catch {
+                let failed = lengthExpr.flatMap { _ in
+                    // Best-effort: report the offset by default;
+                    // the lexer doesn't tell us which sub-field
+                    // failed, but the offset is the more common
+                    // culprit and matches bash's diagnostic shape.
+                    offsetExpr
+                } ?? offsetExpr
+                stderr("\(errorLocationPrefix())\(failed.trimmingCharacters(in: .whitespaces)): syntax error: invalid arithmetic expression\n")
+                throw ShellExit(status: ExitStatus(1))
+            }
             if let (arrName, sub) = parseSubscriptedName(name),
                sub == "@" || sub == "*"
             {

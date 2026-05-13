@@ -183,7 +183,20 @@ extension Shell {
                 ? positionalParameters[idx]
                 : ""
         }
-        let form = try ParameterFormParser.parse(body)
+        // `ParameterFormParser.parse` throws `BashInterpreterError`
+        // for genuinely malformed bodies (`${var:1:}`, missing
+        // closing brace, …). Bash reports those as a stderr
+        // diagnostic plus a non-zero exit status, not a fatal
+        // parser abort — surface them through the same
+        // stderr+ShellExit shape the rest of parameter expansion
+        // uses so the run boundary can record $? = 1.
+        let form: ParameterForm
+        do {
+            form = try ParameterFormParser.parse(body)
+        } catch let err as BashInterpreterError {
+            stderr("\(errorLocationPrefix())\(err.description)\n")
+            throw ShellExit(status: ExitStatus(1))
+        }
         return try await applyParameterForm(form)
     }
 
