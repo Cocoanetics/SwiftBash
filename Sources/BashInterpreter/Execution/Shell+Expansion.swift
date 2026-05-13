@@ -39,10 +39,41 @@ extension Shell {
             let c = chars[i]
 
             if c == "'", !inDouble {
-                i += 1
-                while i < hi, chars[i] != "'" {
-                    result.append(chars[i])
+                // `$'…'` ANSI-C quoting: the prior char (and the
+                // last char already pushed to `result`) is the
+                // marker. Run the body through bash's C-style
+                // backslash decoder so assignments like
+                // `esc=$'\033'` yield the ESC byte, not the literal
+                // four characters. Same logic lives in
+                // `Shell+Expansion+Argv.swift` for the command-arg
+                // path; this branch covers assignment values and
+                // anything else routed through `expand(word:)`.
+                let isAnsiC = (i > lo && chars[i - 1] == "$"
+                               && !result.isEmpty
+                               && result.last == "$")
+                if isAnsiC {
+                    result.removeLast()        // consume the `$`
+                    i += 1                     // consume the opening `'`
+                    var body = ""
+                    while i < hi, chars[i] != "'" {
+                        if chars[i] == "\\", i + 1 < hi {
+                            // Preserve the escape pair so the decoder
+                            // sees `\'`, `\\` etc. intact.
+                            body.append(chars[i])
+                            body.append(chars[i + 1])
+                            i += 2
+                            continue
+                        }
+                        body.append(chars[i])
+                        i += 1
+                    }
+                    result += Self.decodeAnsiCEscapes(body)
+                } else {
                     i += 1
+                    while i < hi, chars[i] != "'" {
+                        result.append(chars[i])
+                        i += 1
+                    }
                 }
                 if i < hi { i += 1 }
                 continue

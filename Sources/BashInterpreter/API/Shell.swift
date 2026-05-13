@@ -175,6 +175,20 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// that connect a UI sink set this to `true`.
     public var stdoutIsTTY: Bool = false
 
+    /// `true` when this shell's `stdin` reads from an interactive
+    /// surface. Mirrors ``stdoutIsTTY`` for fd 0. `test -t 0` /
+    /// `[ -t 0 ]` consult this, and the pipeline executor flips it
+    /// off on consumer stages so `cmd1 | cmd2` makes `cmd2` see a
+    /// non-TTY stdin.
+    public var stdinIsTTY: Bool = false
+
+    /// `true` when this shell's `stderr` writes to an interactive
+    /// surface. Mirrors ``stdoutIsTTY`` for fd 2. `test -t 2` /
+    /// `[ -t 2 ]` consult this, and the pipeline executor flips
+    /// it off on `|&`-merged producer stages whose stderr is the
+    /// inter-stage `OutputSink`.
+    public var stderrIsTTY: Bool = false
+
     /// One pending `<(cmd)` or `>(cmd)` substitution.
     struct ProcessSub: Sendable {
         enum Kind: Sendable { case input, output }
@@ -466,6 +480,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.scriptInterpreters = scriptInterpreters
         bash.interactivePresenter = interactivePresenter
         bash.stdoutIsTTY = stdoutIsTTY
+        bash.stdinIsTTY = stdinIsTTY
+        bash.stderrIsTTY = stderrIsTTY
         return bash
     }
 

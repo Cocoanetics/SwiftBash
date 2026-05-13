@@ -196,8 +196,20 @@ private struct TestExpressionParser {
             return arg.isEmpty
         case "-n":
             return !arg.isEmpty
-        case "-b", "-c", "-p", "-S", "-t", "-g", "-u", "-k":
-            // Block/char/pipe/socket/tty/setgid/setuid/sticky — not
+        case "-t":
+            // `[ -t N ]` — is fd N attached to a terminal? Looks up
+            // the shell's per-fd `stdinIsTTY` / `stdoutIsTTY` /
+            // `stderrIsTTY` flags. Embedders set these; pipelines
+            // flip them off for piped stages. Unknown fd → false,
+            // matching bash on a sandboxed file descriptor.
+            switch arg {
+            case "0": return Shell.bashCurrent.stdinIsTTY
+            case "1": return Shell.bashCurrent.stdoutIsTTY
+            case "2": return Shell.bashCurrent.stderrIsTTY
+            default:  return false
+            }
+        case "-b", "-c", "-p", "-S", "-g", "-u", "-k":
+            // Block/char/pipe/socket/setgid/setuid/sticky — not
             // modelled; report false rather than fail.
             return false
         default:

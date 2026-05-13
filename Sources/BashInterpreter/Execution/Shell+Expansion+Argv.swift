@@ -140,6 +140,131 @@ extension Shell {
     /// One piece of a word, tagged with how it came in. The caller's
     /// assembler decides whether to merge it into the current arg or
     /// split it out into separate args.
+    /// Decode bash's `$'…'` ANSI-C quoting body into the bytes it
+    /// represents. Mirrors what `bash` calls "ANSI-C escape
+    /// expansion": the escapes specified in the GNU bash reference,
+    /// including the octal / hex / unicode / control-char forms.
+    /// Unrecognised escape sequences are preserved verbatim (a
+    /// backslash + the following character), matching real bash.
+    static func decodeAnsiCEscapes(_ s: String) -> String {
+        var out = ""
+        let chars = Array(s)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            guard c == "\\", i + 1 < chars.count else {
+                out.append(c)
+                i += 1
+                continue
+            }
+            let next = chars[i + 1]
+            switch next {
+            case "a":  out.append("\u{07}"); i += 2
+            case "b":  out.append("\u{08}"); i += 2
+            case "e", "E": out.append("\u{1B}"); i += 2
+            case "f":  out.append("\u{0C}"); i += 2
+            case "n":  out.append("\n");     i += 2
+            case "r":  out.append("\r");     i += 2
+            case "t":  out.append("\t");     i += 2
+            case "v":  out.append("\u{0B}"); i += 2
+            case "\\": out.append("\\");     i += 2
+            case "'":  out.append("'");      i += 2
+            case "\"": out.append("\"");     i += 2
+            case "?":  out.append("?");      i += 2
+            case "0"..."7":
+                // Octal escape: up to three digits.
+                var digits = ""
+                var j = i + 1
+                while j < chars.count, digits.count < 3,
+                      ("0"..."7").contains(chars[j])
+                {
+                    digits.append(chars[j]); j += 1
+                }
+                if let v = UInt32(digits, radix: 8),
+                   let u = Unicode.Scalar(v)
+                {
+                    out.unicodeScalars.append(u)
+                }
+                i = j
+            case "x":
+                // `\xHH` — up to two hex digits.
+                var digits = ""
+                var j = i + 2
+                while j < chars.count, digits.count < 2,
+                      chars[j].isHexDigit
+                {
+                    digits.append(chars[j]); j += 1
+                }
+                if !digits.isEmpty,
+                   let v = UInt32(digits, radix: 16),
+                   let u = Unicode.Scalar(v)
+                {
+                    out.unicodeScalars.append(u)
+                    i = j
+                } else {
+                    // Bash preserves `\x` literally when no hex
+                    // digits follow.
+                    out.append("\\"); out.append("x")
+                    i += 2
+                }
+            case "u":
+                // `\uHHHH` — up to four hex digits.
+                var digits = ""
+                var j = i + 2
+                while j < chars.count, digits.count < 4,
+                      chars[j].isHexDigit
+                {
+                    digits.append(chars[j]); j += 1
+                }
+                if !digits.isEmpty,
+                   let v = UInt32(digits, radix: 16),
+                   let u = Unicode.Scalar(v)
+                {
+                    out.unicodeScalars.append(u)
+                    i = j
+                } else {
+                    out.append("\\"); out.append("u")
+                    i += 2
+                }
+            case "U":
+                // `\UHHHHHHHH` — up to eight hex digits.
+                var digits = ""
+                var j = i + 2
+                while j < chars.count, digits.count < 8,
+                      chars[j].isHexDigit
+                {
+                    digits.append(chars[j]); j += 1
+                }
+                if !digits.isEmpty,
+                   let v = UInt32(digits, radix: 16),
+                   let u = Unicode.Scalar(v)
+                {
+                    out.unicodeScalars.append(u)
+                    i = j
+                } else {
+                    out.append("\\"); out.append("U")
+                    i += 2
+                }
+            case "c":
+                // `\cX` — control character (X with bit 6 toggled).
+                if i + 2 < chars.count,
+                   let ascii = chars[i + 2].asciiValue
+                {
+                    out.append(Character(Unicode.Scalar(ascii & 0x1F)))
+                    i += 3
+                } else {
+                    out.append("\\"); out.append("c")
+                    i += 2
+                }
+            default:
+                // Unrecognised — preserve `\X` verbatim.
+                out.append("\\"); out.append(next)
+                i += 2
+            }
+        }
+        return out
+    }
+
     enum WordFragment {
         /// Came from quoted text (single or double), an escaped char,
         /// or unquoted literal source. No further splitting.
@@ -302,16 +427,49 @@ extension Shell {
 
             let c = chars[i]
             if c == "'", !inDoubleQuote {
-                // Single-quoted: every char between the quotes is
-                // literal, including `$`. An empty `''` still emits an
-                // empty literal so `cmd ''` becomes `cmd ""`. Inside
-                // a `"..."` run a `'` is just a literal character.
+                // ANSI-C quoting: `$'…'`. The leading literal `$`
+                // we appended on the prior iteration is the marker
+                // that we're inside a `$'`-prefixed quote — strip
+                // it and run the body through bash's C-style
+                // backslash decoder (so `\033`, `\e`, `\n`, `\x1b`,
+                // `é`, etc. expand to the right bytes).
+                // Inside the body, only `\'` and `\\` affect the
+                // closing-quote scan; every other escape is left
+                // for the decoder.
+                let isAnsiC = (i > lo && chars[i - 1] == "$"
+                               && !literalBuf.isEmpty
+                               && literalBuf.last == "$")
                 let beforeFragments = fragments.count
                 let beforeLitLen = literalBuf.count
-                i += 1
-                while i < hi, chars[i] != "'" {
-                    literalBuf.append(chars[i])
+                if isAnsiC {
+                    literalBuf.removeLast()        // consume the `$`
+                    i += 1                         // consume the opening `'`
+                    var body = ""
+                    while i < hi, chars[i] != "'" {
+                        if chars[i] == "\\", i + 1 < hi {
+                            // Preserve the escape pair as-is; the
+                            // decoder interprets it (including `\'`,
+                            // which musn't terminate the quote here).
+                            body.append(chars[i])
+                            body.append(chars[i + 1])
+                            i += 2
+                            continue
+                        }
+                        body.append(chars[i])
+                        i += 1
+                    }
+                    literalBuf += Self.decodeAnsiCEscapes(body)
+                } else {
+                    // Plain single-quoted: every char is literal,
+                    // including `$`. An empty `''` still emits an
+                    // empty literal so `cmd ''` becomes `cmd ""`.
+                    // Inside a `"..."` run a `'` is just a literal
+                    // character.
                     i += 1
+                    while i < hi, chars[i] != "'" {
+                        literalBuf.append(chars[i])
+                        i += 1
+                    }
                 }
                 if i < hi { i += 1 }
                 if fragments.count == beforeFragments,

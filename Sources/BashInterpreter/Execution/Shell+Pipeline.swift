@@ -68,14 +68,22 @@ extension Shell {
                         : outerStderr
                     sub.stdin = incomingSink.map { InputSource(bytes: $0.bytes) }
                              ?? outerStdin
-                    // Inter-stage stdout is an in-memory `OutputSink`,
-                    // not the host's interactive surface. Only the
-                    // last stage's stdout is the outer one, so it
-                    // inherits the template's TTY flag (already done
-                    // by `copy()` above). `less` / `more` use this to
-                    // decide pager-mode vs. cat-passthrough, matching
-                    // real `less(1)`'s `isatty(1)` gate.
+                    // Inter-stage stdio uses in-memory `OutputSink`s,
+                    // not the host's interactive surface — so flip
+                    // the matching `…IsTTY` flag off on stages whose
+                    // stdin/stdout/stderr is one of the pipes. The
+                    // last stage's stdout, the first stage's stdin,
+                    // and any stage's non-merged stderr stay
+                    // pointing at the outer (host) sinks, so they
+                    // inherit the template's flags via `copy()`.
+                    // `less` / `more` and `[ -t N ]` consult these
+                    // to decide TTY-shaped behaviour the way real
+                    // bash uses `isatty(N)`.
                     if outgoingSink != nil { sub.stdoutIsTTY = false }
+                    if incomingSink != nil { sub.stdinIsTTY = false }
+                    if mergeStderr, outgoingSink != nil {
+                        sub.stderrIsTTY = false
+                    }
 
                     do {
                         let result = try await sub.withCurrent {
