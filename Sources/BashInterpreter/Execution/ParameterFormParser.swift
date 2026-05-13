@@ -227,44 +227,55 @@ enum ParameterFormParser {
         return ""
     }
 
-    /// Parse a substring form: `offset` or `offset:length`, where each
-    /// number may be negative. Matches bash: negative offsets index from
-    /// the end of the string; negative length means "up to N from the end".
+    /// Parse a substring form: `offset` or `offset:length`. Bash
+    /// evaluates both as arithmetic expressions at expansion time
+    /// — so `${text:$i:1}`, `${arr:i+2:k}`, and `${s: -1}` all work
+    /// even though their offset / length aren't literal integers
+    /// here. We capture the raw text up to the next unparenthesised
+    /// `:` (offset) and up to `}` (length); the evaluator hands the
+    /// captured strings to `evaluateArithmetic` at use time.
     private static func parseSubstring(name: String,
                                        chars: [Character],
                                        from: Int) throws -> ParameterForm {
         var i = from
-        guard let offset = readIntLiteral(chars, &i) else {
+        let offset = readArithExpression(chars, &i, terminators: [":"])
+        if offset.trimmingCharacters(in: .whitespaces).isEmpty {
             throw BashInterpreterError.parameter("malformed substring: `\(String(chars[from...]))`")
         }
         if i == chars.count {
             return .substring(name: name, offset: offset, length: nil)
         }
-        guard chars[i] == ":" else {
-            throw BashInterpreterError.parameter("expected `:` in substring form")
-        }
+        // Skip the `:` separator.
         i += 1
-        guard let length = readIntLiteral(chars, &i) else {
+        let length = readArithExpression(chars, &i, terminators: [])
+        if length.trimmingCharacters(in: .whitespaces).isEmpty {
             throw BashInterpreterError.parameter("malformed substring: `\(String(chars[from...]))`")
         }
         return .substring(name: name, offset: offset, length: length)
     }
 
-    private static func readIntLiteral(_ chars: [Character],
-                                       _ i: inout Int) -> Int? {
-        // Skip optional leading spaces (bash allows `${var: -1}` which
-        // is NOT the same as `${var:-1}` — the leading space disambiguates).
-        while i < chars.count, chars[i] == " " { i += 1 }
-        var j = i
-        if j < chars.count, chars[j] == "-" || chars[j] == "+" { j += 1 }
-        while j < chars.count, chars[j].isNumber { j += 1 }
-        guard j > i else { return nil }
-        // If we only consumed a sign, fail.
-        let s = String(chars[i..<j])
-        guard let n = Int(s) else { return nil }
-        i = j
-        return n
+    /// Capture the raw text of an arithmetic expression up to the
+    /// first character in `terminators` that appears at parenthesis
+    /// depth 0 (so a `:` inside `${var: a?b:c:d}`'s ternary doesn't
+    /// terminate the offset — bash uses paren depth here too).
+    private static func readArithExpression(
+        _ chars: [Character],
+        _ i: inout Int,
+        terminators: Set<Character>
+    ) -> String {
+        var out = ""
+        var depth = 0
+        while i < chars.count {
+            let c = chars[i]
+            if depth == 0, terminators.contains(c) { break }
+            if c == "(" { depth += 1 }
+            if c == ")" { depth = max(0, depth - 1) }
+            out.append(c)
+            i += 1
+        }
+        return out
     }
+
 
     /// Split the pattern / replacement pair in `${name/pat/rep}` on the
     /// first unescaped `/`. If there is no separator, the whole tail is

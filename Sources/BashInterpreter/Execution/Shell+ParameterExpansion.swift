@@ -84,12 +84,19 @@ extension Shell {
                            all: all,
                            anchor: anchor)
 
-        case .substring(let name, let offset, let length):
+        case .substring(let name, let offsetExpr, let lengthExpr):
             // `${arr[@]:offset:length}` / `${arr[*]:offset:length}` —
             // element-wise slice, joined with a space (or with IFS
             // first char for the `*` form). Other subscript forms
             // (`arr[0]:1:2`) and bare scalars use the regular
-            // character-substring semantics.
+            // character-substring semantics. Offset and length are
+            // arithmetic expressions (bash spec) — evaluate them now
+            // so `$i` / `i+1` / `$#name` all work.
+            let offset = Int(try await evaluateArithmetic(offsetExpr))
+            let length: Int? = try await {
+                guard let lengthExpr else { return nil }
+                return Int(try await evaluateArithmetic(lengthExpr))
+            }()
             if let (arrName, sub) = parseSubscriptedName(name),
                sub == "@" || sub == "*"
             {
@@ -263,9 +270,9 @@ extension Shell {
             return .replace(name: try await expandedSubscript(in: name),
                             pattern: p, replacement: r,
                             all: all, anchor: a)
-        case .substring(let name, let o, let l):
+        case .substring(let name, let offsetExpr, let lengthExpr):
             return .substring(name: try await expandedSubscript(in: name),
-                              offset: o, length: l)
+                              offset: offsetExpr, length: lengthExpr)
         case .indirect(let name):
             return .indirect(try await expandedSubscript(in: name))
         case .caseConvert(let name, let u, let all, let pat):

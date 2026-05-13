@@ -41,7 +41,12 @@ enum ParameterForm: Equatable {
                  replacement: String,
                  all: Bool,
                  anchor: ReplaceAnchor)
-    case substring(name: String, offset: Int, length: Int?)
+    /// `${var:offset[:length]}` — bash treats `offset` and `length`
+    /// as arithmetic expressions, so we store the raw substrings the
+    /// parser saw and arithmetic-evaluate them at expansion time.
+    /// That's what makes `${text:$i:1}` work — `$i` is expanded and
+    /// evaluated, not parsed as a literal integer at parse time.
+    case substring(name: String, offset: String, length: String?)
     /// `${!arr[@]}` / `${!arr[*]}` — list of indices of the array
     /// (sparse-aware: only set slots are reported, in sorted order).
     case indices(String)

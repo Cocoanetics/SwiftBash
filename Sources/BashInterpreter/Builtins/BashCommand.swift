@@ -69,21 +69,88 @@ public struct BashCommand: Command {
                 source: source, scriptName: name, args: [])
         }
 
-        // bash FILE [args…]
-        let path = args[0]
-        let scriptArgs = Array(args.dropFirst())
-        let resolved = Shell.bashCurrent.resolvePath(path)
+        // Parse options before the file argument. Real bash supports
+        // a small set of mode flags here — at minimum `-n`
+        // (syntax-check only, don't execute), `-x` (xtrace) and `--`
+        // (end-of-options). Without this branch any flag is taken as
+        // a file path and the user sees "No such file or directory".
+        var parseOnly = false
+        var sawDoubleDash = false
+        var i = 0
+        while i < args.count {
+            let a = args[i]
+            if a == "--" { sawDoubleDash = true; i += 1; break }
+            if a.hasPrefix("-"), a.count > 1, !sawDoubleDash {
+                // Combined short-flag bundle.
+                for ch in a.dropFirst() {
+                    switch ch {
+                    case "n": parseOnly = true
+                    case "x", "v", "e", "u":
+                        // Accept-and-ignore: `-x` / `-v` matter for
+                        // diagnostics we don't synthesise yet; `-e` /
+                        // `-u` only make sense set inside the script.
+                        // Passing them through unchanged means
+                        // `bash -x foo.sh` runs the script instead of
+                        // erroring out the way it used to.
+                        break
+                    default:
+                        Shell.bashCurrent.stderr(
+                            "\(name): -\(ch): invalid option\n")
+                        return ExitStatus(2)
+                    }
+                }
+                i += 1
+                continue
+            }
+            // First positional — that's the script path.
+            break
+        }
+        let positional = Array(args[i...])
+        guard let path = positional.first else {
+            // `bash -n` / `bash -x` with no file: real bash drops to
+            // its interactive REPL. We have none, so drain stdin.
+            let data = await drainStdin()
+            if data.isEmpty { return .success }
+            let source = String(decoding: data, as: UTF8.self)
+            if parseOnly { return try parseCheck(source: source) }
+            return try await runScript(
+                source: source, scriptName: name, args: [])
+        }
+        let scriptArgs = Array(positional.dropFirst())
         let data: Data
         do {
-            data = try await Shell.bashCurrent.fileSystem.readData(resolved)
+            // `readDataAtPath` honors the `/dev/{stdin,null,stdout,
+            // stderr}` magic-path table on top of the filesystem, so
+            // `bash /dev/stdin` reads our shell's stdin instead of
+            // failing with ENOENT.
+            data = try await Shell.bashCurrent.readDataAtPath(path)
         } catch {
             Shell.bashCurrent.stderr(
                 "\(name): \(path): No such file or directory\n")
             return ExitStatus(127)
         }
         let source = String(decoding: data, as: UTF8.self)
+        if parseOnly { return try parseCheck(source: source) }
         return try await runScript(
             source: source, scriptName: path, args: scriptArgs)
+    }
+
+    /// `bash -n` — parse `source` and report any syntax error to
+    /// stderr without executing. Strips a leading shebang the way
+    /// `runScript` does so a `#!/usr/bin/env bash` doesn't trip the
+    /// parser.
+    private func parseCheck(source: String) throws -> ExitStatus {
+        var src = source
+        if src.hasPrefix("#!"), let nl = src.firstIndex(of: "\n") {
+            src = String(src[src.index(after: nl)...])
+        }
+        do {
+            _ = try BashSyntax.parse(src)
+            return .success
+        } catch {
+            Shell.bashCurrent.stderr("\(name): \(error)\n")
+            return ExitStatus(2)
+        }
     }
 
     // MARK: Script execution

@@ -46,14 +46,34 @@ public struct SetCommand: Command {
                 i += 2
                 continue
             }
-            // `-X` / `+X` short-flag bundles
+            // `-X` / `+X` short-flag bundles. `o` is special: real
+            // bash treats `set -euo pipefail` as `set -eu -o pipefail`
+            // — when an `o` appears inside the bundle it consumes the
+            // following positional as the long-option name. Apply the
+            // preceding short flags left-to-right, then short-circuit
+            // out to the next argv element.
             if (a.hasPrefix("-") || a.hasPrefix("+")), a.count >= 2 {
                 let on = a.hasPrefix("-")
+                var sawO = false
                 for ch in a.dropFirst() {
+                    if ch == "o" { sawO = true; break }
                     if let err = applyShortFlag(ch, on: on) {
                         Shell.bashCurrent.stderr(err)
                         return ExitStatus(2)
                     }
+                }
+                if sawO {
+                    guard i + 1 < args.count else {
+                        Shell.bashCurrent.stderr(
+                            "set: -o: option name required\n")
+                        return ExitStatus(2)
+                    }
+                    if let err = applyLongOption(args[i + 1], on: on) {
+                        Shell.bashCurrent.stderr(err)
+                        return ExitStatus(2)
+                    }
+                    i += 2
+                    continue
                 }
                 i += 1
                 continue

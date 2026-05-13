@@ -586,6 +586,20 @@ extension Shell {
         do {
             if let command = commands[argv[0]] {
                 result = try await command.run(argv)
+            } else if let command = commandForCatalogPath(argv[0]) {
+                // Absolute-path invocation of a registered command
+                // — `/bin/bash --version`, `/usr/bin/env`, etc.
+                // BinCatalogOverlay vends these as files but the
+                // dispatcher only keys the registry by basename, so
+                // without this branch the path resolution falls
+                // through to the external-script try (which fails
+                // because the synthetic stub has no shebang) and
+                // surfaces as `command not found`. Rewrite argv[0]
+                // to the basename so the command sees the canonical
+                // invocation.
+                var rewritten = argv
+                rewritten[0] = (argv[0] as NSString).lastPathComponent
+                result = try await command.run(rewritten)
             } else if let scriptResult =
                 try await dispatchAsExternalScriptIfApplicable(argv: argv)
             {

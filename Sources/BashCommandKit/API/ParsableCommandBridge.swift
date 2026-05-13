@@ -11,6 +11,21 @@ struct ParsableCommandBridge<Parsed: ParsableBashCommand>: Command {
     func run(_ argv: [String]) async throws -> ExitStatus {
         // ArgumentParser expects argv without the command name.
         let args = Array(argv.dropFirst())
+        // `--version` short-circuit. ArgumentParser only handles it
+        // when the command's `configuration.version` is non-empty,
+        // and our `ParsableBashCommand`s typically don't set one —
+        // so a GNU-style `sed --version` ends up reported as
+        // "unknown option" instead of printing a banner. Catch the
+        // flag in the bridge and emit a generic in-process marker
+        // when the command itself didn't override.
+        if args.contains("--version") {
+            let configured = Parsed.configuration.version
+            let banner = configured.isEmpty
+                ? "\(name) (swift-bash built-in)"
+                : configured
+            Shell.bashCurrent.stdout(banner + "\n")
+            return .success
+        }
         do {
             var parsed = try Parsed.parse(args)
             return try await parsed.execute()
