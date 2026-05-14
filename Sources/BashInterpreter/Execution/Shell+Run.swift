@@ -556,6 +556,30 @@ extension Shell {
         let restoreRedirects: @Sendable () -> Void
         do {
             restoreRedirects = try await applyRedirects(redirects)
+        } catch let fsError as FileSystemError {
+            // A failed `>file` / `<file` / `>>file` redirect (target
+            // unreadable, parent missing, mount read-only) is a
+            // per-command failure in real bash, NOT a fatal script
+            // error. Print a bash-style diagnostic, restore the
+            // partial scope, and return non-zero so the enclosing
+            // list keeps running. Without this, `cd /tmp; echo x >
+            // /examples/foo; echo done` would never print `done` —
+            // the entire tool call aborted on the first redirect
+            // failure.
+            let target: String
+            switch fsError {
+            case .notFound(let p), .notADirectory(let p),
+                 .isADirectory(let p), .alreadyExists(let p),
+                 .permissionDenied(let p):
+                target = p
+            case .io(let m):
+                target = m
+            }
+            stderr(
+                "\(errorLocationPrefix())\(target): \(fsError.shellMessage())\n")
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            return ExitStatus(1)
         } catch {
             restoreScope()
             await drainProcessSubs(from: procSubFrame)

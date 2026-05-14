@@ -67,6 +67,17 @@ public struct ScriptInterpreterContext: Sendable {
     /// path, indices 1+ are the user-supplied arguments. Mirrors
     /// Swift's `CommandLine.arguments`.
     public let argv: [String]
+
+    public init(scriptPath: String,
+                source: String,
+                shebang: String?,
+                argv: [String])
+    {
+        self.scriptPath = scriptPath
+        self.source = source
+        self.shebang = shebang
+        self.argv = argv
+    }
 }
 
 /// A ``ScriptInterpreter`` backed by a closure — the short form for

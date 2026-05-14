@@ -88,30 +88,62 @@ extension Shell {
         }
         let raw = String(decoding: data, as: UTF8.self)
         let (rewritten, shebangLine) = stripShebang(raw)
-        guard let shebangLine,
-              let parsed = parseShebangLine(shebangLine),
-              let interpreter = scriptInterpreters[parsed.interpreter]
-        else {
-            return nil
-        }
-
-        let context = ScriptInterpreterContext(
-            scriptPath: resolved,
-            source: rewritten,
-            shebang: shebangLine,
-            argv: [resolved] + Array(argv.dropFirst()))
 
         // Run inside a fresh subshell — interpreters mutate
         // `Shell.current.positionalParameters` and `scriptName` while
         // executing, and we don't want those to leak into the parent.
         // `Shell.copy()` is the single source of truth for what
         // propagates; this stays consistent with `bash FILE` semantics.
-        let sub = copy()
-        sub.scriptName = resolved
-        sub.positionalParameters = Array(argv.dropFirst())
-        return try await sub.withCurrent {
-            try await interpreter.run(context)
+        if let shebangLine,
+           let parsed = parseShebangLine(shebangLine),
+           let interpreter = scriptInterpreters[parsed.interpreter]
+        {
+            let context = ScriptInterpreterContext(
+                scriptPath: resolved,
+                source: rewritten,
+                shebang: shebangLine,
+                argv: [resolved] + Array(argv.dropFirst()))
+            let sub = copy()
+            sub.scriptName = resolved
+            sub.positionalParameters = Array(argv.dropFirst())
+            return try await sub.withCurrent {
+                try await interpreter.run(context)
+            }
         }
+
+        // No shebang at all → real bash falls back to running the
+        // file through `/bin/sh` after a failed `execve(ENOEXEC)`.
+        // Since we ARE the shell, just interpret the contents
+        // ourselves. The probe rejects obvious binaries (NUL bytes
+        // in the first kilobyte) so we don't try to parse an ELF /
+        // Mach-O / `.pyc` as bash source.
+        //
+        // When the file DID have a shebang but it pointed at an
+        // interpreter we don't have (e.g. `#!/usr/bin/env python3`
+        // on a host with no python registration), keep the previous
+        // behaviour and return `nil`. Falling back to bash there
+        // would mangle the user's actual interpreter intent.
+        if shebangLine == nil, looksLikeTextScript(data) {
+            let sub = copy()
+            sub.scriptName = resolved
+            sub.positionalParameters = Array(argv.dropFirst())
+            return try await sub.withCurrent {
+                try await sub.run(raw)
+            }
+        }
+
+        return nil
+    }
+
+    /// Heuristic for "this file is a script the shell should
+    /// interpret, not a binary it should refuse". Real bash uses
+    /// the kernel's `ENOEXEC` from a failed `execve(2)`; we
+    /// approximate by scanning the first 1 KiB for NUL bytes,
+    /// which would never appear in well-formed bash source but
+    /// almost always show up in ELF/Mach-O/PE headers and in
+    /// most binary blobs (PNG, gzip, etc.).
+    private func looksLikeTextScript(_ data: Data) -> Bool {
+        return !data.prefix(1024).contains(0)
     }
 
     /// A token "looks like a path" if it contains a `/` (relative or
