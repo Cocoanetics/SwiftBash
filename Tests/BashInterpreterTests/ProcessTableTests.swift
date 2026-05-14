@@ -118,9 +118,14 @@ import Foundation
         let pid = await table.spawn(command: "fast") {
             ExitStatus(11)
         }
-        _ = await table.wait(pid: pid)
-        // Give the completion observer one tick to record the state.
-        try? await Task.sleep(nanoseconds: 10_000_000)
+        // The completion observer fires after the spawned Task
+        // returns and writes the entry's state through
+        // `markFinished`. Don't use `wait(pid:)` here — `wait` reaps
+        // the entry on the way out, so depending on whether the
+        // observer or wait's reap wins the race we'd either see
+        // `.exited` (macOS scheduler) or `nil` (Linux scheduler).
+        // Sleep long enough for the observer to land deterministically.
+        try? await Task.sleep(nanoseconds: 50_000_000)
         let entry = await table.entry(for: pid)
         if case .exited(let s) = entry?.state {
             #expect(s.code == 11)
