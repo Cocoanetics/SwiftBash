@@ -29,9 +29,26 @@ public struct DuCommand: ParsableBashCommand {
         var allFiles = false
         var maxDepth: Int? = nil
         var paths: [String] = []
+        // Expand combined short-flag bundles like `-sh` into
+        // `-s -h` before the main parse loop. Real `du` accepts
+        // both `du -sh path` and `du -s -h path`; without this
+        // pre-pass our exact-match per-token check failed on the
+        // combined form with `du: unknown option: -sh`.
+        let booleanShortFlags: Set<Character> = ["s", "a", "h", "b", "k", "m"]
+        let argv: [String] = rawArgv.flatMap { (token: String) -> [String] in
+            guard token.hasPrefix("-"),
+                  !token.hasPrefix("--"),
+                  token.count > 2
+            else { return [token] }
+            let chars = Array(token.dropFirst())
+            if chars.allSatisfy({ booleanShortFlags.contains($0) }) {
+                return chars.map { "-\($0)" }
+            }
+            return [token]
+        }
         var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
+        while i < argv.count {
+            let a = argv[i]
             if a == "--" {
                 i += 1
                 while i < rawArgv.count { paths.append(rawArgv[i]); i += 1 }

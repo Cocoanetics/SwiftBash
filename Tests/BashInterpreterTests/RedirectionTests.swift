@@ -153,10 +153,14 @@ import Foundation
 
     @Test func stdinFromMissingFileFails() async throws {
         let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        await #expect(throws: (any Error).self) {
-            try await cap.shell.run("cat < nope.txt")
-        }
-        _ = cap
+        // A failed `<file` redirect is a per-command failure now,
+        // not script-fatal — bash prints a `script: line N: file:
+        // No such file or directory` diagnostic and the simple
+        // command returns 1, letting the enclosing list continue.
+        let status = try await cap.shell.run("cat < nope.txt")
+        #expect(!status.isSuccess)
+        #expect(cap.stderr.contains("nope.txt"))
+        #expect(cap.stderr.contains("No such file or directory"))
     }
 
     // MARK: heredoc

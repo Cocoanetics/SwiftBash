@@ -12,13 +12,17 @@ import Foundation
 /// ```
 ///
 /// Out of scope for v1: `-r` reverse mode, `-p` plain mode, `-c COLS`,
-/// `-g GROUPSIZE`, `-s SEEK`, `-l LEN`. Defaults match macOS / vim
-/// `xxd`.
+/// `-g GROUPSIZE`, `-s SEEK`. `-l LEN` is now supported. Defaults match
+/// macOS / vim `xxd`.
 public struct XxdCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "xxd",
         abstract: "Hex dump (default 16-byte rows)."
     )
+
+    @Option(name: [.customShort("l"), .customLong("len")],
+            help: "Stop after dumping N bytes (decimal, or 0x… for hex).")
+    public var length: String?
 
     @Argument(help: "Input file. Reads stdin if empty.")
     public var input: String?
@@ -38,9 +42,26 @@ public struct XxdCommand: ParsableBashCommand {
             data = await Shell.bashCurrent.stdin.readAllData()
         }
 
+        // `-l N` truncates the input to the first N bytes before
+        // hex-dumping. Real xxd accepts decimal (`-l 64`), `0x`-
+        // prefixed hex (`-l 0x40`), or `0`-prefixed octal (`-l 0100`);
+        // we honour the common decimal and hex forms.
+        let truncated: Data
+        if let lengthString = length {
+            guard let limit = Self.parseLength(lengthString), limit >= 0 else {
+                Shell.bashCurrent.stderr(
+                    "xxd: invalid length: \(lengthString)\n")
+                return ExitStatus(2)
+            }
+            let safeLimit = min(limit, data.count)
+            truncated = data.prefix(safeLimit)
+        } else {
+            truncated = data
+        }
+
         let bytesPerRow = 16
         var offset = 0
-        let bytes = [UInt8](data)
+        let bytes = [UInt8](truncated)
         while offset < bytes.count {
             // Per-row check — for a 1 GiB hex dump (~67M rows) this
             // means cancellation lands within microseconds.
@@ -53,6 +74,24 @@ public struct XxdCommand: ParsableBashCommand {
             offset = end
         }
         return .success
+    }
+
+    /// Parse `-l N` argument: decimal (`64`), `0x`-prefixed hex
+    /// (`0x40`), or `0`-prefixed octal (`0100`). Returns nil for
+    /// anything else (negative numbers, garbage, overflow). Mirrors
+    /// the syntax real xxd accepts.
+    static func parseLength(_ s: String) -> Int? {
+        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.lowercased().hasPrefix("0x") {
+            return Int(trimmed.dropFirst(2), radix: 16)
+        }
+        if trimmed.hasPrefix("0"), trimmed.count > 1,
+           trimmed.dropFirst().allSatisfy({ $0.isNumber })
+        {
+            return Int(trimmed, radix: 8)
+        }
+        return Int(trimmed, radix: 10)
     }
 
     /// Render one xxd row. The hex column always has a fixed width so
