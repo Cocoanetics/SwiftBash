@@ -77,6 +77,18 @@ public struct BashCommand: Command {
                 case "u": modeFlags.nounset = true
                 case "x": modeFlags.xtrace = true
                 case "v": modeFlags.verbose = true
+                case "l", "i", "s":
+                    // -l (login shell): we always source `.profile` on
+                    // interpreter init, so the login-shell side effect
+                    // is already in place.
+                    // -i (force interactive): we're always interactive.
+                    // -s (read commands from stdin): the default when no
+                    // script path is given, which is what the loop
+                    // below already does.
+                    // Accept all three as no-ops so combos like
+                    // `bash -lc 'cmd'` work — the agent's bug report
+                    // called out `bash -lc` specifically.
+                    break
                 case "c":
                     // Anything in the same bundle after `c` is part
                     // of the CMD (real bash treats `-exc 'cmd'`

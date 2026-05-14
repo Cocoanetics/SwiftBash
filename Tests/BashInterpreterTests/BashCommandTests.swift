@@ -50,6 +50,23 @@ import Foundation
         #expect(cap.stderr.contains("requires an argument"))
     }
 
+    /// `-l` (login shell), `-i` (force interactive), `-s` (read from
+    /// stdin) are all accepted as no-ops so common combos like
+    /// `bash -lc 'cmd'` work. We always source `.profile`, we're
+    /// always interactive, and reading from stdin is the default
+    /// when no script path is given — there's no extra work to do.
+    @Test func dashLDashCRunsCommand() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run("bash -lc 'echo hi'")
+        #expect(cap.stdout == "hi\n")
+    }
+
+    @Test func dashIDashCRunsCommand() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run("bash -ic 'echo hi'")
+        #expect(cap.stdout == "hi\n")
+    }
+
     // MARK: bash FILE [args…]
 
     #if !os(Windows)

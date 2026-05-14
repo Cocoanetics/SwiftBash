@@ -117,7 +117,10 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
     /// Read host file metadata and force the result read-only. The
     /// host file's actual mode is irrelevant — the overlay layer
     /// rejects every mutation, so reporting `0o555` (read+execute,
-    /// no write) keeps the surface consistent with `ls -l`.
+    /// no write) keeps the surface consistent with `ls -l`. The +x
+    /// bit lets bash exec shebang-marked example scripts like
+    /// `/examples/swift/hello.swift` directly (the registered
+    /// shebang handlers then pick them up).
     private static func readOnlyMetadata(at url: URL,
                                          isDirectory: Bool) -> FileMetadata
     {
@@ -125,7 +128,7 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
             .attributesOfItem(atPath: url.path)) ?? [:]
         let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
         let modified = (attrs[.modificationDate] as? Date) ?? Date()
-        let mode: UInt16 = isDirectory ? 0o555 : 0o444
+        let mode: UInt16 = 0o555
         return FileMetadata(
             kind: isDirectory ? .directory : .file,
             size: size,
