@@ -47,10 +47,11 @@ public struct BcCommand: ParsableBashCommand {
         for file in files {
             do {
                 let data = try await Shell.bashCurrent.readDataAtPath(file)
-                guard let text = String(bytes: data, encoding: .utf8) else {
-                    Shell.bashCurrent.stderr("bc: \(file): invalid UTF-8\n")
-                    return .failure
-                }
+                // bc scripts may contain non-UTF-8 bytes (comments, embedded
+                // host data); match real `bc` and lossy-decode rather than
+                // bailing on the whole file before the parser sees it.
+                // swiftlint:disable:next optional_data_string_conversion
+                let text = String(decoding: data, as: UTF8.self)
                 if let exit = process(text, ctx: &ctx) {
                     return exit
                 }
