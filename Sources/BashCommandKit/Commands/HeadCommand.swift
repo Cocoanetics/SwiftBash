@@ -27,9 +27,10 @@ public struct HeadCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var lines: Int? = 10
-        var bytes: Int? = nil
+        var bytes: Int?
         // Negative limits ("-n -3") mean "all except the last K".
         var linesTrailing = false
         var bytesTrailing = false
@@ -37,61 +38,62 @@ public struct HeadCommand: ParsableBashCommand {
         var verbose = false
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { files.append(rawArgv[index]); index += 1 }
                 break
             }
-            if a == "-" {
-                files.append("-"); i += 1; continue
+            if arg == "-" {
+                files.append("-"); index += 1; continue
             }
-            if a == "-q" || a == "--quiet" || a == "--silent" {
-                quiet = true; i += 1; continue
+            if arg == "-q" || arg == "--quiet" || arg == "--silent" {
+                quiet = true; index += 1; continue
             }
-            if a == "-v" || a == "--verbose" {
-                verbose = true; i += 1; continue
+            if arg == "-v" || arg == "--verbose" {
+                verbose = true; index += 1; continue
             }
-            if a == "-n" || a == "--lines" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-n" || arg == "--lines" {
+                guard index + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("head: -n requires N\n"); return ExitStatus(2)
                 }
-                let (n, trailing) = try parseSignedCount(rawArgv[i + 1])
-                lines = n; linesTrailing = trailing; bytes = nil
-                i += 2; continue
+                let (count, trailing) = try parseSignedCount(rawArgv[index + 1])
+                lines = count; linesTrailing = trailing; bytes = nil
+                index += 2; continue
             }
-            if a.hasPrefix("--lines=") {
-                let (n, trailing) = try parseSignedCount(String(a.dropFirst("--lines=".count)))
-                lines = n; linesTrailing = trailing; bytes = nil
-                i += 1; continue
+            if arg.hasPrefix("--lines=") {
+                let (count, trailing) = try parseSignedCount(String(arg.dropFirst("--lines=".count)))
+                lines = count; linesTrailing = trailing; bytes = nil
+                index += 1; continue
             }
-            if a == "-c" || a == "--bytes" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-c" || arg == "--bytes" {
+                guard index + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("head: -c requires BYTES\n"); return ExitStatus(2)
                 }
-                let (n, trailing) = try parseSignedCount(rawArgv[i + 1])
-                bytes = n; bytesTrailing = trailing; lines = nil
-                i += 2; continue
+                let (count, trailing) = try parseSignedCount(rawArgv[index + 1])
+                bytes = count; bytesTrailing = trailing; lines = nil
+                index += 2; continue
             }
-            if a.hasPrefix("--bytes=") {
-                let (n, trailing) = try parseSignedCount(String(a.dropFirst("--bytes=".count)))
-                bytes = n; bytesTrailing = trailing; lines = nil
-                i += 1; continue
+            if arg.hasPrefix("--bytes=") {
+                let (count, trailing) = try parseSignedCount(String(arg.dropFirst("--bytes=".count)))
+                bytes = count; bytesTrailing = trailing; lines = nil
+                index += 1; continue
             }
             // -nN — historical "leading-digit" short form (e.g., -5).
-            if a.count > 1, a.hasPrefix("-"),
-               let firstDigit = a.dropFirst().first, firstDigit.isNumber || firstDigit == "+" || firstDigit == "-" {
-                let (n, trailing) = try parseSignedCount(String(a.dropFirst()))
-                lines = n; linesTrailing = trailing; bytes = nil
-                i += 1; continue
+            if arg.count > 1, arg.hasPrefix("-"),
+               let firstDigit = arg.dropFirst().first,
+               firstDigit.isNumber || firstDigit == "+" || firstDigit == "-" {
+                let (count, trailing) = try parseSignedCount(String(arg.dropFirst()))
+                lines = count; linesTrailing = trailing; bytes = nil
+                index += 1; continue
             }
-            if a.hasPrefix("-") && a != "-" {
-                Shell.bashCurrent.stderr("head: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg != "-" {
+                Shell.bashCurrent.stderr("head: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); index += 1
         }
 
         let useFiles = files.isEmpty ? ["-"] : files
@@ -99,20 +101,20 @@ public struct HeadCommand: ParsableBashCommand {
         let printHeaders = verbose || (multiple && !quiet)
 
         var hadError = false
-        for (idx, f) in useFiles.enumerated() {
+        for (idx, file) in useFiles.enumerated() {
             if printHeaders {
                 if idx > 0 { Shell.bashCurrent.stdout("\n") }
-                let label = (f == "-") ? "standard input" : f
+                let label = (file == "-") ? "standard input" : file
                 Shell.bashCurrent.stdout("==> \(label) <==\n")
             }
             do {
-                if let n = lines {
-                    try await emitLines(f, count: n, trailing: linesTrailing)
-                } else if let n = bytes {
-                    try await emitBytes(f, count: n, trailing: bytesTrailing)
+                if let count = lines {
+                    try await emitLines(file, count: count, trailing: linesTrailing)
+                } else if let count = bytes {
+                    try await emitBytes(file, count: count, trailing: bytesTrailing)
                 }
             } catch {
-                Shell.bashCurrent.stderr("head: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("head: \(file): \(error)\n")
                 hadError = true
             }
         }
@@ -121,15 +123,18 @@ public struct HeadCommand: ParsableBashCommand {
 
     /// Parse `N`, `-N`, `+N` for `-n` and `-c`. Returns `(count, trailing)`
     /// where `trailing` is true for the "all-but-last-K" form.
-    private func parseSignedCount(_ s: String) throws -> (Int, Bool) {
-        var rest = s
+    private func parseSignedCount(_ source: String) throws -> (Int, Bool) {
+        var rest = source
         var trailing = false
-        if rest.first == "-" { trailing = true; rest.removeFirst() }
-        else if rest.first == "+" { rest.removeFirst() }
-        guard let n = Int(rest) else {
-            throw ValidationError("head: invalid count: \(s)")
+        if rest.first == "-" {
+            trailing = true; rest.removeFirst()
+        } else if rest.first == "+" {
+            rest.removeFirst()
         }
-        return (n, trailing)
+        guard let count = Int(rest) else {
+            throw ValidationError("head: invalid count: \(source)")
+        }
+        return (count, trailing)
     }
 
     // MARK: Line mode
@@ -167,7 +172,7 @@ public struct HeadCommand: ParsableBashCommand {
         }
     }
 
-    private func forEachLine(path: String, 
+    private func forEachLine(path: String,
                              _ body: (String) throws -> Void) async throws {
         if path == "-" {
             for await line in Shell.bashCurrent.stdin.lines {

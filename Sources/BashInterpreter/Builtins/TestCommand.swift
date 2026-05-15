@@ -69,9 +69,9 @@ private struct TestExpressionParser {
     }
     private mutating func advance() -> String? {
         guard pos < tokens.count else { return nil }
-        let t = tokens[pos]
+        let token = tokens[pos]
         pos += 1
-        return t
+        return token
     }
     private var remaining: Int { tokens.count - pos }
 
@@ -131,21 +131,19 @@ private struct TestExpressionParser {
         // Otherwise the lone arg is "true if non-empty".
         if remaining >= 3,
            let mid = tokens[safe: pos + 1],
-           Self.binaryOps.contains(mid)
-        {
+           Self.binaryOps.contains(mid) {
             let lhs = advance()!
-            let op = advance()!
+            let operatorToken = advance()!
             let rhs = advance()!
             return try await evalBinary(
-                lhs: lhs, op: op, rhs: rhs)
+                lhs: lhs, op: operatorToken, rhs: rhs)
         }
         if remaining >= 2,
            let first = peek(),
-           Self.unaryOps.contains(first)
-        {
-            let op = advance()!
+           Self.unaryOps.contains(first) {
+            let operatorToken = advance()!
             let arg = advance()!
-            return try await evalUnary(op: op, arg: arg)
+            return try await evalUnary(op: operatorToken, arg: arg)
         }
         // Nullary: a single arg is "true if non-empty".
         guard let arg = advance() else {
@@ -168,26 +166,28 @@ private struct TestExpressionParser {
 
     // MARK: Unary evaluation
 
-    private func evalUnary(op: String, arg: String) async throws -> Bool
-    {
+    // Flat dispatch over the `test` unary operator table (`-e`, `-f`,
+    // `-d`, etc.); one case per operator.
+    // swiftlint:disable:next cyclomatic_complexity
+    private func evalUnary(op operatorToken: String, arg: String) async throws -> Bool {
         let path = Shell.bashCurrent.resolvePath(arg)
-        switch op {
+        switch operatorToken {
         case "-e":
             return (try? await Shell.bashCurrent.fileSystem.metadata(path)) ?? nil != nil
         case "-f":
-            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
-            return m?.kind == .file
+            let meta = try? await Shell.bashCurrent.fileSystem.metadata(path)
+            return meta?.kind == .file
         case "-d":
-            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
-            return m?.kind == .directory
+            let meta = try? await Shell.bashCurrent.fileSystem.metadata(path)
+            return meta?.kind == .directory
         case "-s":
-            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
-            return (m?.size ?? 0) > 0
+            let meta = try? await Shell.bashCurrent.fileSystem.metadata(path)
+            return (meta?.size ?? 0) > 0
         case "-r", "-w", "-x":
             // No permission model; report true iff the path exists.
             // RealFileSystem could be enhanced later via `access(2)`.
-            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
-            return m != nil
+            let meta = try? await Shell.bashCurrent.fileSystem.metadata(path)
+            return meta != nil
         case "-L", "-h":
             // We don't expose a separate symlink-stat from the FS yet;
             // metadata follows links. Conservatively report false.
@@ -213,15 +213,20 @@ private struct TestExpressionParser {
             // modelled; report false rather than fail.
             return false
         default:
-            throw TestError(message: "unknown unary operator: `\(op)'")
+            throw TestError(message: "unknown unary operator: `\(operatorToken)'")
         }
     }
 
     // MARK: Binary evaluation
 
-    private func evalBinary(lhs: String, op: String, rhs: String) async throws -> Bool
-    {
-        switch op {
+    // Flat dispatch over `test`'s binary operator table (string `=` /
+    // `<` / `>`, integer `-eq` / `-lt` / etc., file `-nt` / `-ot` /
+    // `-ef`); per-group helpers would lose the shared dispatch site.
+    // swiftlint:disable:next cyclomatic_complexity
+    private func evalBinary(lhs: String,
+                            op operatorToken: String,
+                            rhs: String) async throws -> Bool {
+        switch operatorToken {
         // String
         case "=", "==": return lhs == rhs
         case "!=":      return lhs != rhs
@@ -230,52 +235,52 @@ private struct TestExpressionParser {
 
         // Integer
         case "-eq", "-ne", "-lt", "-le", "-gt", "-ge":
-            guard let l = Int64(lhs.trimmingCharacters(in: .whitespaces)),
-                  let r = Int64(rhs.trimmingCharacters(in: .whitespaces))
+            guard let lhsNum = Int64(lhs.trimmingCharacters(in: .whitespaces)),
+                  let rhsNum = Int64(rhs.trimmingCharacters(in: .whitespaces))
             else {
                 throw TestError(message:
-                    "integer expression expected: `\(lhs)' \(op) `\(rhs)'")
+                    "integer expression expected: `\(lhs)' \(operatorToken) `\(rhs)'")
             }
-            switch op {
-            case "-eq": return l == r
-            case "-ne": return l != r
-            case "-lt": return l < r
-            case "-le": return l <= r
-            case "-gt": return l > r
-            case "-ge": return l >= r
+            switch operatorToken {
+            case "-eq": return lhsNum == rhsNum
+            case "-ne": return lhsNum != rhsNum
+            case "-lt": return lhsNum < rhsNum
+            case "-le": return lhsNum <= rhsNum
+            case "-gt": return lhsNum > rhsNum
+            case "-ge": return lhsNum >= rhsNum
             default: return false
             }
 
         // File mtime / identity comparison.
         case "-nt", "-ot", "-ef":
-            let lp = Shell.bashCurrent.resolvePath(lhs)
-            let rp = Shell.bashCurrent.resolvePath(rhs)
-            let lm = try? await Shell.bashCurrent.fileSystem.metadata(lp)
-            let rm = try? await Shell.bashCurrent.fileSystem.metadata(rp)
-            switch op {
+            let lhsPath = Shell.bashCurrent.resolvePath(lhs)
+            let rhsPath = Shell.bashCurrent.resolvePath(rhs)
+            let lhsMeta = try? await Shell.bashCurrent.fileSystem.metadata(lhsPath)
+            let rhsMeta = try? await Shell.bashCurrent.fileSystem.metadata(rhsPath)
+            switch operatorToken {
             case "-nt":
                 // True if `lhs` exists and either rhs is missing or
                 // lhs is newer.
-                guard let l = lm else { return false }
-                guard let r = rm else { return true }
-                return l.modifiedAt > r.modifiedAt
+                guard let lhsM = lhsMeta else { return false }
+                guard let rhsM = rhsMeta else { return true }
+                return lhsM.modifiedAt > rhsM.modifiedAt
             case "-ot":
-                guard let r = rm else { return false }
-                guard let l = lm else { return true }
-                return l.modifiedAt < r.modifiedAt
+                guard let rhsM = rhsMeta else { return false }
+                guard let lhsM = lhsMeta else { return true }
+                return lhsM.modifiedAt < rhsM.modifiedAt
             case "-ef":
                 // Same file: compare canonicalised paths. Without
                 // device/inode info this is the closest we can get.
-                let lc = try? await Shell.bashCurrent.fileSystem.canonicalize(
-                    lp, allowMissing: false)
-                let rc = try? await Shell.bashCurrent.fileSystem.canonicalize(
-                    rp, allowMissing: false)
-                return lc != nil && lc == rc
+                let lhsCanon = try? await Shell.bashCurrent.fileSystem.canonicalize(
+                    lhsPath, allowMissing: false)
+                let rhsCanon = try? await Shell.bashCurrent.fileSystem.canonicalize(
+                    rhsPath, allowMissing: false)
+                return lhsCanon != nil && lhsCanon == rhsCanon
             default: return false
             }
 
         default:
-            throw TestError(message: "unknown binary operator: `\(op)'")
+            throw TestError(message: "unknown binary operator: `\(operatorToken)'")
         }
     }
 }

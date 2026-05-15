@@ -6,9 +6,9 @@ import Foundation
 /// (Linux/macOS: `/tmp`, Android: `/data/local/tmp`). Used by `cd`
 /// flag tests where the real assertion is the flag-parsing behaviour.
 #if os(Android)
-fileprivate let unixTmpDir = "/data/local/tmp"
+private let unixTmpDir = "/data/local/tmp"
 #else
-fileprivate let unixTmpDir = "/tmp"
+private let unixTmpDir = "/tmp"
 #endif
 
 @Suite(.timeLimit(.minutes(1))) struct CwdFlagTests {
@@ -179,12 +179,12 @@ fileprivate let unixTmpDir = "/tmp"
             atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
-        let fs = try SandboxedOverlayFileSystem(.init(
+        let fileSystem = try SandboxedOverlayFileSystem(.init(
             root: dir, mountPoint: "/batch"))
         var env = Environment.synthetic(workingDirectory: "/batch")
         env["HOME"] = "/batch"
         let cap = CapturingShell(environment: env)
-        cap.shell.fileSystem = fs
+        cap.shell.fileSystem = fileSystem
 
         try await cap.shell.run(#"""
             cd /

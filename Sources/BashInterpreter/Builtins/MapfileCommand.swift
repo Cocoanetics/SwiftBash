@@ -18,6 +18,7 @@ public struct MapfileCommand: Command {
     public let name: String
     public init(name: String = "mapfile") { self.name = name }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var stripNewline = false
         var maxCount = 0
@@ -25,43 +26,44 @@ public struct MapfileCommand: Command {
         var origin = 0
         var arrayName = "MAPFILE"
 
-        var i = 1
-        while i < argv.count {
-            let a = argv[i]
-            if a == "--" { i += 1; break }
-            if a == "-t" { stripNewline = true; i += 1; continue }
-            if a == "-n" || a == "-c" {
-                guard i + 1 < argv.count, let n = Int(argv[i + 1]) else {
-                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(a)\n")
+        var index = 1
+        while index < argv.count {
+            let arg = argv[index]
+            if arg == "--" { index += 1; break }
+            if arg == "-t" { stripNewline = true; index += 1; continue }
+            if arg == "-n" || arg == "-c" {
+                guard index + 1 < argv.count, let value = Int(argv[index + 1]) else {
+                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                maxCount = n; i += 2; continue
+                maxCount = value; index += 2; continue
             }
-            if a == "-s" {
-                guard i + 1 < argv.count, let n = Int(argv[i + 1]) else {
-                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(a)\n")
+            if arg == "-s" {
+                guard index + 1 < argv.count, let value = Int(argv[index + 1]) else {
+                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                skip = n; i += 2; continue
+                skip = value; index += 2; continue
             }
-            if a == "-O" {
-                guard i + 1 < argv.count, let n = Int(argv[i + 1]) else {
-                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(a)\n")
+            if arg == "-O" {
+                guard index + 1 < argv.count, let value = Int(argv[index + 1]) else {
+                    Shell.bashCurrent.stderr("\(name): option requires a numeric argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                origin = n; i += 2; continue
+                origin = value; index += 2; continue
             }
-            if a.hasPrefix("-"), a.count > 1 {
-                Shell.bashCurrent.stderr("\(name): invalid option: \(a)\n")
+            if arg.hasPrefix("-"), arg.count > 1 {
+                Shell.bashCurrent.stderr("\(name): invalid option: \(arg)\n")
                 return ExitStatus(2)
             }
-            arrayName = a; i += 1
+            arrayName = arg; index += 1
         }
-        if i < argv.count { arrayName = argv[i] }
+        if index < argv.count { arrayName = argv[index] }
 
         // Drain the entire stream into one buffer first so we can split
         // it by newline. mapfile is a "consume all of stdin" operation.
         let data = await Shell.bashCurrent.stdin.readAllData()
+        // swiftlint:disable:next optional_data_string_conversion - mapfile may receive partial UTF-8
         let text = String(decoding: data, as: UTF8.self)
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
                         .map(String.init)

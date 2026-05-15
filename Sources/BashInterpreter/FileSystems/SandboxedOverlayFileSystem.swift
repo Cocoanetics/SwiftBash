@@ -12,36 +12,37 @@ import Glibc
 import WinSDK
 #endif
 
-/// A copy-on-write ``FileSystem`` that confines a script to a single
-/// host directory plus an in-memory ``/tmp`` scratch space.
-///
-/// Reads fall through to the real filesystem under ``Options/root``;
-/// writes are captured in an in-memory layer and never touch disk.
-/// Anything outside the configured mount point — including the host's
-/// real `/etc`, `/Users`, `/private` — reports `ENOENT`.
-///
-/// ```swift
-/// let fs = try SandboxedOverlayFileSystem(.init(
-///     root: NSHomeDirectory() + "/Documents",
-///     mountPoint: "/batch"))
-/// var env = Environment.empty()
-/// env.workingDirectory = "/batch"
-/// let shell = Shell(environment: env, fileSystem: fs)
-/// ```
-///
-/// Security model (mirrors the just-bash overlay):
-/// - **Path confinement** — every host path passes through ``realpath(3)``
-///   and is rejected if it escapes the canonical root.
-/// - **Symlink guard** — when ``Options/allowSymlinks`` is `false`
-///   (default), any host-side symlink causes the path to report as
-///   missing. Detection compares the unresolved-vs-canonical relative
-///   prefix and also `lstat`s the leaf to catch broken-symlink swaps.
-/// - **TOCTOU closure** — the canonical path returned by `realpath` is
-///   reused for every subsequent syscall, so a swap between validation
-///   and use cannot redirect I/O.
-/// - **Error sanitization** — every thrown `FileSystemError` references
-///   the *virtual* path the caller supplied. Host paths are never
-///   leaked, including in `NSError.localizedDescription`.
+// A copy-on-write ``FileSystem`` that confines a script to a single
+// host directory plus an in-memory ``/tmp`` scratch space.
+//
+// Reads fall through to the real filesystem under ``Options/root``;
+// writes are captured in an in-memory layer and never touch disk.
+// Anything outside the configured mount point — including the host's
+// real `/etc`, `/Users`, `/private` — reports `ENOENT`.
+//
+// ```swift
+// let fs = try SandboxedOverlayFileSystem(.init(
+//     root: NSHomeDirectory() + "/Documents",
+//     mountPoint: "/batch"))
+// var env = Environment.empty()
+// env.workingDirectory = "/batch"
+// let shell = Shell(environment: env, fileSystem: fs)
+// ```
+//
+// Security model (mirrors the just-bash overlay):
+// - **Path confinement** — every host path passes through ``realpath(3)``
+//   and is rejected if it escapes the canonical root.
+// - **Symlink guard** — when ``Options/allowSymlinks`` is `false`
+//   (default), any host-side symlink causes the path to report as
+//   missing. Detection compares the unresolved-vs-canonical relative
+//   prefix and also `lstat`s the leaf to catch broken-symlink swaps.
+// - **TOCTOU closure** — the canonical path returned by `realpath` is
+//   reused for every subsequent syscall, so a swap between validation
+//   and use cannot redirect I/O.
+// - Error sanitization: every thrown FileSystemError references
+//   the virtual path the caller supplied. Host paths are never
+//   leaked, including in NSError.localizedDescription.
+// swiftlint:disable:next type_body_length - sandbox class is cohesive
 public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
 
     // MARK: Options
@@ -93,8 +94,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         var mtime: Date
         var xattrs: [String: Data]
         init(kind: MemKind, mode: UInt16, mtime: Date = Date(),
-             uid: UInt32 = 1000, gid: UInt32 = 1000)
-        {
+             uid: UInt32 = 1000, gid: UInt32 = 1000) {
             self.kind = kind
             self.mode = mode
             // Default owner matches `HostInfo.synthetic`. Never call
@@ -140,13 +140,13 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         guard options.mountPoint.hasPrefix("/") else {
             throw FileSystemError.io("mount point must be absolute")
         }
-        var mp = options.mountPoint
-        while mp.count > 1 && mp.hasSuffix("/") { mp.removeLast() }
-        if mp == "/" {
+        var mountPath = options.mountPoint
+        while mountPath.count > 1 && mountPath.hasSuffix("/") { mountPath.removeLast() }
+        if mountPath == "/" {
             throw FileSystemError.io(
                 "mount point must not be / (use a sub-path like /batch)")
         }
-        self.mountPoint = mp
+        self.mountPoint = mountPath
 
         seedDirectories()
     }
@@ -181,6 +181,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func list(_ path: String) async throws -> [FileEntry] {
         let normalized = try Self.normalizePath(path)
         let names: [String] = try lock.withLock {
@@ -206,8 +207,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
             if let canonical = resolveRealPath(forVirtual: normalized) {
                 exists = true
                 if let real = try? FileManager.default
-                    .contentsOfDirectory(atPath: canonical)
-                {
+                    .contentsOfDirectory(atPath: canonical) {
                     let childPrefix = normalized == "/"
                         ? "/" : normalized + "/"
                     for name in real {
@@ -288,7 +288,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
             }
             if let mem = memory[normalized] {
                 switch mem.kind {
-                case .file(let d): return d
+                case .file(let data): return data
                 case .directory:
                     throw fsError(.isADirectory, virtualPath: path)
                 case .symlink:
@@ -298,15 +298,14 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
             guard let canonical = resolveRealPath(forVirtual: normalized)
             else { throw fsError(.notFound, virtualPath: path) }
             // Reject directories explicitly to mirror POSIX `read(2)` on dirs.
-            if let st = lstatStruct(canonical), st.isDirectory {
+            if let stat = lstatStruct(canonical), stat.isDirectory {
                 throw fsError(.isADirectory, virtualPath: path)
             }
             // Bound the read.
             if options.maxFileReadSize > 0,
-               let st = lstatStruct(canonical),
-               st.size > options.maxFileReadSize
-            {
-                throw fsError(.io("file too large"), virtualPath: path)
+               let stat = lstatStruct(canonical),
+               stat.size > options.maxFileReadSize {
+                throw fsError(.ioError("file too large"), virtualPath: path)
             }
             return try readConfined(canonical: canonical, virtualPath: path)
         }
@@ -316,24 +315,22 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     /// swap when symlinks are disabled. POSIX uses `O_NOFOLLOW`;
     /// Windows checks for `FILE_ATTRIBUTE_REPARSE_POINT` instead.
     private func readConfined(canonical: String,
-                              virtualPath: String) throws -> Data
-    {
+                              virtualPath: String) throws -> Data {
         #if os(Windows)
         if !options.allowSymlinks {
-            let attrs = canonical.withCString(encodedAs: UTF16.self) { wp in
-                GetFileAttributesW(wp)
+            let attrs = canonical.withCString(encodedAs: UTF16.self) { widePath in
+                GetFileAttributesW(widePath)
             }
             if attrs != INVALID_FILE_ATTRIBUTES,
-               (attrs & DWORD(FILE_ATTRIBUTE_REPARSE_POINT)) != 0
-            {
+               (attrs & DWORD(FILE_ATTRIBUTE_REPARSE_POINT)) != 0 {
                 throw fsError(.notFound, virtualPath: virtualPath)
             }
         }
         do {
             return try Data(contentsOf: URL(fileURLWithPath: canonical))
-        } catch let e as NSError where e.code == NSFileReadNoSuchFileError {
+        } catch let nsErr as NSError where nsErr.code == NSFileReadNoSuchFileError {
             throw fsError(.notFound, virtualPath: virtualPath)
-        } catch let e as NSError where e.code == NSFileReadNoPermissionError {
+        } catch let nsErr as NSError where nsErr.code == NSFileReadNoPermissionError {
             throw fsError(.permissionDenied, virtualPath: virtualPath)
         } catch {
             throw fsError(.notFound, virtualPath: virtualPath)
@@ -342,39 +339,35 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         // O_NOFOLLOW guards against a symlink swap between resolve
         // and open when symlinks are disabled.
         let flags = options.allowSymlinks ? O_RDONLY : (O_RDONLY | O_NOFOLLOW)
-        let fd = canonical.withCString { open($0, flags) }
-        if fd < 0 { throw fsError(.notFound, virtualPath: virtualPath) }
-        defer { close(fd) }
-        return readAll(fd: fd)
+        let fileDesc = canonical.withCString { open($0, flags) }
+        if fileDesc < 0 { throw fsError(.notFound, virtualPath: virtualPath) }
+        defer { close(fileDesc) }
+        return readAll(fd: fileDesc)
         #endif
     }
 
     // MARK: FileSystem — write
 
     public func writeData(_ data: Data, to path: String,
-                          append: Bool) async throws
-    {
+                          append: Bool) async throws {
         let normalized = try Self.normalizePath(path)
         try lock.withLock {
             try assertWritable(virtualPath: path)
             try ensureParentExists(of: normalized, virtualPath: path)
             // Rejecting directory overwrite.
             if let mem = memory[normalized],
-               case .directory = mem.kind
-            {
+               case .directory = mem.kind {
                 throw fsError(.isADirectory, virtualPath: path)
             }
             var combined = Data()
             if append {
                 if let mem = memory[normalized],
-                   case .file(let existing) = mem.kind
-                {
+                   case .file(let existing) = mem.kind {
                     combined = existing
                 } else if !deleted.contains(normalized),
                           let canonical = resolveRealPath(forVirtual: normalized),
                           let host = try? Data(contentsOf:
-                            URL(fileURLWithPath: canonical))
-                {
+                            URL(fileURLWithPath: canonical)) {
                     combined = host
                 }
             }
@@ -395,8 +388,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
                 return
             }
             if !deleted.contains(normalized),
-               let canonical = resolveRealPath(forVirtual: normalized)
-            {
+               let canonical = resolveRealPath(forVirtual: normalized) {
                 // Promote the host file into memory (with current contents)
                 // so we can update mtime without writing to disk.
                 let data = (try? Data(contentsOf:
@@ -413,8 +405,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     // MARK: FileSystem — directories
 
     public func createDirectory(_ path: String,
-                                intermediates: Bool) async throws
-    {
+                                intermediates: Bool) async throws {
         let normalized = try Self.normalizePath(path)
         try lock.withLock {
             try assertWritable(virtualPath: path)
@@ -435,20 +426,17 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func createDirectoryChain(_ path: String,
-                                      virtualPath: String) throws
-    {
+                                      virtualPath: String) throws {
         var current = ""
         for part in path.split(separator: "/") {
             current += "/\(part)"
             if existsLocked(current) {
                 if let mem = memory[current],
-                   case .directory = mem.kind
-                {
+                   case .directory = mem.kind {
                     continue
                 }
                 if let canonical = resolveRealPath(forVirtual: current),
-                   let st = lstatStruct(canonical), st.isDirectory
-                {
+                   let stat = lstatStruct(canonical), stat.isDirectory {
                     continue
                 }
                 throw fsError(.notADirectory, virtualPath: virtualPath)
@@ -491,8 +479,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
 
     private func removeLocked(_ normalized: String,
                               virtualPath: String,
-                              recursive: Bool) throws
-    {
+                              recursive: Bool) throws {
         // Remove from memory; if the path also exists on host, plant a
         // tombstone so subsequent reads see it as gone.
         memory.removeValue(forKey: normalized)
@@ -501,59 +488,59 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         }
     }
 
-    public func move(from: String, to: String) async throws {
-        let src = try Self.normalizePath(from)
-        let dst = try Self.normalizePath(to)
+    public func move(from source: String, to destination: String) async throws {
+        let src = try Self.normalizePath(source)
+        let dst = try Self.normalizePath(destination)
         try lock.withLock {
-            try assertWritable(virtualPath: to)
+            try assertWritable(virtualPath: destination)
             guard existsLocked(src) else {
-                throw fsError(.notFound, virtualPath: from)
+                throw fsError(.notFound, virtualPath: source)
             }
             if existsLocked(dst) {
-                throw fsError(.alreadyExists, virtualPath: to)
+                throw fsError(.alreadyExists, virtualPath: destination)
             }
-            try ensureParentExists(of: dst, virtualPath: to)
-            try copyLocked(src: src, srcVirtual: from,
-                           dst: dst, dstVirtual: to)
-            try removeLocked(src, virtualPath: from, recursive: true)
+            try ensureParentExists(of: dst, virtualPath: destination)
+            try copyLocked(src: src, srcVirtual: source,
+                           dst: dst, dstVirtual: destination)
+            try removeLocked(src, virtualPath: source, recursive: true)
         }
     }
 
-    public func copy(from: String, to: String) async throws {
-        let src = try Self.normalizePath(from)
-        let dst = try Self.normalizePath(to)
+    public func copy(from source: String, to destination: String) async throws {
+        let src = try Self.normalizePath(source)
+        let dst = try Self.normalizePath(destination)
         try lock.withLock {
-            try assertWritable(virtualPath: to)
+            try assertWritable(virtualPath: destination)
             guard existsLocked(src) else {
-                throw fsError(.notFound, virtualPath: from)
+                throw fsError(.notFound, virtualPath: source)
             }
             if existsLocked(dst) {
-                throw fsError(.alreadyExists, virtualPath: to)
+                throw fsError(.alreadyExists, virtualPath: destination)
             }
-            try ensureParentExists(of: dst, virtualPath: to)
-            try copyLocked(src: src, srcVirtual: from,
-                           dst: dst, dstVirtual: to)
+            try ensureParentExists(of: dst, virtualPath: destination)
+            try copyLocked(src: src, srcVirtual: source,
+                           dst: dst, dstVirtual: destination)
         }
     }
 
     private func copyLocked(src: String, srcVirtual: String,
-                            dst: String, dstVirtual: String) throws
-    {
+                            dst: String, dstVirtual: String) throws {
         if isDirectoryLocked(src) {
             memory[dst] = MemEntry(kind: .directory, mode: 0o755)
             deleted.remove(dst)
             let children = try listLocked(src, virtualPath: srcVirtual)
             for child in children {
-                let s = src == "/" ? "/\(child)" : "\(src)/\(child)"
-                let d = dst == "/" ? "/\(child)" : "\(dst)/\(child)"
-                try copyLocked(src: s, srcVirtual: s, dst: d, dstVirtual: d)
+                let srcChild = src == "/" ? "/\(child)" : "\(src)/\(child)"
+                let dstChild = dst == "/" ? "/\(child)" : "\(dst)/\(child)"
+                try copyLocked(src: srcChild, srcVirtual: srcChild,
+                               dst: dstChild, dstVirtual: dstChild)
             }
             return
         }
         // File copy: read through (memory or host) then plant in memory.
         let data: Data
-        if let mem = memory[src], case .file(let d) = mem.kind {
-            data = d
+        if let mem = memory[src], case .file(let fileData) = mem.kind {
+            data = fileData
         } else if let canonical = resolveRealPath(forVirtual: src) {
             data = (try? Data(contentsOf: URL(fileURLWithPath: canonical)))
                    ?? Data()
@@ -586,8 +573,8 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         try lock.withLock {
             try assertWritable(virtualPath: path)
             try promoteToMemoryIfNeeded(normalized, virtualPath: path)
-            if let u = uid { memory[normalized]?.uid = u }
-            if let g = gid { memory[normalized]?.gid = g }
+            if let newUID = uid { memory[normalized]?.uid = newUID }
+            if let newGID = gid { memory[normalized]?.gid = newGID }
         }
     }
 
@@ -627,11 +614,11 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         let normalized = try Self.normalizePath(path)
         return try lock.withLock {
             try promoteToMemoryIfNeeded(normalized, virtualPath: path)
-            guard let v = memory[normalized]?.xattrs[name] else {
-                throw fsError(.io("no such xattr: \(name)"),
+            guard let value = memory[normalized]?.xattrs[name] else {
+                throw fsError(.ioError("no such xattr: \(name)"),
                               virtualPath: path)
             }
-            return v
+            return value
         }
     }
 
@@ -662,8 +649,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func ensureParentExists(of normalized: String,
-                                    virtualPath: String) throws
-    {
+                                    virtualPath: String) throws {
         guard normalized != "/" else { return }
         let parent = (normalized as NSString).deletingLastPathComponent
         let parentClean = parent.isEmpty ? "/" : parent
@@ -676,8 +662,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func promoteToMemoryIfNeeded(_ normalized: String,
-                                         virtualPath: String) throws
-    {
+                                         virtualPath: String) throws {
         if memory[normalized] != nil { return }
         if deleted.contains(normalized) {
             throw fsError(.notFound, virtualPath: virtualPath)
@@ -685,18 +670,18 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         guard let canonical = resolveRealPath(forVirtual: normalized) else {
             throw fsError(.notFound, virtualPath: virtualPath)
         }
-        guard let st = lstatStruct(canonical) else {
+        guard let stat = lstatStruct(canonical) else {
             throw fsError(.notFound, virtualPath: virtualPath)
         }
         let kind: MemKind
-        if st.isDirectory {
+        if stat.isDirectory {
             kind = .directory
         } else {
             let data = (try? Data(contentsOf:
                 URL(fileURLWithPath: canonical))) ?? Data()
             kind = .file(data)
         }
-        memory[normalized] = MemEntry(kind: kind, mode: st.mode)
+        memory[normalized] = MemEntry(kind: kind, mode: stat.mode)
     }
 
     // MARK: Internals — existence (lock held)
@@ -713,20 +698,18 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
             return false
         }
         guard let canonical = resolveRealPath(forVirtual: normalized),
-              let st = lstatStruct(canonical)
+              let stat = lstatStruct(canonical)
         else { return false }
-        return st.isDirectory
+        return stat.isDirectory
     }
 
     private func listLocked(_ normalized: String,
-                            virtualPath: String) throws -> [String]
-    {
+                            virtualPath: String) throws -> [String] {
         var entries: Set<String> = []
         if let canonical = resolveRealPath(forVirtual: normalized),
            let real = try? FileManager.default
-            .contentsOfDirectory(atPath: canonical)
-        {
-            for n in real { entries.insert(n) }
+            .contentsOfDirectory(atPath: canonical) {
+            for name in real { entries.insert(name) }
         }
         let prefix = normalized == "/" ? "/" : normalized + "/"
         for memPath in memory.keys {
@@ -787,7 +770,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
             let relUnresolved = String(realPath.dropFirst(root.count))
             let relCanon = String(canon.dropFirst(canonicalRoot.count))
             if relUnresolved != relCanon { return nil }
-            if let st = lstatStruct(realPath), st.isSymlink {
+            if let stat = lstatStruct(realPath), stat.isSymlink {
                 return nil
             }
         }
@@ -798,9 +781,9 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
 
     private static func toMetadata(_ entry: MemEntry) -> FileMetadata {
         switch entry.kind {
-        case .file(let d):
+        case .file(let data):
             return FileMetadata(kind: .file,
-                                size: Int64(d.count),
+                                size: Int64(data.count),
                                 modifiedAt: entry.mtime,
                                 mode: entry.mode,
                                 uid: entry.uid,
@@ -812,11 +795,11 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
                                 mode: entry.mode,
                                 uid: entry.uid,
                                 gid: entry.gid)
-        case .symlink(let t):
+        case .symlink(let target):
             return FileMetadata(kind: .symlink,
-                                size: Int64(t.utf8.count),
+                                size: Int64(target.utf8.count),
                                 modifiedAt: entry.mtime,
-                                symlinkTarget: t,
+                                symlinkTarget: target,
                                 mode: entry.mode,
                                 uid: entry.uid,
                                 gid: entry.gid)
@@ -831,11 +814,11 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         #if os(Windows)
         return RealFileSystem.windowsMetadata(canonical)
         #else
-        var st = stat()
-        guard canonical.withCString({ fstatat(AT_FDCWD, $0, &st, 0) }) == 0
+        var statBuf = stat()
+        guard canonical.withCString({ fstatat(AT_FDCWD, $0, &statBuf, 0) }) == 0
         else { return nil }
         let kind: FileMetadata.Kind
-        switch st.st_mode & S_IFMT {
+        switch statBuf.st_mode & S_IFMT {
         case S_IFDIR: kind = .directory
         case S_IFREG: kind = .file
         case S_IFLNK: kind = .symlink
@@ -844,18 +827,18 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         // Linux's `struct stat` spells the timespec field `st_mtim`
         // (no `spec` suffix); Darwin uses `st_mtimespec`. Equivalent.
         #if canImport(Darwin)
-        let mtimeSec = TimeInterval(st.st_mtimespec.tv_sec)
+        let mtimeSec = TimeInterval(statBuf.st_mtimespec.tv_sec)
         #else
-        let mtimeSec = TimeInterval(st.st_mtim.tv_sec)
+        let mtimeSec = TimeInterval(statBuf.st_mtim.tv_sec)
         #endif
         return FileMetadata(
             kind: kind,
-            size: Int64(st.st_size),
+            size: Int64(statBuf.st_size),
             modifiedAt: Date(timeIntervalSince1970: mtimeSec),
-            mode: UInt16(st.st_mode & 0o7777),
-            uid: UInt32(st.st_uid),
-            gid: UInt32(st.st_gid),
-            linkCount: Int(st.st_nlink))
+            mode: UInt16(statBuf.st_mode & 0o7777),
+            uid: UInt32(statBuf.st_uid),
+            gid: UInt32(statBuf.st_gid),
+            linkCount: Int(statBuf.st_nlink))
         #endif
     }
 
@@ -864,7 +847,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     private enum ErrorKind {
         case notFound, notADirectory, isADirectory
         case alreadyExists, permissionDenied
-        case io(String)
+        case ioError(String)
     }
 
     /// Build a ``FileSystemError`` using the *virtual* path the caller
@@ -878,7 +861,7 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         case .isADirectory:     return .isADirectory(virtualPath)
         case .alreadyExists:    return .alreadyExists(virtualPath)
         case .permissionDenied: return .permissionDenied(virtualPath)
-        case .io(let msg):      return .io("\(msg): \(virtualPath)")
+        case .ioError(let msg): return .io("\(msg): \(virtualPath)")
         }
     }
 
@@ -911,8 +894,8 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
     /// Returns `nil` on failure (typically `ENOENT`).
     static func realpath(_ path: String) -> String? {
         #if os(Windows)
-        let handle = path.withCString(encodedAs: UTF16.self) { wp in
-            CreateFileW(wp,
+        let handle = path.withCString(encodedAs: UTF16.self) { widePath in
+            CreateFileW(widePath,
                         0,
                         DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE),
                         nil,
@@ -923,11 +906,11 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         if handle == INVALID_HANDLE_VALUE { return nil }
         defer { CloseHandle(handle) }
         var buf = [WCHAR](repeating: 0, count: 32768)
-        let n = buf.withUnsafeMutableBufferPointer { bp in
-            GetFinalPathNameByHandleW(handle, bp.baseAddress, DWORD(bp.count), 0)
+        let count = buf.withUnsafeMutableBufferPointer { bufPtr in
+            GetFinalPathNameByHandleW(handle, bufPtr.baseAddress, DWORD(bufPtr.count), 0)
         }
-        if n == 0 || Int(n) >= buf.count { return nil }
-        let str = String(decoding: buf.prefix(Int(n)), as: UTF16.self)
+        if count == 0 || Int(count) >= buf.count { return nil }
+        let str = String(decoding: buf.prefix(Int(count)), as: UTF16.self)
         // Strip the `\\?\` prefix and normalize to forward slashes so
         // the rest of the sandbox's path math (which assumes `/`) works.
         var stripped = str
@@ -937,24 +920,25 @@ public final class SandboxedOverlayFileSystem: FileSystem, @unchecked Sendable {
         return stripped.replacingOccurrences(of: #"\"#, with: "/")
         #else
         var buf = [Int8](repeating: 0, count: Int(PATH_MAX))
-        let ok = path.withCString { p -> Bool in
-            buf.withUnsafeMutableBufferPointer { bp in
+        let success = path.withCString { cString -> Bool in
+            buf.withUnsafeMutableBufferPointer { bufPtr in
                 // POSIX realpath: was `Darwin.realpath` (Darwin
                 // qualifier doesn't compile on Linux). Unqualified
                 // resolves through whichever libc was imported.
                 #if canImport(Darwin)
-                return Darwin.realpath(p, bp.baseAddress) != nil
+                return Darwin.realpath(cString, bufPtr.baseAddress) != nil
                 #elseif canImport(Android)
-                return Android.realpath(p, bp.baseAddress) != nil
+                return Android.realpath(cString, bufPtr.baseAddress) != nil
                 #elseif canImport(Bionic)
-                return Bionic.realpath(p, bp.baseAddress) != nil
+                return Bionic.realpath(cString, bufPtr.baseAddress) != nil
                 #else
-                return Glibc.realpath(p, bp.baseAddress) != nil
+                return Glibc.realpath(cString, bufPtr.baseAddress) != nil
                 #endif
             }
         }
-        if !ok { return nil }
+        if !success { return nil }
         let bytes = buf.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        // swiftlint:disable:next optional_data_string_conversion - realpath bytes are host-encoded
         return String(decoding: bytes, as: UTF8.self)
         #endif
     }
@@ -985,10 +969,10 @@ struct LStatInfo {
 private func lstatStruct(_ path: String) -> LStatInfo? {
     #if os(Windows)
     var basic = WIN32_FILE_ATTRIBUTE_DATA()
-    let ok = path.withCString(encodedAs: UTF16.self) { wp -> Bool in
-        GetFileAttributesExW(wp, GetFileExInfoStandard, &basic)
+    let success = path.withCString(encodedAs: UTF16.self) { widePath -> Bool in
+        GetFileAttributesExW(widePath, GetFileExInfoStandard, &basic)
     }
-    if !ok { return nil }
+    if !success { return nil }
     let attrs = basic.dwFileAttributes
     let isDir = (attrs & DWORD(FILE_ATTRIBUTE_DIRECTORY)) != 0
     let isSym = (attrs & DWORD(FILE_ATTRIBUTE_REPARSE_POINT)) != 0
@@ -1013,38 +997,39 @@ private func lstatStruct(_ path: String) -> LStatInfo? {
                      linkCount: 1,
                      mtime: mtime)
     #else
-    var st = stat()
-    let r = path.withCString { lstat($0, &st) }
-    if r != 0 { return nil }
-    let kind = st.st_mode & S_IFMT
+    var statBuf = stat()
+    let result = path.withCString { lstat($0, &statBuf) }
+    if result != 0 { return nil }
+    let kind = statBuf.st_mode & S_IFMT
     #if canImport(Darwin)
-    let mtimeSec = TimeInterval(st.st_mtimespec.tv_sec)
+    let mtimeSec = TimeInterval(statBuf.st_mtimespec.tv_sec)
     #else
-    let mtimeSec = TimeInterval(st.st_mtim.tv_sec)
+    let mtimeSec = TimeInterval(statBuf.st_mtim.tv_sec)
     #endif
     return LStatInfo(
         isDirectory: kind == S_IFDIR,
         isSymlink: kind == S_IFLNK,
-        size: Int64(st.st_size),
-        mode: UInt16(st.st_mode & 0o7777),
-        uid: UInt32(st.st_uid),
-        gid: UInt32(st.st_gid),
-        linkCount: Int(st.st_nlink),
+        size: Int64(statBuf.st_size),
+        mode: UInt16(statBuf.st_mode & 0o7777),
+        uid: UInt32(statBuf.st_uid),
+        gid: UInt32(statBuf.st_gid),
+        linkCount: Int(statBuf.st_nlink),
         mtime: Date(timeIntervalSince1970: mtimeSec))
     #endif
 }
 
 #if !os(Windows)
-private func readAll(fd: Int32) -> Data {
+private func readAll(fd fileDesc: Int32) -> Data {
     var data = Data()
     var buf = [UInt8](repeating: 0, count: 64 * 1024)
     while true {
-        let n = buf.withUnsafeMutableBufferPointer { bp in
-            read(fd, bp.baseAddress, bp.count)
+        let count = buf.withUnsafeMutableBufferPointer { bufPtr in
+            read(fileDesc, bufPtr.baseAddress, bufPtr.count)
         }
-        if n <= 0 { break }
-        data.append(buf, count: n)
+        if count <= 0 { break }
+        data.append(buf, count: count)
     }
     return data
 }
+// swiftlint:disable:next file_length - sandbox FS plus portable lstat shim in one file
 #endif

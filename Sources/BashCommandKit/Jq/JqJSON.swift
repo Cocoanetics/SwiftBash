@@ -19,12 +19,12 @@ public enum JqJSON {
     public static func parse(_ source: String) throws -> JqValue {
         var parser = Parser(source: source)
         parser.skipWhitespace()
-        let v = try parser.parseValue()
+        let value = try parser.parseValue()
         parser.skipWhitespace()
         if !parser.atEnd {
             throw JqError("jq: parse error: garbage after JSON value")
         }
-        return v
+        return value
     }
 
     private struct Parser {
@@ -40,9 +40,12 @@ public enum JqJSON {
 
         mutating func skipWhitespace() {
             while pos < chars.count {
-                let c = chars[pos]
-                if c == " " || c == "\t" || c == "\n" || c == "\r" { pos += 1 }
-                else { break }
+                let char = chars[pos]
+                if char == " " || char == "\t" || char == "\n" || char == "\r" {
+                    pos += 1
+                } else {
+                    break
+                }
             }
         }
 
@@ -52,10 +55,10 @@ public enum JqJSON {
 
         mutating func parseValue() throws -> JqValue {
             skipWhitespace()
-            guard let c = peek() else {
+            guard let char = peek() else {
                 throw JqError("jq: parse error: unexpected end of input")
             }
-            switch c {
+            switch char {
             case "{": return try parseObject()
             case "[": return try parseArray()
             case "\"": return try parseString()
@@ -64,7 +67,7 @@ public enum JqJSON {
             case "n": return try parseLiteral("null", value: .null)
             case "-", "0"..."9": return try parseNumber()
             default:
-                throw JqError("jq: parse error: unexpected character '\(c)'")
+                throw JqError("jq: parse error: unexpected character '\(char)'")
             }
         }
 
@@ -79,7 +82,7 @@ public enum JqJSON {
                     throw JqError("jq: parse error: expected string key")
                 }
                 let key = try parseString()
-                guard case .string(let k) = key else {
+                guard case .string(let keyStr) = key else {
                     throw JqError("jq: parse error: invalid key")
                 }
                 skipWhitespace()
@@ -87,8 +90,8 @@ public enum JqJSON {
                     throw JqError("jq: parse error: expected ':'")
                 }
                 pos += 1
-                let v = try parseValue()
-                obj[k] = v
+                let value = try parseValue()
+                obj[keyStr] = value
                 skipWhitespace()
                 if peek() == "," { pos += 1; continue }
                 if peek() == "}" { pos += 1; return .object(obj) }
@@ -102,8 +105,8 @@ public enum JqJSON {
             skipWhitespace()
             if peek() == "]" { pos += 1; return .array(arr) }
             while true {
-                let v = try parseValue()
-                arr.append(v)
+                let value = try parseValue()
+                arr.append(value)
                 skipWhitespace()
                 if peek() == "," { pos += 1; continue }
                 if peek() == "]" { pos += 1; return .array(arr) }
@@ -111,25 +114,30 @@ public enum JqJSON {
             }
         }
 
+        // JSON string parser: 8 simple escapes + \u + surrogate pair
+        // logic, all sharing the `chars`/`pos` cursor. The body is one
+        // cohesive scanner; per-escape helpers would force shared state
+        // through inout parameters.
+        // swiftlint:disable:next cyclomatic_complexity function_body_length
         mutating func parseString() throws -> JqValue {
             pos += 1
-            var s = ""
+            var str = ""
             while pos < chars.count {
-                let c = chars[pos]
-                if c == "\"" { pos += 1; return .string(s) }
-                if c == "\\" {
+                let char = chars[pos]
+                if char == "\"" { pos += 1; return .string(str) }
+                if char == "\\" {
                     pos += 1
                     if pos >= chars.count { break }
-                    let e = chars[pos]
-                    switch e {
-                    case "\"": s.append("\""); pos += 1
-                    case "\\": s.append("\\"); pos += 1
-                    case "/": s.append("/"); pos += 1
-                    case "b": s.append("\u{08}"); pos += 1
-                    case "f": s.append("\u{0C}"); pos += 1
-                    case "n": s.append("\n"); pos += 1
-                    case "r": s.append("\r"); pos += 1
-                    case "t": s.append("\t"); pos += 1
+                    let esc = chars[pos]
+                    switch esc {
+                    case "\"": str.append("\""); pos += 1
+                    case "\\": str.append("\\"); pos += 1
+                    case "/": str.append("/"); pos += 1
+                    case "b": str.append("\u{08}"); pos += 1
+                    case "f": str.append("\u{0C}"); pos += 1
+                    case "n": str.append("\n"); pos += 1
+                    case "r": str.append("\r"); pos += 1
+                    case "t": str.append("\t"); pos += 1
                     case "u":
                         pos += 1
                         var hex = ""
@@ -152,20 +160,20 @@ public enum JqJSON {
                             if let code2 = UInt32(hex2, radix: 16),
                                (0xDC00...0xDFFF).contains(code2) {
                                 let combined = 0x10000 + ((code - 0xD800) << 10) + (code2 - 0xDC00)
-                                if let u = Unicode.Scalar(combined) {
-                                    s.append(Character(u))
+                                if let scalar = Unicode.Scalar(combined) {
+                                    str.append(Character(scalar))
                                 }
                                 continue
                             }
                         }
-                        if let u = Unicode.Scalar(code) {
-                            s.append(Character(u))
+                        if let scalar = Unicode.Scalar(code) {
+                            str.append(Character(scalar))
                         }
                     default:
-                        throw JqError("jq: parse error: bad escape \\\(e)")
+                        throw JqError("jq: parse error: bad escape \\\(esc)")
                     }
                 } else {
-                    s.append(c)
+                    str.append(char)
                     pos += 1
                 }
             }
@@ -185,16 +193,16 @@ public enum JqJSON {
                 if pos < chars.count, chars[pos] == "+" || chars[pos] == "-" { pos += 1 }
                 while pos < chars.count, chars[pos].isNumber { pos += 1 }
             }
-            let s = String(chars[start..<pos])
-            guard let n = Double(s) else {
+            let str = String(chars[start..<pos])
+            guard let num = Double(str) else {
                 throw JqError("jq: parse error: invalid number")
             }
-            return .number(n)
+            return .number(num)
         }
 
         mutating func parseLiteral(_ keyword: String, value: JqValue) throws -> JqValue {
-            for c in keyword {
-                if pos >= chars.count || chars[pos] != c {
+            for char in keyword {
+                if pos >= chars.count || chars[pos] != char {
                     throw JqError("jq: parse error: expected '\(keyword)'")
                 }
                 pos += 1

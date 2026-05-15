@@ -100,7 +100,7 @@ public final class JSContext {
         if let sourceURL = sourceURL {
             sourceURLRef = JSStringCreateWithUTF8CString(sourceURL.absoluteString)
         }
-        defer { if let r = sourceURLRef { JSStringRelease(r) } }
+        defer { if let ref = sourceURLRef { JSStringRelease(ref) } }
 
         var exceptionOut: JSValueRef?
         let resultRef = JSEvaluateScript(raw, scriptRef, nil,
@@ -203,6 +203,6 @@ public final class JSContext {
 /// runtime's own ownership chain.
 final class WeakRef<T: AnyObject> {
     weak var value: T?
-    init(_ v: T) { self.value = v }
+    init(_ value: T) { self.value = value }
 }
 #endif  // !os(Windows)

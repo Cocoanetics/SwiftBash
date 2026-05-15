@@ -42,68 +42,71 @@ public struct AwkCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var fieldSep = " "
         var presetVars: [(String, String)] = []
         var programs: [String] = []
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "-F" {
-                guard i + 1 < rawArgv.count else {
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "-F" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("awk: -F requires an argument\n"); return ExitStatus(2)
                 }
-                fieldSep = processEscapes(rawArgv[i + 1])
-                i += 2; continue
+                fieldSep = processEscapes(rawArgv[idx + 1])
+                idx += 2; continue
             }
-            if a.hasPrefix("-F") && a.count > 2 {
-                fieldSep = processEscapes(String(a.dropFirst(2)))
-                i += 1; continue
+            if arg.hasPrefix("-F") && arg.count > 2 {
+                fieldSep = processEscapes(String(arg.dropFirst(2)))
+                idx += 1; continue
             }
-            if a == "-v" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-v" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("awk: -v requires NAME=VALUE\n"); return ExitStatus(2)
                 }
-                let assn = rawArgv[i + 1]
-                if let eq = assn.firstIndex(of: "=") {
-                    let name = String(assn[..<eq])
-                    let value = processEscapes(String(assn[assn.index(after: eq)...]))
+                let assn = rawArgv[idx + 1]
+                if let eqIdx = assn.firstIndex(of: "=") {
+                    let name = String(assn[..<eqIdx])
+                    let value = processEscapes(String(assn[assn.index(after: eqIdx)...]))
                     presetVars.append((name, value))
                 }
-                i += 2; continue
+                idx += 2; continue
             }
-            if a == "-f" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-f" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("awk: -f requires a file\n"); return ExitStatus(2)
                 }
                 do {
-                    let data = try await Shell.bashCurrent.readDataAtPath(rawArgv[i + 1])
+                    let data = try await Shell.bashCurrent.readDataAtPath(rawArgv[idx + 1])
+                    // awk scripts may legitimately contain non-UTF-8 byte sequences in string literals
+                    // swiftlint:disable:next optional_data_string_conversion
                     programs.append(String(decoding: data, as: UTF8.self))
                 } catch {
-                    Shell.bashCurrent.stderr("awk: can't open \(rawArgv[i + 1]): \(error)\n")
+                    Shell.bashCurrent.stderr("awk: can't open \(rawArgv[idx + 1]): \(error)\n")
                     return ExitStatus(2)
                 }
-                i += 2; continue
+                idx += 2; continue
             }
-            if a == "--" {
-                i += 1
-                if programs.isEmpty, i < rawArgv.count {
-                    programs.append(rawArgv[i]); i += 1
+            if arg == "--" {
+                idx += 1
+                if programs.isEmpty, idx < rawArgv.count {
+                    programs.append(rawArgv[idx]); idx += 1
                 }
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+                while idx < rawArgv.count { files.append(rawArgv[idx]); idx += 1 }
                 continue
             }
-            if a.hasPrefix("-") && a != "-" {
-                Shell.bashCurrent.stderr("awk: unknown option: \(a)\n"); return ExitStatus(2)
+            if arg.hasPrefix("-") && arg != "-" {
+                Shell.bashCurrent.stderr("awk: unknown option: \(arg)\n"); return ExitStatus(2)
             }
             if programs.isEmpty {
-                programs.append(a)
+                programs.append(arg)
             } else {
-                files.append(a)
+                files.append(arg)
             }
-            i += 1
+            idx += 1
         }
 
         guard !programs.isEmpty else {
@@ -115,8 +118,8 @@ public struct AwkCommand: ParsableBashCommand {
         let program: AwkProgram
         do {
             program = try AwkParser.parse(source)
-        } catch let e as AwkParseError {
-            Shell.bashCurrent.stderr("awk: \(e.message)\n")
+        } catch let parseError as AwkParseError {
+            Shell.bashCurrent.stderr("awk: \(parseError.message)\n")
             return ExitStatus(2)
         }
 
@@ -127,11 +130,11 @@ public struct AwkCommand: ParsableBashCommand {
         ctx.FS = fieldSep
         for (name, value) in presetVars { ctx.vars[name] = .string(value) }
         // ENVIRON
-        for (k, v) in Shell.bashCurrent.environment.variables { ctx.ENVIRON[k] = .string(v) }
+        for (key, value) in Shell.bashCurrent.environment.variables { ctx.ENVIRON[key] = .string(value) }
         // ARGC/ARGV
         ctx.ARGC = files.count + 1
         ctx.ARGV["0"] = .string("awk")
-        for (i, f) in files.enumerated() { ctx.ARGV[String(i + 1)] = .string(f) }
+        for (fileIdx, fileName) in files.enumerated() { ctx.ARGV[String(fileIdx + 1)] = .string(fileName) }
 
         // Inject a sync file reader (for getline < file). We can't do
         // async in the inner loop, so cache up-front from the shell's
@@ -146,6 +149,8 @@ public struct AwkCommand: ParsableBashCommand {
             do {
                 let resolved = path.hasPrefix("/") ? path : ctx.cwd + "/" + path
                 let data = try await Shell.bashCurrent.readDataAtPath(resolved)
+                // awk-style file input may contain partial/non-UTF-8 bytes
+                // swiftlint:disable:next optional_data_string_conversion
                 preloadedFiles[resolved] = String(decoding: data, as: UTF8.self)
                 preloadedFiles[path] = preloadedFiles[resolved]
             } catch {
@@ -154,11 +159,11 @@ public struct AwkCommand: ParsableBashCommand {
             }
         }
         ctx.readFile = { path in
-            if let c = preloadedFiles[path] { return c }
+            if let cached = preloadedFiles[path] { return cached }
             throw AwkRuntimeError("can't open \(path)")
         }
-        ctx.resolvePath = { cwd, p in
-            p.hasPrefix("/") ? p : (cwd.hasSuffix("/") ? cwd + p : cwd + "/" + p)
+        ctx.resolvePath = { cwd, path in
+            path.hasPrefix("/") ? path : (cwd.hasSuffix("/") ? cwd + path : cwd + "/" + path)
         }
 
         let interp = AwkInterpreter(program: program, ctx: ctx)
@@ -195,23 +200,25 @@ public struct AwkCommand: ParsableBashCommand {
                     ctx.lineIndex = -1
                     try processLines(interp: interp)
                 } else {
-                    for f in files {
+                    for file in files {
                         if ctx.shouldExit { break }
                         let chunk: String
-                        if f == "-" {
+                        if file == "-" {
                             chunk = await Shell.bashCurrent.stdin.readAllString()
                         } else {
                             do {
-                                let data = try await Shell.bashCurrent.readDataAtPath(f)
+                                let data = try await Shell.bashCurrent.readDataAtPath(file)
+                                // awk-style file input may contain partial/non-UTF-8 bytes
+                                // swiftlint:disable:next optional_data_string_conversion
                                 chunk = String(decoding: data, as: UTF8.self)
                             } catch {
-                                Shell.bashCurrent.stderr("awk: \(f): No such file or directory\n")
+                                Shell.bashCurrent.stderr("awk: \(file): No such file or directory\n")
                                 return ExitStatus(2)
                             }
                         }
                         var lines = chunk.components(separatedBy: "\n")
                         if lines.last == "" { lines.removeLast() }
-                        ctx.FILENAME = f
+                        ctx.FILENAME = file
                         ctx.FNR = 0
                         ctx.lines = lines
                         ctx.lineIndex = -1
@@ -221,8 +228,8 @@ public struct AwkCommand: ParsableBashCommand {
                 }
             }
             try interp.executeEnd()
-        } catch let e as AwkRuntimeError {
-            Shell.bashCurrent.stderr("awk: \(e.message)\n")
+        } catch let runtimeError as AwkRuntimeError {
+            Shell.bashCurrent.stderr("awk: \(runtimeError.message)\n")
             Shell.bashCurrent.stdout(ctx.output)
             try await flushFileWrites(ctx)
             return ExitStatus(2)
@@ -257,66 +264,68 @@ public struct AwkCommand: ParsableBashCommand {
     /// Walk the AST collecting any string-literal arguments to
     /// `getline < <file>` so we can preload them before the
     /// synchronous interpreter runs.
-    private func collectGetlineTargets(_ p: AwkProgram) -> Set<String> {
+    private func collectGetlineTargets(_ program: AwkProgram) -> Set<String> {
         var out = Set<String>()
-        for fn in p.functions { collectStmts(fn.body, into: &out) }
-        for r in p.rules { collectStmts(r.action, into: &out) }
+        for function in program.functions { collectStmts(function.body, into: &out) }
+        for rule in program.rules { collectStmts(rule.action, into: &out) }
         return out
     }
     private func collectStmts(_ stmts: [AwkStmt], into out: inout Set<String>) {
-        for s in stmts { collectStmt(s, into: &out) }
+        for stmt in stmts { collectStmt(stmt, into: &out) }
     }
-    private func collectStmt(_ s: AwkStmt, into out: inout Set<String>) {
-        switch s {
+    // swiftlint:disable:next cyclomatic_complexity
+    private func collectStmt(_ stmt: AwkStmt, into out: inout Set<String>) {
+        switch stmt {
         case .block(let inner): collectStmts(inner, into: &out)
-        case .exprStmt(let e): collectExpr(e, into: &out)
-        case .print(let args, let o):
-            for a in args { collectExpr(a, into: &out) }
-            if let o { collectExpr(o.target, into: &out) }
-        case .printf(let f, let args, let o):
-            collectExpr(f, into: &out)
-            for a in args { collectExpr(a, into: &out) }
-            if let o { collectExpr(o.target, into: &out) }
-        case .ifStmt(let c, let t, let e):
-            collectExpr(c, into: &out); collectStmt(t, into: &out)
-            if let e { collectStmt(e, into: &out) }
-        case .whileStmt(let c, let b): collectExpr(c, into: &out); collectStmt(b, into: &out)
-        case .doWhile(let b, let c): collectStmt(b, into: &out); collectExpr(c, into: &out)
-        case .forStmt(let i, let c, let u, let b):
-            if let i { collectExpr(i, into: &out) }
-            if let c { collectExpr(c, into: &out) }
-            if let u { collectExpr(u, into: &out) }
-            collectStmt(b, into: &out)
-        case .forIn(_, _, let b): collectStmt(b, into: &out)
-        case .exit(let c): if let c { collectExpr(c, into: &out) }
-        case .return_(let v): if let v { collectExpr(v, into: &out) }
+        case .exprStmt(let expr): collectExpr(expr, into: &out)
+        case .print(let args, let output):
+            for arg in args { collectExpr(arg, into: &out) }
+            if let output { collectExpr(output.target, into: &out) }
+        case .printf(let format, let args, let output):
+            collectExpr(format, into: &out)
+            for arg in args { collectExpr(arg, into: &out) }
+            if let output { collectExpr(output.target, into: &out) }
+        case .ifStmt(let cond, let then, let alt):
+            collectExpr(cond, into: &out); collectStmt(then, into: &out)
+            if let alt { collectStmt(alt, into: &out) }
+        case .whileStmt(let cond, let body): collectExpr(cond, into: &out); collectStmt(body, into: &out)
+        case .doWhile(let body, let cond): collectStmt(body, into: &out); collectExpr(cond, into: &out)
+        case .forStmt(let initExpr, let cond, let update, let body):
+            if let initExpr { collectExpr(initExpr, into: &out) }
+            if let cond { collectExpr(cond, into: &out) }
+            if let update { collectExpr(update, into: &out) }
+            collectStmt(body, into: &out)
+        case .forIn(_, _, let body): collectStmt(body, into: &out)
+        case .exit(let code): if let code { collectExpr(code, into: &out) }
+        case .return_(let value): if let value { collectExpr(value, into: &out) }
         default: break
         }
     }
-    private func collectExpr(_ e: AwkExpr, into out: inout Set<String>) {
-        switch e {
+    // swiftlint:disable:next cyclomatic_complexity
+    private func collectExpr(_ expr: AwkExpr, into out: inout Set<String>) {
+        switch expr {
         case .getline(_, let file, _):
-            if case .string(let s)? = file { out.insert(s) }
-        case .binary(_, let l, let r):
-            collectExpr(l, into: &out); collectExpr(r, into: &out)
-        case .unary(_, let o): collectExpr(o, into: &out)
-        case .ternary(let c, let t, let e):
-            collectExpr(c, into: &out); collectExpr(t, into: &out); collectExpr(e, into: &out)
+            if case .string(let str)? = file { out.insert(str) }
+        case .binary(_, let lhs, let rhs):
+            collectExpr(lhs, into: &out); collectExpr(rhs, into: &out)
+        case .unary(_, let operand): collectExpr(operand, into: &out)
+        case .ternary(let cond, let then, let alt):
+            collectExpr(cond, into: &out); collectExpr(then, into: &out); collectExpr(alt, into: &out)
         case .call(_, let args):
-            for a in args { collectExpr(a, into: &out) }
-        case .assignment(_, _, let v): collectExpr(v, into: &out)
-        case .field(let i): collectExpr(i, into: &out)
-        case .arrayAccess(_, let k): collectExpr(k, into: &out)
-        case .tuple(let es): for e in es { collectExpr(e, into: &out) }
-        case .inExpr(let k, _): collectExpr(k, into: &out)
+            for arg in args { collectExpr(arg, into: &out) }
+        case .assignment(_, _, let value): collectExpr(value, into: &out)
+        case .field(let idx): collectExpr(idx, into: &out)
+        case .arrayAccess(_, let key): collectExpr(key, into: &out)
+        case .tuple(let elems): for elem in elems { collectExpr(elem, into: &out) }
+        case .inExpr(let key, _): collectExpr(key, into: &out)
         default: break
         }
     }
 }
 
-private func processEscapes(_ s: String) -> String {
-    s.replacingOccurrences(of: "\\t", with: "\t")
-     .replacingOccurrences(of: "\\n", with: "\n")
-     .replacingOccurrences(of: "\\r", with: "\r")
-     .replacingOccurrences(of: "\\\\", with: "\\")
+private func processEscapes(_ str: String) -> String {
+    str.replacingOccurrences(of: "\\t", with: "\t")
+       .replacingOccurrences(of: "\\n", with: "\n")
+       .replacingOccurrences(of: "\\r", with: "\r")
+       .replacingOccurrences(of: "\\\\", with: "\\")
 }

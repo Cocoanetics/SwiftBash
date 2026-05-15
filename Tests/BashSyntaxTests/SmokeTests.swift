@@ -12,8 +12,8 @@ import Testing
         }
         #expect(children.count == 2)
         #expect(children.map(\.kindName) == ["word", "word"])
-        if case .word(let w, _) = children[0].kind { #expect(w == "echo") }
-        if case .word(let w, _) = children[1].kind { #expect(w == "hello") }
+        if case .word(let word, _) = children[0].kind { #expect(word == "echo") }
+        if case .word(let word, _) = children[1].kind { #expect(word == "hello") }
     }
 
     @Test func splitHandlesProcessSubstitution() throws {

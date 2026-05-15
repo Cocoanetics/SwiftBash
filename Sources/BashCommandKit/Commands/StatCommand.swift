@@ -23,61 +23,63 @@ public struct StatCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity
     public mutating func execute() async throws -> ExitStatus {
-        var format: String? = nil
+        var format: String?
         var files: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { files.append(rawArgv[index]); index += 1 }
                 break
             }
-            if a == "-c" || a == "--format" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-c" || arg == "--format" {
+                guard index + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("stat: -c requires FORMAT\n"); return ExitStatus(2)
                 }
-                format = rawArgv[i + 1]; i += 2; continue
+                format = rawArgv[index + 1]; index += 2; continue
             }
-            if a.hasPrefix("--format=") {
-                format = String(a.dropFirst("--format=".count)); i += 1; continue
+            if arg.hasPrefix("--format=") {
+                format = String(arg.dropFirst("--format=".count)); index += 1; continue
             }
-            if a.hasPrefix("-c") && a.count > 2 {
-                format = String(a.dropFirst(2)); i += 1; continue
+            if arg.hasPrefix("-c") && arg.count > 2 {
+                format = String(arg.dropFirst(2)); index += 1; continue
             }
-            if a.hasPrefix("-") && a != "-" {
-                Shell.bashCurrent.stderr("stat: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg != "-" {
+                Shell.bashCurrent.stderr("stat: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); index += 1
         }
 
         var hadError = false
-        for f in files {
-            let resolved = Shell.bashCurrent.resolvePath(f)
+        for file in files {
+            let resolved = Shell.bashCurrent.resolvePath(file)
             guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(resolved) else {
-                Shell.bashCurrent.stderr("stat: \(f): No such file or directory\n")
+                Shell.bashCurrent.stderr("stat: \(file): No such file or directory\n")
                 hadError = true; continue
             }
             if let format {
-                Shell.bashCurrent.stdout(formatString(format, name: f, meta: meta) + "\n")
+                Shell.bashCurrent.stdout(formatString(format, name: file, meta: meta) + "\n")
             } else {
-                Shell.bashCurrent.stdout(defaultStat(name: f, meta: meta))
+                Shell.bashCurrent.stdout(defaultStat(name: file, meta: meta))
             }
         }
         return hadError ? .failure : .success
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func formatString(_ fmt: String, name: String,
                               meta: FileMetadata) -> String {
         var out = ""
         let chars = Array(fmt)
-        var i = 0
-        while i < chars.count {
-            if chars[i] == "%", i + 1 < chars.count {
-                let c = chars[i + 1]
-                switch c {
+        var index = 0
+        while index < chars.count {
+            if chars[index] == "%", index + 1 < chars.count {
+                let char = chars[index + 1]
+                switch char {
                 case "n": out += name
                 case "s": out += String(meta.size)
                 case "y": out += FsTools.iso8601(meta.modifiedAt)
@@ -85,8 +87,8 @@ public struct StatCommand: ParsableBashCommand {
                 case "a": out += String(meta.mode, radix: 8)
                 case "A": out += FsTools.symbolicMode(kind: meta.kind, mode: meta.mode)
                 case "N":
-                    if meta.kind == .symlink, let t = meta.symlinkTarget {
-                        out += "'\(name)' -> '\(t)'"
+                    if meta.kind == .symlink, let target = meta.symlinkTarget {
+                        out += "'\(name)' -> '\(target)'"
                     } else {
                         out += "'\(name)'"
                     }
@@ -96,32 +98,37 @@ public struct StatCommand: ParsableBashCommand {
                 case "G": out += "group"
                 case "h": out += String(meta.linkCount)
                 case "%": out += "%"
-                default: out.append(c)
+                default: out.append(char)
                 }
-                i += 2
-            } else if chars[i] == "\\", i + 1 < chars.count {
-                let n = chars[i + 1]
-                switch n {
+                index += 2
+            } else if chars[index] == "\\", index + 1 < chars.count {
+                let next = chars[index + 1]
+                switch next {
                 case "n": out += "\n"
                 case "t": out += "\t"
-                default: out.append(n)
+                default: out.append(next)
                 }
-                i += 2
+                index += 2
             } else {
-                out.append(chars[i]); i += 1
+                out.append(chars[index]); index += 1
             }
         }
         return out
     }
 
     private func defaultStat(name: String, meta: FileMetadata) -> String {
-        var s = ""
-        s += "  File: \(name)\n"
-        s += "  Size: \(meta.size)\t\(FsTools.typeWord(meta.kind))\n"
-        s += "Access: (\(String(format: "%04o", meta.mode))/\(FsTools.symbolicMode(kind: meta.kind, mode: meta.mode)))  Uid: (\(String(format: "%5d", meta.uid)))   Gid: (\(String(format: "%5d", meta.gid)))\n"
-        s += "Access: \(FsTools.iso8601(meta.accessedAt))\n"
-        s += "Modify: \(FsTools.iso8601(meta.modifiedAt))\n"
-        s += "Change: \(FsTools.iso8601(meta.createdAt))\n"
-        return s
+        var summary = ""
+        summary += "  File: \(name)\n"
+        summary += "  Size: \(meta.size)\t\(FsTools.typeWord(meta.kind))\n"
+        let modeStr = String(format: "%04o", meta.mode)
+        let symbolicMode = FsTools.symbolicMode(kind: meta.kind, mode: meta.mode)
+        let uidStr = String(format: "%5d", meta.uid)
+        let gidStr = String(format: "%5d", meta.gid)
+        summary += "Access: (\(modeStr)/\(symbolicMode))  "
+        summary += "Uid: (\(uidStr))   Gid: (\(gidStr))\n"
+        summary += "Access: \(FsTools.iso8601(meta.accessedAt))\n"
+        summary += "Modify: \(FsTools.iso8601(meta.modifiedAt))\n"
+        summary += "Change: \(FsTools.iso8601(meta.createdAt))\n"
+        return summary
     }
 }

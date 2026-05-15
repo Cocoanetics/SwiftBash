@@ -24,28 +24,28 @@ public struct CmpCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("cmp: usage: cmp [-s] FILE1 FILE2\n")
             return ExitStatus(2)
         }
-        let a: Data, b: Data
+        let dataA: Data, dataB: Data
         do {
-            a = try await Shell.bashCurrent.readDataAtPath(files[0])
-            b = try await Shell.bashCurrent.readDataAtPath(files[1])
+            dataA = try await Shell.bashCurrent.readDataAtPath(files[0])
+            dataB = try await Shell.bashCurrent.readDataAtPath(files[1])
         } catch {
             Shell.bashCurrent.stderr("cmp: \(error)\n")
             return ExitStatus(2)
         }
-        let n = min(a.count, b.count)
+        let count = min(dataA.count, dataB.count)
         var line = 1
-        for i in 0..<n {
-            if a[i] != b[i] {
+        for idx in 0..<count {
+            if dataA[idx] != dataB[idx] {
                 if !silent {
-                    Shell.bashCurrent.stdout("\(files[0]) \(files[1]) differ: char \(i + 1), line \(line)\n")
+                    Shell.bashCurrent.stdout("\(files[0]) \(files[1]) differ: char \(idx + 1), line \(line)\n")
                 }
                 return ExitStatus(1)
             }
-            if a[i] == 0x0A { line += 1 }
+            if dataA[idx] == 0x0A { line += 1 }
         }
-        if a.count != b.count {
+        if dataA.count != dataB.count {
             if !silent {
-                let longer = a.count > b.count ? files[0] : files[1]
+                let longer = dataA.count > dataB.count ? files[0] : files[1]
                 Shell.bashCurrent.stdout("cmp: EOF on \(longer)\n")
             }
             return ExitStatus(1)

@@ -4,8 +4,6 @@ import Foundation
 import BashInterpreter
 import BashCommandKit
 
-
-
 /// Holder for resolve/reject of an async child_process Promise.
 /// Mirrors the one in Network.swift; access fenced by the main
 /// queue hop in Task.detached's continuation.
@@ -47,7 +45,7 @@ extension JSRuntime {
     /// way node's `child_process` does. The decision is automatic
     /// — there are no shell-mode flags.
     func makeChildProcessModule() -> JSValue {
-        let cp = JSValue(newObjectIn: context)!
+        let module = JSValue(newObjectIn: context)!
 
         // execSync(command, options?) → string | Buffer
         let execSync = block { [weak self] args in
@@ -60,7 +58,7 @@ extension JSRuntime {
             }
             return self.runChildSync(command: cmd, args: nil, opts: opts)
         }
-        cp.setObject(execSync, forKeyedSubscript: "execSync")
+        module.setObject(execSync, forKeyedSubscript: "execSync")
 
         // spawnSync(command, args?, options?) → { status, stdout, stderr, ... }
         let spawnSync = block { [weak self] args in
@@ -75,7 +73,7 @@ extension JSRuntime {
             let argList = (argsVal?.toArray() as? [String]) ?? []
             return self.spawnChildSync(command: cmd, args: argList, opts: opts)
         }
-        cp.setObject(spawnSync, forKeyedSubscript: "spawnSync")
+        module.setObject(spawnSync, forKeyedSubscript: "spawnSync")
 
         // spawn(command, args?, options?) → ChildProcess with live
         // stdout/stderr/stdin streams. Non-blocking; chunks arrive on
@@ -92,7 +90,7 @@ extension JSRuntime {
             let argList = (argsVal?.toArray() as? [String]) ?? []
             return self.runChildSpawn(command: cmd, args: argList, opts: opts)
         }
-        cp.setObject(spawnImpl, forKeyedSubscript: "spawn")
+        module.setObject(spawnImpl, forKeyedSubscript: "spawn")
 
         // exec(command, opts?) → Promise<{stdout, stderr, code}>.
         //
@@ -111,9 +109,9 @@ extension JSRuntime {
             }
             return self.runChildAsync(command: cmd, opts: opts)
         }
-        cp.setObject(exec, forKeyedSubscript: "exec")
+        module.setObject(exec, forKeyedSubscript: "exec")
 
-        return cp
+        return module
     }
 
     /// `spawn(cmd, args)` — non-blocking, returns a ``ChildProcess``
@@ -193,7 +191,7 @@ extension JSRuntime {
         let (stdinStream, stdinCont) = AsyncStream<Data>.makeStream()
         wireStdinHooks(stream: handles.stdinS,
                        onWrite: { stdinCont.yield($0) },
-                       onEnd:   { stdinCont.finish() })
+                       onEnd: { stdinCont.finish() })
 
         let line = Self.composeCommandLine(command, args: args)
 
@@ -240,12 +238,13 @@ extension JSRuntime {
         }
     }
 
-    /// Host-shell backend for `spawn`. Uses Foundation's `Process`
-    /// with three pipes; readability handlers hop chunks back to
-    /// main where the JS streams live.
-    ///
-    /// Unavailable on iOS / tvOS / watchOS (App Sandbox blocks fork);
-    /// on those platforms we synthesize an immediate error path.
+    // Host-shell backend for `spawn`. Uses Foundation's `Process`
+    // with three pipes; readability handlers hop chunks back to
+    // main where the JS streams live.
+    //
+    // Unavailable on iOS / tvOS / watchOS (App Sandbox blocks fork);
+    // on those platforms we synthesize an immediate error path.
+    // swiftlint:disable:next function_body_length
     private func startHostShellSpawn(
         command: String, args: [String],
         handles: SpawnHandles, sentinelID: Int
@@ -404,11 +403,11 @@ extension JSRuntime {
     /// `onEOF` so the caller can sequence the `close` event.
     #if os(macOS) || os(Linux)
     private static func installReadabilityHandler(
-        on fh: FileHandle,
+        on fileHandle: FileHandle,
         target: JSValue?,
         onEOF: @escaping @Sendable () -> Void
     ) {
-        fh.readabilityHandler = { handle in
+        fileHandle.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
@@ -482,11 +481,12 @@ extension JSRuntime {
         return Data((value.toString() ?? "").utf8)
     }
 
-    /// Async `exec`. Spawns a detached Task that runs the command
-    /// through SwiftBash's interpreter (or `/bin/sh` if requested).
-    /// Returns a Promise that resolves on success and rejects on
-    /// non-zero exit. A sentinel timer keeps the JSRuntime runloop
-    /// alive until the Promise settles.
+    // Async `exec`. Spawns a detached Task that runs the command
+    // through SwiftBash's interpreter (or `/bin/sh` if requested).
+    // Returns a Promise that resolves on success and rejects on
+    // non-zero exit. A sentinel timer keeps the JSRuntime runloop
+    // alive until the Promise settles.
+    // swiftlint:disable:next function_body_length
     private func runChildAsync(command: String, opts _: JSValue?) -> JSValue {
         let useHostShell = (childShell == .hostShell)
         let ctx = context
@@ -523,8 +523,8 @@ extension JSRuntime {
             // would warn under Swift 6 strict concurrency.
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
-                    s.cancel()
+                if let timer = self.pendingTimers.removeValue(forKey: sentinelID) {
+                    timer.cancel()
                 }
                 if result.status == 0 {
                     let payload = JSValue(newObjectIn: self.context)!
@@ -555,7 +555,7 @@ extension JSRuntime {
                             "killed": false,
                             "signal": NSNull(),
                             "stdout": result.stdout,
-                            "stderr": result.stderr,
+                            "stderr": result.stderr
                         ]
                     )
                     handles.reject?.call(withArguments: [err])
@@ -627,7 +627,9 @@ extension JSRuntime {
                 let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                 cont.resume(returning: ChildResult(
                     status: proc.terminationStatus,
+                    // swiftlint:disable:next optional_data_string_conversion - child stdout may be partial UTF-8
                     stdout: String(decoding: outData, as: UTF8.self),
+                    // swiftlint:disable:next optional_data_string_conversion - child stderr may be partial UTF-8
                     stderr: String(decoding: errData, as: UTF8.self)
                 ))
             }
@@ -671,7 +673,7 @@ extension JSRuntime {
                     "cmd": command,
                     "signal": NSNull(),
                     "stdout": result.stdout,
-                    "stderr": result.stderr,
+                    "stderr": result.stderr
                 ]
             )
         }
@@ -778,7 +780,9 @@ extension JSRuntime {
 
         return ChildResult(
             status: process.terminationStatus,
+            // swiftlint:disable:next optional_data_string_conversion - child stdout may be partial UTF-8
             stdout: String(decoding: outData, as: UTF8.self),
+            // swiftlint:disable:next optional_data_string_conversion - child stderr may be partial UTF-8
             stderr: String(decoding: errData, as: UTF8.self)
         )
         #else
@@ -826,13 +830,16 @@ extension JSRuntime {
     private func encode(bytes: [UInt8], encoding: String) -> Any? {
         switch encoding.lowercased() {
         case "utf-8", "utf8":
+            // swiftlint:disable:next optional_data_string_conversion - child output may be partial UTF-8
             return String(decoding: bytes, as: UTF8.self)
         case "buffer":
             let bufCtor = context.objectForKeyedSubscript("Buffer")!
             return bufCtor.invokeMethod("from", withArguments: [bytes])!
         default:
+            // swiftlint:disable:next optional_data_string_conversion - child output may be partial UTF-8
             return String(decoding: bytes, as: UTF8.self)
         }
     }
 }
+// swiftlint:disable:next file_length - ChildProcess JS module is one cohesive impl
 #endif  // !os(Windows)

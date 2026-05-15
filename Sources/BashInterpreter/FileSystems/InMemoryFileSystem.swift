@@ -1,5 +1,40 @@
 import Foundation
 
+// Internal in-memory tree node for InMemoryFileSystem. Lifted out of
+// the host type so the `Kind` enum doesn't trip nesting limits.
+final class InMemoryFileSystemNode {
+    enum Kind {
+        case file(Data, mtime: Date)
+        case directory([String: InMemoryFileSystemNode])
+        case symlink(target: String, mtime: Date)
+    }
+    var kind: Kind
+    var mode: UInt16
+    var uid: UInt32
+    var gid: UInt32
+    var xattrs: [String: Data]
+    init(kind: Kind, mode: UInt16? = nil,
+         uid: UInt32 = 1000, gid: UInt32 = 1000) {
+        self.kind = kind
+        if let modeBits = mode {
+            self.mode = modeBits
+        } else if case .directory = kind {
+            self.mode = 0o755
+        } else {
+            self.mode = 0o644
+        }
+        // Default owner matches `HostInfo.synthetic` (1000/1000).
+        // We deliberately do NOT call `getuid()` / `getgid()` —
+        // doing so would let `stat foo` reveal the real host uid
+        // even when the rest of the shell reports synthetic
+        // identity. Embedders that want host owners assign
+        // `node.uid = …` after construction.
+        self.uid = uid
+        self.gid = gid
+        self.xattrs = [:]
+    }
+}
+
 /// A pure in-memory ``FileSystem`` useful for sandboxed scripts, unit
 /// tests, iOS previews, or any scenario where you don't want to touch
 /// a real disk.
@@ -22,38 +57,10 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
 
     // MARK: Internal tree
 
-    final class TreeNode {
-        enum Kind {
-            case file(Data, mtime: Date)
-            case directory([String: TreeNode])
-            case symlink(target: String, mtime: Date)
-        }
-        var kind: Kind
-        var mode: UInt16
-        var uid: UInt32
-        var gid: UInt32
-        var xattrs: [String: Data]
-        init(kind: Kind, mode: UInt16? = nil,
-             uid: UInt32 = 1000, gid: UInt32 = 1000)
-        {
-            self.kind = kind
-            if let m = mode { self.mode = m }
-            else if case .directory = kind { self.mode = 0o755 }
-            else { self.mode = 0o644 }
-            // Default owner matches `HostInfo.synthetic` (1000/1000).
-            // We deliberately do NOT call `getuid()` / `getgid()` —
-            // doing so would let `stat foo` reveal the real host uid
-            // even when the rest of the shell reports synthetic
-            // identity. Embedders that want host owners assign
-            // `node.uid = …` after construction.
-            self.uid = uid
-            self.gid = gid
-            self.xattrs = [:]
-        }
-    }
+    typealias TreeNode = InMemoryFileSystemNode
 
-    private let lock = NSLock()
-    private let root: TreeNode
+    let lock = NSLock()
+    let root: TreeNode
 
     public init() {
         self.root = TreeNode(kind: .directory([:]))
@@ -131,21 +138,19 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
                 guard let resolved = resolveLocked(target) else {
                     throw FileSystemError.notFound(path)
                 }
-                if case .file(let d, _) = resolved.kind { return d }
+                if case .file(let resolvedData, _) = resolved.kind { return resolvedData }
                 throw FileSystemError.isADirectory(path)
             }
         }
     }
 
     public func writeData(_ data: Data, to path: String,
-                          append: Bool) async throws
-    {
+                          append: Bool) async throws {
         try lock.withLock { try writeLocked(data, to: path, append: append) }
     }
 
     public func openWrite(_ path: String,
-                          append: Bool) async throws -> OutputSink
-    {
+                          append: Bool) async throws -> OutputSink {
         // For an in-memory store there's no real streaming benefit, but
         // we still want matching semantics: truncation happens eagerly,
         // and further bytes append as they arrive so readers iterating
@@ -155,293 +160,20 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         return OutputSink(
             bufferingPolicy: .bufferingOldest(0),
             onWrite: { data in
-                guard let fs = weakSelf.value else { return }
-                fs.lock.withLock {
-                    try? fs.writeLocked(data, to: path, append: true)
+                guard let strongSelf = weakSelf.value else { return }
+                strongSelf.lock.withLock {
+                    try? strongSelf.writeLocked(data, to: path, append: true)
                 }
             })
     }
 
-    public func touch(_ path: String) async throws {
-        try lock.withLock {
-            let components = Self.splitAbsolute(path)
-            guard let last = components.last else {
-                throw FileSystemError.io("cannot touch root")
-            }
-            let parentComponents = Array(components.dropLast())
-            guard let parent = resolveLocked(parentComponents),
-                  case .directory(var children) = parent.kind
-            else {
-                throw FileSystemError.notFound(
-                    "/" + parentComponents.joined(separator: "/"))
-            }
-            if let existing = children[last] {
-                switch existing.kind {
-                case .file(let d, _):
-                    existing.kind = .file(d, mtime: Date())
-                case .directory:
-                    break // touch on directory is a no-op
-                case .symlink(let target, _):
-                    existing.kind = .symlink(target: target, mtime: Date())
-                }
-            } else {
-                children[last] = TreeNode(kind: .file(Data(), mtime: Date()))
-                parent.kind = .directory(children)
-            }
-        }
-    }
-
-    public func createDirectory(_ path: String,
-                                intermediates: Bool) async throws
-    {
-        try lock.withLock {
-            let components = Self.splitAbsolute(path)
-            guard !components.isEmpty else {
-                throw FileSystemError.alreadyExists(path)
-            }
-            if intermediates {
-                _ = try ensureDirectory(at: components)
-                return
-            }
-            let parentComponents = Array(components.dropLast())
-            let last = components.last!
-            guard let parent = resolveLocked(parentComponents),
-                  case .directory(var children) = parent.kind
-            else {
-                throw FileSystemError.notFound(
-                    "/" + parentComponents.joined(separator: "/"))
-            }
-            if children[last] != nil {
-                throw FileSystemError.alreadyExists(path)
-            }
-            children[last] = TreeNode(kind: .directory([:]))
-            parent.kind = .directory(children)
-        }
-    }
-
-    public func remove(_ path: String, recursive: Bool) async throws {
-        try lock.withLock {
-            let components = Self.splitAbsolute(path)
-            guard let last = components.last else {
-                throw FileSystemError.io("cannot remove root")
-            }
-            let parentComponents = Array(components.dropLast())
-            guard let parent = resolveLocked(parentComponents),
-                  case .directory(var children) = parent.kind
-            else {
-                throw FileSystemError.notFound(path)
-            }
-            guard let target = children[last] else {
-                throw FileSystemError.notFound(path)
-            }
-            if case .directory(let inner) = target.kind,
-               !inner.isEmpty,
-               !recursive
-            {
-                throw FileSystemError.isADirectory(path)
-            }
-            children.removeValue(forKey: last)
-            parent.kind = .directory(children)
-        }
-    }
-
-    public func move(from: String, to: String) async throws {
-        try lock.withLock {
-            let srcComponents = Self.splitAbsolute(from)
-            guard let srcLast = srcComponents.last else {
-                throw FileSystemError.notFound(from)
-            }
-            let srcParentComponents = Array(srcComponents.dropLast())
-            guard let srcParent = resolveLocked(srcParentComponents),
-                  case .directory(let srcChildrenProbe) = srcParent.kind,
-                  let node = srcChildrenProbe[srcLast]
-            else {
-                throw FileSystemError.notFound(from)
-            }
-
-            let dstComponents = Self.splitAbsolute(to)
-            guard let dstLast = dstComponents.last else {
-                throw FileSystemError.io("cannot move to root")
-            }
-            let dstParentComponents = Array(dstComponents.dropLast())
-            guard let dstParent = resolveLocked(dstParentComponents)
-            else {
-                throw FileSystemError.notFound(
-                    "/" + dstParentComponents.joined(separator: "/"))
-            }
-
-            // Same-parent renames need one dictionary mutation, not two,
-            // or we'd clobber the first with the second.
-            if srcParent === dstParent {
-                guard case .directory(var children) = srcParent.kind else {
-                    throw FileSystemError.notADirectory(from)
-                }
-                if children[dstLast] != nil {
-                    throw FileSystemError.alreadyExists(to)
-                }
-                children.removeValue(forKey: srcLast)
-                children[dstLast] = node
-                srcParent.kind = .directory(children)
-                return
-            }
-
-            guard case .directory(var srcChildren) = srcParent.kind,
-                  case .directory(var dstChildren) = dstParent.kind
-            else {
-                throw FileSystemError.notADirectory(from)
-            }
-            if dstChildren[dstLast] != nil {
-                throw FileSystemError.alreadyExists(to)
-            }
-            srcChildren.removeValue(forKey: srcLast)
-            srcParent.kind = .directory(srcChildren)
-            dstChildren[dstLast] = node
-            dstParent.kind = .directory(dstChildren)
-        }
-    }
-
-    // MARK: Permissions / ownership / links / xattrs
-
-    public func chmod(_ path: String, mode: UInt16) async throws {
-        try lock.withLock {
-            guard let node = resolveLocked(path) else {
-                throw FileSystemError.notFound(path)
-            }
-            node.mode = mode & 0o7777
-        }
-    }
-
-    public func chown(_ path: String, uid: UInt32?, gid: UInt32?) async throws {
-        try lock.withLock {
-            guard let node = resolveLocked(path) else {
-                throw FileSystemError.notFound(path)
-            }
-            if let u = uid { node.uid = u }
-            if let g = gid { node.gid = g }
-        }
-    }
-
-    public func symlink(target: String, at linkPath: String) async throws {
-        try lock.withLock {
-            let components = Self.splitAbsolute(linkPath)
-            guard let last = components.last else {
-                throw FileSystemError.io("cannot symlink at root")
-            }
-            let parentComponents = Array(components.dropLast())
-            guard let parent = resolveLocked(parentComponents),
-                  case .directory(var children) = parent.kind
-            else {
-                throw FileSystemError.notFound(
-                    "/" + parentComponents.joined(separator: "/"))
-            }
-            if children[last] != nil {
-                throw FileSystemError.alreadyExists(linkPath)
-            }
-            children[last] = TreeNode(
-                kind: .symlink(target: target, mtime: Date()),
-                mode: 0o777)
-            parent.kind = .directory(children)
-        }
-    }
-
-    public func hardlink(target: String, at linkPath: String) async throws {
-        try lock.withLock {
-            guard let src = resolveLocked(target) else {
-                throw FileSystemError.notFound(target)
-            }
-            let components = Self.splitAbsolute(linkPath)
-            guard let last = components.last else {
-                throw FileSystemError.io("cannot link at root")
-            }
-            let parentComponents = Array(components.dropLast())
-            guard let parent = resolveLocked(parentComponents),
-                  case .directory(var children) = parent.kind
-            else {
-                throw FileSystemError.notFound(
-                    "/" + parentComponents.joined(separator: "/"))
-            }
-            if children[last] != nil {
-                throw FileSystemError.alreadyExists(linkPath)
-            }
-            // True hard link semantics aren't expressible in our tree
-            // (one node, two names) without reference-counting indirection,
-            // but pointing the new entry at the same TreeNode object
-            // gives the right behaviour for most observable operations.
-            children[last] = src
-            parent.kind = .directory(children)
-        }
-    }
-
-    public func listXattrs(_ path: String) async throws -> [String] {
-        try lock.withLock {
-            guard let node = resolveLocked(path) else {
-                throw FileSystemError.notFound(path)
-            }
-            return Array(node.xattrs.keys).sorted()
-        }
-    }
-
-    public func getXattr(_ path: String, name: String) async throws -> Data {
-        try lock.withLock {
-            guard let node = resolveLocked(path) else {
-                throw FileSystemError.notFound(path)
-            }
-            guard let v = node.xattrs[name] else {
-                throw FileSystemError.io("no such xattr: \(name)")
-            }
-            return v
-        }
-    }
-
-    public func setXattr(_ path: String, name: String, value: Data) async throws {
-        try lock.withLock {
-            guard let node = resolveLocked(path) else {
-                throw FileSystemError.notFound(path)
-            }
-            node.xattrs[name] = value
-        }
-    }
-
-    public func removeXattr(_ path: String, name: String) async throws {
-        try lock.withLock {
-            guard let node = resolveLocked(path) else {
-                throw FileSystemError.notFound(path)
-            }
-            node.xattrs.removeValue(forKey: name)
-        }
-    }
-
-    public func copy(from: String, to: String) async throws {
-        try lock.withLock {
-            guard let src = resolveLocked(from) else {
-                throw FileSystemError.notFound(from)
-            }
-            let dstComponents = Self.splitAbsolute(to)
-            guard let dstLast = dstComponents.last else {
-                throw FileSystemError.io("cannot copy to root")
-            }
-            let dstParentComponents = Array(dstComponents.dropLast())
-            guard let dstParent = resolveLocked(dstParentComponents),
-                  case .directory(var dstChildren) = dstParent.kind
-            else {
-                throw FileSystemError.notFound(
-                    "/" + dstParentComponents.joined(separator: "/"))
-            }
-            if dstChildren[dstLast] != nil {
-                throw FileSystemError.alreadyExists(to)
-            }
-            dstChildren[dstLast] = Self.deepCopy(src)
-            dstParent.kind = .directory(dstChildren)
-        }
-    }
-
     // MARK: Internals (lock held)
 
-    private func resolveLocked(_ path: String) -> TreeNode? {
+    func resolveLocked(_ path: String) -> TreeNode? {
         resolveLocked(Self.splitAbsolute(path))
     }
 
-    private func resolveLocked(_ components: [String]) -> TreeNode? {
+    func resolveLocked(_ components: [String]) -> TreeNode? {
         var current: TreeNode = root
         for name in components {
             guard case .directory(let children) = current.kind,
@@ -452,9 +184,8 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         return current
     }
 
-    private func writeLocked(_ data: Data, to path: String,
-                             append: Bool) throws
-    {
+    func writeLocked(_ data: Data, to path: String,
+                     append: Bool) throws {
         let components = Self.splitAbsolute(path)
         guard let last = components.last else {
             throw FileSystemError.io("cannot write to root")
@@ -470,15 +201,15 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
             throw FileSystemError.isADirectory(path)
         }
         var existing = Data()
-        if append, case .file(let d, _) = children[last]?.kind {
-            existing = d
+        if append, case .file(let existingData, _) = children[last]?.kind {
+            existing = existingData
         }
         existing.append(data)
         children[last] = TreeNode(kind: .file(existing, mtime: Date()))
         parent.kind = .directory(children)
     }
 
-    private func ensureDirectory(at components: [String]) throws -> TreeNode {
+    func ensureDirectory(at components: [String]) throws -> TreeNode {
         var current: TreeNode = root
         for name in components {
             guard case .directory(var children) = current.kind else {
@@ -529,14 +260,14 @@ public final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
         }
     }
 
-    private static func deepCopy(_ node: TreeNode) -> TreeNode {
+    static func deepCopy(_ node: TreeNode) -> TreeNode {
         let new: TreeNode
         switch node.kind {
         case .file(let data, let mtime):
             new = TreeNode(kind: .file(data, mtime: mtime), mode: node.mode)
         case .directory(let children):
             var copied: [String: TreeNode] = [:]
-            for (k, v) in children { copied[k] = deepCopy(v) }
+            for (key, child) in children { copied[key] = deepCopy(child) }
             new = TreeNode(kind: .directory(copied), mode: node.mode)
         case .symlink(let target, let mtime):
             new = TreeNode(kind: .symlink(target: target, mtime: mtime),

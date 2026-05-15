@@ -19,11 +19,11 @@ public enum ArithLexer {
         var out: [ArithToken] = []
         while true {
             lexer.skipBlanks()
-            guard let t = try lexer.nextToken() else {
+            guard let tok = try lexer.nextToken() else {
                 out.append(.eof)
                 return out
             }
-            out.append(t)
+            out.append(tok)
         }
     }
 
@@ -40,26 +40,26 @@ public enum ArithLexer {
         }
 
         mutating func peek(_ offset: Int = 0) -> Character? {
-            let i = index + offset
-            return (0 <= i && i < chars.count) ? chars[i] : nil
+            let idx = index + offset
+            return (0 <= idx && idx < chars.count) ? chars[idx] : nil
         }
 
         @discardableResult
         mutating func advance() -> Character? {
             guard index < chars.count else { return nil }
-            let c = chars[index]
+            let char = chars[index]
             index += 1
-            return c
+            return char
         }
 
         mutating func nextToken() throws -> ArithToken? {
-            guard let c = peek() else { return nil }
+            guard let char = peek() else { return nil }
 
             // Identifiers and `$var` references
-            if c == "$" {
+            if char == "$" {
                 advance()
                 guard let next = peek() else {
-                    throw ArithError.unexpectedCharacter(c, position: index - 1)
+                    throw ArithError.unexpectedCharacter(char, position: index - 1)
                 }
                 // `$name` — read identifier.
                 if next.isLetter || next == "_" {
@@ -70,19 +70,19 @@ public enum ArithLexer {
                 // `get` closure looks it up in `positionalParameters`.
                 if next.isNumber {
                     var digits = ""
-                    while let d = peek(), d.isNumber {
-                        digits.append(d); advance()
+                    while let digit = peek(), digit.isNumber {
+                        digits.append(digit); advance()
                     }
                     return .ident(digits)
                 }
-                throw ArithError.unexpectedCharacter(c, position: index - 1)
+                throw ArithError.unexpectedCharacter(char, position: index - 1)
             }
-            if c.isLetter || c == "_" {
+            if char.isLetter || char == "_" {
                 return .ident(try readIdentifier())
             }
 
             // Numeric literals (or base#… which starts as a run of digits).
-            if c.isNumber {
+            if char.isNumber {
                 return try readNumber()
             }
 
@@ -93,15 +93,15 @@ public enum ArithLexer {
         // MARK: Identifier
 
         mutating func readIdentifier() throws -> String {
-            var s = ""
-            while let c = peek(), c.isLetter || c.isNumber || c == "_" {
-                s.append(c)
+            var buf = ""
+            while let char = peek(), char.isLetter || char.isNumber || char == "_" {
+                buf.append(char)
                 advance()
             }
-            if s.isEmpty {
+            if buf.isEmpty {
                 throw ArithError.unexpectedCharacter(peek() ?? " ", position: index)
             }
-            return s
+            return buf
         }
 
         // MARK: Numbers
@@ -113,8 +113,8 @@ public enum ArithLexer {
             let start = index
             // Consume the digit run.
             var digits = ""
-            while let c = peek(), c.isNumber {
-                digits.append(c); advance()
+            while let char = peek(), char.isNumber {
+                digits.append(char); advance()
             }
 
             // base#digits form
@@ -127,19 +127,18 @@ public enum ArithLexer {
             }
 
             // 0x / 0X — hex
-            if digits == "0", let c = peek(), c == "x" || c == "X" {
+            if digits == "0", let char = peek(), char == "x" || char == "X" {
                 advance() // consume x/X
                 return try .int(readBaseDigits(base: 16))
             }
 
             // 0 with following digits — octal
             if digits.hasPrefix("0"), digits.count > 1,
-               digits.allSatisfy({ "01234567".contains($0) })
-            {
-                guard let n = Int64(digits, radix: 8) else {
+               digits.allSatisfy({ "01234567".contains($0) }) {
+                guard let num = Int64(digits, radix: 8) else {
                     throw ArithError.invalidNumber(digits)
                 }
-                return .int(n)
+                return .int(num)
             }
             if digits.hasPrefix("0"), digits.count > 1 {
                 // Has a non-octal digit like '8' or '9' → error.
@@ -148,11 +147,11 @@ public enum ArithLexer {
             }
 
             // Plain decimal
-            guard let n = Int64(digits) else {
+            guard let num = Int64(digits) else {
                 throw ArithError.invalidNumber(digits)
             }
             _ = start
-            return .int(n)
+            return .int(num)
         }
 
         /// Reads a run of base-N digit characters and returns the value.
@@ -166,14 +165,14 @@ public enum ArithLexer {
         mutating func readBaseDigits(base: Int) throws -> Int64 {
             var result: Int64 = 0
             var consumed = false
-            while let c = peek() {
-                guard let v = Self.baseDigitValue(c, base: base) else {
+            while let char = peek() {
+                guard let digitVal = Self.baseDigitValue(char, base: base) else {
                     if !consumed {
-                        throw ArithError.digitOutOfRange(digit: c, forBase: base)
+                        throw ArithError.digitOutOfRange(digit: char, forBase: base)
                     }
                     break
                 }
-                result = result &* Int64(base) &+ Int64(v)
+                result = result &* Int64(base) &+ Int64(digitVal)
                 advance()
                 consumed = true
             }
@@ -181,94 +180,95 @@ public enum ArithLexer {
             return result
         }
 
-        static func baseDigitValue(_ c: Character, base: Int) -> Int? {
-            let v: Int
-            switch c {
+        static func baseDigitValue(_ char: Character, base: Int) -> Int? {
+            let value: Int
+            switch char {
             case "0"..."9":
-                v = Int(c.asciiValue!) - Int(Character("0").asciiValue!)
+                value = Int(char.asciiValue!) - Int(Character("0").asciiValue!)
             case "a"..."z" where base > 10 && base <= 36:
-                v = Int(c.asciiValue!) - Int(Character("a").asciiValue!) + 10
+                value = Int(char.asciiValue!) - Int(Character("a").asciiValue!) + 10
             case "A"..."Z" where base > 10 && base <= 36:
-                v = Int(c.asciiValue!) - Int(Character("A").asciiValue!) + 10
+                value = Int(char.asciiValue!) - Int(Character("A").asciiValue!) + 10
             case "a"..."z" where base > 36:
-                v = Int(c.asciiValue!) - Int(Character("a").asciiValue!) + 10
+                value = Int(char.asciiValue!) - Int(Character("a").asciiValue!) + 10
             case "A"..."Z" where base > 36:
-                v = Int(c.asciiValue!) - Int(Character("A").asciiValue!) + 36
+                value = Int(char.asciiValue!) - Int(Character("A").asciiValue!) + 36
             case "@" where base > 62:
-                v = 62
+                value = 62
             case "_" where base > 63:
-                v = 63
+                value = 63
             default:
                 return nil
             }
-            return v < base ? v : nil
+            return value < base ? value : nil
         }
 
         // MARK: Operators
 
+        // swiftlint:disable:next cyclomatic_complexity function_body_length
         mutating func readOperator() throws -> ArithToken {
-            guard let c = peek() else { throw ArithError.unexpectedEnd }
-            let n1 = peek(1)
-            let n2 = peek(2)
+            guard let char = peek() else { throw ArithError.unexpectedEnd }
+            let next1 = peek(1)
+            let next2 = peek(2)
 
-            switch c {
+            switch char {
             case "+":
-                if n1 == "+" { advance(); advance(); return .plusPlus }
-                if n1 == "=" { advance(); advance(); return .plusAssign }
+                if next1 == "+" { advance(); advance(); return .plusPlus }
+                if next1 == "=" { advance(); advance(); return .plusAssign }
                 advance(); return .plus
             case "-":
-                if n1 == "-" { advance(); advance(); return .minusMinus }
-                if n1 == "=" { advance(); advance(); return .minusAssign }
+                if next1 == "-" { advance(); advance(); return .minusMinus }
+                if next1 == "=" { advance(); advance(); return .minusAssign }
                 advance(); return .minus
             case "*":
-                if n1 == "*" {
-                    if n2 == "=" {
+                if next1 == "*" {
+                    if next2 == "=" {
                         advance(); advance(); advance(); return .starStarAssign
                     }
                     advance(); advance(); return .starStar
                 }
-                if n1 == "=" { advance(); advance(); return .starAssign }
+                if next1 == "=" { advance(); advance(); return .starAssign }
                 advance(); return .star
             case "/":
-                if n1 == "=" { advance(); advance(); return .slashAssign }
+                if next1 == "=" { advance(); advance(); return .slashAssign }
                 advance(); return .slash
             case "%":
-                if n1 == "=" { advance(); advance(); return .percentAssign }
+                if next1 == "=" { advance(); advance(); return .percentAssign }
                 advance(); return .percent
             case "<":
-                if n1 == "<" {
-                    if n2 == "=" {
+                if next1 == "<" {
+                    if next2 == "=" {
                         advance(); advance(); advance(); return .shiftLeftAssign
                     }
                     advance(); advance(); return .shiftLeft
                 }
-                if n1 == "=" { advance(); advance(); return .le }
+                if next1 == "=" { advance(); advance(); return .le }
                 advance(); return .lt
             case ">":
-                if n1 == ">" {
-                    if n2 == "=" {
+                if next1 == ">" {
+                    if next2 == "=" {
                         advance(); advance(); advance(); return .shiftRightAssign
                     }
                     advance(); advance(); return .shiftRight
                 }
-                if n1 == "=" { advance(); advance(); return .ge }
+                if next1 == "=" { advance(); advance(); return .ge }
                 advance(); return .gt
             case "=":
-                if n1 == "=" { advance(); advance(); return .eq }
+                if next1 == "=" { advance(); advance(); return .eq }
                 advance(); return .assign
             case "!":
-                if n1 == "=" { advance(); advance(); return .neq }
+                if next1 == "=" { advance(); advance(); return .neq }
                 advance(); return .bang
             case "&":
-                if n1 == "&" { advance(); advance(); return .ampAmp }
-                if n1 == "=" { advance(); advance(); return .ampAssign }
+                if next1 == "&" { advance(); advance(); return .ampAmp }
+                if next1 == "=" { advance(); advance(); return .ampAssign }
                 advance(); return .amp
             case "|":
-                if n1 == "|" { advance(); advance(); return .barBar }
-                if n1 == "=" { advance(); advance(); return .barAssign }
+                if next1 == "|" { advance(); advance(); return .barBar }
+                if next1 == "=" { advance(); advance(); return .barAssign }
                 advance(); return .bar
             case "^":
-                if n1 == "=" { advance(); advance(); return .caretAssign }
+                if next1 == "=" { advance(); advance(); return .caretAssign }
                 advance(); return .caret
             case "~":
                 advance(); return .tilde
@@ -287,7 +287,7 @@ public enum ArithLexer {
             case "]":
                 advance(); return .rBracket
             default:
-                throw ArithError.unexpectedCharacter(c, position: index)
+                throw ArithError.unexpectedCharacter(char, position: index)
             }
         }
     }

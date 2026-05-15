@@ -34,10 +34,10 @@ public struct RmdirCommand: ParsableBashCommand {
         for path in paths {
             if !(await removeOne(path)) { hadError = true }
             if parents, !hadError {
-                var p = Self.parentPath(path)
-                while !p.isEmpty, p != "." , p != "/" {
-                    if !(await removeOne(p)) { break }
-                    p = Self.parentPath(p)
+                var parent = Self.parentPath(path)
+                while !parent.isEmpty, parent != ".", parent != "/" {
+                    if !(await removeOne(parent)) { break }
+                    parent = Self.parentPath(parent)
                 }
             }
         }
@@ -53,13 +53,13 @@ public struct RmdirCommand: ParsableBashCommand {
         if path.isEmpty { return "" }
         if path == "/" { return "/" }
         // Drop trailing slashes (preserve a bare leading "/").
-        var s = path
-        while s.count > 1, s.hasSuffix("/") { s.removeLast() }
-        guard let i = s.lastIndex(of: "/") else {
+        var trimmed = path
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        guard let slash = trimmed.lastIndex(of: "/") else {
             return ""             // single component → no parent
         }
-        if i == s.startIndex { return "/" }   // e.g. "/a" → "/"
-        return String(s[..<i])
+        if slash == trimmed.startIndex { return "/" }   // e.g. "/a" → "/"
+        return String(trimmed[..<slash])
     }
 
     /// Remove a single directory; reports stderr on failure and returns

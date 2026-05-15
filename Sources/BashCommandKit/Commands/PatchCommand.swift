@@ -29,68 +29,75 @@ public struct PatchCommand: ParsableBashCommand {
 
     public init() {}
 
+    // GNU-`patch` option parsing has 10+ flag forms; one branch per spec
+    // case keeps the table inline.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var stripCount = 1
         var reverse = false
-        var inputFile: String? = nil
-        var changeDir: String? = nil
+        var inputFile: String?
+        var changeDir: String?
         var dryRun = false
         var positionals: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { positionals.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { positionals.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-p" || a == "--strip" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
+            if arg == "-p" || arg == "--strip" {
+                guard idx + 1 < rawArgv.count, let count = Int(rawArgv[idx + 1]) else {
                     Shell.bashCurrent.stderr("patch: -p requires N\n"); return ExitStatus(2)
                 }
-                stripCount = n; i += 2; continue
+                stripCount = count; idx += 2; continue
             }
-            if a.hasPrefix("-p") && a.count > 2, let n = Int(a.dropFirst(2)) {
-                stripCount = n; i += 1; continue
+            if arg.hasPrefix("-p") && arg.count > 2, let count = Int(arg.dropFirst(2)) {
+                stripCount = count; idx += 1; continue
             }
-            if a.hasPrefix("--strip=") {
-                guard let n = Int(a.dropFirst("--strip=".count)) else {
+            if arg.hasPrefix("--strip=") {
+                guard let count = Int(arg.dropFirst("--strip=".count)) else {
                     Shell.bashCurrent.stderr("patch: invalid --strip\n"); return ExitStatus(2)
                 }
-                stripCount = n; i += 1; continue
+                stripCount = count; idx += 1; continue
             }
-            if a == "-R" || a == "--reverse" { reverse = true; i += 1; continue }
-            if a == "-i" || a == "--input" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-R" || arg == "--reverse" { reverse = true; idx += 1; continue }
+            if arg == "-i" || arg == "--input" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("patch: -i requires FILE\n"); return ExitStatus(2)
                 }
-                inputFile = rawArgv[i + 1]; i += 2; continue
+                inputFile = rawArgv[idx + 1]; idx += 2; continue
             }
-            if a.hasPrefix("--input=") {
-                inputFile = String(a.dropFirst("--input=".count)); i += 1; continue
+            if arg.hasPrefix("--input=") {
+                inputFile = String(arg.dropFirst("--input=".count)); idx += 1; continue
             }
-            if a == "-d" || a == "--directory" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-d" || arg == "--directory" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("patch: -d requires DIR\n"); return ExitStatus(2)
                 }
-                changeDir = rawArgv[i + 1]; i += 2; continue
+                changeDir = rawArgv[idx + 1]; idx += 2; continue
             }
-            if a == "--dry-run" { dryRun = true; i += 1; continue }
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                Shell.bashCurrent.stderr("patch: unknown option: \(a)\n")
+            if arg == "--dry-run" { dryRun = true; idx += 1; continue }
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
+                Shell.bashCurrent.stderr("patch: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            positionals.append(a); i += 1
+            positionals.append(arg); idx += 1
         }
 
         // Resolve sources.
         let patchText: String
         do {
-            if let p = inputFile {
-                let data = try await Shell.bashCurrent.readDataAtPath(p)
+            if let path = inputFile {
+                let data = try await Shell.bashCurrent.readDataAtPath(path)
+                // Patch text may legitimately be partial UTF-8 (binary patches).
+                // swiftlint:disable:next optional_data_string_conversion
                 patchText = String(decoding: data, as: UTF8.self)
             } else if positionals.count >= 2 {
                 let data = try await Shell.bashCurrent.readDataAtPath(positionals[1])
+                // Patch text may legitimately be partial UTF-8 (binary patches).
+                // swiftlint:disable:next optional_data_string_conversion
                 patchText = String(decoding: data, as: UTF8.self)
             } else {
                 patchText = await Shell.bashCurrent.stdin.readAllString()
@@ -100,7 +107,8 @@ public struct PatchCommand: ParsableBashCommand {
             return .failure
         }
 
-        let cwd = changeDir.map { Shell.bashCurrent.resolvePath($0) } ?? Shell.bashCurrent.environment.workingDirectory
+        let cwd = changeDir.map { Shell.bashCurrent.resolvePath($0) }
+            ?? Shell.bashCurrent.environment.workingDirectory
         let hunks = parsePatch(patchText)
         if hunks.isEmpty {
             Shell.bashCurrent.stderr("patch: no hunks found\n")
@@ -109,17 +117,17 @@ public struct PatchCommand: ParsableBashCommand {
 
         // Group hunks by target file.
         var byFile: [(String, [Hunk])] = []
-        for h in hunks {
+        for hunk in hunks {
             let target: String
             if positionals.count >= 1, !positionals[0].hasPrefix("-") {
                 target = positionals[0]
             } else {
-                target = strip(h.targetHeader, levels: stripCount)
+                target = strip(hunk.targetHeader, levels: stripCount)
             }
-            if let i = byFile.firstIndex(where: { $0.0 == target }) {
-                byFile[i].1.append(h)
+            if let existing = byFile.firstIndex(where: { $0.0 == target }) {
+                byFile[existing].1.append(hunk)
             } else {
-                byFile.append((target, [h]))
+                byFile.append((target, [hunk]))
             }
         }
 
@@ -130,6 +138,8 @@ public struct PatchCommand: ParsableBashCommand {
             let original: [String]
             do {
                 let data = try await Shell.bashCurrent.readDataAtPath(absPath)
+                // Patched files may legitimately be partial UTF-8.
+                // swiftlint:disable:next optional_data_string_conversion
                 original = SortCommand.splitLines(String(decoding: data, as: UTF8.self))
             } catch {
                 Shell.bashCurrent.stderr("patch: \(relPath): \(error)\n")
@@ -139,11 +149,12 @@ public struct PatchCommand: ParsableBashCommand {
                 let updated = try apply(hunks: fileHunks, to: original, reverse: reverse)
                 if !dryRun {
                     let out = updated.joined(separator: "\n") + "\n"
-                    try await Shell.bashCurrent.writeData(Data(out.utf8), toPath: absPath, append: false)
+                    try await Shell.bashCurrent.writeData(Data(out.utf8),
+                                                          toPath: absPath, append: false)
                 }
                 Shell.bashCurrent.stdout("patching file \(relPath)\n")
-            } catch let e as PatchError {
-                Shell.bashCurrent.stderr("patch: \(relPath): \(e.message)\n")
+            } catch let err as PatchError {
+                Shell.bashCurrent.stderr("patch: \(relPath): \(err.message)\n")
                 hadError = true
             }
         }
@@ -152,7 +163,7 @@ public struct PatchCommand: ParsableBashCommand {
 
     // MARK: parsing
 
-    private struct Hunk {
+    struct Hunk {
         let oldStart: Int        // 1-based
         let oldCount: Int
         let newStart: Int
@@ -162,148 +173,95 @@ public struct PatchCommand: ParsableBashCommand {
         let targetHeader: String // `+++ b/path`
     }
 
-    private struct PatchError: Error {
+    struct PatchError: Error {
         let message: String
-        init(_ m: String) { self.message = m }
+        init(_ message: String) { self.message = message }
     }
 
     private func parsePatch(_ text: String) -> [Hunk] {
         var hunks: [Hunk] = []
         let lines = text.components(separatedBy: "\n")
-        var i = 0
+        var idx = 0
         var srcHeader = ""
         var tgtHeader = ""
-        while i < lines.count {
-            let line = lines[i]
+        while idx < lines.count {
+            let line = lines[idx]
             if line.hasPrefix("--- ") {
-                srcHeader = String(line.dropFirst(4)).split(separator: "\t").first.map(String.init) ?? ""
-                i += 1; continue
+                srcHeader = String(line.dropFirst(4)).split(separator: "\t")
+                    .first.map(String.init) ?? ""
+                idx += 1; continue
             }
             if line.hasPrefix("+++ ") {
-                tgtHeader = String(line.dropFirst(4)).split(separator: "\t").first.map(String.init) ?? ""
-                i += 1; continue
+                tgtHeader = String(line.dropFirst(4)).split(separator: "\t")
+                    .first.map(String.init) ?? ""
+                idx += 1; continue
             }
             if line.hasPrefix("@@") {
                 guard let header = parseHunkHeader(line) else {
-                    i += 1; continue
+                    idx += 1; continue
                 }
-                i += 1
+                idx += 1
                 var body: [String] = []
-                while i < lines.count {
-                    let l = lines[i]
-                    if l.hasPrefix("@@") || l.hasPrefix("--- ") || l.hasPrefix("+++ ") { break }
-                    if l.isEmpty && body.count >= header.0 + header.2 { break }
-                    body.append(l)
-                    i += 1
+                while idx < lines.count {
+                    let bodyLine = lines[idx]
+                    if bodyLine.hasPrefix("@@")
+                        || bodyLine.hasPrefix("--- ")
+                        || bodyLine.hasPrefix("+++ ") {
+                        break
+                    }
+                    if bodyLine.isEmpty
+                        && body.count >= header.oldStart + header.newStart {
+                        break
+                    }
+                    body.append(bodyLine)
+                    idx += 1
                 }
-                hunks.append(Hunk(oldStart: header.0, oldCount: header.1,
-                                  newStart: header.2, newCount: header.3,
+                hunks.append(Hunk(oldStart: header.oldStart, oldCount: header.oldCount,
+                                  newStart: header.newStart, newCount: header.newCount,
                                   lines: body,
                                   sourceHeader: srcHeader, targetHeader: tgtHeader))
                 continue
             }
-            i += 1
+            idx += 1
         }
         return hunks
     }
 
+    private struct HunkHeader {
+        let oldStart: Int
+        let oldCount: Int
+        let newStart: Int
+        let newCount: Int
+    }
+
     /// Parse `@@ -A,B +C,D @@ optional comment` — counts default to 1.
-    private func parseHunkHeader(_ line: String) -> (Int, Int, Int, Int)? {
+    private func parseHunkHeader(_ line: String) -> HunkHeader? {
         // Match by regex.
         let pattern = #"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"#
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let nsstr = line as NSString
-        guard let m = re.firstMatch(in: line, range: NSRange(location: 0, length: nsstr.length)) else {
+        guard let match = regex.firstMatch(
+            in: line, range: NSRange(location: 0, length: nsstr.length)) else {
             return nil
         }
-        func capture(_ idx: Int) -> Int? {
-            let r = m.range(at: idx)
-            if r.location == NSNotFound { return nil }
-            return Int(nsstr.substring(with: r))
+        func capture(_ index: Int) -> Int? {
+            let range = match.range(at: index)
+            if range.location == NSNotFound { return nil }
+            return Int(nsstr.substring(with: range))
         }
-        let oldStart = capture(1) ?? 0
-        let oldCount = capture(2) ?? 1
-        let newStart = capture(3) ?? 0
-        let newCount = capture(4) ?? 1
-        return (oldStart, oldCount, newStart, newCount)
+        return HunkHeader(oldStart: capture(1) ?? 0,
+                          oldCount: capture(2) ?? 1,
+                          newStart: capture(3) ?? 0,
+                          newCount: capture(4) ?? 1)
     }
 
     private func strip(_ path: String, levels: Int) -> String {
         var parts = path.components(separatedBy: "/")
-        for _ in 0..<levels {
-            if !parts.isEmpty { parts.removeFirst() }
+        for _ in 0..<levels where !parts.isEmpty {
+            parts.removeFirst()
         }
         return parts.joined(separator: "/")
     }
 
-    // MARK: applying
-
-    private func apply(hunks: [Hunk], to original: [String], reverse: Bool) throws -> [String] {
-        // Apply hunks in source order, building output with offset
-        // tracking so subsequent hunk indices stay correct.
-        var out = original
-        // Offset between original index and output index (for adjusting
-        // later hunk start positions after earlier hunks change line
-        // counts).
-        var offset = 0
-        for hunk in hunks {
-            let h = reverse ? reversedHunk(hunk) : hunk
-            let idx = h.oldStart - 1 + offset
-            // Sanity-check: the lines we expect to remove or pass
-            // through should match the file at this position.
-            var contextChecked = 0
-            var consumed = 0
-            var produced: [String] = []
-            for line in h.lines {
-                guard let kind = line.first else { continue }
-                let body = String(line.dropFirst())
-                switch kind {
-                case " ":
-                    // Context: must match.
-                    guard idx + contextChecked < out.count,
-                          out[idx + contextChecked] == body else {
-                        throw PatchError("hunk failed at line \(idx + contextChecked + 1)")
-                    }
-                    produced.append(body)
-                    contextChecked += 1
-                    consumed += 1
-                case "-":
-                    // Must match original.
-                    guard idx + contextChecked < out.count,
-                          out[idx + contextChecked] == body else {
-                        throw PatchError("hunk failed at line \(idx + contextChecked + 1)")
-                    }
-                    contextChecked += 1
-                    consumed += 1
-                case "+":
-                    produced.append(body)
-                default:
-                    // Skip pseudo-lines like "\ No newline at end of file".
-                    continue
-                }
-            }
-            // Replace the range [idx ..< idx + consumed] with produced.
-            let endIdx = min(idx + consumed, out.count)
-            out.replaceSubrange(idx..<endIdx, with: produced)
-            offset += produced.count - consumed
-        }
-        return out
-    }
-
-    private func reversedHunk(_ h: Hunk) -> Hunk {
-        var swapped: [String] = []
-        for line in h.lines {
-            guard let first = line.first else { continue }
-            let body = line.dropFirst()
-            switch first {
-            case "+": swapped.append("-" + body)
-            case "-": swapped.append("+" + body)
-            default:  swapped.append(line)
-            }
-        }
-        return Hunk(oldStart: h.newStart, oldCount: h.newCount,
-                    newStart: h.oldStart, newCount: h.oldCount,
-                    lines: swapped,
-                    sourceHeader: h.targetHeader, targetHeader: h.sourceHeader)
-    }
+    // Hunk-application helpers live in `PatchCommand+Apply.swift`.
 }

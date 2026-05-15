@@ -1,52 +1,57 @@
+// swiftlint:disable file_length
+// Single-file find implementation — walk + parse + glob.
+// Splitting would scatter the closely-coupled Expr / Predicate /
+// Action types and their parser.
 import BashInterpreter
 import Foundation
 
-/// `find [PATH...] [EXPRESSION]` — recursively walk one or more start
-/// paths and apply an expression to every entry. With no `PATH`, walks
-/// `.`. With no expression, every entry is printed.
-///
-/// ### Tests
-/// - `-name PATTERN` — basename matches a shell glob
-/// - `-iname PATTERN` — case-insensitive variant of `-name`
-/// - `-path PATTERN` / `-wholename PATTERN` — full path matches a glob
-/// - `-regex PATTERN` / `-iregex PATTERN` — full path matches a regex
-/// - `-type [f|d|l]` — regular file, directory, or symlink
-/// - `-empty` — empty regular files or empty directories
-/// - `-newer FILE` — modified more recently than `FILE`
-/// - `-mtime [+-]N` — modified N×24h ago (`+N` strictly more, `-N` less)
-/// - `-mmin [+-]N` — modified N minutes ago
-/// - `-size [+-]N[ckMG]` — size matches (default unit blocks of 512B,
-///   `c` bytes, `k` KiB, `M` MiB, `G` GiB)
-/// - `-perm MODE` — permission bits (octal). `-MODE` requires all bits
-///   set; `/MODE` requires any bit set; bare `MODE` is exact match.
-///
-/// ### Actions
-/// - `-print` — print the path with a newline (the default)
-/// - `-print0` — print the path with a NUL terminator
-/// - `-prune` — don't descend into matched directories
-/// - `-delete` — delete the matched entry; implies `-depth`
-/// - `-exec CMD … ;` — run `CMD …` once per match, replacing `{}`
-/// - `-exec CMD … {} +` — batch matches and run `CMD …` once at the end
-///
-/// ### Operators
-/// - `-not EXPR` / `! EXPR` — negation
-/// - `EXPR1 -a EXPR2` / `EXPR1 -and EXPR2` / `EXPR1 EXPR2` — AND
-/// - `EXPR1 -o EXPR2` / `EXPR1 -or EXPR2` — OR
-/// - `( EXPR )` — grouping (each paren is its own argv token)
-///
-/// ### Global options (position-independent)
-/// - `-maxdepth N` — only descend N levels (start path is depth 0)
-/// - `-mindepth N` — skip entries shallower than N
-/// - `-depth` — visit directory contents before the directory itself
-///
-/// Within each directory, entries are visited in sorted order so script
-/// output and tests are deterministic.
-///
-/// Out of scope: `-xattr`, `-flags`, `-uid`, `-gid`. Symlink-following
-/// global options (`-L` / `-H` / `-P`) are accepted as no-ops because
-/// our metadata already follows symlinks via `stat(2)`. `-perm` reads
-/// the mode via `stat(2)` directly since `FileMetadata` doesn't carry
-/// permission bits.
+// `find [PATH...] [EXPRESSION]` — recursively walk one or more start
+// paths and apply an expression to every entry. With no `PATH`, walks
+// `.`. With no expression, every entry is printed.
+//
+// ### Tests
+// - `-name PATTERN` — basename matches a shell glob
+// - `-iname PATTERN` — case-insensitive variant of `-name`
+// - `-path PATTERN` / `-wholename PATTERN` — full path matches a glob
+// - `-regex PATTERN` / `-iregex PATTERN` — full path matches a regex
+// - `-type [f|d|l]` — regular file, directory, or symlink
+// - `-empty` — empty regular files or empty directories
+// - `-newer FILE` — modified more recently than `FILE`
+// - `-mtime [+-]N` — modified N×24h ago (`+N` strictly more, `-N` less)
+// - `-mmin [+-]N` — modified N minutes ago
+// - `-size [+-]N[ckMG]` — size matches (default unit blocks of 512B,
+//   `c` bytes, `k` KiB, `M` MiB, `G` GiB)
+// - `-perm MODE` — permission bits (octal). `-MODE` requires all bits
+//   set; `/MODE` requires any bit set; bare `MODE` is exact match.
+//
+// ### Actions
+// - `-print` — print the path with a newline (the default)
+// - `-print0` — print the path with a NUL terminator
+// - `-prune` — don't descend into matched directories
+// - `-delete` — delete the matched entry; implies `-depth`
+// - `-exec CMD … ;` — run `CMD …` once per match, replacing `{}`
+// - `-exec CMD … {} +` — batch matches and run `CMD …` once at the end
+//
+// ### Operators
+// - `-not EXPR` / `! EXPR` — negation
+// - `EXPR1 -a EXPR2` / `EXPR1 -and EXPR2` / `EXPR1 EXPR2` — AND
+// - `EXPR1 -o EXPR2` / `EXPR1 -or EXPR2` — OR
+// - `( EXPR )` — grouping (each paren is its own argv token)
+//
+// ### Global options (position-independent)
+// - `-maxdepth N` — only descend N levels (start path is depth 0)
+// - `-mindepth N` — skip entries shallower than N
+// - `-depth` — visit directory contents before the directory itself
+//
+// Within each directory, entries are visited in sorted order so script
+// output and tests are deterministic.
+//
+// Out of scope: `-xattr`, `-flags`, `-uid`, `-gid`. Symlink-following
+// global options (`-L` / `-H` / `-P`) are accepted as no-ops because
+// our metadata already follows symlinks via `stat(2)`. `-perm` reads
+// the mode via `stat(2)` directly since `FileMetadata` doesn't carry
+// permission bits.
+// swiftlint:disable:next type_body_length
 public struct FindCommand: Command {
     public let name = "find"
     public init() {}
@@ -107,75 +112,78 @@ public struct FindCommand: Command {
         // Per-entry cancellation check — `find /` against a huge tree
         // becomes interruptible.
         try Task.checkCancellation()
+        guard let meta = try await resolveMeta(
+            displayPath: displayPath,
+            absolutePath: absolutePath,
+            depth: depth)
+        else { return }
+
+        let depthOK = depth >= ctx.opts.minDepth
+            && (ctx.opts.maxDepth.map { depth <= $0 } ?? true)
+        let node = NodeInfo(displayPath: displayPath,
+                            absolutePath: absolutePath,
+                            meta: meta)
+
+        // Pre-order: evaluate this node first, then descend.
+        var pruned = false
+        if !ctx.opts.depthFirst, depthOK {
+            let result = try await evaluate(ctx.opts.expr, node: node, ctx: ctx)
+            pruned = result.pruned
+        }
+
+        let canDescend = !pruned
+            && meta.kind == .directory
+            && (ctx.opts.maxDepth.map { depth < $0 } ?? true)
+        if canDescend {
+            try await descend(node: node, depth: depth, ctx: ctx, depthOK: depthOK)
+        }
+
+        // Post-order: evaluate this node *after* descending. `-prune` has
+        // no effect here because we've already visited the children.
+        if ctx.opts.depthFirst, depthOK {
+            _ = try await evaluate(ctx.opts.expr, node: node, ctx: ctx)
+        }
+    }
+
+    private func resolveMeta(displayPath: String,
+                             absolutePath: String,
+                             depth: Int) async throws -> FileMetadata? {
         let meta: FileMetadata?
         do {
             meta = try await Shell.bashCurrent.fileSystem.metadata(absolutePath)
         } catch {
             if depth == 0 { throw error }
             Shell.bashCurrent.stderr("find: \(displayPath): \(error)\n")
-            return
+            return nil
         }
         guard let meta else {
             if depth == 0 { throw FileSystemError.notFound(displayPath) }
+            return nil
+        }
+        return meta
+    }
+
+    private func descend(node: NodeInfo, depth: Int,
+                         ctx: EvalContext, depthOK: Bool) async throws {
+        let entries: [String]
+        do {
+            entries = try await Shell.bashCurrent.fileSystem
+                .list(node.absolutePath).map(\.name)
+        } catch {
+            Shell.bashCurrent.stderr("find: \(node.displayPath): \(error)\n")
+            if ctx.opts.depthFirst, depthOK {
+                _ = try await evaluate(ctx.opts.expr, node: node, ctx: ctx)
+            }
             return
         }
-
-        let depthOK = depth >= ctx.opts.minDepth
-            && (ctx.opts.maxDepth.map { depth <= $0 } ?? true)
-
-        // Pre-order: evaluate this node first, then descend.
-        var pruned = false
-        if !ctx.opts.depthFirst, depthOK {
-            let r = try await evaluate(
-                ctx.opts.expr,
-                node: NodeInfo(displayPath: displayPath,
-                               absolutePath: absolutePath,
-                               meta: meta),
-                ctx: ctx)
-            pruned = r.pruned
-        }
-
-        let canDescend = !pruned
-            && meta.kind == .directory
-            && (ctx.opts.maxDepth.map { depth < $0 } ?? true)
-
-        if canDescend {
-            let entries: [String]
-            do {
-                entries = try await Shell.bashCurrent.fileSystem
-                    .list(absolutePath).map(\.name)
-            } catch {
-                Shell.bashCurrent.stderr("find: \(displayPath): \(error)\n")
-                if ctx.opts.depthFirst, depthOK {
-                    _ = try await evaluate(
-                        ctx.opts.expr,
-                        node: NodeInfo(displayPath: displayPath,
-                                       absolutePath: absolutePath,
-                                       meta: meta),
-                        ctx: ctx)
-                }
-                return
-            }
-            for name in entries.sorted() {
-                let childAbs = (absolutePath as NSString)
-                    .appendingPathComponent(name)
-                let childDisplay = Self.joinPath(displayPath, name)
-                try await walk(displayPath: childDisplay,
-                               absolutePath: childAbs,
-                               depth: depth + 1,
-                               ctx: ctx)
-            }
-        }
-
-        // Post-order: evaluate this node *after* descending. `-prune` has
-        // no effect here because we've already visited the children.
-        if ctx.opts.depthFirst, depthOK {
-            _ = try await evaluate(
-                ctx.opts.expr,
-                node: NodeInfo(displayPath: displayPath,
-                               absolutePath: absolutePath,
-                               meta: meta),
-                ctx: ctx)
+        for name in entries.sorted() {
+            let childAbs = (node.absolutePath as NSString)
+                .appendingPathComponent(name)
+            let childDisplay = Self.joinPath(node.displayPath, name)
+            try await walk(displayPath: childDisplay,
+                           absolutePath: childAbs,
+                           depth: depth + 1,
+                           ctx: ctx)
         }
     }
 
@@ -191,45 +199,48 @@ public struct FindCommand: Command {
                           node: NodeInfo,
                           ctx: EvalContext) async throws -> EvalResult {
         switch expr {
-        case .test(let p):
-            let m = try await checkPredicate(p, node: node, ctx: ctx)
-            return EvalResult(matched: m)
-        case .action(let a):
-            return try await runAction(a, node: node, ctx: ctx)
+        case .test(let predicate):
+            let matched = try await checkPredicate(predicate, node: node, ctx: ctx)
+            return EvalResult(matched: matched)
+        case .action(let action):
+            return try await runAction(action, node: node, ctx: ctx)
         case .not(let inner):
-            let r = try await evaluate(inner, node: node, ctx: ctx)
-            return EvalResult(matched: !r.matched, pruned: r.pruned)
-        case .and(let l, let r):
-            let lr = try await evaluate(l, node: node, ctx: ctx)
+            let inner = try await evaluate(inner, node: node, ctx: ctx)
+            return EvalResult(matched: !inner.matched, pruned: inner.pruned)
+        case .and(let left, let right):
+            let leftResult = try await evaluate(left, node: node, ctx: ctx)
             // Short-circuit: don't evaluate the RHS if LHS is false.
             // Side-effecting actions on the RHS are intentionally
             // skipped, matching find's documented semantics.
-            if !lr.matched { return lr }
-            let rr = try await evaluate(r, node: node, ctx: ctx)
-            return EvalResult(matched: rr.matched,
-                              pruned: lr.pruned || rr.pruned)
-        case .or(let l, let r):
-            let lr = try await evaluate(l, node: node, ctx: ctx)
-            if lr.matched { return lr }
-            let rr = try await evaluate(r, node: node, ctx: ctx)
-            return EvalResult(matched: rr.matched,
-                              pruned: lr.pruned || rr.pruned)
+            if !leftResult.matched { return leftResult }
+            let rightResult = try await evaluate(right, node: node, ctx: ctx)
+            return EvalResult(matched: rightResult.matched,
+                              pruned: leftResult.pruned || rightResult.pruned)
+        case .or(let left, let right):
+            let leftResult = try await evaluate(left, node: node, ctx: ctx)
+            if leftResult.matched { return leftResult }
+            let rightResult = try await evaluate(right, node: node, ctx: ctx)
+            return EvalResult(matched: rightResult.matched,
+                              pruned: leftResult.pruned || rightResult.pruned)
         }
     }
 
-    private func checkPredicate(_ p: Predicate,
+    // Predicate switch covers 10 distinct find tests; splitting into
+    // a helper per case would obscure the table of behaviours.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    private func checkPredicate(_ predicate: Predicate,
                                 node: NodeInfo,
                                 ctx: EvalContext) async throws -> Bool {
-        switch p {
-        case .name(let pat, let ci):
+        switch predicate {
+        case .name(let pattern, let caseInsens):
             let base = (node.displayPath as NSString).lastPathComponent
-            return Self.globMatch(pattern: pat, string: base,
-                                  caseInsensitive: ci)
-        case .path(let pat):
-            return Self.globMatch(pattern: pat,
+            return Self.globMatch(pattern: pattern, string: base,
+                                  caseInsensitive: caseInsens)
+        case .path(let pattern):
+            return Self.globMatch(pattern: pattern,
                                   string: node.displayPath)
-        case .type(let t):
-            switch t {
+        case .type(let typeChar):
+            switch typeChar {
             case "f": return node.meta.kind == .file
             case "d": return node.meta.kind == .directory
             case "l": return node.meta.kind == .symlink
@@ -247,17 +258,19 @@ public struct FindCommand: Command {
                 return false
             }
         case .newer(let path):
-            guard let ref = ctx.newer[path] else { return false }
-            return node.meta.modifiedAt > ref
-        case .regex(let pat, let ci):
+            guard let referenceMtime = ctx.newer[path] else { return false }
+            return node.meta.modifiedAt > referenceMtime
+        case .regex(let pattern, let caseInsens):
             var opts: NSRegularExpression.Options = []
-            if ci { opts.insert(.caseInsensitive) }
-            guard let re = try? NSRegularExpression(pattern: pat, options: opts) else {
+            if caseInsens { opts.insert(.caseInsensitive) }
+            guard let regex = try? NSRegularExpression(
+                pattern: pattern, options: opts) else {
                 return false
             }
-            let s = node.displayPath as NSString
-            return re.firstMatch(in: node.displayPath,
-                                 range: NSRange(location: 0, length: s.length)) != nil
+            let nsPath = node.displayPath as NSString
+            return regex.firstMatch(
+                in: node.displayPath,
+                range: NSRange(location: 0, length: nsPath.length)) != nil
         case .mtime(let days, let cmp):
             let secsAgo = Date().timeIntervalSince(node.meta.modifiedAt)
             let buckets = Int(secsAgo / (24 * 60 * 60))
@@ -266,13 +279,13 @@ public struct FindCommand: Command {
             let secsAgo = Date().timeIntervalSince(node.meta.modifiedAt)
             let buckets = Int(secsAgo / 60)
             return Self.compareInt(buckets, mins, cmp)
-        case .size(let n, let unit, let cmp):
+        case .size(let value, let unit, let cmp):
             // Round up to the nearest unit, GNU/POSIX style.
             let raw = Double(node.meta.size) / Double(unit.multiplier)
             let buckets: Int64 = unit == .bytes
                 ? node.meta.size
                 : Int64(raw.rounded(.up))
-            return Self.compareInt64(buckets, n, cmp)
+            return Self.compareInt64(buckets, value, cmp)
         case .perm(let want, let match):
             // Read permission bits via FileMetadata so this works with
             // any FileSystem backing, not just the real disk.
@@ -300,10 +313,10 @@ public struct FindCommand: Command {
         }
     }
 
-    private func runAction(_ a: Action,
+    private func runAction(_ action: Action,
                            node: NodeInfo,
                            ctx: EvalContext) async throws -> EvalResult {
-        switch a {
+        switch action {
         case .print:
             Shell.bashCurrent.stdout(node.displayPath + "\n")
             return EvalResult(matched: true)
@@ -354,11 +367,11 @@ public struct FindCommand: Command {
         // becomes its own argv element). Tokens that aren't `{}` pass
         // through unchanged.
         var argv: [String] = []
-        for tok in batch.template {
-            if tok == "{}" {
+        for token in batch.template {
+            if token == "{}" {
                 argv.append(contentsOf: paths)
             } else {
-                argv.append(tok)
+                argv.append(token)
             }
         }
         let line = argv.map(Self.shellEscape).joined(separator: " ")
@@ -381,8 +394,8 @@ public struct FindCommand: Command {
     /// POSIX shell-quote a string by wrapping in single quotes, with
     /// embedded single quotes encoded as `'\''`. Safe for arbitrary
     /// bytes-as-string content including spaces and shell metacharacters.
-    static func shellEscape(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    static func shellEscape(_ raw: String) -> String {
+        "'" + raw.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: Inner types
@@ -403,6 +416,8 @@ public struct FindCommand: Command {
         case action(Action)
         case not(Expr)
         case and(Expr, Expr)
+        // Boolean operator from find(1); name mirrors `-or`/`-o`.
+        // swiftlint:disable:next identifier_name
         case or(Expr, Expr)
     }
 
@@ -514,54 +529,18 @@ public struct FindCommand: Command {
 
     static func parse(argv: [String]) throws -> Parsed {
         var paths: [String] = []
-        var i = 0
+        var state = GlobalOptionsState()
 
-        while i < argv.count {
-            let a = argv[i]
-            if Self.isExpressionToken(a) { break }
-            paths.append(a)
-            i += 1
+        while state.index < argv.count {
+            let arg = argv[state.index]
+            if Self.isExpressionToken(arg) { break }
+            paths.append(arg)
+            state.index += 1
         }
         if paths.isEmpty { paths = ["."] }
 
-        var maxDepth: Int?
-        var minDepth = 0
-        var depthFirst = false
-        var rest: [String] = []
-
-        // Strip out global options. `-maxdepth N` etc. can appear
-        // anywhere in the expression in our (lenient) grammar.
-        while i < argv.count {
-            let a = argv[i]
-            switch a {
-            case "-maxdepth":
-                guard i + 1 < argv.count, let n = Int(argv[i + 1]), n >= 0
-                else {
-                    throw ParseError(
-                        message: "-maxdepth: expected non-negative integer")
-                }
-                maxDepth = n
-                i += 2
-            case "-mindepth":
-                guard i + 1 < argv.count, let n = Int(argv[i + 1]), n >= 0
-                else {
-                    throw ParseError(
-                        message: "-mindepth: expected non-negative integer")
-                }
-                minDepth = n
-                i += 2
-            case "-depth":
-                depthFirst = true
-                i += 1
-            case "-L", "-H", "-P", "-l":
-                // Symlink-following global options. Our metadata follows
-                // symlinks already, so accept silently.
-                i += 1
-            default:
-                rest.append(a)
-                i += 1
-            }
-        }
+        try parseGlobalOptions(argv: argv, state: &state)
+        let rest = state.rest
 
         var batches: [ExecBatchState] = []
         var newerPaths: [String] = []
@@ -583,65 +562,117 @@ public struct FindCommand: Command {
         // `-delete` implies `-depth` (so children are deleted before
         // their parents — non-empty directory removal would otherwise
         // fail).
-        if Self.containsDelete(expr) { depthFirst = true }
+        if Self.containsDelete(expr) { state.depthFirst = true }
 
         return Parsed(paths: paths,
-                      maxDepth: maxDepth,
-                      minDepth: minDepth,
-                      depthFirst: depthFirst,
+                      maxDepth: state.maxDepth,
+                      minDepth: state.minDepth,
+                      depthFirst: state.depthFirst,
                       expr: expr,
                       batches: batches,
                       newerPaths: newerPaths)
     }
 
-    /// Treat a token as belonging to the expression part of argv when
-    /// it starts with `-` or is one of the standalone operator tokens.
-    private static func isExpressionToken(_ s: String) -> Bool {
-        if s.hasPrefix("-") { return true }
-        return s == "(" || s == ")" || s == "!"
+    private struct GlobalOptionsState {
+        var index: Int = 0
+        var rest: [String] = []
+        var maxDepth: Int?
+        var minDepth: Int = 0
+        var depthFirst: Bool = false
     }
 
-    private static func hasSideEffectAction(_ e: Expr) -> Bool {
-        switch e {
-        case .action(let a):
-            switch a {
+    /// Strip the global options (`-maxdepth`, `-mindepth`, `-depth`)
+    /// and the symlink-following flags out of `argv`, leaving the
+    /// remaining tokens for the expression parser.
+    private static func parseGlobalOptions(argv: [String],
+                                           state: inout GlobalOptionsState) throws {
+        while state.index < argv.count {
+            let arg = argv[state.index]
+            switch arg {
+            case "-maxdepth":
+                guard state.index + 1 < argv.count,
+                      let value = Int(argv[state.index + 1]),
+                      value >= 0
+                else {
+                    throw ParseError(
+                        message: "-maxdepth: expected non-negative integer")
+                }
+                state.maxDepth = value
+                state.index += 2
+            case "-mindepth":
+                guard state.index + 1 < argv.count,
+                      let value = Int(argv[state.index + 1]),
+                      value >= 0
+                else {
+                    throw ParseError(
+                        message: "-mindepth: expected non-negative integer")
+                }
+                state.minDepth = value
+                state.index += 2
+            case "-depth":
+                state.depthFirst = true
+                state.index += 1
+            case "-L", "-H", "-P", "-l":
+                // Symlink-following global options. Our metadata follows
+                // symlinks already, so accept silently.
+                state.index += 1
+            default:
+                state.rest.append(arg)
+                state.index += 1
+            }
+        }
+    }
+
+    /// Treat a token as belonging to the expression part of argv when
+    /// it starts with `-` or is one of the standalone operator tokens.
+    private static func isExpressionToken(_ token: String) -> Bool {
+        if token.hasPrefix("-") { return true }
+        return token == "(" || token == ")" || token == "!"
+    }
+
+    private static func hasSideEffectAction(_ expr: Expr) -> Bool {
+        switch expr {
+        case .action(let action):
+            switch action {
             case .print, .print0, .delete, .execEach, .execBatch: return true
             case .prune: return false
             }
         case .test: return false
-        case .not(let i): return hasSideEffectAction(i)
-        case .and(let l, let r), .or(let l, let r):
-            return hasSideEffectAction(l) || hasSideEffectAction(r)
+        case .not(let inner): return hasSideEffectAction(inner)
+        case .and(let left, let right), .or(let left, let right):
+            return hasSideEffectAction(left) || hasSideEffectAction(right)
         }
     }
 
-    private static func containsDelete(_ e: Expr) -> Bool {
-        switch e {
+    private static func containsDelete(_ expr: Expr) -> Bool {
+        switch expr {
         case .action(.delete): return true
         case .action: return false
         case .test: return false
-        case .not(let i): return containsDelete(i)
-        case .and(let l, let r), .or(let l, let r):
-            return containsDelete(l) || containsDelete(r)
+        case .not(let inner): return containsDelete(inner)
+        case .and(let left, let right), .or(let left, let right):
+            return containsDelete(left) || containsDelete(right)
         }
     }
 
     private struct ExprParser {
         let tokens: [String]
-        var i: Int = 0
+        var index: Int = 0
         var batches: [ExecBatchState] = []
         var newerPaths: [String] = []
 
-        var atEnd: Bool { i >= tokens.count }
-        func peek() -> String? { i < tokens.count ? tokens[i] : nil }
+        var atEnd: Bool { index >= tokens.count }
+        func peek() -> String? { index < tokens.count ? tokens[index] : nil }
         mutating func advance() -> String? {
-            guard i < tokens.count else { return nil }
-            let t = tokens[i]; i += 1; return t
+            guard index < tokens.count else { return nil }
+            let token = tokens[index]
+            index += 1
+            return token
         }
 
         mutating func expectEnd() throws {
-            if let t = peek() {
-                throw ParseError(message: "unexpected token: \(t)")
+            if let token = peek() {
+                throw ParseError(message: "unexpected token: \(token)")
             }
         }
 
@@ -649,7 +680,7 @@ public struct FindCommand: Command {
 
         mutating func parseOr() throws -> Expr {
             var lhs = try parseAnd()
-            while let t = peek(), t == "-o" || t == "-or" {
+            while let token = peek(), token == "-o" || token == "-or" {
                 _ = advance()
                 let rhs = try parseAnd()
                 lhs = .or(lhs, rhs)
@@ -659,9 +690,9 @@ public struct FindCommand: Command {
 
         mutating func parseAnd() throws -> Expr {
             var lhs = try parseNot()
-            while let t = peek() {
-                if t == "-o" || t == "-or" || t == ")" { break }
-                if t == "-a" || t == "-and" {
+            while let token = peek() {
+                if token == "-o" || token == "-or" || token == ")" { break }
+                if token == "-a" || token == "-and" {
                     _ = advance()
                 }
                 let rhs = try parseNot()
@@ -671,7 +702,7 @@ public struct FindCommand: Command {
         }
 
         mutating func parseNot() throws -> Expr {
-            if let t = peek(), t == "!" || t == "-not" {
+            if let token = peek(), token == "!" || token == "-not" {
                 _ = advance()
                 let inner = try parseNot()
                 return .not(inner)
@@ -680,66 +711,76 @@ public struct FindCommand: Command {
         }
 
         mutating func parsePrimary() throws -> Expr {
-            guard let t = advance() else {
+            guard let token = advance() else {
                 throw ParseError(message: "expected predicate")
             }
-            if t == "(" {
-                let e = try parseExpr()
+            if token == "(" {
+                let expr = try parseExpr()
                 guard advance() == ")" else {
                     throw ParseError(message: "expected `)`")
                 }
-                return e
+                return expr
             }
-            return try parseFlag(t)
+            return try parseFlag(token)
         }
 
-        mutating func value(for f: String) throws -> String {
-            guard let v = advance() else {
-                throw ParseError(message: "\(f): requires an argument")
+        mutating func value(for flag: String) throws -> String {
+            guard let value = advance() else {
+                throw ParseError(message: "\(flag): requires an argument")
             }
-            return v
+            return value
         }
 
+        // Maps every supported find predicate / action keyword.
+        // swiftlint:disable:next cyclomatic_complexity function_body_length
         mutating func parseFlag(_ flag: String) throws -> Expr {
             switch flag {
             case "-name":
-                let v = try value(for: flag)
-                return .test(.name(v, caseInsensitive: false))
+                let arg = try value(for: flag)
+                return .test(.name(arg, caseInsensitive: false))
             case "-iname":
-                let v = try value(for: flag)
-                return .test(.name(v, caseInsensitive: true))
+                let arg = try value(for: flag)
+                return .test(.name(arg, caseInsensitive: true))
             case "-path", "-wholename":
-                let v = try value(for: flag)
-                return .test(.path(v))
+                let arg = try value(for: flag)
+                return .test(.path(arg))
             case "-type":
-                let v = try value(for: flag)
-                guard v.count == 1, let c = v.first, "fdl".contains(c) else {
+                let arg = try value(for: flag)
+                guard arg.count == 1,
+                      let char = arg.first,
+                      "fdl".contains(char) else {
                     throw ParseError(
-                        message: "-type \(v): unknown type (use f, d, or l)")
+                        message: "-type \(arg): unknown type (use f, d, or l)")
                 }
-                return .test(.type(c))
+                return .test(.type(char))
             case "-empty":
                 return .test(.empty)
             case "-newer":
-                let v = try value(for: flag)
-                newerPaths.append(v)
-                return .test(.newer(referencePath: v))
+                let arg = try value(for: flag)
+                newerPaths.append(arg)
+                return .test(.newer(referencePath: arg))
             case "-regex":
                 return .test(.regex(try value(for: flag), caseInsensitive: false))
             case "-iregex":
                 return .test(.regex(try value(for: flag), caseInsensitive: true))
             case "-mtime":
-                let (n, c) = try FindCommand.parseSignedInt(try value(for: flag), label: flag)
-                return .test(.mtime(days: n, comparison: c))
+                let parsed = try FindCommand.parseSignedInt(
+                    try value(for: flag), label: flag)
+                return .test(.mtime(
+                    days: parsed.value, comparison: parsed.comparison))
             case "-mmin":
-                let (n, c) = try FindCommand.parseSignedInt(try value(for: flag), label: flag)
-                return .test(.mmin(minutes: n, comparison: c))
+                let parsed = try FindCommand.parseSignedInt(
+                    try value(for: flag), label: flag)
+                return .test(.mmin(
+                    minutes: parsed.value, comparison: parsed.comparison))
             case "-size":
-                let (n, unit, cmp) = try FindCommand.parseSize(try value(for: flag))
-                return .test(.size(value: n, unit: unit, comparison: cmp))
+                let parsed = try FindCommand.parseSize(try value(for: flag))
+                return .test(.size(
+                    value: parsed.value, unit: parsed.unit,
+                    comparison: parsed.comparison))
             case "-perm":
-                let (mode, match) = try FindCommand.parsePerm(try value(for: flag))
-                return .test(.perm(mode: mode, match: match))
+                let parsed = try FindCommand.parsePerm(try value(for: flag))
+                return .test(.perm(mode: parsed.mode, match: parsed.match))
             case "-print":
                 return .action(.print)
             case "-print0":
@@ -757,14 +798,14 @@ public struct FindCommand: Command {
 
         mutating func parseExec() throws -> Expr {
             var template: [String] = []
-            while let t = advance() {
-                if t == ";" { return .action(.execEach(template)) }
-                if t == "+" {
+            while let token = advance() {
+                if token == ";" { return .action(.execEach(template)) }
+                if token == "+" {
                     let state = ExecBatchState(template: template)
                     batches.append(state)
                     return .action(.execBatch(state))
                 }
-                template.append(t)
+                template.append(token)
             }
             throw ParseError(message: "-exec: missing terminator (`;` or `+`)")
         }
@@ -772,25 +813,51 @@ public struct FindCommand: Command {
 
     // MARK: Argument parsers
 
+    struct SignedIntResult {
+        let value: Int
+        let comparison: Comparison
+    }
+
+    struct SizeResult {
+        let value: Int64
+        let unit: SizeUnit
+        let comparison: Comparison
+    }
+
+    struct PermResult {
+        let mode: UInt16
+        let match: PermMatch
+    }
+
     /// Parse `[+-]N` for `-mtime` / `-mmin`.
-    static func parseSignedInt(_ s: String, label: String) throws -> (Int, Comparison) {
-        var rest = s
+    static func parseSignedInt(_ raw: String, label: String) throws -> SignedIntResult {
+        var rest = raw
         var cmp: Comparison = .exact
-        if rest.first == "+" { cmp = .more; rest.removeFirst() }
-        else if rest.first == "-" { cmp = .less; rest.removeFirst() }
-        guard let n = Int(rest) else {
-            throw ParseError(message: "\(label): expected an integer, got \(s)")
+        if rest.first == "+" {
+            cmp = .more
+            rest.removeFirst()
+        } else if rest.first == "-" {
+            cmp = .less
+            rest.removeFirst()
         }
-        return (n, cmp)
+        guard let value = Int(rest) else {
+            throw ParseError(message: "\(label): expected an integer, got \(raw)")
+        }
+        return SignedIntResult(value: value, comparison: cmp)
     }
 
     /// Parse `[+-]N[ckMG]` for `-size`. Default unit is 512-byte
     /// blocks (POSIX).
-    static func parseSize(_ s: String) throws -> (Int64, SizeUnit, Comparison) {
-        var rest = s
+    static func parseSize(_ raw: String) throws -> SizeResult {
+        var rest = raw
         var cmp: Comparison = .exact
-        if rest.first == "+" { cmp = .more; rest.removeFirst() }
-        else if rest.first == "-" { cmp = .less; rest.removeFirst() }
+        if rest.first == "+" {
+            cmp = .more
+            rest.removeFirst()
+        } else if rest.first == "-" {
+            cmp = .less
+            rest.removeFirst()
+        }
         var unit: SizeUnit = .blocks
         if let last = rest.last {
             switch last {
@@ -802,23 +869,28 @@ public struct FindCommand: Command {
             default: break
             }
         }
-        guard let n = Int64(rest) else {
-            throw ParseError(message: "-size: bad value: \(s)")
+        guard let value = Int64(rest) else {
+            throw ParseError(message: "-size: bad value: \(raw)")
         }
-        return (n, unit, cmp)
+        return SizeResult(value: value, unit: unit, comparison: cmp)
     }
 
     /// Parse the `-perm` argument: leading `-` or `/` selects all/any
     /// match; otherwise exact. Octal only.
-    static func parsePerm(_ s: String) throws -> (UInt16, PermMatch) {
-        var rest = s
+    static func parsePerm(_ raw: String) throws -> PermResult {
+        var rest = raw
         var match: PermMatch = .exact
-        if rest.first == "-" { match = .all; rest.removeFirst() }
-        else if rest.first == "/" { match = .any; rest.removeFirst() }
-        guard let m = UInt16(rest, radix: 8) else {
-            throw ParseError(message: "-perm: bad mode: \(s)")
+        if rest.first == "-" {
+            match = .all
+            rest.removeFirst()
+        } else if rest.first == "/" {
+            match = .any
+            rest.removeFirst()
         }
-        return (m, match)
+        guard let mode = UInt16(rest, radix: 8) else {
+            throw ParseError(message: "-perm: bad mode: \(raw)")
+        }
+        return PermResult(mode: mode, match: match)
     }
 
     // MARK: Glob matching
@@ -830,77 +902,87 @@ public struct FindCommand: Command {
     static func globMatch(pattern: String,
                           string: String,
                           caseInsensitive: Bool = false) -> Bool {
-        let p = Array(caseInsensitive ? pattern.lowercased() : pattern)
-        let s = Array(caseInsensitive ? string.lowercased() : string)
-        return globMatch(p, 0, s, 0)
+        let patChars = Array(caseInsensitive ? pattern.lowercased() : pattern)
+        let strChars = Array(caseInsensitive ? string.lowercased() : string)
+        return globMatch(patChars, 0, strChars, 0)
     }
 
-    private static func globMatch(_ p: [Character], _ pi: Int,
-                                  _ s: [Character], _ si: Int) -> Bool {
-        var pi = pi
-        var si = si
-        while pi < p.count {
-            let c = p[pi]
-            switch c {
+    // Single inline glob matcher; per-case helpers would balloon
+    // the recursion / state-passing.
+    // swiftlint:disable:next cyclomatic_complexity
+    private static func globMatch(_ pattern: [Character], _ startPI: Int,
+                                  _ string: [Character], _ startSI: Int) -> Bool {
+        var patIdx = startPI
+        var strIdx = startSI
+        while patIdx < pattern.count {
+            let char = pattern[patIdx]
+            switch char {
             case "*":
-                while pi < p.count, p[pi] == "*" { pi += 1 }
-                if pi == p.count { return true }
-                var k = si
-                while k <= s.count {
-                    if globMatch(p, pi, s, k) { return true }
-                    k += 1
+                while patIdx < pattern.count, pattern[patIdx] == "*" { patIdx += 1 }
+                if patIdx == pattern.count { return true }
+                var probe = strIdx
+                while probe <= string.count {
+                    if globMatch(pattern, patIdx, string, probe) { return true }
+                    probe += 1
                 }
                 return false
             case "?":
-                if si >= s.count { return false }
-                pi += 1
-                si += 1
+                if strIdx >= string.count { return false }
+                patIdx += 1
+                strIdx += 1
             case "[":
-                if si >= s.count { return false }
-                guard let (matched, end) = charClass(p, pi, s[si])
+                if strIdx >= string.count { return false }
+                guard let result = charClass(pattern, patIdx, string[strIdx])
                 else { return false }
-                if !matched { return false }
-                pi = end
-                si += 1
+                if !result.matched { return false }
+                patIdx = result.end
+                strIdx += 1
             case "\\":
-                guard pi + 1 < p.count, si < s.count,
-                      p[pi + 1] == s[si]
+                guard patIdx + 1 < pattern.count, strIdx < string.count,
+                      pattern[patIdx + 1] == string[strIdx]
                 else { return false }
-                pi += 2
-                si += 1
+                patIdx += 2
+                strIdx += 1
             default:
-                if si >= s.count || s[si] != c { return false }
-                pi += 1
-                si += 1
+                if strIdx >= string.count || string[strIdx] != char { return false }
+                patIdx += 1
+                strIdx += 1
             }
         }
-        return si == s.count
+        return strIdx == string.count
     }
 
-    private static func charClass(_ p: [Character], _ pi: Int,
-                                  _ c: Character) -> (Bool, Int)? {
-        var i = pi + 1
-        guard i < p.count else { return nil }
+    private struct CharClassMatch {
+        let matched: Bool
+        let end: Int
+    }
+
+    private static func charClass(_ pattern: [Character], _ startPI: Int,
+                                  _ char: Character) -> CharClassMatch? {
+        var index = startPI + 1
+        guard index < pattern.count else { return nil }
         var negate = false
-        if p[i] == "!" || p[i] == "^" {
+        if pattern[index] == "!" || pattern[index] == "^" {
             negate = true
-            i += 1
+            index += 1
         }
         var matched = false
         var first = true
-        while i < p.count, !(p[i] == "]" && !first) {
+        while index < pattern.count, !(pattern[index] == "]" && !first) {
             first = false
-            let start = p[i]
-            if i + 2 < p.count, p[i + 1] == "-", p[i + 2] != "]" {
-                let end = p[i + 2]
-                if c >= start && c <= end { matched = true }
-                i += 3
+            let start = pattern[index]
+            if index + 2 < pattern.count,
+               pattern[index + 1] == "-",
+               pattern[index + 2] != "]" {
+                let end = pattern[index + 2]
+                if char >= start && char <= end { matched = true }
+                index += 3
             } else {
-                if c == start { matched = true }
-                i += 1
+                if char == start { matched = true }
+                index += 1
             }
         }
-        guard i < p.count, p[i] == "]" else { return nil }
-        return (matched != negate, i + 1)
+        guard index < pattern.count, pattern[index] == "]" else { return nil }
+        return CharClassMatch(matched: matched != negate, end: index + 1)
     }
 }

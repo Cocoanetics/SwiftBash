@@ -40,8 +40,7 @@ extension Shell {
     /// fires, so the shell's real fd1/fd2 keep working for everything
     /// after the redirection unwinds.
     public func openOutputPath(_ path: String,
-                               append: Bool = false) async throws -> OutputSink
-    {
+                               append: Bool = false) async throws -> OutputSink {
         let resolved = resolvePath(path)
         switch resolved {
         case "/dev/null":
@@ -97,8 +96,7 @@ extension Shell {
     /// writers that already have the full payload in memory.
     public func writeData(_ data: Data,
                           toPath path: String,
-                          append: Bool = false) async throws
-    {
+                          append: Bool = false) async throws {
         let resolved = resolvePath(path)
         switch resolved {
         case "/dev/null":

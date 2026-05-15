@@ -28,6 +28,9 @@ public struct SplitCommand: ParsableBashCommand {
 
     private enum Mode { case lines(Int), bytes(Int) }
 
+    // `split` defines ten distinct flag forms (short, long, `=value`);
+    // each maps to its own branch in the parser.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var mode: Mode = .lines(1000)
         var suffixLen = 2
@@ -36,76 +39,82 @@ public struct SplitCommand: ParsableBashCommand {
         var additional = ""
         var positionals: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { positionals.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { positionals.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-l" || a == "--lines" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.bashCurrent.stderr("split: -l requires positive N\n"); return ExitStatus(2)
+            if arg == "-l" || arg == "--lines" {
+                guard idx + 1 < rawArgv.count, let count = Int(rawArgv[idx + 1]), count > 0 else {
+                    Shell.bashCurrent.stderr("split: -l requires positive N\n")
+                    return ExitStatus(2)
                 }
-                mode = .lines(n); i += 2; continue
+                mode = .lines(count); idx += 2; continue
             }
-            if a.hasPrefix("--lines=") {
-                guard let n = Int(a.dropFirst("--lines=".count)), n > 0 else {
-                    Shell.bashCurrent.stderr("split: invalid --lines value\n"); return ExitStatus(2)
+            if arg.hasPrefix("--lines=") {
+                guard let count = Int(arg.dropFirst("--lines=".count)), count > 0 else {
+                    Shell.bashCurrent.stderr("split: invalid --lines value\n")
+                    return ExitStatus(2)
                 }
-                mode = .lines(n); i += 1; continue
+                mode = .lines(count); idx += 1; continue
             }
-            if a == "-b" || a == "--bytes" {
-                guard i + 1 < rawArgv.count, let n = parseSize(rawArgv[i + 1]) else {
-                    Shell.bashCurrent.stderr("split: -b requires SIZE\n"); return ExitStatus(2)
+            if arg == "-b" || arg == "--bytes" {
+                guard idx + 1 < rawArgv.count, let size = parseSize(rawArgv[idx + 1]) else {
+                    Shell.bashCurrent.stderr("split: -b requires SIZE\n")
+                    return ExitStatus(2)
                 }
-                mode = .bytes(n); i += 2; continue
+                mode = .bytes(size); idx += 2; continue
             }
-            if a.hasPrefix("--bytes=") {
-                guard let n = parseSize(String(a.dropFirst("--bytes=".count))) else {
-                    Shell.bashCurrent.stderr("split: invalid --bytes value\n"); return ExitStatus(2)
+            if arg.hasPrefix("--bytes=") {
+                guard let size = parseSize(String(arg.dropFirst("--bytes=".count))) else {
+                    Shell.bashCurrent.stderr("split: invalid --bytes value\n")
+                    return ExitStatus(2)
                 }
-                mode = .bytes(n); i += 1; continue
+                mode = .bytes(size); idx += 1; continue
             }
-            if a == "-a" || a == "--suffix-length" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.bashCurrent.stderr("split: -a requires positive N\n"); return ExitStatus(2)
+            if arg == "-a" || arg == "--suffix-length" {
+                guard idx + 1 < rawArgv.count, let count = Int(rawArgv[idx + 1]), count > 0 else {
+                    Shell.bashCurrent.stderr("split: -a requires positive N\n")
+                    return ExitStatus(2)
                 }
-                suffixLen = n; i += 2; continue
+                suffixLen = count; idx += 2; continue
             }
-            if a.hasPrefix("--suffix-length=") {
-                guard let n = Int(a.dropFirst("--suffix-length=".count)), n > 0 else {
-                    Shell.bashCurrent.stderr("split: invalid --suffix-length\n"); return ExitStatus(2)
+            if arg.hasPrefix("--suffix-length=") {
+                guard let count = Int(arg.dropFirst("--suffix-length=".count)), count > 0 else {
+                    Shell.bashCurrent.stderr("split: invalid --suffix-length\n")
+                    return ExitStatus(2)
                 }
-                suffixLen = n; i += 1; continue
+                suffixLen = count; idx += 1; continue
             }
-            if a == "-d" || a == "--numeric-suffixes" {
-                numeric = true; i += 1; continue
+            if arg == "-d" || arg == "--numeric-suffixes" {
+                numeric = true; idx += 1; continue
             }
-            if a.hasPrefix("--numeric-suffixes=") {
+            if arg.hasPrefix("--numeric-suffixes=") {
                 numeric = true
-                if let n = Int(a.dropFirst("--numeric-suffixes=".count)) {
-                    numericStart = n
+                if let start = Int(arg.dropFirst("--numeric-suffixes=".count)) {
+                    numericStart = start
                 }
-                i += 1; continue
+                idx += 1; continue
             }
-            if a.hasPrefix("--additional-suffix=") {
-                additional = String(a.dropFirst("--additional-suffix=".count))
-                i += 1; continue
+            if arg.hasPrefix("--additional-suffix=") {
+                additional = String(arg.dropFirst("--additional-suffix=".count))
+                idx += 1; continue
             }
-            if a == "--additional-suffix" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "--additional-suffix" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("split: --additional-suffix requires STR\n")
                     return ExitStatus(2)
                 }
-                additional = rawArgv[i + 1]; i += 2; continue
+                additional = rawArgv[idx + 1]; idx += 2; continue
             }
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                Shell.bashCurrent.stderr("split: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
+                Shell.bashCurrent.stderr("split: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            positionals.append(a); i += 1
+            positionals.append(arg); idx += 1
         }
 
         let inputPath = positionals.first ?? "-"
@@ -125,14 +134,14 @@ public struct SplitCommand: ParsableBashCommand {
 
         let chunks: [Data]
         switch mode {
-        case .lines(let n):
-            chunks = splitByLines(data, n: n)
-        case .bytes(let n):
-            chunks = splitByBytes(data, n: n)
+        case .lines(let count):
+            chunks = splitByLines(data, count: count)
+        case .bytes(let size):
+            chunks = splitByBytes(data, size: size)
         }
 
-        for (idx, chunk) in chunks.enumerated() {
-            let suffix = makeSuffix(idx, length: suffixLen,
+        for (slot, chunk) in chunks.enumerated() {
+            let suffix = makeSuffix(slot, length: suffixLen,
                                     numeric: numeric, start: numericStart)
             let path = prefix + suffix + additional
             do {
@@ -145,7 +154,7 @@ public struct SplitCommand: ParsableBashCommand {
         return .success
     }
 
-    private func splitByLines(_ data: Data, n: Int) -> [Data] {
+    private func splitByLines(_ data: Data, count: Int) -> [Data] {
         var chunks: [Data] = []
         var current = Data()
         var lineCount = 0
@@ -153,7 +162,7 @@ public struct SplitCommand: ParsableBashCommand {
             current.append(byte)
             if byte == 0x0A {
                 lineCount += 1
-                if lineCount == n {
+                if lineCount == count {
                     chunks.append(current)
                     current = Data()
                     lineCount = 0
@@ -164,20 +173,20 @@ public struct SplitCommand: ParsableBashCommand {
         return chunks
     }
 
-    private func splitByBytes(_ data: Data, n: Int) -> [Data] {
-        guard n > 0 else { return [data] }
+    private func splitByBytes(_ data: Data, size: Int) -> [Data] {
+        guard size > 0 else { return [data] }
         var chunks: [Data] = []
         var idx = 0
         while idx < data.count {
-            let end = min(idx + n, data.count)
+            let end = min(idx + size, data.count)
             chunks.append(data.subdata(in: idx..<end))
             idx = end
         }
         return chunks
     }
 
-    private func parseSize(_ s: String) -> Int? {
-        var rest = s
+    private func parseSize(_ text: String) -> Int? {
+        var rest = text
         var mult = 1
         if let last = rest.last {
             switch last {
@@ -188,8 +197,8 @@ public struct SplitCommand: ParsableBashCommand {
             default: break
             }
         }
-        guard let n = Int(rest), n > 0 else { return nil }
-        return n * mult
+        guard let value = Int(rest), value > 0 else { return nil }
+        return value * mult
     }
 
     /// Build a suffix like `aa`, `ab`, …, or `00`, `01`, … depending
@@ -197,16 +206,16 @@ public struct SplitCommand: ParsableBashCommand {
     private func makeSuffix(_ index: Int, length: Int,
                             numeric: Bool, start: Int) -> String {
         if numeric {
-            let n = index + start
-            return String(format: "%0\(length)d", n)
+            let value = index + start
+            return String(format: "%0\(length)d", value)
         }
         // Convert index to base-26 with `a` digits.
-        var n = index
+        var remaining = index
         var chars: [Character] = []
         for _ in 0..<length {
-            let digit = n % 26
+            let digit = remaining % 26
             chars.insert(Character(Unicode.Scalar(0x61 + UInt8(digit))), at: 0)
-            n /= 26
+            remaining /= 26
         }
         return String(chars)
     }

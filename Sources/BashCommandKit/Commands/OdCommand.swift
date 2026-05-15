@@ -37,11 +37,11 @@ public struct OdCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         let data: Data
-        if let f = input, f != "-" {
+        if let file = input, file != "-" {
             do {
-                data = try await Shell.bashCurrent.readDataAtPath(f)
+                data = try await Shell.bashCurrent.readDataAtPath(file)
             } catch {
-                Shell.bashCurrent.stderr("od: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("od: \(file): \(error)\n")
                 return .failure
             }
         } else {
@@ -75,13 +75,13 @@ public struct OdCommand: ParsableBashCommand {
             // Two-byte words. Pad an odd trailing byte with 0 so the
             // word still renders.
             var words: [String] = []
-            var i = 0
-            while i < row.count {
-                let lo = UInt16(row[i])
-                let hi = i + 1 < row.count ? UInt16(row[i + 1]) : 0
-                let word = (hi << 8) | lo
+            var index = 0
+            while index < row.count {
+                let low = UInt16(row[index])
+                let high = index + 1 < row.count ? UInt16(row[index + 1]) : 0
+                let word = (high << 8) | low
                 words.append(String(format: " %04x", word))
-                i += 2
+                index += 2
             }
             return prefix + words.joined()
         case .chars:
@@ -93,9 +93,9 @@ public struct OdCommand: ParsableBashCommand {
     /// where defined, octal escape otherwise, printable ASCII as-is.
     /// Output is right-aligned in a 3-column slot with one leading
     /// space, matching `od -c`'s row formatting.
-    static func escapeChar(_ b: UInt8) -> String {
+    static func escapeChar(_ byte: UInt8) -> String {
         let token: String
-        switch b {
+        switch byte {
         case 0x00: token = "\\0"
         case 0x07: token = "\\a"
         case 0x08: token = "\\b"
@@ -105,10 +105,10 @@ public struct OdCommand: ParsableBashCommand {
         case 0x0C: token = "\\f"
         case 0x0D: token = "\\r"
         default:
-            if b >= 0x20 && b <= 0x7E {
-                token = String(UnicodeScalar(b))
+            if byte >= 0x20 && byte <= 0x7E {
+                token = String(UnicodeScalar(byte))
             } else {
-                token = String(format: "\\%03o", b)
+                token = String(format: "\\%03o", byte)
             }
         }
         // Right-align in a 3-char slot, then prefix with a single space.

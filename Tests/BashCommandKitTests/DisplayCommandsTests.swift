@@ -5,18 +5,18 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct DisplayCommandsTests {
 
-    private func makeShellWithDir() -> (CapturingShell, String) {
+    private func makeShellWithDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "disp-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
-    private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
+    private func cleanup(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
 
     @Test func treeBasic() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try FileManager.default.createDirectory(atPath: dir + "/sub", withIntermediateDirectories: true)
         _ = FileManager.default.createFile(atPath: dir + "/a", contents: Data())
         _ = FileManager.default.createFile(atPath: dir + "/sub/b", contents: Data())
@@ -28,7 +28,7 @@ import Foundation
     }
 
     @Test func treeMaxDepth() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try FileManager.default.createDirectory(atPath: dir + "/a/b/c", withIntermediateDirectories: true)
         try await cap.shell.run("tree -L 1 .")
         #expect(cap.stdout.contains("a"))
@@ -36,7 +36,7 @@ import Foundation
     }
 
     @Test func stringsBinary() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         var data = Data([0xFF, 0x00, 0x01])
         data.append(Data("hello".utf8))
         data.append(Data([0x00]))
@@ -51,11 +51,11 @@ import Foundation
     }
 
     @Test func stringsMinLen() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
-        var d = Data("ab".utf8)
-        d.append(0x00)
-        d.append(Data("abcd".utf8))
-        try d.write(to: URL(fileURLWithPath: dir + "/b"))
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
+        var data = Data("ab".utf8)
+        data.append(0x00)
+        data.append(Data("abcd".utf8))
+        try data.write(to: URL(fileURLWithPath: dir + "/b"))
         try await cap.shell.run("strings -n 3 b")
         #expect(cap.stdout == "abcd\n")
     }

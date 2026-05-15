@@ -35,50 +35,45 @@ public struct MoreCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         let shell = Shell.bashCurrent
-
-        var squeeze = false
-        var startAtEnd = false
-        var startAtLine: Int? = nil
-        var files: [String] = []
-        var i = 0
-        var sawDoubleDash = false
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if sawDoubleDash { files.append(a); i += 1; continue }
-            if a == "--" { sawDoubleDash = true; i += 1; continue }
-            if a == "-" { files.append("-"); i += 1; continue }
-            if a.hasPrefix("+"), a.count > 1 {
-                let rest = String(a.dropFirst())
-                if rest == "G" { startAtEnd = true; i += 1; continue }
-                if let n = Int(rest), n >= 1 {
-                    startAtLine = n; i += 1; continue
-                }
-                shell.stderr("more: unrecognized option: \(a)\n")
-                return ExitStatus(2)
-            }
-            if a.hasPrefix("-"), a.count > 1 {
-                for c in a.dropFirst() {
-                    switch c {
-                    case "d": break   // prompt is always on in our pager
-                    case "s": squeeze = true
-                    case "u": break   // underline-suppress — no-op
-                    case "p": break   // clear-screen page — no-op
-                    case "c": break   // clear-and-overwrite — no-op
-                    case "f": break   // count logical lines — no-op
-                    default:
-                        shell.stderr("more: unrecognized option: -\(c)\n")
-                        return ExitStatus(2)
-                    }
-                }
-                i += 1; continue
-            }
-            files.append(a)
-            i += 1
+        var parsed: ParsedArgs
+        switch parseArgs(shell: shell) {
+        case .success(let args): parsed = args
+        case .failure(let code): return code
         }
-        _ = startAtLine // reserved for future +N handling in presenter
 
         // Collect content.
-        let inputs: [String] = files.isEmpty ? ["-"] : files
+        let inputs: [String] = parsed.files.isEmpty ? ["-"] : parsed.files
+        var (content, hadFileError) = await collectContent(inputs: inputs, shell: shell)
+
+        if parsed.squeeze { content = collapseBlankLines(content) }
+
+        let interactive = shell.stdoutIsTTY && shell.interactivePresenter != nil
+        if interactive {
+            let title = parsed.files.first(where: { $0 != "-" })
+            let request = PagerRequest(
+                content: content,
+                mode: .more,
+                title: title,
+                startAtEnd: parsed.startAtEnd,
+                lineNumbers: false,
+                ignoreCaseInSearch: false,
+                chopLongLines: false)
+            do {
+                try await shell.interactivePresenter!.presentPager(request)
+            } catch is CancellationError {
+                return ExitStatus(130)
+            }
+            return hadFileError ? ExitStatus(1) : .success
+        }
+
+        shell.stdout(content)
+        return hadFileError ? ExitStatus(1) : .success
+    }
+
+    /// Read every input into a single string, separated by `more`-style
+    /// `::::::::::::::\nFILE\n::::::::::::::` banners when there's more
+    /// than one. Returns the joined text and whether any file failed.
+    private func collectContent(inputs: [String], shell: Shell) async -> (String, Bool) {
         var content = ""
         var hadFileError = false
         let multi = inputs.count > 1
@@ -107,46 +102,86 @@ public struct MoreCommand: ParsableBashCommand {
             }
             content += chunk
         }
+        return (content, hadFileError)
+    }
 
-        if squeeze { content = collapseBlankLines(content) }
+    private struct ParsedArgs {
+        var squeeze: Bool
+        var startAtEnd: Bool
+        var startAtLine: Int?
+        var files: [String]
+    }
 
-        let interactive = shell.stdoutIsTTY && shell.interactivePresenter != nil
-        if interactive {
-            let title = files.first(where: { $0 != "-" })
-            let request = PagerRequest(
-                content: content,
-                mode: .more,
-                title: title,
-                startAtEnd: startAtEnd,
-                lineNumbers: false,
-                ignoreCaseInSearch: false,
-                chopLongLines: false)
-            do {
-                try await shell.interactivePresenter!.presentPager(request)
-            } catch is CancellationError {
-                return ExitStatus(130)
+    private enum ArgResult {
+        case success(ParsedArgs)
+        case failure(ExitStatus)
+    }
+
+    // Argv loop: walks `+N` / `+G` plus bundled short flags. Each char
+    // gets a one-line switch case so the option set is the dispatch
+    // table; per-flag helpers would just scatter it.
+    // swiftlint:disable:next cyclomatic_complexity
+    private func parseArgs(shell: Shell) -> ArgResult {
+        var squeeze = false
+        var startAtEnd = false
+        var startAtLine: Int?
+        var files: [String] = []
+        var index = 0
+        var sawDoubleDash = false
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if sawDoubleDash { files.append(arg); index += 1; continue }
+            if arg == "--" { sawDoubleDash = true; index += 1; continue }
+            if arg == "-" { files.append("-"); index += 1; continue }
+            if arg.hasPrefix("+"), arg.count > 1 {
+                let rest = String(arg.dropFirst())
+                if rest == "G" { startAtEnd = true; index += 1; continue }
+                if let lineNo = Int(rest), lineNo >= 1 {
+                    startAtLine = lineNo; index += 1; continue
+                }
+                shell.stderr("more: unrecognized option: \(arg)\n")
+                return .failure(ExitStatus(2))
             }
-            return hadFileError ? ExitStatus(1) : .success
+            if arg.hasPrefix("-"), arg.count > 1 {
+                for char in arg.dropFirst() {
+                    switch char {
+                    case "d": break   // prompt is always on in our pager
+                    case "s": squeeze = true
+                    case "u": break   // underline-suppress — no-op
+                    case "p": break   // clear-screen page — no-op
+                    case "c": break   // clear-and-overwrite — no-op
+                    case "f": break   // count logical lines — no-op
+                    default:
+                        shell.stderr("more: unrecognized option: -\(char)\n")
+                        return .failure(ExitStatus(2))
+                    }
+                }
+                index += 1; continue
+            }
+            files.append(arg)
+            index += 1
         }
-
-        shell.stdout(content)
-        return hadFileError ? ExitStatus(1) : .success
+        _ = startAtLine // reserved for future +N handling in presenter
+        return .success(ParsedArgs(squeeze: squeeze,
+                              startAtEnd: startAtEnd,
+                              startAtLine: startAtLine,
+                              files: files))
     }
 
     /// `more -s` — collapse runs of two or more newlines into a single
     /// blank line. Matches real `more`'s "squeeze-blank-lines" output.
-    private func collapseBlankLines(_ s: String) -> String {
-        let parts = s.split(separator: "\n", omittingEmptySubsequences: false)
+    private func collapseBlankLines(_ str: String) -> String {
+        let parts = str.split(separator: "\n", omittingEmptySubsequences: false)
         var kept: [Substring] = []
         var prevBlank = false
-        for p in parts {
-            if p.isEmpty {
+        for part in parts {
+            if part.isEmpty {
                 if prevBlank { continue }
                 prevBlank = true
             } else {
                 prevBlank = false
             }
-            kept.append(p)
+            kept.append(part)
         }
         return kept.joined(separator: "\n")
     }

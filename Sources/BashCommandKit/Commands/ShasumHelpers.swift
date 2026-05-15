@@ -15,7 +15,7 @@ enum ShasumHelpers {
 func runSum(
     files: [String],
     displayFor: (String?) -> String,
-    
+
     hash: (Data) -> String
 ) async throws -> ExitStatus {
     if files.isEmpty {
@@ -24,19 +24,17 @@ func runSum(
         return .success
     }
     var hadError = false
-    for f in files {
+    for file in files {
         // `md5sum *.bin` over a thousand files: yield to the executor
         // so a kill from the parent shell can land between files.
         try Task.checkCancellation()
         do {
-            let data = try await Shell.bashCurrent.readDataAtPath(f)
-            Shell.bashCurrent.stdout("\(hash(data))  \(f)\n")
+            let data = try await Shell.bashCurrent.readDataAtPath(file)
+            Shell.bashCurrent.stdout("\(hash(data))  \(file)\n")
         } catch {
-            Shell.bashCurrent.stderr("\(f): \(error)\n")
+            Shell.bashCurrent.stderr("\(file): \(error)\n")
             hadError = true
         }
     }
     return hadError ? .failure : .success
 }
-
-

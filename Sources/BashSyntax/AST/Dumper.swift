@@ -20,9 +20,9 @@ struct Dumper {
 
         var isEmpty: Bool {
             switch self {
-            case .scalar(let s): return s.isEmpty
+            case .scalar(let str): return str.isEmpty
             case .node: return false
-            case .nodeList(let xs): return xs.isEmpty
+            case .nodeList(let nodes): return nodes.isEmpty
             }
         }
     }
@@ -54,13 +54,13 @@ struct Dumper {
 
     private func renderValue(_ value: FieldValue, at level: Int) -> String {
         switch value {
-        case .scalar(let s):
-            return s
-        case .node(let n):
+        case .scalar(let str):
+            return str
+        case .node(let node):
             // Nodes are prefixed with newline + indent one deeper.
             let deeper = level + 1
             return "\n" + String(repeating: indent, count: deeper)
-                 + format(n, level: deeper)
+                 + format(node, level: deeper)
         case .nodeList(let nodes):
             return renderList(nodes, at: level)
         }
@@ -71,8 +71,8 @@ struct Dumper {
         let inner = String(repeating: indent, count: level + 1)
         let outer = String(repeating: indent, count: level)
         var lines = ["["]
-        for n in nodes {
-            lines.append("\(inner)\(format(n, level: level + 1)),")
+        for node in nodes {
+            lines.append("\(inner)\(format(node, level: level + 1)),")
         }
         lines.append("\(outer)]")
         return lines.joined(separator: "\n")
@@ -94,8 +94,7 @@ struct Dumper {
         if source != nil {
             all = all.map { field in
                 if field.name == "pos",
-                   case .scalar = field.value
-                {
+                   case .scalar = field.value {
                     return Field(name: "s", value: .scalar(sliceRepr(node.range)))
                 }
                 return field
@@ -109,13 +108,13 @@ struct Dumper {
         var first: [Field] = []
         var middle: [Field] = []
         var last: [Field] = []
-        for f in all {
-            if f.name == "s" {
-                first.append(f)
-            } else if f.name == "parts" {
-                last.append(f)
+        for field in all {
+            if field.name == "s" {
+                first.append(field)
+            } else if field.name == "parts" {
+                last.append(field)
             } else {
-                middle.append(f)
+                middle.append(field)
             }
         }
         middle.sort { $0.name < $1.name }
@@ -125,6 +124,7 @@ struct Dumper {
 
     // MARK: Raw field extraction
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length - large case dispatch over many node kinds
     private func rawFields(for node: Node) -> [Field] {
         let posField = Field(name: "pos", value: .scalar(posRepr(node.range)))
 
@@ -142,12 +142,12 @@ struct Dumper {
              .unimplemented(let parts):
             return [posField, Field(name: "parts", value: .nodeList(parts))]
 
-        case .word(let w, let parts),
-             .assignment(let w, let parts):
+        case .word(let word, let parts),
+             .assignment(let word, let parts):
             return [
                 posField,
-                Field(name: "word", value: .scalar(stringRepr(w))),
-                Field(name: "parts", value: .nodeList(parts)),
+                Field(name: "word", value: .scalar(stringRepr(word))),
+                Field(name: "parts", value: .nodeList(parts))
             ]
 
         case .arrayAssignment(let name, let items, let append):
@@ -155,33 +155,33 @@ struct Dumper {
                 posField,
                 Field(name: "name", value: .scalar(stringRepr(name))),
                 Field(name: "items", value: .nodeList(items)),
-                Field(name: "append", value: .scalar(append ? "true" : "false")),
+                Field(name: "append", value: .scalar(append ? "true" : "false"))
             ]
 
-        case .reservedWord(let w):
+        case .reservedWord(let word):
             return [
                 posField,
-                Field(name: "word", value: .scalar(stringRepr(w))),
+                Field(name: "word", value: .scalar(stringRepr(word)))
             ]
 
-        case .pipe(let p):
+        case .pipe(let pipe):
             return [
-                Field(name: "pipe", value: .scalar(stringRepr(p))),
-                posField,
+                Field(name: "pipe", value: .scalar(stringRepr(pipe))),
+                posField
             ]
 
-        case .operator(let op):
+        case .operator(let oper):
             return [
-                Field(name: "op", value: .scalar(stringRepr(op))),
-                posField,
+                Field(name: "op", value: .scalar(stringRepr(oper))),
+                posField
             ]
 
-        case .parameter(let v),
-             .tilde(let v),
-             .heredoc(let v):
+        case .parameter(let value),
+             .tilde(let value),
+             .heredoc(let value):
             return [
                 posField,
-                Field(name: "value", value: .scalar(stringRepr(v))),
+                Field(name: "value", value: .scalar(stringRepr(value)))
             ]
 
         case .redirect(let input, let type, let output, let heredoc):
@@ -201,14 +201,14 @@ struct Dumper {
              .processSubstitution(let command):
             return [
                 Field(name: "command", value: .node(command)),
-                posField,
+                posField
             ]
 
         case .compound(let list, let redirects):
             return [
                 Field(name: "list", value: .nodeList(list)),
                 posField,
-                Field(name: "redirects", value: .nodeList(redirects)),
+                Field(name: "redirects", value: .nodeList(redirects))
             ]
 
         case .function(let name, let body, let parts):
@@ -216,14 +216,14 @@ struct Dumper {
                 Field(name: "body", value: .node(body)),
                 Field(name: "name", value: .node(name)),
                 posField,
-                Field(name: "parts", value: .nodeList(parts)),
+                Field(name: "parts", value: .nodeList(parts))
             ]
 
         case .arithmeticCommand(let expr),
              .arithmeticSubstitution(let expr):
             return [
                 Field(name: "expression", value: .scalar(stringRepr(expr))),
-                posField,
+                posField
             ]
 
         case .cStyleForCommand(let initExpr, let condExpr, let updateExpr, let body):
@@ -232,7 +232,7 @@ struct Dumper {
                 Field(name: "cond", value: .scalar(stringRepr(condExpr))),
                 Field(name: "update", value: .scalar(stringRepr(updateExpr))),
                 Field(name: "body", value: .node(body)),
-                posField,
+                posField
             ]
         }
     }
@@ -245,36 +245,36 @@ struct Dumper {
 
     private func sliceRepr(_ range: Range<Int>) -> String {
         guard let chars = source else { return stringRepr("") }
-        let lo = max(0, min(chars.count, range.lowerBound))
-        let hi = max(lo, min(chars.count, range.upperBound))
-        return stringRepr(String(chars[lo..<hi]))
+        let low = max(0, min(chars.count, range.lowerBound))
+        let high = max(low, min(chars.count, range.upperBound))
+        return stringRepr(String(chars[low..<high]))
     }
 
-    private func stringRepr(_ s: String) -> String {
+    private func stringRepr(_ str: String) -> String {
         // Python-style `repr` of a string, defaulting to single quotes and
         // falling back to double quotes if the value contains a single quote
         // but no double quote.
-        let hasSingle = s.contains("'")
-        let hasDouble = s.contains("\"")
+        let hasSingle = str.contains("'")
+        let hasDouble = str.contains("\"")
         let useDouble = hasSingle && !hasDouble
         let quote: Character = useDouble ? "\"" : "'"
 
         var out = String()
-        out.reserveCapacity(s.count + 2)
+        out.reserveCapacity(str.count + 2)
         out.append(quote)
-        for c in s {
-            switch c {
+        for char in str {
+            switch char {
             case "\\": out.append("\\\\")
             case "\n": out.append("\\n")
             case "\r": out.append("\\r")
             case "\t": out.append("\\t")
-            case quote: out.append("\\"); out.append(c)
+            case quote: out.append("\\"); out.append(char)
             default:
-                if c.asciiValue.map({ $0 < 0x20 || $0 == 0x7F }) == true {
-                    let v = Int(c.asciiValue!)
-                    out.append(String(format: "\\x%02x", v))
+                if char.asciiValue.map({ $0 < 0x20 || $0 == 0x7F }) == true {
+                    let ascii = Int(char.asciiValue!)
+                    out.append(String(format: "\\x%02x", ascii))
                 } else {
-                    out.append(c)
+                    out.append(char)
                 }
             }
         }
@@ -282,8 +282,8 @@ struct Dumper {
         return out
     }
 
-    private func titleCase(_ s: String) -> String {
-        guard let first = s.first else { return s }
-        return String(first).uppercased() + s.dropFirst()
+    private func titleCase(_ str: String) -> String {
+        guard let first = str.first else { return str }
+        return String(first).uppercased() + str.dropFirst()
     }
 }

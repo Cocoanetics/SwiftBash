@@ -54,9 +54,9 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
             // Normalise: strip trailing `/` so `/tmp` and `/tmp/`
             // compare equal. The empty string represents the root
             // mount specially.
-            var v = (virtual as NSString).standardizingPath
-            if v.count > 1, v.hasSuffix("/") { v.removeLast() }
-            self.virtual = v
+            var virtualPath = (virtual as NSString).standardizingPath
+            if virtualPath.count > 1, virtualPath.hasSuffix("/") { virtualPath.removeLast() }
+            self.virtual = virtualPath
             self.host = (host as NSString).standardizingPath
             self.readOnly = readOnly
         }
@@ -114,20 +114,20 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func gateRead(_ path: String) async throws -> String {
-        guard let r = resolve(path) else {
+        guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
-        return try await canonicalGate(r, virtual: path)
+        return try await canonicalGate(resolved, virtual: path)
     }
 
     private func gateWrite(_ path: String) async throws -> String {
-        guard let r = resolve(path) else {
+        guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
-        if r.mount.readOnly {
+        if resolved.mount.readOnly {
             throw FileSystemError.permissionDenied(path)
         }
-        return try await canonicalGate(r, virtual: path)
+        return try await canonicalGate(resolved, virtual: path)
     }
 
     /// Resolve symlinks on the host side and re-verify the canonical
@@ -136,7 +136,7 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     /// `/Users`, or anywhere else on the real disk and the gate would
     /// happily delegate the read to the backing FS — undermining the
     /// chrooted-shell guarantee scripts depend on.
-    private func canonicalGate(_ r: (mount: Mount, host: String),
+    private func canonicalGate(_ resolved: (mount: Mount, host: String),
                                virtual: String) async throws -> String {
         // Canonicalise BOTH sides via the deepest-existing-ancestor
         // walk. On Windows / NTFS `canonicalize(allowMissing: true)`
@@ -151,8 +151,8 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         let canonicalPath: String
         let canonicalRoot: String
         do {
-            canonicalPath = try await canonicalizeDeepest(r.host)
-            canonicalRoot = try await canonicalizeDeepest(r.mount.host)
+            canonicalPath = try await canonicalizeDeepest(resolved.host)
+            canonicalRoot = try await canonicalizeDeepest(resolved.mount.host)
         } catch {
             throw FileSystemError.notFound(virtual)
         }
@@ -169,7 +169,7 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
             // path; report ENOENT against the virtual path.
             throw FileSystemError.notFound(virtual)
         }
-        return r.host
+        return resolved.host
     }
 
     /// Resolve `path` to its canonical form by walking up to the
@@ -215,13 +215,13 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // "Outside the mount table" looks like ENOENT to scripts —
         // not a thrown error, just `nil`, so test idioms like
         // `[ -f /etc/passwd ]` behave as on a chrooted shell.
-        guard let r = resolve(path) else { return nil }
+        guard let resolved = resolve(path) else { return nil }
         // The same chrooted-shell answer for symlinks escaping the
         // mount: report nil rather than a thrown error so `[ -f ]`
         // tests stay quiet.
         let host: String
         do {
-            host = try await canonicalGate(r, virtual: path)
+            host = try await canonicalGate(resolved, virtual: path)
         } catch FileSystemError.notFound {
             return nil
         }
@@ -237,16 +237,16 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // Important: return the VIRTUAL path back, not the host one.
         // Otherwise `realpath /home/foo` leaks the host path into
         // the script's view.
-        guard let r = resolve(path) else {
+        guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
         // Verify the host path is canonicalisable AND that any
         // symlink chain stays inside the mount.
-        _ = try await canonicalGate(r, virtual: path)
+        _ = try await canonicalGate(resolved, virtual: path)
         if !allowMissing {
             // Honour the contract: throw if the path doesn't exist
             // and `allowMissing == false`.
-            _ = try await backing.canonicalize(r.host, allowMissing: false)
+            _ = try await backing.canonicalize(resolved.host, allowMissing: false)
         }
         return (path as NSString).standardizingPath
     }
@@ -284,14 +284,14 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         try await backing.remove(try await gateWrite(path), recursive: recursive)
     }
 
-    public func move(from: String, to: String) async throws {
+    public func move(from: String, to dst: String) async throws {
         try await backing.move(from: try await gateWrite(from),
-                               to: try await gateWrite(to))
+                               to: try await gateWrite(dst))
     }
 
-    public func copy(from: String, to: String) async throws {
+    public func copy(from: String, to dst: String) async throws {
         try await backing.copy(from: try await gateRead(from),
-                               to: try await gateWrite(to))
+                               to: try await gateWrite(dst))
     }
 
     public func makeTempPath(prefix: String) async throws -> String {

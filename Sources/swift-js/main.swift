@@ -56,9 +56,17 @@ if !isAlias, raw.count >= 2, raw[1] == "install" {
 }
 
 guard raw.count >= 2 else {
-    let usage = isAlias
-        ? "usage: \(invokedAs) <script.js> [args...]\n       \(invokedAs) -e <expr>\n       \(invokedAs) --version\n"
-        : "usage: swift-js [--sandbox-env] <script.js> [args...]\n       swift-js [--sandbox-env] -e|-p <expr>\n       swift-js install [prefix]\n       swift-js --version\n"
+    let usage: String
+    if isAlias {
+        usage = "usage: \(invokedAs) <script.js> [args...]\n"
+              + "       \(invokedAs) -e <expr>\n"
+              + "       \(invokedAs) --version\n"
+    } else {
+        usage = "usage: swift-js [--sandbox-env] <script.js> [args...]\n"
+              + "       swift-js [--sandbox-env] -e|-p <expr>\n"
+              + "       swift-js install [prefix]\n"
+              + "       swift-js --version\n"
+    }
     FileHandle.standardError.write(Data(usage.utf8))
     exit(2)
 }
@@ -84,7 +92,7 @@ func makeProvider() -> EnvProvider {
     if sandboxEnv {
         return DictionaryEnvProvider([
             "PATH": "/usr/bin:/bin", "HOME": "/home/user", "USER": "user",
-            "SHELL": "/bin/sh", "TERM": "dumb", "LANG": "C.UTF-8",
+            "SHELL": "/bin/sh", "TERM": "dumb", "LANG": "C.UTF-8"
         ])
     }
     return OSEnvProvider()
@@ -134,23 +142,22 @@ do {
 }
 exit(runtime.exitCode)
 
-
 // MARK: - install subcommand
 
 func installAliases(prefix: String, source: String) {
-    let fm = FileManager.default
+    let fileManager = FileManager.default
     let absSource = (source as NSString).standardizingPath
     do {
-        try fm.createDirectory(atPath: prefix, withIntermediateDirectories: true)
+        try fileManager.createDirectory(atPath: prefix, withIntermediateDirectories: true)
         // Resolve to an absolute path so symlinks work from anywhere.
         let resolvedSource: String = {
             if absSource.hasPrefix("/") { return absSource }
-            return fm.currentDirectoryPath + "/" + absSource
+            return fileManager.currentDirectoryPath + "/" + absSource
         }()
         for name in ["swift-js", "node", "bun"] {
             let target = (prefix as NSString).appendingPathComponent(name)
-            try? fm.removeItem(atPath: target)
-            try fm.createSymbolicLink(atPath: target, withDestinationPath: resolvedSource)
+            try? fileManager.removeItem(atPath: target)
+            try fileManager.createSymbolicLink(atPath: target, withDestinationPath: resolvedSource)
             print("→ \(target)  →  \(resolvedSource)")
         }
         print("\nAdd to PATH:")

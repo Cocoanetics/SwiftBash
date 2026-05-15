@@ -28,40 +28,7 @@ public struct PasteCommand: ParsableBashCommand {
         var delimiters = "\t"
         var serial = false
         var files: [String] = []
-
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
-                break
-            }
-            if a == "-d" || a == "--delimiters" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("paste: option requires an argument: \(a)\n")
-                    return ExitStatus(2)
-                }
-                delimiters = decodePasteDelimiters(rawArgv[i + 1])
-                i += 2; continue
-            }
-            // BSD/GNU `-dCHAR(s)` combined form (e.g. `-d,`).
-            if a.hasPrefix("-d"), a.count > 2 {
-                delimiters = decodePasteDelimiters(String(a.dropFirst(2)))
-                i += 1; continue
-            }
-            if a == "-s" || a == "--serial" {
-                serial = true; i += 1; continue
-            }
-            if a == "-" {
-                files.append(a); i += 1; continue
-            }
-            if a.hasPrefix("-"), a.count > 1 {
-                Shell.bashCurrent.stderr("paste: invalid option: \(a)\n")
-                return ExitStatus(2)
-            }
-            files.append(a); i += 1
-        }
+        if let bad = parseArgs(into: &delimiters, serial: &serial, files: &files) { return bad }
 
         guard !files.isEmpty else {
             Shell.bashCurrent.stderr("paste: missing operand\n")
@@ -75,13 +42,62 @@ public struct PasteCommand: ParsableBashCommand {
 
         // Read every input fully up front. paste needs random access
         // across files for its row-by-row interleaving.
+        switch await readInputs(files: files) {
+        case .failure(let exit): return exit
+        case .success(let inputs):
+            emitOutput(inputs: inputs, delimChars: delimChars, serial: serial)
+            return .success
+        }
+    }
+
+    private enum InputResult { case success([[String]]), failure(ExitStatus) }
+
+    private func parseArgs(into delimiters: inout String, serial: inout Bool,
+                           files: inout [String]) -> ExitStatus? {
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { files.append(rawArgv[idx]); idx += 1 }
+                break
+            }
+            if arg == "-d" || arg == "--delimiters" {
+                guard idx + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("paste: option requires an argument: \(arg)\n")
+                    return ExitStatus(2)
+                }
+                delimiters = decodePasteDelimiters(rawArgv[idx + 1])
+                idx += 2; continue
+            }
+            // BSD/GNU `-dCHAR(s)` combined form (e.g. `-d,`).
+            if arg.hasPrefix("-d"), arg.count > 2 {
+                delimiters = decodePasteDelimiters(String(arg.dropFirst(2)))
+                idx += 1; continue
+            }
+            if arg == "-s" || arg == "--serial" {
+                serial = true; idx += 1; continue
+            }
+            if arg == "-" {
+                files.append(arg); idx += 1; continue
+            }
+            if arg.hasPrefix("-"), arg.count > 1 {
+                Shell.bashCurrent.stderr("paste: invalid option: \(arg)\n")
+                return ExitStatus(2)
+            }
+            files.append(arg); idx += 1
+        }
+        return nil
+    }
+
+    private func readInputs(files: [String]) async -> InputResult {
         var inputs: [[String]] = []
         var stdinUsed = false
-        for f in files {
-            if f == "-" {
+        for file in files {
+            if file == "-" {
                 guard !stdinUsed else {
                     Shell.bashCurrent.stderr("paste: stdin can only be used once\n")
-                    return .failure
+                    return .failure(.failure)
                 }
                 stdinUsed = true
                 var lines: [String] = []
@@ -89,45 +105,48 @@ public struct PasteCommand: ParsableBashCommand {
                 inputs.append(lines)
             } else {
                 do {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(file)
+                    // swiftlint:disable:next optional_data_string_conversion - paste input may be partial UTF-8
                     let text = String(decoding: data, as: UTF8.self)
                     inputs.append(SortCommand.splitLines(text))
                 } catch {
-                    Shell.bashCurrent.stderr("paste: \(f): \(error)\n")
-                    return .failure
+                    Shell.bashCurrent.stderr("paste: \(file): \(error)\n")
+                    return .failure(.failure)
                 }
             }
         }
+        return .success(inputs)
+    }
 
+    private func emitOutput(inputs: [[String]], delimChars: [Character], serial: Bool) {
         if serial {
             // One output line per file, joining all of that file's
             // lines with the cycling delimiter.
             for lines in inputs {
                 var out = ""
-                for (i, line) in lines.enumerated() {
-                    if i > 0 {
-                        out.append(delimChars[(i - 1) % delimChars.count])
+                for (idx, line) in lines.enumerated() {
+                    if idx > 0 {
+                        out.append(delimChars[(idx - 1) % delimChars.count])
                     }
                     out += line
                 }
                 Shell.bashCurrent.stdout(out + "\n")
             }
         } else {
-            // One output line per row index, taking the i-th line of
+            // One output line per row index, taking the row-th line of
             // each file (or "" if that file is shorter).
             let rows = inputs.map(\.count).max() ?? 0
-            for i in 0..<rows {
+            for row in 0..<rows {
                 var out = ""
-                for (j, lines) in inputs.enumerated() {
-                    if j > 0 {
-                        out.append(delimChars[(j - 1) % delimChars.count])
+                for (col, lines) in inputs.enumerated() {
+                    if col > 0 {
+                        out.append(delimChars[(col - 1) % delimChars.count])
                     }
-                    if i < lines.count { out += lines[i] }
+                    if row < lines.count { out += lines[row] }
                 }
                 Shell.bashCurrent.stdout(out + "\n")
             }
         }
-        return .success
     }
 }
 
@@ -136,22 +155,22 @@ public struct PasteCommand: ParsableBashCommand {
 /// yield a tab.
 private func decodePasteDelimiters(_ raw: String) -> String {
     var out = ""
-    var i = raw.startIndex
-    while i < raw.endIndex {
-        let c = raw[i]
-        if c == "\\", raw.index(after: i) < raw.endIndex {
-            let n = raw[raw.index(after: i)]
-            switch n {
+    var idx = raw.startIndex
+    while idx < raw.endIndex {
+        let char = raw[idx]
+        if char == "\\", raw.index(after: idx) < raw.endIndex {
+            let next = raw[raw.index(after: idx)]
+            switch next {
             case "n": out.append("\n")
             case "t": out.append("\t")
             case "0": out.append("\0")
             case "\\": out.append("\\")
-            default: out.append(n)
+            default: out.append(next)
             }
-            i = raw.index(i, offsetBy: 2)
+            idx = raw.index(idx, offsetBy: 2)
         } else {
-            out.append(c)
-            i = raw.index(after: i)
+            out.append(char)
+            idx = raw.index(after: idx)
         }
     }
     return out

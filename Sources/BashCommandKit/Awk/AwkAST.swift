@@ -32,8 +32,12 @@ public enum AwkLValue: Sendable {
 
 public enum AwkBinaryOp: String, Sendable {
     case add = "+", sub = "-", mul = "*", div = "/", mod = "%", pow = "^"
+    // Two-letter comparison ops mirror AWK source-level spellings.
+    // swiftlint:disable:next identifier_name
     case eq = "==", ne = "!=", lt = "<", le = "<=", gt = ">", ge = ">="
     case match = "~", notMatch = "!~"
+    // `or` mirrors the boolean operator spelling.
+    // swiftlint:disable:next identifier_name
     case and = "&&", or = "||"
     case concat = " "
 }
@@ -59,16 +63,24 @@ public indirect enum AwkStmt: Sendable {
     case exprStmt(AwkExpr)
     case print(args: [AwkExpr], output: AwkOutput?)
     case printf(format: AwkExpr, args: [AwkExpr], output: AwkOutput?)
+    // `else_` mirrors the AWK source keyword while remaining a valid Swift identifier.
+    // swiftlint:disable:next identifier_name
     case ifStmt(cond: AwkExpr, then: AwkStmt, else_: AwkStmt?)
     case whileStmt(cond: AwkExpr, body: AwkStmt)
     case doWhile(body: AwkStmt, cond: AwkExpr)
+    // `init_` mirrors the AWK source keyword while remaining a valid Swift identifier.
+    // swiftlint:disable:next identifier_name
     case forStmt(init_: AwkExpr?, cond: AwkExpr?, update: AwkExpr?, body: AwkStmt)
     case forIn(variable: String, array: String, body: AwkStmt)
+    // `break_`, `continue_`, `return_` mirror reserved Swift keywords.
+    // swiftlint:disable:next identifier_name
     case break_
+    // swiftlint:disable:next identifier_name
     case continue_
     case next
     case nextfile
     case exit(code: AwkExpr?)
+    // swiftlint:disable:next identifier_name
     case return_(value: AwkExpr?)
     case delete(target: AwkLValue)
 }

@@ -25,17 +25,19 @@ public struct TacCommand: ParsableBashCommand {
             return .success
         }
         var hadError = false
-        for f in files {
+        for file in files {
             try Task.checkCancellation()
             do {
-                let data = try await Shell.bashCurrent.readDataAtPath(f)
+                let data = try await Shell.bashCurrent.readDataAtPath(file)
+                // tac input may legitimately contain non-UTF-8 byte sequences
+                // swiftlint:disable:next optional_data_string_conversion
                 let text = String(decoding: data, as: UTF8.self)
                 for line in SortCommand.splitLines(text).reversed() {
                     try Task.checkCancellation()
                     Shell.bashCurrent.stdout(line + "\n")
                 }
             } catch {
-                Shell.bashCurrent.stderr("tac: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("tac: \(file): \(error)\n")
                 hadError = true
             }
         }

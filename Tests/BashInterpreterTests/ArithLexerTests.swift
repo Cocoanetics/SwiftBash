@@ -4,10 +4,10 @@ import Testing
 @Suite(.timeLimit(.minutes(1))) struct ArithLexerTests {
 
     // Helper: tokenise and strip the trailing .eof.
-    private func lex(_ s: String,
+    private func lex(_ source: String,
                      sourceLocation: SourceLocation = #_sourceLocation) -> [ArithToken] {
         do {
-            var toks = try ArithLexer.tokenize(s)
+            var toks = try ArithLexer.tokenize(source)
             #expect(toks.last == .eof, sourceLocation: sourceLocation)
             toks.removeLast()
             return toks
@@ -82,9 +82,9 @@ import Testing
     // MARK: Single-char operators
 
     @Test func arithmeticOps() {
-        #expect(lex("1+2") == [.int(1), .plus,  .int(2)])
+        #expect(lex("1+2") == [.int(1), .plus, .int(2)])
         #expect(lex("1-2") == [.int(1), .minus, .int(2)])
-        #expect(lex("1*2") == [.int(1), .star,  .int(2)])
+        #expect(lex("1*2") == [.int(1), .star, .int(2)])
         #expect(lex("1/2") == [.int(1), .slash, .int(2)])
         #expect(lex("1%2") == [.int(1), .percent, .int(2)])
         #expect(lex("2**3") == [.int(2), .starStar, .int(3)])

@@ -24,43 +24,46 @@ public struct ShasumCommand: ParsableBashCommand {
         var algorithm = 1
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { files.append(rawArgv[index]); index += 1 }
                 break
             }
-            if a == "-a" || a == "--algorithm" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
-                    Shell.bashCurrent.stderr("shasum: option requires a numeric argument: \(a)\n")
+            if arg == "-a" || arg == "--algorithm" {
+                guard index + 1 < rawArgv.count, let algo = Int(rawArgv[index + 1]) else {
+                    Shell.bashCurrent.stderr("shasum: option requires a numeric argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                algorithm = n
-                i += 2; continue
+                algorithm = algo
+                index += 2; continue
             }
             // `-aN` combined.
-            if a.hasPrefix("-a"), let n = Int(a.dropFirst(2)) {
-                algorithm = n
-                i += 1; continue
+            if arg.hasPrefix("-a"), let algo = Int(arg.dropFirst(2)) {
+                algorithm = algo
+                index += 1; continue
             }
-            files.append(a); i += 1
+            files.append(arg); index += 1
         }
 
         switch algorithm {
         case 1:
-            return try await runSum(files: files, displayFor: { $0 ?? "-" }) {
-                ShasumHelpers.hex(of: Insecure.SHA1.hash(data: $0))
-            }
+            return try await runSum(
+                files: files,
+                displayFor: { $0 ?? "-" },
+                hash: { ShasumHelpers.hex(of: Insecure.SHA1.hash(data: $0)) })
         case 256:
-            return try await runSum(files: files, displayFor: { $0 ?? "-" }) {
-                ShasumHelpers.hex(of: SHA256.hash(data: $0))
-            }
+            return try await runSum(
+                files: files,
+                displayFor: { $0 ?? "-" },
+                hash: { ShasumHelpers.hex(of: SHA256.hash(data: $0)) })
         case 512:
-            return try await runSum(files: files, displayFor: { $0 ?? "-" }) {
-                ShasumHelpers.hex(of: SHA512.hash(data: $0))
-            }
+            return try await runSum(
+                files: files,
+                displayFor: { $0 ?? "-" },
+                hash: { ShasumHelpers.hex(of: SHA512.hash(data: $0)) })
         default:
             Shell.bashCurrent.stderr("shasum: unsupported algorithm: \(algorithm)\n")
             return ExitStatus(2)

@@ -280,6 +280,7 @@ private final class BufferingSink: @unchecked Sendable {
 
     var text: String {
         box.lock.lock(); defer { box.lock.unlock() }
+        // swiftlint:disable:next optional_data_string_conversion - test captures may include partial bytes
         return String(decoding: box.buf, as: UTF8.self)
     }
 }
@@ -287,9 +288,9 @@ private final class BufferingSink: @unchecked Sendable {
 private final class ArgvCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var argv: [String] = []
-    func set(_ a: [String]) {
+    func set(_ values: [String]) {
         lock.lock(); defer { lock.unlock() }
-        argv = a
+        argv = values
     }
     var value: [String] {
         lock.lock(); defer { lock.unlock() }

@@ -29,13 +29,11 @@ enum BraceExpansion {
     /// comma and not a numeric/char range) are stepped over so we never
     /// re-process the same brace.
     private static func expandSearching(_ input: String,
-                                        fromIndex: Int) -> [String]
-    {
+                                        fromIndex: Int) -> [String] {
         let chars = Array(input)
         var search = fromIndex
         while let braces = findTopLevelBraceGroup(chars: chars,
-                                                  fromIndex: search)
-        {
+                                                  fromIndex: search) {
             let prefix = String(chars[..<braces.openIndex])
             let inner = String(chars[(braces.openIndex + 1)..<braces.closeIndex])
             let suffix = String(chars[(braces.closeIndex + 1)...])
@@ -76,64 +74,60 @@ enum BraceExpansion {
     }
 
     private static func findTopLevelBraceGroup(chars: [Character],
-                                                fromIndex: Int) -> BracePair?
-    {
-        var i = fromIndex
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\\", i + 1 < chars.count {
-                i += 2; continue
+                                               fromIndex: Int) -> BracePair? {
+        var idx = fromIndex
+        while idx < chars.count {
+            let char = chars[idx]
+            if char == "\\", idx + 1 < chars.count {
+                idx += 2; continue
             }
-            if c == "{" {
-                if let close = matchingBrace(chars: chars, openIndex: i) {
-                    return BracePair(openIndex: i, closeIndex: close)
+            if char == "{" {
+                if let close = matchingBrace(chars: chars, openIndex: idx) {
+                    return BracePair(openIndex: idx, closeIndex: close)
                 }
             }
-            i += 1
+            idx += 1
         }
         return nil
     }
 
     private static func matchingBrace(chars: [Character],
-                                      openIndex: Int) -> Int?
-    {
+                                      openIndex: Int) -> Int? {
         var depth = 0
-        var i = openIndex
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\\", i + 1 < chars.count {
-                i += 2; continue
+        var idx = openIndex
+        while idx < chars.count {
+            let char = chars[idx]
+            if char == "\\", idx + 1 < chars.count {
+                idx += 2; continue
             }
-            if c == "{" { depth += 1 }
-            else if c == "}" {
+            if char == "{" { depth += 1 } else if char == "}" {
                 depth -= 1
-                if depth == 0 { return i }
+                if depth == 0 { return idx }
             }
-            i += 1
+            idx += 1
         }
         return nil
     }
 
-    private static func splitTopLevelCommas(_ s: String) -> [String] {
+    private static func splitTopLevelCommas(_ input: String) -> [String] {
         var parts: [String] = [""]
         var depth = 0
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\\", i + 1 < chars.count {
-                parts[parts.count - 1].append(c)
-                parts[parts.count - 1].append(chars[i + 1])
-                i += 2; continue
+        let chars = Array(input)
+        var idx = 0
+        while idx < chars.count {
+            let char = chars[idx]
+            if char == "\\", idx + 1 < chars.count {
+                parts[parts.count - 1].append(char)
+                parts[parts.count - 1].append(chars[idx + 1])
+                idx += 2; continue
             }
-            if c == "{" { depth += 1 }
-            else if c == "}" { depth -= 1 }
-            if c == "," && depth == 0 {
+            if char == "{" { depth += 1 } else if char == "}" { depth -= 1 }
+            if char == "," && depth == 0 {
                 parts.append("")
             } else {
-                parts[parts.count - 1].append(c)
+                parts[parts.count - 1].append(char)
             }
-            i += 1
+            idx += 1
         }
         return parts
     }
@@ -146,43 +140,42 @@ enum BraceExpansion {
         guard segs.count == 2 || segs.count == 3 else { return nil }
 
         // Integer sequence?
-        if let from = Int(segs[0]), let to = Int(segs[1]) {
+        if let from = Int(segs[0]), let toEnd = Int(segs[1]) {
             let step: Int
             if segs.count == 3 {
-                guard let s = Int(segs[2]), s != 0 else { return nil }
-                step = abs(s) * (from <= to ? 1 : -1)
+                guard let stepValue = Int(segs[2]), stepValue != 0 else { return nil }
+                step = abs(stepValue) * (from <= toEnd ? 1 : -1)
             } else {
-                step = from <= to ? 1 : -1
+                step = from <= toEnd ? 1 : -1
             }
             let pad = max(zeroPad(segs[0]), zeroPad(segs[1]))
             var values: [String] = []
-            var n = from
-            while (step > 0 ? n <= to : n >= to) {
-                values.append(formatInt(n, padTo: pad))
-                n += step
+            var current = from
+            while step > 0 ? current <= toEnd : current >= toEnd {
+                values.append(formatInt(current, padTo: pad))
+                current += step
             }
             return values
         }
 
         // Single-character range?
         if segs[0].count == 1, segs[1].count == 1,
-           let f = segs[0].first, let t = segs[1].first,
-           f.isASCII, t.isASCII
-        {
-            let fa = Int(f.asciiValue!)
-            let ta = Int(t.asciiValue!)
+           let fromChar = segs[0].first, let toChar = segs[1].first,
+           fromChar.isASCII, toChar.isASCII {
+            let fromAscii = Int(fromChar.asciiValue!)
+            let toAscii = Int(toChar.asciiValue!)
             let step: Int
             if segs.count == 3 {
-                guard let s = Int(segs[2]), s != 0 else { return nil }
-                step = abs(s) * (fa <= ta ? 1 : -1)
+                guard let stepValue = Int(segs[2]), stepValue != 0 else { return nil }
+                step = abs(stepValue) * (fromAscii <= toAscii ? 1 : -1)
             } else {
-                step = fa <= ta ? 1 : -1
+                step = fromAscii <= toAscii ? 1 : -1
             }
             var out: [String] = []
-            var v = fa
-            while (step > 0 ? v <= ta : v >= ta) {
-                out.append(String(UnicodeScalar(UInt8(v))))
-                v += step
+            var value = fromAscii
+            while step > 0 ? value <= toAscii : value >= toAscii {
+                out.append(String(UnicodeScalar(UInt8(value))))
+                value += step
             }
             return out
         }
@@ -190,34 +183,34 @@ enum BraceExpansion {
         return nil
     }
 
-    private static func splitOnDotDot(_ s: String) -> [String] {
+    private static func splitOnDotDot(_ input: String) -> [String] {
         var parts: [String] = [""]
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            if i + 1 < chars.count, chars[i] == ".", chars[i + 1] == "." {
+        let chars = Array(input)
+        var idx = 0
+        while idx < chars.count {
+            if idx + 1 < chars.count, chars[idx] == ".", chars[idx + 1] == "." {
                 parts.append("")
-                i += 2
+                idx += 2
             } else {
-                parts[parts.count - 1].append(chars[i])
-                i += 1
+                parts[parts.count - 1].append(chars[idx])
+                idx += 1
             }
         }
         return parts
     }
 
     /// Width to zero-pad to; 0 if neither endpoint had a leading zero.
-    private static func zeroPad(_ s: String) -> Int {
-        var t = s
-        if t.first == "-" || t.first == "+" { t.removeFirst() }
-        if t.count > 1, t.first == "0" { return s.count }
+    private static func zeroPad(_ input: String) -> Int {
+        var trimmed = input
+        if trimmed.first == "-" || trimmed.first == "+" { trimmed.removeFirst() }
+        if trimmed.count > 1, trimmed.first == "0" { return input.count }
         return 0
     }
 
-    private static func formatInt(_ n: Int, padTo: Int) -> String {
-        guard padTo > 0 else { return String(n) }
-        let sign = n < 0 ? "-" : ""
-        let body = String(abs(n))
+    private static func formatInt(_ value: Int, padTo: Int) -> String {
+        guard padTo > 0 else { return String(value) }
+        let sign = value < 0 ? "-" : ""
+        let body = String(abs(value))
         let pad = max(0, padTo - body.count - sign.count)
         return sign + String(repeating: "0", count: pad) + body
     }

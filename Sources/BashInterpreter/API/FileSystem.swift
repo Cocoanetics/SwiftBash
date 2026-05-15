@@ -69,10 +69,10 @@ public protocol FileSystem: Sendable {
     func remove(_ path: String, recursive: Bool) async throws
 
     /// Move / rename `from` to `to`.
-    func move(from: String, to: String) async throws
+    func move(from source: String, to destination: String) async throws
 
     /// Copy `from` to `to`. Directory copies are recursive.
-    func copy(from: String, to: String) async throws
+    func copy(from source: String, to destination: String) async throws
 
     /// Allocate a unique path under a temp directory inside this file
     /// system, suitable for short-lived files like process-substitution
@@ -217,7 +217,7 @@ final class FileSystemWriteBuffer: @unchecked Sendable {
     }
     func drain() -> Data {
         lock.lock(); defer { lock.unlock() }
-        let d = data; data = Data(); return d
+        let snapshot = data; data = Data(); return snapshot
     }
 }
 
@@ -300,16 +300,17 @@ public enum FileSystemError: Error, CustomStringConvertible, Sendable, Equatable
     case isADirectory(String)
     case alreadyExists(String)
     case permissionDenied(String)
+    // swiftlint:disable:next identifier_name - `io` is part of the public error API
     case io(String)
 
     public var description: String {
         switch self {
-        case .notFound(let p):         return "no such file or directory: \(p)"
-        case .notADirectory(let p):    return "not a directory: \(p)"
-        case .isADirectory(let p):     return "is a directory: \(p)"
-        case .alreadyExists(let p):    return "already exists: \(p)"
-        case .permissionDenied(let p): return "permission denied: \(p)"
-        case .io(let m):               return m
+        case .notFound(let path):         return "no such file or directory: \(path)"
+        case .notADirectory(let path):    return "not a directory: \(path)"
+        case .isADirectory(let path):     return "is a directory: \(path)"
+        case .alreadyExists(let path):    return "already exists: \(path)"
+        case .permissionDenied(let path): return "permission denied: \(path)"
+        case .io(let message):            return message
         }
     }
 
@@ -325,7 +326,7 @@ public enum FileSystemError: Error, CustomStringConvertible, Sendable, Equatable
         case .isADirectory:     return "Is a directory"
         case .alreadyExists:    return "File exists"
         case .permissionDenied: return "Permission denied"
-        case .io(let m):        return m
+        case .io(let message):  return message
         }
     }
 }

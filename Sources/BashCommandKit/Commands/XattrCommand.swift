@@ -31,41 +31,13 @@ public struct XattrCommand: ParsableBashCommand {
         var mode: Mode = .list
         var recursive = false
         var args: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { args.append(rawArgv[i]); i += 1 }
-                break
-            }
-            switch a {
-            case "-l": mode = .listLong; i += 1; continue
-            case "-p": mode = .print; i += 1; continue
-            case "-w": mode = .write; i += 1; continue
-            case "-d": mode = .delete; i += 1; continue
-            case "-c": mode = .clear; i += 1; continue
-            case "-r": recursive = true; i += 1; continue
-            default: break
-            }
-            // Combined short flags like -lr.
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                for c in a.dropFirst() {
-                    switch c {
-                    case "l": mode = .listLong
-                    case "p": mode = .print
-                    case "w": mode = .write
-                    case "d": mode = .delete
-                    case "c": mode = .clear
-                    case "r": recursive = true
-                    default:
-                        Shell.bashCurrent.stderr("xattr: unknown option: -\(c)\n")
-                        return ExitStatus(2)
-                    }
-                }
-                i += 1; continue
-            }
-            args.append(a); i += 1
+        switch parseArgs() {
+        case .success(let parsed):
+            mode = parsed.mode
+            recursive = parsed.recursive
+            args = parsed.args
+        case .failure(let code):
+            return code
         }
 
         let attrName: String?
@@ -97,73 +69,138 @@ public struct XattrCommand: ParsableBashCommand {
         }
 
         var hadError = false
-        for f in files {
+        let options = ProcessOptions(mode: mode, recursive: recursive,
+                                     attrName: attrName, attrValue: attrValue)
+        for file in files {
             do {
-                try await processPath(f, mode: mode,
-                                      recursive: recursive,
-                                      attrName: attrName, attrValue: attrValue,
-                                      multiple: files.count > 1)
+                try await processPath(file, options: options, multiple: files.count > 1)
             } catch {
-                Shell.bashCurrent.stderr("xattr: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("xattr: \(file): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
-    private func processPath(_ path: String, mode: Mode,
-                             recursive: Bool, attrName: String?, attrValue: String?,
+    private struct ParsedArgs {
+        var mode: Mode
+        var recursive: Bool
+        var args: [String]
+    }
+
+    private enum ArgResult {
+        case success(ParsedArgs)
+        case failure(ExitStatus)
+    }
+
+    // Argv loop: walks single-flag forms (-l/-p/-w/-d/-c/-r) plus
+    // bundled forms like `-lr`. Each char arm sets one field; the
+    // bundled inner switch shares the same dispatch table — pulling
+    // it apart would just duplicate the mode mapping.
+    // swiftlint:disable:next cyclomatic_complexity
+    private func parseArgs() -> ArgResult {
+        var mode: Mode = .list
+        var recursive = false
+        var args: [String] = []
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { args.append(rawArgv[index]); index += 1 }
+                break
+            }
+            switch arg {
+            case "-l": mode = .listLong; index += 1; continue
+            case "-p": mode = .print; index += 1; continue
+            case "-w": mode = .write; index += 1; continue
+            case "-d": mode = .delete; index += 1; continue
+            case "-c": mode = .clear; index += 1; continue
+            case "-r": recursive = true; index += 1; continue
+            default: break
+            }
+            // Combined short flags like -lr.
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
+                for char in arg.dropFirst() {
+                    switch char {
+                    case "l": mode = .listLong
+                    case "p": mode = .print
+                    case "w": mode = .write
+                    case "d": mode = .delete
+                    case "c": mode = .clear
+                    case "r": recursive = true
+                    default:
+                        Shell.bashCurrent.stderr("xattr: unknown option: -\(char)\n")
+                        return .failure(ExitStatus(2))
+                    }
+                }
+                index += 1; continue
+            }
+            args.append(arg); index += 1
+        }
+        return .success(ParsedArgs(mode: mode, recursive: recursive, args: args))
+    }
+
+    private struct ProcessOptions {
+        let mode: Mode
+        let recursive: Bool
+        let attrName: String?
+        let attrValue: String?
+    }
+
+    private func processPath(_ path: String, options: ProcessOptions,
                              multiple: Bool) async throws {
         let resolved = Shell.bashCurrent.resolvePath(path)
         let isDir = (try? await Shell.bashCurrent.fileSystem.metadata(resolved))?.kind == .directory
 
-        try await processOne(path, resolved: resolved, mode: mode,
-                             attrName: attrName, attrValue: attrValue,
-                             multiple: multiple)
+        try await processOne(path, resolved: resolved, options: options, multiple: multiple)
 
-        if recursive, isDir {
+        if options.recursive, isDir {
             let entries = ((try? await Shell.bashCurrent.fileSystem.list(resolved)) ?? [])
                 .map(\.name)
             for name in entries.sorted() {
                 let childPath = (path as NSString).appendingPathComponent(name)
-                try await processPath(childPath, mode: mode,
-                                      recursive: recursive,
-                                      attrName: attrName, attrValue: attrValue,
-                                      multiple: true)
+                try await processPath(childPath, options: options, multiple: true)
             }
         }
     }
 
-    private func processOne(_ path: String, resolved: String, 
-                            mode: Mode, attrName: String?, attrValue: String?,
-                            multiple: Bool) async throws {
+    // Mode dispatch: per-Mode switch over the six xattr operations.
+    // Each case is a few lines but they all share the same `fileSystem`
+    // + `prefix` locals; per-case helpers would force several params
+    // through.
+    // swiftlint:disable:next cyclomatic_complexity
+    private func processOne(_ path: String, resolved: String,
+                            options: ProcessOptions, multiple: Bool) async throws {
         let prefix = multiple ? "\(path): " : ""
-        let fs = Shell.bashCurrent.fileSystem
-        switch mode {
+        let fileSystem = Shell.bashCurrent.fileSystem
+        switch options.mode {
         case .list:
-            let names = try await fs.listXattrs(resolved)
-            for n in names { Shell.bashCurrent.stdout(prefix + n + "\n") }
+            let names = try await fileSystem.listXattrs(resolved)
+            for name in names { Shell.bashCurrent.stdout(prefix + name + "\n") }
         case .listLong:
-            let names = try await fs.listXattrs(resolved)
-            for n in names {
-                let v = (try? await fs.getXattr(resolved, name: n)) ?? Data()
-                let str = String(decoding: v, as: UTF8.self)
-                Shell.bashCurrent.stdout("\(prefix)\(n): \(str)\n")
+            let names = try await fileSystem.listXattrs(resolved)
+            for name in names {
+                let data = (try? await fileSystem.getXattr(resolved, name: name)) ?? Data()
+                // swiftlint:disable:next optional_data_string_conversion
+                let str = String(decoding: data, as: UTF8.self)
+                Shell.bashCurrent.stdout("\(prefix)\(name): \(str)\n")
             }
         case .print:
-            guard let n = attrName else { return }
-            let v = try await fs.getXattr(resolved, name: n)
-            Shell.bashCurrent.stdout(prefix + String(decoding: v, as: UTF8.self) + "\n")
+            guard let name = options.attrName else { return }
+            let data = try await fileSystem.getXattr(resolved, name: name)
+            // swiftlint:disable:next optional_data_string_conversion
+            Shell.bashCurrent.stdout(prefix + String(decoding: data, as: UTF8.self) + "\n")
         case .write:
-            guard let n = attrName, let v = attrValue else { return }
-            try await fs.setXattr(resolved, name: n, value: Data(v.utf8))
+            guard let name = options.attrName, let value = options.attrValue else { return }
+            try await fileSystem.setXattr(resolved, name: name, value: Data(value.utf8))
         case .delete:
-            guard let n = attrName else { return }
-            try await fs.removeXattr(resolved, name: n)
+            guard let name = options.attrName else { return }
+            try await fileSystem.removeXattr(resolved, name: name)
         case .clear:
-            let names = try await fs.listXattrs(resolved)
-            for n in names {
-                try? await fs.removeXattr(resolved, name: n)
+            let names = try await fileSystem.listXattrs(resolved)
+            for name in names {
+                try? await fileSystem.removeXattr(resolved, name: name)
             }
         }
     }

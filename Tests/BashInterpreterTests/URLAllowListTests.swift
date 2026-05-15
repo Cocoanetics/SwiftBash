@@ -98,7 +98,7 @@ import Foundation
         let errors = URLAllowList.validate([
             AllowedURLEntry("https://api.example.com"),
             AllowedURLEntry("https://api.example.com/v1/"),
-            AllowedURLEntry("http://example.com:8080/path"),
+            AllowedURLEntry("http://example.com:8080/path")
         ])
         #expect(errors.isEmpty)
     }
@@ -107,7 +107,7 @@ import Foundation
         let errors = URLAllowList.validate([
             AllowedURLEntry("not-a-url"),
             AllowedURLEntry("ftp://example.com/files"),
-            AllowedURLEntry("https://example.com/%2fbypass"),
+            AllowedURLEntry("https://example.com/%2fbypass")
         ])
         #expect(errors.count == 3,
                 "expected three errors, got: \(errors)")
@@ -118,7 +118,7 @@ import Foundation
     @Test func isAllowedMatchesAnyEntry() {
         let entries = [
             AllowedURLEntry("https://api.openai.com"),
-            AllowedURLEntry("https://api.example.com/v1/"),
+            AllowedURLEntry("https://api.example.com/v1/")
         ]
         #expect(URLAllowList.isAllowed(
             "https://api.openai.com/v1/chat", entries: entries))
@@ -141,19 +141,19 @@ import Foundation
             AllowedURLEntry(url: "https://gateway.example.com",
                             transforms: [HeaderTransform(headers:
                                 ["Authorization": "Bearer secret"])]),
-            AllowedURLEntry("https://api.openai.com"),
+            AllowedURLEntry("https://api.openai.com")
         ]
-        let h = URLAllowList.transformedHeaders(
+        let headers = URLAllowList.transformedHeaders(
             for: "https://gateway.example.com/v1/chat",
             entries: entries)
-        #expect(h?["Authorization"] == "Bearer secret")
+        #expect(headers?["Authorization"] == "Bearer secret")
     }
 
     @Test func transformedHeadersNilWhenNothingMatches() {
         let entries = [
             AllowedURLEntry(url: "https://gateway.example.com",
                             transforms: [HeaderTransform(headers:
-                                ["X-Token": "abc"])]),
+                                ["X-Token": "abc"])])
         ]
         // Different origin → no transform.
         #expect(URLAllowList.transformedHeaders(

@@ -15,8 +15,8 @@ import Testing
             return
         }
         #expect(type == "<<")
-        if case .word(let w, _) = output.kind {
-            #expect(w == "EOF")
+        if case .word(let word, _) = output.kind {
+            #expect(word == "EOF")
         }
     }
 

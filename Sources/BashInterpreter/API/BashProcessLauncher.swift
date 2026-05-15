@@ -51,6 +51,7 @@ public struct BashProcessLauncher: ProcessLauncher {
 
     public init() {}
 
+    // swiftlint:disable:next function_parameter_count - signature comes from the `ProcessLauncher` protocol
     public func launch(
         _ executable: Executable,
         arguments: Arguments,
@@ -70,9 +71,9 @@ public struct BashProcessLauncher: ProcessLauncher {
 
         let resolvedName: String
         switch executable.storage {
-        case .name(let n):
-            resolvedName = n
-        case .path(let p):
+        case .name(let name):
+            resolvedName = name
+        case .path(let pathStr):
             // Path-based resolution is restricted to the canonical
             // bin paths registered with `BinCatalog` (`/bin/echo`,
             // `/usr/bin/jq`, `/usr/local/bin/rg`, …). Anything else
@@ -80,9 +81,9 @@ public struct BashProcessLauncher: ProcessLauncher {
             // shadowing a builtin — falls through to "unresolved"
             // because dispatching it to the registered command would
             // change exact-path subprocess semantics.
-            let basename = (p as NSString).lastPathComponent
+            let basename = (pathStr as NSString).lastPathComponent
             guard let canonical = BinCatalog.knownPaths[basename],
-                  canonical == p
+                  canonical == pathStr
             else {
                 throw ProcessLaunchUnresolved(executable: executable)
             }
@@ -99,8 +100,8 @@ public struct BashProcessLauncher: ProcessLauncher {
         // resolving against the same registry).
         let subShell = parent.copy()
         subShell.environment = environment
-        if let wd = workingDirectory, !wd.isEmpty {
-            subShell.environment.workingDirectory = wd
+        if let workingDirectory, !workingDirectory.isEmpty {
+            subShell.environment.workingDirectory = workingDirectory
         }
         subShell.stdin = input
         subShell.stdout = output

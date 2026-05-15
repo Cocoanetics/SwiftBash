@@ -103,6 +103,6 @@ public struct TrapCommand: Command {
         "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE",
         "KILL", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM",
         "CHLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG",
-        "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS",
+        "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS"
     ]
 }

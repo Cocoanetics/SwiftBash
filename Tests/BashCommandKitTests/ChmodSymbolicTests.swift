@@ -31,8 +31,8 @@ struct ChmodSymbolicTests {
 
     private func mode(of url: URL) throws -> UInt16 {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
-        let n = attrs[.posixPermissions] as? NSNumber
-        return UInt16(truncating: n ?? 0)
+        let num = attrs[.posixPermissions] as? NSNumber
+        return UInt16(truncating: num ?? 0)
     }
 
     @Test("`chmod +x file` sets the execute bit for all without touching r/w")

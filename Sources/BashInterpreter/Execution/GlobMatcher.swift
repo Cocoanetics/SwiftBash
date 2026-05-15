@@ -33,261 +33,244 @@ enum GlobMatcher {
     /// Returns `true` if `string` matches `pattern` as a bash-style glob.
     static func match(pattern: String, string: String,
                       options: GlobOptions = .default) -> Bool {
-        let p = Array(pattern)
-        let s = Array(string)
-        return match(p, 0, s, 0, options)
+        let pat = Array(pattern)
+        let str = Array(string)
+        return match(pat, 0, str, 0, options)
     }
 
     // MARK: Recursive matcher
 
-    private static func match(_ p: [Character], _ pi: Int,
-                              _ s: [Character], _ si: Int,
+    // swiftlint:disable:next cyclomatic_complexity - glob matcher is inherently branchy
+    private static func match(_ pat: [Character], _ patIdx: Int,
+                              _ str: [Character], _ strIdx: Int,
                               _ opts: GlobOptions) -> Bool {
-        var pi = pi
-        var si = si
-
-        while pi < p.count {
-            let c = p[pi]
-
+        var patIdx = patIdx
+        var strIdx = strIdx
+        while patIdx < pat.count {
+            let char = pat[patIdx]
             // Extended glob constructs: ?(…) *(…) +(…) @(…) !(…)
             if opts.extglob,
-               (c == "?" || c == "*" || c == "+" || c == "@" || c == "!"),
-               pi + 1 < p.count, p[pi + 1] == "("
-            {
-                guard let close = matchingParen(p, openIndex: pi + 1)
+               char == "?" || char == "*" || char == "+" || char == "@" || char == "!",
+               patIdx + 1 < pat.count, pat[patIdx + 1] == "(" {
+                guard let close = matchingParen(pat, openIndex: patIdx + 1)
                 else { return false }
-                let alts = splitAlternatives(p, from: pi + 2, to: close)
-                let rest = Array(p[(close + 1)...])
-                return matchExtglob(op: c,
-                                    alts: alts,
-                                    rest: rest,
-                                    s: s, si: si,
-                                    opts: opts)
+                let alts = splitAlternatives(pat, from: patIdx + 2, to: close)
+                let rest = Array(pat[(close + 1)...])
+                let args = ExtglobArgs(oper: char, alts: alts, rest: rest,
+                                       str: str, strIdx: strIdx, opts: opts)
+                return matchExtglob(args)
             }
-
-            switch c {
+            switch char {
             case "*":
-                while pi < p.count, p[pi] == "*" { pi += 1 }
-                if pi == p.count { return true }
-                var k = si
-                while k <= s.count {
-                    if match(p, pi, s, k, opts) { return true }
-                    k += 1
+                while patIdx < pat.count, pat[patIdx] == "*" { patIdx += 1 }
+                if patIdx == pat.count { return true }
+                var split = strIdx
+                while split <= str.count {
+                    if match(pat, patIdx, str, split, opts) { return true }
+                    split += 1
                 }
                 return false
-
             case "?":
-                if si >= s.count { return false }
-                pi += 1
-                si += 1
-
+                if strIdx >= str.count { return false }
+                patIdx += 1; strIdx += 1
             case "[":
-                if si >= s.count { return false }
-                guard let (matched, classEnd) = matchCharClass(p, pi, s[si], opts)
+                if strIdx >= str.count { return false }
+                guard let (matched, classEnd) = matchCharClass(pat, patIdx, str[strIdx], opts)
                 else { return false }
                 if !matched { return false }
-                pi = classEnd
-                si += 1
-
+                patIdx = classEnd; strIdx += 1
             case "\\":
-                guard pi + 1 < p.count, si < s.count,
-                      sameChar(p[pi + 1], s[si], opts)
+                guard patIdx + 1 < pat.count, strIdx < str.count,
+                      sameChar(pat[patIdx + 1], str[strIdx], opts)
                 else { return false }
-                pi += 2
-                si += 1
-
+                patIdx += 2; strIdx += 1
             default:
-                if si >= s.count || !sameChar(s[si], c, opts) { return false }
-                pi += 1
-                si += 1
+                if strIdx >= str.count || !sameChar(str[strIdx], char, opts) { return false }
+                patIdx += 1; strIdx += 1
             }
         }
-        return si == s.count
+        return strIdx == str.count
     }
 
     // MARK: Extglob
 
-    private static func matchExtglob(op: Character,
-                                     alts: [[Character]],
-                                     rest: [Character],
-                                     s: [Character], si: Int,
-                                     opts: GlobOptions) -> Bool
-    {
-        // Helper: does `pattern` match the prefix of s starting at si,
-        // consuming exactly `consumed` characters?
-        func consumes(_ alt: [Character], from k: Int) -> [Int] {
-            // Try every possible end position for the alt pattern,
-            // returning the lengths that yield a full match.
-            var lengths: [Int] = []
-            for end in k...s.count {
-                if match(alt, 0, Array(s[k..<end]), 0, opts) {
-                    lengths.append(end - k)
-                }
-            }
-            return lengths
+    /// Parameters used by `matchExtglob` (grouped to keep the param count low).
+    private struct ExtglobArgs {
+        var oper: Character
+        var alts: [[Character]]
+        var rest: [Character]
+        var str: [Character]
+        var strIdx: Int
+        var opts: GlobOptions
+    }
+
+    private static func matchExtglob(_ args: ExtglobArgs) -> Bool {
+        switch args.oper {
+        case "@", "?": return matchExtglobOptionalOrSingle(args)
+        case "+", "*": return matchExtglobRepetition(args)
+        case "!": return matchExtglobNegation(args)
+        default: return false
         }
+    }
 
-        switch op {
-        case "@", "?":
-            // @(…): exactly one of the alts. ?(…): at most one.
-            if op == "?" {
-                // Zero-match path: just match the rest from si.
-                if match(rest, 0, s, si, opts) { return true }
-            }
-            for alt in alts {
-                for k in consumes(alt, from: si) {
-                    if match(rest, 0, s, si + k, opts) { return true }
-                }
-            }
-            return false
+    /// Lengths at which `alt` matches a prefix of `str` starting at `from`.
+    private static func consumes(_ alt: [Character], from start: Int,
+                                 str: [Character],
+                                 opts: GlobOptions) -> [Int] {
+        var lengths: [Int] = []
+        for end in start...str.count where match(alt, 0, Array(str[start..<end]), 0, opts) {
+            lengths.append(end - start)
+        }
+        return lengths
+    }
 
-        case "+", "*":
-            // +(…): one-or-more. *(…): zero-or-more.
-            if op == "*", match(rest, 0, s, si, opts) { return true }
-            // BFS over how many alt-units consume the input.
-            var positions: Set<Int> = [si]
-            // Visit all reachable end positions, then try `rest` at each.
-            var visited: Set<Int> = [si]
-            var any = false
-            while !positions.isEmpty {
-                var next: Set<Int> = []
-                for p in positions {
-                    for alt in alts {
-                        for k in consumes(alt, from: p) where k > 0 {
-                            let np = p + k
-                            if !visited.contains(np) {
-                                visited.insert(np)
-                                next.insert(np)
-                                if op == "+" || op == "*" {
-                                    if match(rest, 0, s, np, opts) {
-                                        any = true
-                                    }
-                                }
+    private static func matchExtglobOptionalOrSingle(_ args: ExtglobArgs) -> Bool {
+        // @(…): exactly one of the alts. ?(…): at most one.
+        if args.oper == "?" {
+            // Zero-match path: just match the rest from strIdx.
+            if match(args.rest, 0, args.str, args.strIdx, args.opts) { return true }
+        }
+        for alt in args.alts {
+            for length in consumes(alt, from: args.strIdx, str: args.str, opts: args.opts)
+                where match(args.rest, 0, args.str, args.strIdx + length, args.opts) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func matchExtglobRepetition(_ args: ExtglobArgs) -> Bool {
+        // +(…): one-or-more. *(…): zero-or-more.
+        if args.oper == "*", match(args.rest, 0, args.str, args.strIdx, args.opts) { return true }
+        // BFS over how many alt-units consume the input.
+        var positions: Set<Int> = [args.strIdx]
+        var visited: Set<Int> = [args.strIdx]
+        var any = false
+        while !positions.isEmpty {
+            var next: Set<Int> = []
+            for pos in positions {
+                for alt in args.alts {
+                    for length in consumes(alt, from: pos, str: args.str, opts: args.opts) where length > 0 {
+                        let newPos = pos + length
+                        if !visited.contains(newPos) {
+                            visited.insert(newPos)
+                            next.insert(newPos)
+                            if match(args.rest, 0, args.str, newPos, args.opts) {
+                                any = true
                             }
                         }
                     }
                 }
-                positions = next
             }
-            return any
-
-        case "!":
-            // !(…): match anything that ISN'T the alts. Any prefix of
-            // the input that doesn't match any alt, followed by rest
-            // matching the remainder.
-            for end in si...s.count {
-                let prefix = Array(s[si..<end])
-                var matchedAny = false
-                for alt in alts {
-                    if match(alt, 0, prefix, 0, opts) {
-                        matchedAny = true; break
-                    }
-                }
-                if !matchedAny, match(rest, 0, s, end, opts) { return true }
-            }
-            return false
-
-        default:
-            return false
+            positions = next
         }
+        return any
     }
 
-    private static func matchingParen(_ p: [Character],
-                                      openIndex: Int) -> Int?
-    {
-        var depth = 0
-        var i = openIndex
-        while i < p.count {
-            let c = p[i]
-            if c == "\\", i + 1 < p.count { i += 2; continue }
-            if c == "(" { depth += 1 }
-            else if c == ")" {
-                depth -= 1
-                if depth == 0 { return i }
+    private static func matchExtglobNegation(_ args: ExtglobArgs) -> Bool {
+        // !(…): match anything that ISN'T the alts. Any prefix of
+        // the input that doesn't match any alt, followed by rest
+        // matching the remainder.
+        for end in args.strIdx...args.str.count {
+            let prefix = Array(args.str[args.strIdx..<end])
+            var matchedAny = false
+            for alt in args.alts where match(alt, 0, prefix, 0, args.opts) {
+                matchedAny = true; break
             }
-            i += 1
+            if !matchedAny, match(args.rest, 0, args.str, end, args.opts) { return true }
+        }
+        return false
+    }
+
+    private static func matchingParen(_ pat: [Character],
+                                      openIndex: Int) -> Int? {
+        var depth = 0
+        var idx = openIndex
+        while idx < pat.count {
+            let char = pat[idx]
+            if char == "\\", idx + 1 < pat.count { idx += 2; continue }
+            if char == "(" { depth += 1 } else if char == ")" {
+                depth -= 1
+                if depth == 0 { return idx }
+            }
+            idx += 1
         }
         return nil
     }
 
-    /// Split `p[from..<to]` on top-level `|` characters.
-    private static func splitAlternatives(_ p: [Character],
-                                          from: Int, to: Int) -> [[Character]]
-    {
+    /// Split `pat[from..<end]` on top-level `|` characters.
+    private static func splitAlternatives(_ pat: [Character],
+                                          from: Int, to end: Int) -> [[Character]] {
         var alts: [[Character]] = [[]]
         var depth = 0
-        var i = from
-        while i < to {
-            let c = p[i]
-            if c == "\\", i + 1 < to {
-                alts[alts.count - 1].append(c)
-                alts[alts.count - 1].append(p[i + 1])
-                i += 2; continue
+        var idx = from
+        while idx < end {
+            let char = pat[idx]
+            if char == "\\", idx + 1 < end {
+                alts[alts.count - 1].append(char)
+                alts[alts.count - 1].append(pat[idx + 1])
+                idx += 2; continue
             }
-            if c == "(" { depth += 1 }
-            else if c == ")" { depth -= 1 }
-            if c == "|" && depth == 0 {
+            if char == "(" { depth += 1 } else if char == ")" { depth -= 1 }
+            if char == "|" && depth == 0 {
                 alts.append([])
             } else {
-                alts[alts.count - 1].append(c)
+                alts[alts.count - 1].append(char)
             }
-            i += 1
+            idx += 1
         }
         return alts
     }
 
-    private static func sameChar(_ a: Character, _ b: Character,
-                                 _ opts: GlobOptions) -> Bool
-    {
+    private static func sameChar(_ lhs: Character, _ rhs: Character,
+                                 _ opts: GlobOptions) -> Bool {
         if opts.nocase {
-            return a.lowercased() == b.lowercased()
+            return lhs.lowercased() == rhs.lowercased()
         }
-        return a == b
+        return lhs == rhs
     }
 
-    /// Parse a character class starting at `p[pi]` (which is `[`).
-    private static func matchCharClass(_ p: [Character], _ pi: Int,
-                                       _ c: Character,
-                                       _ opts: GlobOptions) -> (Bool, Int)?
-    {
-        var i = pi + 1
-        guard i < p.count else { return nil }
+    /// Parse a character class starting at `pat[patIdx]` (which is `[`).
+    private static func matchCharClass(_ pat: [Character], _ patIdx: Int,
+                                       _ char: Character,
+                                       _ opts: GlobOptions) -> (Bool, Int)? {
+        var idx = patIdx + 1
+        guard idx < pat.count else { return nil }
 
         var negate = false
-        if p[i] == "!" || p[i] == "^" {
+        if pat[idx] == "!" || pat[idx] == "^" {
             negate = true
-            i += 1
+            idx += 1
         }
 
         var matched = false
         var first = true
-        while i < p.count, !(p[i] == "]" && !first) {
+        while idx < pat.count, !(pat[idx] == "]" && !first) {
             first = false
-            let start = p[i]
-            if i + 2 < p.count, p[i + 1] == "-", p[i + 2] != "]" {
-                let end = p[i + 2]
-                if rangeContains(start: start, end: end, c: c, opts: opts) {
+            let start = pat[idx]
+            if idx + 2 < pat.count, pat[idx + 1] == "-", pat[idx + 2] != "]" {
+                let end = pat[idx + 2]
+                if rangeContains(start: start, end: end, char: char, opts: opts) {
                     matched = true
                 }
-                i += 3
+                idx += 3
             } else {
-                if sameChar(c, start, opts) { matched = true }
-                i += 1
+                if sameChar(char, start, opts) { matched = true }
+                idx += 1
             }
         }
-        guard i < p.count, p[i] == "]" else { return nil }
-        return (matched != negate, i + 1)
+        guard idx < pat.count, pat[idx] == "]" else { return nil }
+        return (matched != negate, idx + 1)
     }
 
     private static func rangeContains(start: Character, end: Character,
-                                      c: Character, opts: GlobOptions) -> Bool
-    {
+                                      char: Character, opts: GlobOptions) -> Bool {
         if opts.nocase {
-            let cl = String(c).lowercased()
-            let sl = String(start).lowercased()
-            let el = String(end).lowercased()
-            return cl >= sl && cl <= el
+            let charLower = String(char).lowercased()
+            let startLower = String(start).lowercased()
+            let endLower = String(end).lowercased()
+            return charLower >= startLower && charLower <= endLower
         }
-        return c >= start && c <= end
+        return char >= start && char <= end
     }
 }

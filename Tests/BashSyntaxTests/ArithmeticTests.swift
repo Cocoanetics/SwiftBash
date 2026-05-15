@@ -48,8 +48,7 @@ import Testing
         #expect(parts.count == 3)
         #expect(parts.last?.kindName == "compound")
         if case .compound(let list, _) = parts.last!.kind,
-           case .arithmeticCommand(let expr) = list.first?.kind
-        {
+           case .arithmeticCommand(let expr) = list.first?.kind {
             #expect(expr == "x < 5")
         } else {
             Issue.record("expected arith command as last list part")
@@ -121,8 +120,8 @@ import Testing
         }
         // At least one of the inner items should itself be a compound (the
         // inner subshell) — not an arithmeticCommand.
-        let hasInnerSubshell = list.contains { n in
-            if case .compound(_, _) = n.kind { return true }
+        let hasInnerSubshell = list.contains { node in
+            if case .compound = node.kind { return true }
             return false
         }
         #expect(hasInnerSubshell, "inner subshell should remain a compound")

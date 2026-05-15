@@ -5,19 +5,22 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct JoinCommandTests {
 
-    private func makeShellWithDir() -> (CapturingShell, String) {
+    private func makeShellWithDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "join-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dir,
+                                                 withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
 
-    private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
+    private func cleanup(_ path: String) {
+        try? FileManager.default.removeItem(atPath: path)
+    }
 
     @Test func basicJoin() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "1 alice\n2 bob\n3 carol\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "1 100\n2 200\n3 300\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join a b")
@@ -25,7 +28,7 @@ import Foundation
     }
 
     @Test func customSeparator() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "1,a\n2,b\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "1,X\n2,Y\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join -t , a b")
@@ -33,7 +36,7 @@ import Foundation
     }
 
     @Test func differentJoinFields() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "alice 1\nbob 2\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "1 100\n2 200\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join -1 2 -2 1 a b")
@@ -41,7 +44,7 @@ import Foundation
     }
 
     @Test func unpairedFromOne() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "1 a\n2 b\n3 c\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "1 X\n3 Z\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join -a 1 a b")
@@ -50,7 +53,7 @@ import Foundation
     }
 
     @Test func onlyUnpairedFromTwo() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "1 a\n2 b\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "1 X\n3 Z\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join -v 2 a b")
@@ -58,7 +61,7 @@ import Foundation
     }
 
     @Test func outputFormat() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "1 alice 100\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "1 ny\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join -o '1.2,2.2,1.3' a b")
@@ -66,7 +69,7 @@ import Foundation
     }
 
     @Test func ignoreCase() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "Alice 1\n".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
         try "alice X\n".write(toFile: dir + "/b", atomically: true, encoding: .utf8)
         try await cap.shell.run("join -i a b")

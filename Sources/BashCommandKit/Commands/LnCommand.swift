@@ -53,7 +53,7 @@ public struct LnCommand: ParsableBashCommand {
                 dest = destination
             }
             do {
-                if force, let _ = try? await Shell.bashCurrent.fileSystem.metadata(dest) {
+                if force, (try? await Shell.bashCurrent.fileSystem.metadata(dest)) != nil {
                     try? await Shell.bashCurrent.fileSystem.remove(dest, recursive: false)
                 }
                 if symbolic {

@@ -5,11 +5,11 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct DiffAndGzipTests {
 
-    private func makeShell() -> (CapturingShell, String) {
+    private func makeShell() throws -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()
         let dir = (base as NSString)
             .appendingPathComponent("diffgzip-\(UUID())")
-        try! FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
@@ -22,14 +22,14 @@ import Foundation
     }
 
     private func write(_ contents: String, to path: String, in dir: String) {
-        let p = (dir as NSString).appendingPathComponent(path)
-        try? contents.write(toFile: p, atomically: true, encoding: .utf8)
+        let full = (dir as NSString).appendingPathComponent(path)
+        try? contents.write(toFile: full, atomically: true, encoding: .utf8)
     }
 
     // MARK: diff
 
     @Test func diffIdenticalFilesIsSilentSuccess() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\n", to: "x", in: dir)
         write("a\nb\nc\n", to: "y", in: dir)
         let status = try await cap.shell.run("diff -u x y")
@@ -38,7 +38,7 @@ import Foundation
     }
 
     @Test func diffSimpleChangeShowsHunk() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\n", to: "x", in: dir)
         write("a\nB\nc\n", to: "y", in: dir)
         let status = try await cap.shell.run("diff -u x y")
@@ -56,7 +56,7 @@ import Foundation
     }
 
     @Test func diffPureAdditionAtEnd() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("a\nb\n", to: "x", in: dir)
         write("a\nb\nc\n", to: "y", in: dir)
         try await cap.shell.run("diff -u x y")
@@ -72,7 +72,7 @@ import Foundation
     }
 
     @Test func diffPureDeletion() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\n", to: "x", in: dir)
         write("a\nc\n", to: "y", in: dir)
         try await cap.shell.run("diff -u x y")
@@ -88,16 +88,16 @@ import Foundation
     }
 
     @Test func diffSeparateChangesProduceTwoHunks() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         // Each "X" line changes; the runs are far enough apart that
         // their context windows don't merge (gap > 2 * context).
-        let a = (1...20).map { "line\($0)" }.joined(separator: "\n") + "\n"
+        let textA = (1...20).map { "line\($0)" }.joined(separator: "\n") + "\n"
         var bArr = (1...20).map { "line\($0)" }
         bArr[1] = "LINE2"   // change at line 2
         bArr[18] = "LINE19" // change at line 19
-        let b = bArr.joined(separator: "\n") + "\n"
-        write(a, to: "x", in: dir)
-        write(b, to: "y", in: dir)
+        let textB = bArr.joined(separator: "\n") + "\n"
+        write(textA, to: "x", in: dir)
+        write(textB, to: "y", in: dir)
         try await cap.shell.run("diff -u x y")
         // Expect two `@@ ... @@` headers.
         let hunkCount = cap.stdout.components(separatedBy: "@@ -")
@@ -110,7 +110,7 @@ import Foundation
     }
 
     @Test func diffCustomContextSize() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("a\nb\nc\nd\ne\nf\n", to: "x", in: dir)
         write("a\nb\nc\nD\ne\nf\n", to: "y", in: dir)
         try await cap.shell.run("diff -u 1 x y")
@@ -127,7 +127,7 @@ import Foundation
     }
 
     @Test func diffStdinViaDash() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("hello\nworld\n", to: "fixed", in: dir)
         try await cap.shell.run(
             "printf 'hello\\nWORLD\\n' | diff -u - fixed")
@@ -136,7 +136,7 @@ import Foundation
     }
 
     @Test func diffMissingFileFails() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("diff nope nope2")
         #expect(status == ExitStatus(2))
         #expect(cap.stderr.contains("diff:"))
@@ -155,14 +155,14 @@ import Foundation
     #if !os(Android)
 
     @Test func gzipRoundTripStdin() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run(
             "printf 'hello world' | gzip -c | gunzip -c")
         #expect(cap.stdout == "hello world")
     }
 
     @Test func gzipMagicHeader() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("printf 'x' | gzip -c | xxd")
         // First two bytes are gzip magic 1F 8B; third is method 08
         // (deflate); fourth is flags 00.
@@ -172,21 +172,21 @@ import Foundation
     }
 
     @Test func gzipRepeatingDataIsSmaller() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         // 200 zeroes; deflate compresses runs aggressively. Compressed
         // result must be << 200 bytes once headers are accounted for.
         try await cap.shell.run(
             "printf '%.0sa' $(seq 200) | gzip -c | wc -c")
         // 200 'a's compresses to a few dozen bytes (header + tiny
         // deflate body + trailer). Far below the original 200.
-        let n = Int(cap.stdout.trimmingCharacters(
+        let byteCount = Int(cap.stdout.trimmingCharacters(
             in: .whitespacesAndNewlines)) ?? 0
-        #expect(n > 0)
-        #expect(n < 50)
+        #expect(byteCount > 0)
+        #expect(byteCount < 50)
     }
 
     @Test func gzipReplacesFileByDefault() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("hello\n", to: "in.txt", in: dir)
         try await cap.shell.run("gzip in.txt")
         // Original is gone; in.txt.gz exists; round-trip back works.
@@ -200,7 +200,7 @@ import Foundation
     }
 
     @Test func gunzipReplacesFileByDefault() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         write("hello\n", to: "in.txt", in: dir)
         try await cap.shell.run("gzip in.txt")
         try await cap.shell.run("gunzip in.txt.gz")
@@ -210,7 +210,7 @@ import Foundation
     }
 
     @Test func gunzipOnNonGzipFails() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run(
             "printf 'plain text' | gunzip -c")
         // No assertion on stdout; we just want a useful stderr
@@ -229,7 +229,7 @@ import Foundation
     // MARK: round-trip via Foundation gzip
 
     @Test func gzipOutputDecompressesWithSystemGunzip() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         // Compress with our gzip, then dump bytes via xxd to confirm
         // structural validity. (We don't shell out to a separate
         // gunzip binary; the xxd inspection already showed the magic.)

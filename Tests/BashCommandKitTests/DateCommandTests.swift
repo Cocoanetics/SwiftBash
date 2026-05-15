@@ -88,15 +88,15 @@ import Foundation
         #expect(printed <= after + 1)
     }
 
-    // MARK: --utc
+    // MARK: - -utc
 
     @Test func utcFlagUsesGmtTimezone() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"date -u -f "%Z""#)
         // %Z is preprocessed before strftime sees it, so the answer is
         // identical on every platform.
-        let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(tz == "UTC" || tz == "GMT", "got timezone `\(tz)`")
+        let timezone = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(timezone == "UTC" || timezone == "GMT", "got timezone `\(timezone)`")
     }
 
     @Test func utcAndLocalCanDifferInHours() async throws {
@@ -122,8 +122,8 @@ import Foundation
     @Test func shortUtcFlag() async throws {
         let cap = makeShell()
         try await cap.shell.run(#"date -u -f "%Z""#)
-        let tz = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(tz == "UTC" || tz == "GMT", "got `\(tz)`")
+        let timezone = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(timezone == "UTC" || timezone == "GMT", "got `\(timezone)`")
     }
 
     // MARK: Interaction with the shell

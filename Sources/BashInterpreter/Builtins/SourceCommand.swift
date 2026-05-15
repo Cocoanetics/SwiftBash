@@ -25,6 +25,8 @@ public struct SourceCommand: Command {
             Shell.bashCurrent.stderr("\(name): \(path): No such file or directory\n")
             return .failure
         }
+        // Sourced scripts may contain arbitrary bytes; tolerate non-UTF-8.
+        // swiftlint:disable:next optional_data_string_conversion
         let source = String(decoding: data, as: UTF8.self)
 
         // Save call-frame state — same shape as a function call so

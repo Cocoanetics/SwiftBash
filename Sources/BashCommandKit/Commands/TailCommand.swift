@@ -21,69 +21,69 @@ public struct TailCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var lines: Int = 10
-        var bytes: Int? = nil
+        var bytes: Int?
         // `+N` semantics: skip the first N-1 lines / bytes and print the rest.
         // We track the sign by whether `linesFromStart` is set.
-        var linesFromStart: Int? = nil
-        var bytesFromStart: Int? = nil
+        var linesFromStart: Int?
+        var bytesFromStart: Int?
         var headerMode: HeaderMode = .auto
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { files.append(rawArgv[index]); index += 1 }
                 break
             }
             // Options.
-            if a == "-n" || a == "--lines" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("tail: option requires an argument: \(a)\n")
+            if arg == "-n" || arg == "--lines" {
+                guard index + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("tail: option requires an argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                if let (n, fromStart) = parseCount(rawArgv[i + 1]) {
-                    if fromStart { linesFromStart = n } else { lines = n }
+                if let (count, fromStart) = parseCount(rawArgv[index + 1]) {
+                    if fromStart { linesFromStart = count } else { lines = count }
                 } else {
-                    Shell.bashCurrent.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
+                    Shell.bashCurrent.stderr("tail: invalid number: \(rawArgv[index + 1])\n")
                     return ExitStatus(2)
                 }
-                i += 2; continue
+                index += 2; continue
             }
-            if a == "-c" || a == "--bytes" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("tail: option requires an argument: \(a)\n")
+            if arg == "-c" || arg == "--bytes" {
+                guard index + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("tail: option requires an argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                if let (n, fromStart) = parseCount(rawArgv[i + 1]) {
-                    if fromStart { bytesFromStart = n } else { bytes = n }
+                if let (count, fromStart) = parseCount(rawArgv[index + 1]) {
+                    if fromStart { bytesFromStart = count } else { bytes = count }
                 } else {
-                    Shell.bashCurrent.stderr("tail: invalid number: \(rawArgv[i + 1])\n")
+                    Shell.bashCurrent.stderr("tail: invalid number: \(rawArgv[index + 1])\n")
                     return ExitStatus(2)
                 }
-                i += 2; continue
+                index += 2; continue
             }
-            if a == "-q" || a == "--quiet" || a == "--silent" {
-                headerMode = .never; i += 1; continue
+            if arg == "-q" || arg == "--quiet" || arg == "--silent" {
+                headerMode = .never; index += 1; continue
             }
-            if a == "-v" || a == "--verbose" {
-                headerMode = .always; i += 1; continue
+            if arg == "-v" || arg == "--verbose" {
+                headerMode = .always; index += 1; continue
             }
             // `-NUM` and `+NUM` shorthands.
-            if a.hasPrefix("-"), a.count > 1,
-               let (n, _) = parseCount(String(a.dropFirst())),
-               isNumeric(String(a.dropFirst()))
-            {
-                lines = n; i += 1; continue
+            if arg.hasPrefix("-"), arg.count > 1,
+               let (count, _) = parseCount(String(arg.dropFirst())),
+               isNumeric(String(arg.dropFirst())) {
+                lines = count; index += 1; continue
             }
-            if a.hasPrefix("+"), let n = Int(a.dropFirst()) {
-                linesFromStart = n; i += 1; continue
+            if arg.hasPrefix("+"), let count = Int(arg.dropFirst()) {
+                linesFromStart = count; index += 1; continue
             }
             // Anything else: file argument.
-            files.append(a); i += 1
+            files.append(arg); index += 1
         }
 
         let useHeaders: Bool
@@ -109,8 +109,11 @@ public struct TailCommand: ParsableBashCommand {
             }
             do {
                 let data: Data
-                if path == "-" { data = await readAll(stdin: Shell.bashCurrent.stdin) }
-                else { data = try await Shell.bashCurrent.readDataAtPath(path) }
+                if path == "-" {
+                    data = await readAll(stdin: Shell.bashCurrent.stdin)
+                } else {
+                    data = try await Shell.bashCurrent.readDataAtPath(path)
+                }
                 emitTail(data: data, lines: lines, bytes: bytes,
                          linesFromStart: linesFromStart,
                          bytesFromStart: bytesFromStart)
@@ -131,14 +134,14 @@ public struct TailCommand: ParsableBashCommand {
     private enum HeaderMode { case auto, always, never }
 
     /// Parse `N`, `+N`, or `-N` into `(absolute count, fromStart)`.
-    private func parseCount(_ s: String) -> (Int, Bool)? {
-        if s.hasPrefix("+"), let n = Int(s.dropFirst()) { return (n, true) }
-        if let n = Int(s) { return (abs(n), false) }
+    private func parseCount(_ source: String) -> (Int, Bool)? {
+        if source.hasPrefix("+"), let count = Int(source.dropFirst()) { return (count, true) }
+        if let count = Int(source) { return (abs(count), false) }
         return nil
     }
 
-    private func isNumeric(_ s: String) -> Bool {
-        return !s.isEmpty && s.allSatisfy { $0.isNumber }
+    private func isNumeric(_ source: String) -> Bool {
+        return !source.isEmpty && source.allSatisfy { $0.isNumber }
     }
 
     private func readAll(stdin: InputSource) async -> Data {
@@ -150,26 +153,26 @@ public struct TailCommand: ParsableBashCommand {
     private func emitTail(data: Data,
                           lines: Int, bytes: Int?,
                           linesFromStart: Int?,
-                          bytesFromStart: Int?)
-    {
-        if let bf = bytesFromStart {
+                          bytesFromStart: Int?) {
+        if let bytesFromStart {
             // bash: `+N` means "starting at byte N" (1-indexed).
-            let start = max(0, bf - 1)
+            let start = max(0, bytesFromStart - 1)
             if start < data.count { Shell.bashCurrent.stdout(data.suffix(from: start)) }
             return
         }
-        if let b = bytes {
-            Shell.bashCurrent.stdout(data.suffix(b))
+        if let bytes {
+            Shell.bashCurrent.stdout(data.suffix(bytes))
             return
         }
         if data.isEmpty { return }
+        // swiftlint:disable:next optional_data_string_conversion - tail may receive partial UTF-8
         let text = String(decoding: data, as: UTF8.self)
         var split = text.split(separator: "\n", omittingEmptySubsequences: false)
                         .map(String.init)
         if text.hasSuffix("\n"), !split.isEmpty { split.removeLast() }
 
-        if let lf = linesFromStart {
-            let start = max(0, lf - 1)
+        if let linesFromStart {
+            let start = max(0, linesFromStart - 1)
             if start < split.count {
                 for line in split[start...] { Shell.bashCurrent.stdout(line + "\n") }
             }

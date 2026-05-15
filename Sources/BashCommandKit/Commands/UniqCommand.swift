@@ -31,34 +31,36 @@ public struct UniqCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         var lines: [String] = []
-        if let f = input {
+        if let file = input {
             do {
-                let data = try await Shell.bashCurrent.readDataAtPath(f)
+                let data = try await Shell.bashCurrent.readDataAtPath(file)
+                // Input may be arbitrary bytes; tolerate non-UTF-8.
+                // swiftlint:disable:next optional_data_string_conversion
                 let text = String(decoding: data, as: UTF8.self)
                 lines = SortCommand.splitLines(text)
             } catch {
-                Shell.bashCurrent.stderr("uniq: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("uniq: \(file): \(error)\n")
                 return .failure
             }
         } else {
             for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
         }
 
-        var i = 0
-        while i < lines.count {
+        var index = 0
+        while index < lines.count {
             var run = 1
-            while i + run < lines.count, lines[i + run] == lines[i] {
+            while index + run < lines.count, lines[index + run] == lines[index] {
                 run += 1
             }
             if count {
                 // Match BSD `uniq -c`: 4-char right-aligned count, one
                 // space, then the line.
                 Shell.bashCurrent.stdout(String(format: "%4d %@\n",
-                                    run, lines[i] as NSString))
+                                    run, lines[index] as NSString))
             } else {
-                Shell.bashCurrent.stdout(lines[i] + "\n")
+                Shell.bashCurrent.stdout(lines[index] + "\n")
             }
-            i += run
+            index += run
         }
         return .success
     }

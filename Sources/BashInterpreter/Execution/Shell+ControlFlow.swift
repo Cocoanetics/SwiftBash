@@ -1,3 +1,6 @@
+// swiftlint:disable file_length
+// Bash control-flow execution. Keeping the if/while/for/case/select
+// implementations in one file mirrors the bash grammar layout.
 import Foundation
 import BashSyntax
 
@@ -5,29 +8,34 @@ extension Shell {
 
     // MARK: if
 
-    /// `if cond; then … [elif cond; then …]* [else …]? fi`
-    ///
-    /// Parts layout (per ``Parser``):
-    /// `[ "if", cond, "then", body, ("elif", cond, "then", body)*, ("else", body)?, "fi" ]`
-    ///
-    /// The exit status of the selected branch's body is returned. If no
-    /// branch runs, the exit status is `.success` (matching bash).
+    // `if cond; then … [elif cond; then …]* [else …]? fi`
+    //
+    // Parts layout (per ``Parser``):
+    // `[ "if", cond, "then", body, ("elif", cond, "then", body)*, ("else", body)?, "fi" ]`
+    //
+    // The exit status of the selected branch's body is returned. If no
+    // branch runs, the exit status is `.success` (matching bash).
     func executeIf(parts: [Node]) async throws -> ExitStatus {
-        var i = 0
-        while i < parts.count {
-            guard case .reservedWord(let word) = parts[i].kind else {
-                i += 1; continue
+        var index = 0
+        while index < parts.count {
+            guard case .reservedWord(let word) = parts[index].kind else {
+                index += 1
+                continue
             }
             switch word {
             case "if", "elif":
                 // We expect: reserved, cond, "then", body.
-                guard i + 3 < parts.count else { return .success }
-                let cond = parts[i + 1]
-                let body = parts[i + 3]
+                guard index + 3 < parts.count else { return .success }
+                let cond = parts[index + 1]
+                let body = parts[index + 3]
                 errexitGuard += 1
                 let condStatus: ExitStatus
-                do { condStatus = try await execute(cond) }
-                catch { errexitGuard -= 1; throw error }
+                do {
+                    condStatus = try await execute(cond)
+                } catch {
+                    errexitGuard -= 1
+                    throw error
+                }
                 errexitGuard -= 1
                 lastExitStatus = condStatus
                 if condStatus.isSuccess {
@@ -35,11 +43,11 @@ extension Shell {
                     lastExitStatus = result
                     return result
                 }
-                i += 4 // skip past "then <body>"
+                index += 4 // skip past "then <body>"
 
             case "else":
-                guard i + 1 < parts.count else { return .success }
-                let result = try await execute(parts[i + 1])
+                guard index + 1 < parts.count else { return .success }
+                let result = try await execute(parts[index + 1])
                 lastExitStatus = result
                 return result
 
@@ -47,7 +55,7 @@ extension Shell {
                 return .success
 
             default:
-                i += 1
+                index += 1
             }
         }
         return .success
@@ -55,9 +63,10 @@ extension Shell {
 
     // MARK: while / until
 
-    /// `while cond; do body; done` or `until cond; do body; done`.
-    /// - Parameter invert: When `true`, the loop runs *until* `cond` succeeds
-    ///   (i.e., continues while it fails). Used for `until`.
+    // `while cond; do body; done` or `until cond; do body; done`.
+    // - Parameter invert: When `true`, the loop runs *until* `cond` succeeds
+    //   (i.e., continues while it fails). Used for `until`.
+    // swiftlint:disable:next cyclomatic_complexity
     func executeWhileLike(parts: [Node], invert: Bool) async throws -> ExitStatus {
         // Expected: [ kw, cond, "do", body, "done" ]
         // Find cond (first non-reserved after the keyword) and body
@@ -84,8 +93,12 @@ extension Shell {
             try Task.checkCancellation()
             errexitGuard += 1
             let condStatus: ExitStatus
-            do { condStatus = try await execute(cond) }
-            catch { errexitGuard -= 1; throw error }
+            do {
+                condStatus = try await execute(cond)
+            } catch {
+                errexitGuard -= 1
+                throw error
+            }
             errexitGuard -= 1
             let keepGoing = invert ? !condStatus.isSuccess : condStatus.isSuccess
             if !keepGoing { break }
@@ -127,13 +140,14 @@ extension Shell {
 
     // MARK: for
 
-    /// `for VAR in WORDS; do BODY; done`.
-    ///
-    /// Parts layout (per ``Parser``):
-    /// `[ "for", varWord, "in", word*, (";")?, "do", body, "done" ]`
-    ///
-    /// The `in` clause is required in this skeleton; implicit iteration
-    /// over positional parameters (`for x; do …`) throws `unimplemented`.
+    // `for VAR in WORDS; do BODY; done`.
+    //
+    // Parts layout (per ``Parser``):
+    // `[ "for", varWord, "in", word*, (";")?, "do", body, "done" ]`
+    //
+    // The `in` clause is required in this skeleton; implicit iteration
+    // over positional parameters (`for x; do …`) throws `unimplemented`.
+    // swiftlint:disable:next cyclomatic_complexity
     func executeFor(parts: [Node]) async throws -> ExitStatus {
         guard parts.count >= 2,
               case .word(let varName, _) = parts[1].kind
@@ -145,22 +159,22 @@ extension Shell {
         var hasIn = false
         var items: [Node] = []
         var doIndex = -1
-        var i = 2
-        while i < parts.count {
-            if case .reservedWord(let w) = parts[i].kind {
-                if w == "in" {
+        var index = 2
+        while index < parts.count {
+            if case .reservedWord(let word) = parts[index].kind {
+                if word == "in" {
                     hasIn = true
-                    i += 1
-                    while i < parts.count {
-                        if case .reservedWord = parts[i].kind { break }
-                        items.append(parts[i])
-                        i += 1
+                    index += 1
+                    while index < parts.count {
+                        if case .reservedWord = parts[index].kind { break }
+                        items.append(parts[index])
+                        index += 1
                     }
                     continue
                 }
-                if w == "do" { doIndex = i; break }
+                if word == "do" { doIndex = index; break }
             }
-            i += 1
+            index += 1
         }
 
         guard doIndex >= 0 else {
@@ -195,13 +209,13 @@ extension Shell {
                                     body: body)
     }
 
-    /// Run a C-style `for ((init; cond; update)); do … done`. Empty
-    /// `cond` is "always true" — `for ((;;))` loops forever (subject
-    /// to `break`). Exit status is the body's last status, or
-    /// `.success` if the loop never runs.
+    // Run a C-style `for ((init; cond; update)); do … done`. Empty
+    // `cond` is "always true" — `for ((;;))` loops forever (subject
+    // to `break`). Exit status is the body's last status, or
+    // `.success` if the loop never runs.
+    // swiftlint:disable:next cyclomatic_complexity
     func executeCStyleFor(initExpr: String, condExpr: String,
-                          updateExpr: String, body: Node) async throws -> ExitStatus
-    {
+                          updateExpr: String, body: Node) async throws -> ExitStatus {
         loopDepth += 1
         defer { loopDepth -= 1 }
 
@@ -220,11 +234,15 @@ extension Shell {
             iterations += 1
             if !condExpr.isEmpty {
                 errexitGuard += 1
-                let v: Int64
-                do { v = try await evaluateArithmetic(condExpr) }
-                catch { errexitGuard -= 1; throw error }
+                let value: Int64
+                do {
+                    value = try await evaluateArithmetic(condExpr)
+                } catch {
+                    errexitGuard -= 1
+                    throw error
+                }
                 errexitGuard -= 1
-                if v == 0 { break }
+                if value == 0 { break }
             }
             do {
                 last = try await execute(body)
@@ -249,8 +267,7 @@ extension Shell {
     /// `for VAR; do … done` (positional) form.
     private func runForBody(varName: String,
                             values: [String],
-                            body: Node) async throws -> ExitStatus
-    {
+                            body: Node) async throws -> ExitStatus {
         var last = ExitStatus.success
         var iterations = 0
         loop: for value in values {
@@ -281,21 +298,21 @@ extension Shell {
         return last
     }
 
-
     // MARK: case
 
-    /// `case WORD in PAT) body ;; … esac`.
-    ///
-    /// Parts layout (per ``Parser``):
-    /// `[ "case", subjectWord, "in", armCompound, (";;" | ";&" | ";;&"), … , "esac" ]`
-    ///
-    /// Each arm is a `.compound` whose list contains:
-    ///   `[("(")?, pattern, ")", body?]`
-    ///
-    /// Arm terminators control fall-through:
-    /// - `;;`  → stop after running the body (default, and the vast majority).
-    /// - `;&`  → fall through to the *next* arm's body unconditionally.
-    /// - `;;&` → continue testing subsequent patterns.
+    // `case WORD in PAT) body ;; … esac`.
+    //
+    // Parts layout (per ``Parser``):
+    // `[ "case", subjectWord, "in", armCompound, (";;" | ";&" | ";;&"), … , "esac" ]`
+    //
+    // Each arm is a `.compound` whose list contains:
+    //   `[("(")?, pattern, ")", body?]`
+    //
+    // Arm terminators control fall-through:
+    // - `;;`  → stop after running the body (default, and the vast majority).
+    // - `;&`  → fall through to the *next* arm's body unconditionally.
+    // - `;;&` → continue testing subsequent patterns.
+    // swiftlint:disable:next cyclomatic_complexity
     func executeCase(parts: [Node]) async throws -> ExitStatus {
         // Expected: [ "case", <subject>, "in", arm, term, arm, term, …, "esac" ]
         guard parts.count >= 4 else { return .success }
@@ -303,19 +320,18 @@ extension Shell {
 
         // Collect (arm, terminator) pairs.
         var arms: [(Node, String)] = []
-        var i = 3
-        while i < parts.count {
-            let arm = parts[i]
-            if case .reservedWord(let w) = arm.kind, w == "esac" { break }
+        var index = 3
+        while index < parts.count {
+            let arm = parts[index]
+            if case .reservedWord(let word) = arm.kind, word == "esac" { break }
             var term = ";;"
-            if i + 1 < parts.count,
-               case .reservedWord(let t) = parts[i + 1].kind,
-               t == ";;" || t == ";&" || t == ";;&"
-            {
-                term = t
-                i += 2
+            if index + 1 < parts.count,
+               case .reservedWord(let nextWord) = parts[index + 1].kind,
+               nextWord == ";;" || nextWord == ";&" || nextWord == ";;&" {
+                term = nextWord
+                index += 2
             } else {
-                i += 1
+                index += 1
             }
             arms.append((arm, term))
         }
@@ -365,7 +381,7 @@ extension Shell {
     private func armMatches(_ subject: String, armParts: [Node]) async throws -> Bool {
         let opts = GlobOptions(
             extglob: true,
-            nocase:  shoptOptions["nocasematch"] == true)
+            nocase: shoptOptions["nocasematch"] == true)
         for node in armParts {
             guard case .pattern(let patterns) = node.kind else { continue }
             for sub in patterns {
@@ -443,9 +459,9 @@ extension Shell {
 
     private func isSubshellGroup(_ list: [Node]) -> Bool {
         guard let first = list.first,
-              case .reservedWord(let w) = first.kind
+              case .reservedWord(let word) = first.kind
         else { return false }
-        return w == "("
+        return word == "("
     }
 
     /// Emit a bash-style warning when `break` / `continue` fires outside
@@ -459,19 +475,22 @@ extension Shell {
     // MARK: helpers
 
     private func firstNonReserved(in nodes: [Node], startingAt start: Int) -> Node? {
-        var i = start
-        while i < nodes.count {
-            if case .reservedWord = nodes[i].kind {
-                i += 1; continue
+        var index = start
+        while index < nodes.count {
+            if case .reservedWord = nodes[index].kind {
+                index += 1
+                continue
             }
-            return nodes[i]
+            return nodes[index]
         }
         return nil
     }
 
     private func indexOfReserved(_ word: String, in nodes: [Node]) -> Int? {
-        for (i, n) in nodes.enumerated() {
-            if case .reservedWord(let w) = n.kind, w == word { return i }
+        for (idx, node) in nodes.enumerated() {
+            if case .reservedWord(let reservedWord) = node.kind, reservedWord == word {
+                return idx
+            }
         }
         return nil
     }

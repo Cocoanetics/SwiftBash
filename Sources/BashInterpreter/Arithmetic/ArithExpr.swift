@@ -24,11 +24,16 @@ public indirect enum ArithExpr: Hashable, Sendable {
     /// `cond ? then : else`
     case ternary(ArithExpr, ArithExpr, ArithExpr)
 
-    /// `name op= rhs` (including plain `=`)
+    // `name op= rhs` (including plain `=`)
+    // `op:` label is short but is the published API; renaming breaks
+    // callers across the parser, evaluator, and tests.
+    // swiftlint:disable:next identifier_name
     case assign(name: String, op: AssignOp, rhs: ArithExpr)
 
-    /// `name[index] op= rhs` — assignment to an array slot.
+    // `name[index] op= rhs` — assignment to an array slot. Same
+    // `op:` API constraint as above.
     case assignIndex(name: String, index: ArithExpr,
+                     // swiftlint:disable:next identifier_name
                      op: AssignOp, rhs: ArithExpr)
 
     /// Comma-separated sequence: evaluate each, return the last.
@@ -46,6 +51,7 @@ public indirect enum ArithExpr: Hashable, Sendable {
         case add, sub, mul, div, mod, pow
         case shl, shr
         case bitAnd, bitOr, bitXor
+        // swiftlint:disable:next identifier_name
         case lt, gt, le, ge, eq, neq
         case logicalAnd, logicalOr
     }

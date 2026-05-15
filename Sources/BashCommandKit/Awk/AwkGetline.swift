@@ -15,8 +15,8 @@ enum AwkGetline {
         if let cmd = command {
             return try fromCommand(ctx, variable: variable, command: cmd)
         }
-        if let f = file {
-            return try fromFile(ctx, variable: variable, file: f)
+        if let fileExpr = file {
+            return try fromFile(ctx, variable: variable, file: fileExpr)
         }
         return fromMain(ctx, variable: variable)
     }
@@ -28,8 +28,8 @@ enum AwkGetline {
         let next = ctx.lineIndex + 1
         if next >= ctx.lines.count { return .number(0) }
         let line = ctx.lines[next]
-        if let v = variable {
-            ctx.vars[v] = .string(line)
+        if let varName = variable {
+            ctx.vars[varName] = .string(line)
         } else {
             AwkFields.setLine(ctx, line)
         }
@@ -59,8 +59,8 @@ enum AwkGetline {
         if pos >= lines.count { return .number(0) }
         let line = lines[pos]
         ctx.fileLineIndex[path] = pos
-        if let v = variable {
-            ctx.vars[v] = .string(line)
+        if let varName = variable {
+            ctx.vars[varName] = .string(line)
         } else {
             AwkFields.setLine(ctx, line)
         }

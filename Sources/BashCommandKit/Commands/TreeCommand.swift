@@ -20,93 +20,120 @@ public struct TreeCommand: ParsableBashCommand {
 
     public init() {}
 
+    private struct WalkOptions {
+        let maxDepth: Int?
+        let showHidden: Bool
+        let dirsOnly: Bool
+        let fullPath: Bool
+    }
+
+    private struct WalkCounters {
+        var dirCount: Int
+        var fileCount: Int
+    }
+
+    private struct WalkFrame {
+        let root: String
+        let dir: String
+        let prefix: String
+        let depth: Int
+        let displayPath: String
+    }
+
+    // `tree` argument parsing covers short, long, `=` flag forms; the
+    // table is intrinsically wide.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
-        var maxDepth: Int? = nil
+        var maxDepth: Int?
         var showHidden = false
         var dirsOnly = false
         var fullPath = false
         var roots: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { roots.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { roots.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-L" || a == "--level" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
-                    Shell.bashCurrent.stderr("tree: -L requires a positive integer\n"); return ExitStatus(2)
+            if arg == "-L" || arg == "--level" {
+                guard idx + 1 < rawArgv.count,
+                      let value = Int(rawArgv[idx + 1]), value > 0 else {
+                    Shell.bashCurrent.stderr("tree: -L requires a positive integer\n")
+                    return ExitStatus(2)
                 }
-                maxDepth = n; i += 2; continue
+                maxDepth = value; idx += 2; continue
             }
-            if a.hasPrefix("--level=") {
-                guard let n = Int(a.dropFirst("--level=".count)), n > 0 else {
+            if arg.hasPrefix("--level=") {
+                guard let value = Int(arg.dropFirst("--level=".count)), value > 0 else {
                     Shell.bashCurrent.stderr("tree: invalid --level\n"); return ExitStatus(2)
                 }
-                maxDepth = n; i += 1; continue
+                maxDepth = value; idx += 1; continue
             }
-            if a == "-a" { showHidden = true; i += 1; continue }
-            if a == "-d" { dirsOnly = true; i += 1; continue }
-            if a == "-f" { fullPath = true; i += 1; continue }
-            if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.bashCurrent.stderr("tree: unknown option: \(a)\n"); return ExitStatus(2)
+            if arg == "-a" { showHidden = true; idx += 1; continue }
+            if arg == "-d" { dirsOnly = true; idx += 1; continue }
+            if arg == "-f" { fullPath = true; idx += 1; continue }
+            if arg.hasPrefix("-") && arg != "-" && arg.count > 1 {
+                Shell.bashCurrent.stderr("tree: unknown option: \(arg)\n")
+                return ExitStatus(2)
             }
-            roots.append(a); i += 1
+            roots.append(arg); idx += 1
         }
         if roots.isEmpty { roots = ["."] }
 
-        var dirCount = 0
-        var fileCount = 0
+        var counters = WalkCounters(dirCount: 0, fileCount: 0)
+        let options = WalkOptions(
+            maxDepth: maxDepth, showHidden: showHidden,
+            dirsOnly: dirsOnly, fullPath: fullPath)
         for root in roots {
             Shell.bashCurrent.stdout(root + "\n")
-            await walk(root: root, dir: Shell.bashCurrent.resolvePath(root),
-                       prefix: "", depth: 1, maxDepth: maxDepth,
-                       showHidden: showHidden, dirsOnly: dirsOnly,
-                       fullPath: fullPath, displayPath: root,
-                       dirCount: &dirCount, fileCount: &fileCount)
+            let frame = WalkFrame(
+                root: root, dir: Shell.bashCurrent.resolvePath(root),
+                prefix: "", depth: 1, displayPath: root)
+            await walk(frame: frame, options: options, counters: &counters)
         }
+        let dirNoun = counters.dirCount == 1 ? "y" : "ies"
+        let fileNoun = counters.fileCount == 1 ? "" : "s"
         let summary = dirsOnly
-            ? "\n\(dirCount) director\(dirCount == 1 ? "y" : "ies")\n"
-            : "\n\(dirCount) director\(dirCount == 1 ? "y" : "ies"), \(fileCount) file\(fileCount == 1 ? "" : "s")\n"
+            ? "\n\(counters.dirCount) director\(dirNoun)\n"
+            : "\n\(counters.dirCount) director\(dirNoun), "
+              + "\(counters.fileCount) file\(fileNoun)\n"
         Shell.bashCurrent.stdout(summary)
         return .success
     }
 
-    private func walk(root: String, dir: String, prefix: String, depth: Int,
-                      maxDepth: Int?, showHidden: Bool, dirsOnly: Bool,
-                      fullPath: Bool, displayPath: String,
-                      dirCount: inout Int, fileCount: inout Int) async {
+    private func walk(frame: WalkFrame, options: WalkOptions,
+                      counters: inout WalkCounters) async {
         // Honour cooperative cancel — the walk is non-throwing, so we
         // can't use checkCancellation; bail explicitly.
         if Task.isCancelled { return }
-        if let m = maxDepth, depth > m { return }
-        var entries = (try? await Shell.bashCurrent.fileSystem.list(dir)) ?? []
-        if !showHidden { entries = entries.filter { !$0.name.hasPrefix(".") } }
+        if let max = options.maxDepth, frame.depth > max { return }
+        var entries = (try? await Shell.bashCurrent.fileSystem.list(frame.dir)) ?? []
+        if !options.showHidden { entries = entries.filter { !$0.name.hasPrefix(".") } }
         entries.sort { $0.name < $1.name }
         let visible: [(name: String, meta: FileMetadata?)] = entries.compactMap {
-            if dirsOnly && $0.metadata.kind != .directory { return nil }
+            if options.dirsOnly && $0.metadata.kind != .directory { return nil }
             return (name: $0.name, meta: $0.metadata)
         }
-        for (idx, (name, meta)) in visible.enumerated() {
-            let isLast = idx == visible.count - 1
+        for (slot, (name, meta)) in visible.enumerated() {
+            let isLast = slot == visible.count - 1
             let connector = isLast ? "└── " : "├── "
-            let label = fullPath
-                ? (displayPath as NSString).appendingPathComponent(name)
+            let label = options.fullPath
+                ? (frame.displayPath as NSString).appendingPathComponent(name)
                 : name
-            Shell.bashCurrent.stdout(prefix + connector + label + "\n")
+            Shell.bashCurrent.stdout(frame.prefix + connector + label + "\n")
             if meta?.kind == .directory {
-                dirCount += 1
-                let childPrefix = prefix + (isLast ? "    " : "│   ")
-                let childDir = (dir as NSString).appendingPathComponent(name)
-                let childDisplay = (displayPath as NSString).appendingPathComponent(name)
-                await walk(root: root, dir: childDir, prefix: childPrefix,
-                           depth: depth + 1, maxDepth: maxDepth,
-                           showHidden: showHidden, dirsOnly: dirsOnly,
-                           fullPath: fullPath, displayPath: childDisplay,
-                           dirCount: &dirCount, fileCount: &fileCount)
+                counters.dirCount += 1
+                let childFrame = WalkFrame(
+                    root: frame.root,
+                    dir: (frame.dir as NSString).appendingPathComponent(name),
+                    prefix: frame.prefix + (isLast ? "    " : "│   "),
+                    depth: frame.depth + 1,
+                    displayPath: (frame.displayPath as NSString).appendingPathComponent(name))
+                await walk(frame: childFrame, options: options, counters: &counters)
             } else {
-                fileCount += 1
+                counters.fileCount += 1
             }
         }
     }

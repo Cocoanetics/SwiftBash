@@ -35,22 +35,22 @@ extension JSRuntime {
         // Each *Sync entry funnels through `bridge`, which decorates a
         // failed compress/decompress with the underlying zlib message
         // and a Node-shaped `code`.
-        let bridge: (String, @escaping (Data) throws -> Data) -> JSValue = { [weak self] op, body in
+        let bridge: (String, @escaping (Data) throws -> Data) -> JSValue = { [weak self] opName, body in
             return self!.block { args in
                 guard let self, let input = args.first else { return nil }
                 let bytes = JSRuntime.dataForZlibInput(input)
                 do {
                     let out = try body(bytes)
                     return self.bufferFromBytes([UInt8](out))
-                } catch let e as ZlibError {
+                } catch let zlibErr as ZlibError {
                     return self.throwJSError(
-                        "zlib: \(op) failed: \(e.message ?? "rc=\(e.rc)")",
-                        code: e.code,
-                        extras: ["errno": Int(e.rc)]
+                        "zlib: \(opName) failed: \(zlibErr.message ?? "rc=\(zlibErr.rc)")",
+                        code: zlibErr.code,
+                        extras: ["errno": Int(zlibErr.rc)]
                     )
                 } catch {
                     return self.throwJSError(
-                        "zlib: \(op) failed: \(error)",
+                        "zlib: \(opName) failed: \(error)",
                         code: "Z_ERRNO",
                         extras: [:]
                     )

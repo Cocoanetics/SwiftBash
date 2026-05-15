@@ -22,8 +22,8 @@ public struct Md5sumCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        try await runSum(files: files, displayFor: { $0 ?? "-" }) {
-            ShasumHelpers.hex(of: Insecure.MD5.hash(data: $0))
-        }
+        try await runSum(files: files,
+                         displayFor: { $0 ?? "-" },
+                         hash: { ShasumHelpers.hex(of: Insecure.MD5.hash(data: $0)) })
     }
 }

@@ -11,10 +11,10 @@ import Foundation
     @Test func rootListingMergesOverlayAndBacking() async throws {
         let backing = InMemoryFileSystem()
         try await backing.touch("/README.txt")
-        let fs = OverlayFileSystem(
+        let fileSystem = OverlayFileSystem(
             backing: backing,
             providers: [BinCatalogOverlay()])
-        let shell = Shell(fileSystem: fs)
+        let shell = Shell(fileSystem: fileSystem)
         let entries = try await shell.withCurrent {
             try await shell.fileSystem.list("/").map(\.name)
         }
@@ -57,28 +57,28 @@ import Foundation
     /// mutation against any path under that root.
     @Test func hostDirectoryOverlayExposesContents() async throws {
         let root = NSTemporaryDirectory() + "host-overlay-\(UUID()).d"
-        let fm = FileManager.default
-        try fm.createDirectory(atPath: root, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(atPath: root) }
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(atPath: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(atPath: root) }
         try "echo hi\n".write(toFile: root + "/hello.sh",
                               atomically: true, encoding: .utf8)
-        try fm.createDirectory(atPath: root + "/nested",
+        try fileManager.createDirectory(atPath: root + "/nested",
                                withIntermediateDirectories: true)
         try "inside\n".write(toFile: root + "/nested/inside.txt",
                               atomically: true, encoding: .utf8)
 
         let backing = InMemoryFileSystem()
         try await backing.touch("/README.txt")
-        let fs = OverlayFileSystem(
+        let fileSystem = OverlayFileSystem(
             backing: backing,
             providers: [
                 BinCatalogOverlay(),
                 HostDirectoryOverlay(
                     virtualRoot: "/examples",
-                    hostRoot: URL(fileURLWithPath: root)),
+                    hostRoot: URL(fileURLWithPath: root))
             ])
 
-        let shell = Shell(fileSystem: fs)
+        let shell = Shell(fileSystem: fileSystem)
         try await shell.withCurrent {
             // / listing has both backing + overlay providers' children.
             let rootEntries = try await shell.fileSystem.list("/").map(\.name)
@@ -117,17 +117,17 @@ import Foundation
     /// customising a sample file.
     @Test func copyFromOverlayIntoBackingSucceeds() async throws {
         let root = NSTemporaryDirectory() + "host-overlay-cp-\(UUID()).d"
-        let fm = FileManager.default
-        try fm.createDirectory(atPath: root, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(atPath: root) }
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(atPath: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(atPath: root) }
         try "original".write(toFile: root + "/src.txt",
                              atomically: true, encoding: .utf8)
-        let fs = OverlayFileSystem(
+        let fileSystem = OverlayFileSystem(
             backing: InMemoryFileSystem(),
             providers: [HostDirectoryOverlay(
                 virtualRoot: "/examples",
                 hostRoot: URL(fileURLWithPath: root))])
-        let shell = Shell(fileSystem: fs)
+        let shell = Shell(fileSystem: fileSystem)
         try await shell.withCurrent {
             try await shell.fileSystem.copy(
                 from: "/examples/src.txt", to: "/dst.txt")

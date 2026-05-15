@@ -7,8 +7,8 @@ import Testing
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
         cap.shell.register(name: "args") { argv in
-            for (i, a) in argv.dropFirst().enumerated() {
-                Shell.bashCurrent.stdout("[\(i + 1)]\(a)\n")
+            for (idx, arg) in argv.dropFirst().enumerated() {
+                Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }
             Shell.bashCurrent.stdout("count=\(argv.count - 1)\n")
             return .success

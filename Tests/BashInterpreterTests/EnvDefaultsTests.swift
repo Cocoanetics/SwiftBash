@@ -67,9 +67,9 @@ import Foundation
         // means PWD is filled from cwd).
         // Verify it tracks cwd at construction time.
         let cap2 = CapturingShell(environment: {
-            var e = Environment()
-            e.workingDirectory = "/tmp"
-            return e
+            var env = Environment()
+            env.workingDirectory = "/tmp"
+            return env
         }())
         try await cap2.shell.run("echo $PWD")
         #expect(cap2.stdout == "/tmp\n")

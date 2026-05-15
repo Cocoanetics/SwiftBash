@@ -39,10 +39,10 @@ public struct MktempCommand: ParsableBashCommand {
 
     @Option(name: .customShort("t"),
             help: "Use a template under the temp directory with this prefix.")
-    public var prefix: String? = nil
+    public var prefix: String?
 
     @Argument(help: "Template name; trailing Xs are replaced with random characters.")
-    public var template: String? = nil
+    public var template: String?
 
     public init() {}
 
@@ -83,15 +83,15 @@ public struct MktempCommand: ParsableBashCommand {
 
     private func resolveTemplate() async throws -> String {
         // Decide the template body and which directory it lives in.
-        if let t = template {
-            let resolved = Shell.bashCurrent.resolvePath(t)
+        if let templateText = template {
+            let resolved = Shell.bashCurrent.resolvePath(templateText)
             return Self.replacingX(in: resolved)
         }
-        let p = prefix ?? "tmp"
+        let chosenPrefix = prefix ?? "tmp"
         // makeTempPath gives a unique full path under the FS's temp
         // directory; any trailing "X"-style randomness is provided by
         // the FS implementation itself.
-        return try await Shell.bashCurrent.fileSystem.makeTempPath(prefix: p)
+        return try await Shell.bashCurrent.fileSystem.makeTempPath(prefix: chosenPrefix)
     }
 
     /// Replace the trailing run of `X` characters with a random
@@ -105,13 +105,13 @@ public struct MktempCommand: ParsableBashCommand {
     /// produce in practice and keeps the round-trip test stable.
     static func replacingX(in template: String) -> String {
         var chars = Array(template)
-        var n = 0
-        while n < chars.count, chars[chars.count - 1 - n] == "X" { n += 1 }
-        guard n > 0 else { return template }
+        var count = 0
+        while count < chars.count, chars[chars.count - 1 - count] == "X" { count += 1 }
+        guard count > 0 else { return template }
         let alphabet = Array("0123456789abcdefghijklmnopqrstuvwyz" +
                              "ABCDEFGHIJKLMNOPQRSTUVWYZ")
-        for i in (chars.count - n)..<chars.count {
-            chars[i] = alphabet.randomElement()!
+        for idx in (chars.count - count)..<chars.count {
+            chars[idx] = alphabet.randomElement()!
         }
         return String(chars)
     }

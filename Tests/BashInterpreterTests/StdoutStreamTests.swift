@@ -71,7 +71,7 @@ private final class DataBox: @unchecked Sendable {
         sink.finish()
 
         // onWrite observed the data synchronously:
-        #expect(String(decoding: seen.value, as: UTF8.self) == "hi\n")
+        #expect(String(bytes: seen.value, encoding: .utf8) == "hi\n")
 
         // And the async stream has the same data:
         let drained = await sink.readAllString()

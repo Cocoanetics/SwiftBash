@@ -4,10 +4,10 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct GlobbingTests {
 
-    private func makeShell() -> (CapturingShell, String) {
+    private func makeShell() throws -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()
         let dir = (base as NSString).appendingPathComponent("glob-\(UUID())")
-        try! FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = dir
@@ -27,7 +27,7 @@ import Foundation
     // MARK: Basic star
 
     @Test func starMatchesAllInDir() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a.txt", in: dir)
         makeFile("b.txt", in: dir)
         makeFile("c.md", in: dir)
@@ -36,7 +36,7 @@ import Foundation
     }
 
     @Test func starMatchesAll() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("alpha", in: dir)
         makeFile("beta", in: dir)
         try await cap.shell.run("echo *")
@@ -44,7 +44,7 @@ import Foundation
     }
 
     @Test func starDoesNotMatchDotfilesByDefault() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile(".hidden", in: dir)
         makeFile("visible", in: dir)
         try await cap.shell.run("echo *")
@@ -52,7 +52,7 @@ import Foundation
     }
 
     @Test func leadingDotStarMatchesDotfiles() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile(".bashrc", in: dir)
         makeFile(".profile", in: dir)
         makeFile("visible", in: dir)
@@ -63,7 +63,7 @@ import Foundation
     // MARK: Question-mark
 
     @Test func questionMatchesSingleChar() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a", in: dir)
         makeFile("ab", in: dir)
         makeFile("abc", in: dir)
@@ -74,7 +74,7 @@ import Foundation
     // MARK: Character classes
 
     @Test func charClass() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a1", in: dir)
         makeFile("a2", in: dir)
         makeFile("a9", in: dir)
@@ -86,7 +86,7 @@ import Foundation
     // MARK: No-match
 
     @Test func noMatchReturnsLiteralPattern() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("echo *.nope")
         #expect(cap.stdout == "*.nope\n",
                 "bash default (no nullglob): the pattern passes through")
@@ -95,7 +95,7 @@ import Foundation
     // MARK: Quoting disables globbing
 
     @Test func doubleQuotesDisableGlobbing() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a.txt", in: dir)
         makeFile("b.txt", in: dir)
         try await cap.shell.run(#"echo "*.txt""#)
@@ -103,14 +103,14 @@ import Foundation
     }
 
     @Test func singleQuotesDisableGlobbing() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a.txt", in: dir)
         try await cap.shell.run("echo '*.txt'")
         #expect(cap.stdout == "*.txt\n")
     }
 
     @Test func backslashEscapesStar() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a.txt", in: dir)
         try await cap.shell.run(#"echo \*.txt"#)
         #expect(cap.stdout == "*.txt\n")
@@ -119,7 +119,7 @@ import Foundation
     // MARK: Directory-prefixed patterns
 
     @Test func patternInSubdirectory() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let sub = (dir as NSString).appendingPathComponent("sub")
         try FileManager.default.createDirectory(
             atPath: sub, withIntermediateDirectories: false)
@@ -136,7 +136,7 @@ import Foundation
         // re-glob, so `VAR="*"; echo $VAR` prints a literal `*`. This
         // is the safer default — globs coming from data shouldn't
         // surprise the user.
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a", in: dir)
         makeFile("b", in: dir)
         cap.shell.environment["PAT"] = "*"
@@ -147,7 +147,7 @@ import Foundation
     // MARK: In for-loops
 
     @Test func globInForLoop() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         makeFile("a.txt", in: dir)
         makeFile("b.txt", in: dir)
         // Disabled: the current for-loop word handling treats its items
@@ -165,15 +165,15 @@ import Foundation
     // MARK: With redirection
 
     @Test func globExpandsAcrossCatArgs() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try "one\n".write(
             toFile: "\(dir)/1.txt", atomically: true, encoding: .utf8)
         try "two\n".write(
             toFile: "\(dir)/2.txt", atomically: true, encoding: .utf8)
         cap.shell.register(ClosureCommand(name: "cat") { argv in
-            let fs = Shell.bashCurrent.fileSystem
-            for p in argv.dropFirst() {
-                let data = try await fs.readData(Shell.bashCurrent.resolvePath(p))
+            let fileSystem = Shell.bashCurrent.fileSystem
+            for path in argv.dropFirst() {
+                let data = try await fileSystem.readData(Shell.bashCurrent.resolvePath(path))
                 Shell.bashCurrent.stdout(data)
             }
             return .success

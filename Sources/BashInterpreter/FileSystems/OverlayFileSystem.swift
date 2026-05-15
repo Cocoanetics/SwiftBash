@@ -41,8 +41,9 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     /// "Claim" means `metadata(_:)` returned non-nil — that's the
     /// single source of truth.
     private func provider(for path: String) async -> (any OverlayProvider)? {
-        for p in providers {
-            if let _ = try? await p.metadata(path) { return p }
+        for provider in providers
+        where ((try? await provider.metadata(path)) ?? nil) != nil {
+            return provider
         }
         return nil
     }
@@ -55,12 +56,12 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     /// both misleading and exposable to attempts at filling in the
     /// gap.
     private func isUnderOverlay(_ path: String) async -> Bool {
-        var p = path
-        while !p.isEmpty {
-            if await provider(for: p) != nil { return true }
-            let parent = (p as NSString).deletingLastPathComponent
-            if parent == p { break }     // hit root
-            p = parent
+        var current = path
+        while !current.isEmpty {
+            if await provider(for: current) != nil { return true }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }     // hit root
+            current = parent
         }
         return false
     }
@@ -68,8 +69,8 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     // MARK: Inspection
 
     public func metadata(_ path: String) async throws -> FileMetadata? {
-        for p in providers {
-            if let meta = try await p.metadata(path) { return meta }
+        for provider in providers {
+            if let meta = try await provider.metadata(path) { return meta }
         }
         return try await backing.metadata(path)
     }
@@ -80,14 +81,12 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
         // Providers first: each one contributes its synthetic
         // children. A provider that doesn't claim `path` returns
         // an empty list cleanly.
-        for p in providers {
-            let entries = await p.children(under: path)
+        for provider in providers {
+            let entries = await provider.children(under: path)
             if !entries.isEmpty { seenOwner = true }
-            for entry in entries {
-                // First provider wins on name collisions.
-                if byName[entry.name] == nil {
-                    byName[entry.name] = entry
-                }
+            // First provider wins on name collisions.
+            for entry in entries where byName[entry.name] == nil {
+                byName[entry.name] = entry
             }
         }
         // Backing entries: anything not already provided by an
@@ -116,24 +115,24 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     // MARK: Reading
 
     public func readData(_ path: String) async throws -> Data {
-        for p in providers {
-            if let meta = try await p.metadata(path) {
+        for provider in providers {
+            if let meta = try await provider.metadata(path) {
                 if meta.kind == .directory {
                     throw FileSystemError.isADirectory(path)
                 }
-                return try await p.readData(path)
+                return try await provider.readData(path)
             }
         }
         return try await backing.readData(path)
     }
 
     public func openRead(_ path: String) async throws -> InputSource {
-        for p in providers {
-            if let meta = try await p.metadata(path) {
+        for provider in providers {
+            if let meta = try await provider.metadata(path) {
                 if meta.kind == .directory {
                     throw FileSystemError.isADirectory(path)
                 }
-                return try await p.openRead(path)
+                return try await provider.openRead(path)
             }
         }
         return try await backing.openRead(path)
@@ -142,8 +141,7 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     // MARK: Writes — overlay content is read-only
 
     public func writeData(_ data: Data, to path: String,
-                          append: Bool) async throws
-    {
+                          append: Bool) async throws {
         if await isUnderOverlay(path) {
             throw FileSystemError.permissionDenied(path)
         }
@@ -151,8 +149,7 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func openWrite(_ path: String,
-                          append: Bool) async throws -> OutputSink
-    {
+                          append: Bool) async throws -> OutputSink {
         if await isUnderOverlay(path) {
             throw FileSystemError.permissionDenied(path)
         }
@@ -167,8 +164,7 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func createDirectory(_ path: String,
-                                intermediates: Bool) async throws
-    {
+                                intermediates: Bool) async throws {
         if await provider(for: path) != nil {
             throw FileSystemError.alreadyExists(path)
         }
@@ -185,6 +181,8 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
         try await backing.remove(path, recursive: recursive)
     }
 
+    // `to:` matches the FileSystem protocol's public signature.
+    // swiftlint:disable:next identifier_name
     public func move(from: String, to: String) async throws {
         let fromOwned = await isUnderOverlay(from)
         let toOwned   = await isUnderOverlay(to)
@@ -194,6 +192,8 @@ public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
         try await backing.move(from: from, to: to)
     }
 
+    // `to:` matches the FileSystem protocol's public signature.
+    // swiftlint:disable:next identifier_name
     public func copy(from: String, to: String) async throws {
         if await provider(for: to) != nil {
             throw FileSystemError.permissionDenied(to)

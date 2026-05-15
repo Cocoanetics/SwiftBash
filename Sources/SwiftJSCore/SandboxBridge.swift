@@ -3,8 +3,6 @@
 import Foundation
 import BashInterpreter
 
-
-
 // MARK: - Host hooks (sandbox / network / identity gating)
 //
 // Sibling to SwiftScript's `HostHooks.swift`. Every host-touching JS
@@ -182,8 +180,8 @@ extension JSRuntime {
         nonisolated(unsafe) var result: Result<T, any Error>!
         Task.detached {
             do {
-                let v = try await captured.withCurrent { try await work() }
-                result = .success(v)
+                let value = try await captured.withCurrent { try await work() }
+                result = .success(value)
             } catch {
                 result = .failure(error)
             }
@@ -212,7 +210,7 @@ extension JSRuntime {
         let msg = "EACCES: permission denied (\(reason))\(pathPart)"
         var extras: [String: Any] = [
             "errno": Int(-EACCES),
-            "syscall": syscall,
+            "syscall": syscall
         ]
         if let path { extras["path"] = path }
         return throwJSError(msg, code: "EACCES", extras: extras)

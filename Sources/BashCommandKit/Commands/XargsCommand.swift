@@ -29,74 +29,75 @@ public struct XargsCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
-        var replaceStr: String? = nil
-        var delimiter: String? = nil
-        var maxArgs: Int? = nil
+        var replaceStr: String?
+        var delimiter: String?
+        var maxArgs: Int?
         var nullSep = false
         var verbose = false
         var noRunIfEmpty = false
 
-        var i = 0
+        var idx = 0
         var cmdStart = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "-I" || a == "--replace" {
-                guard i + 1 < rawArgv.count else {
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "-I" || arg == "--replace" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("xargs: -I requires REPLACE\n"); return ExitStatus(2)
                 }
-                replaceStr = rawArgv[i + 1]; i += 2; cmdStart = i; continue
+                replaceStr = rawArgv[idx + 1]; idx += 2; cmdStart = idx; continue
             }
-            if a.hasPrefix("--replace=") {
-                replaceStr = String(a.dropFirst("--replace=".count)); i += 1; cmdStart = i; continue
+            if arg.hasPrefix("--replace=") {
+                replaceStr = String(arg.dropFirst("--replace=".count)); idx += 1; cmdStart = idx; continue
             }
-            if a == "-d" || a == "--delimiter" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-d" || arg == "--delimiter" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("xargs: -d requires DELIM\n"); return ExitStatus(2)
                 }
-                delimiter = unescape(rawArgv[i + 1]); i += 2; cmdStart = i; continue
+                delimiter = unescape(rawArgv[idx + 1]); idx += 2; cmdStart = idx; continue
             }
-            if a == "-n" || a == "--max-args" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
+            if arg == "-n" || arg == "--max-args" {
+                guard idx + 1 < rawArgv.count, let num = Int(rawArgv[idx + 1]) else {
                     Shell.bashCurrent.stderr("xargs: -n requires N\n"); return ExitStatus(2)
                 }
-                maxArgs = n; i += 2; cmdStart = i; continue
+                maxArgs = num; idx += 2; cmdStart = idx; continue
             }
-            if a == "-P" || a == "--max-procs" {
+            if arg == "-P" || arg == "--max-procs" {
                 // Accept but ignore; we run sequentially.
-                guard i + 1 < rawArgv.count else {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("xargs: -P requires N\n"); return ExitStatus(2)
                 }
-                i += 2; cmdStart = i; continue
+                idx += 2; cmdStart = idx; continue
             }
-            if a == "-0" || a == "--null" {
-                nullSep = true; i += 1; cmdStart = i; continue
+            if arg == "-0" || arg == "--null" {
+                nullSep = true; idx += 1; cmdStart = idx; continue
             }
-            if a == "-t" || a == "--verbose" {
-                verbose = true; i += 1; cmdStart = i; continue
+            if arg == "-t" || arg == "--verbose" {
+                verbose = true; idx += 1; cmdStart = idx; continue
             }
-            if a == "-r" || a == "--no-run-if-empty" {
-                noRunIfEmpty = true; i += 1; cmdStart = i; continue
+            if arg == "-r" || arg == "--no-run-if-empty" {
+                noRunIfEmpty = true; idx += 1; cmdStart = idx; continue
             }
-            if a.hasPrefix("--") {
-                Shell.bashCurrent.stderr("xargs: unknown option: \(a)\n")
+            if arg.hasPrefix("--") {
+                Shell.bashCurrent.stderr("xargs: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
                 // Combined boolean short options (-tr, -0r, etc.)
-                for c in a.dropFirst() {
-                    switch c {
+                for char in arg.dropFirst() {
+                    switch char {
                     case "0": nullSep = true
                     case "t": verbose = true
                     case "r": noRunIfEmpty = true
                     default:
-                        Shell.bashCurrent.stderr("xargs: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("xargs: unknown option: -\(char)\n")
                         return ExitStatus(2)
                     }
                 }
-                i += 1; cmdStart = i; continue
+                idx += 1; cmdStart = idx; continue
             }
-            cmdStart = i
+            cmdStart = idx
             break
         }
 
@@ -108,11 +109,11 @@ public struct XargsCommand: ParsableBashCommand {
         let items: [String]
         if nullSep {
             items = raw.split(separator: "\0").map(String.init).filter { !$0.isEmpty }
-        } else if let d = delimiter {
+        } else if let delim = delimiter {
             // Strip a single trailing newline (echo adds one), then split.
             var input = raw
             if input.hasSuffix("\n") { input.removeLast() }
-            items = input.components(separatedBy: d).filter { !$0.isEmpty }
+            items = input.components(separatedBy: delim).filter { !$0.isEmpty }
         } else {
             items = raw.split(omittingEmptySubsequences: true,
                               whereSeparator: { $0.isWhitespace }).map(String.init)
@@ -124,16 +125,16 @@ public struct XargsCommand: ParsableBashCommand {
 
         // Build the list of invocations.
         var invocations: [[String]] = []
-        if let r = replaceStr {
+        if let replace = replaceStr {
             for item in items {
-                invocations.append(commandTemplate.map { $0.replacingOccurrences(of: r, with: item) })
+                invocations.append(commandTemplate.map { $0.replacingOccurrences(of: replace, with: item) })
             }
-        } else if let n = maxArgs, n > 0 {
-            var idx = 0
-            while idx < items.count {
-                let batch = Array(items[idx..<min(idx + n, items.count)])
+        } else if let chunk = maxArgs, chunk > 0 {
+            var batchIdx = 0
+            while batchIdx < items.count {
+                let batch = Array(items[batchIdx..<min(batchIdx + chunk, items.count)])
                 invocations.append(commandTemplate + batch)
-                idx += n
+                batchIdx += chunk
             }
         } else {
             invocations.append(commandTemplate + items)
@@ -156,18 +157,18 @@ public struct XargsCommand: ParsableBashCommand {
         return lastStatus
     }
 
-    private func unescape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\\\", with: "\u{0001}")
-         .replacingOccurrences(of: "\\n", with: "\n")
-         .replacingOccurrences(of: "\\t", with: "\t")
-         .replacingOccurrences(of: "\\r", with: "\r")
-         .replacingOccurrences(of: "\\0", with: "\0")
-         .replacingOccurrences(of: "\u{0001}", with: "\\")
+    private func unescape(_ str: String) -> String {
+        str.replacingOccurrences(of: "\\\\", with: "\u{0001}")
+           .replacingOccurrences(of: "\\n", with: "\n")
+           .replacingOccurrences(of: "\\t", with: "\t")
+           .replacingOccurrences(of: "\\r", with: "\r")
+           .replacingOccurrences(of: "\\0", with: "\0")
+           .replacingOccurrences(of: "\u{0001}", with: "\\")
     }
 
-    private func shellQuote(_ s: String) -> String {
+    private func shellQuote(_ str: String) -> String {
         let safe = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./-_")
-        if !s.isEmpty && s.allSatisfy({ safe.contains($0) }) { return s }
-        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        if !str.isEmpty && str.allSatisfy({ safe.contains($0) }) { return str }
+        return "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

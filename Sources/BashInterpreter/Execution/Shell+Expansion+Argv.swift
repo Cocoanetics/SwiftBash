@@ -45,65 +45,6 @@ extension Shell {
         return out
     }
 
-    /// Brace-expand `args` only when the *source* of `node` contains an
-    /// unquoted brace pattern. This guards against expanding braces that
-    /// arrived inside quoted JSON / regex literals where bash would not
-    /// expand them either.
-    func braceExpandIfWordHasUnquotedBraces(
-        node: Node, args: [String]
-    ) -> [String] {
-        let chars = Array(currentSource)
-        let lo = max(0, node.range.lowerBound)
-        let hi = min(chars.count, node.range.upperBound)
-        guard lo < hi else { return args }
-        guard hasUnquotedBracePattern(chars, lo: lo, hi: hi) else {
-            return args
-        }
-        return args.flatMap { BraceExpansion.expand($0) }
-    }
-
-    private func hasUnquotedBracePattern(_ chars: [Character],
-                                         lo: Int, hi: Int) -> Bool
-    {
-        var i = lo
-        var inSingle = false
-        var inDouble = false
-        var braceStart: Int? = nil
-        var sawDelim = false
-        var depth = 0
-        while i < hi {
-            let c = chars[i]
-            if c == "\\", i + 1 < hi {
-                i += 2; continue
-            }
-            if !inDouble, c == "'" { inSingle.toggle(); i += 1; continue }
-            if !inSingle, c == "\"" { inDouble.toggle(); i += 1; continue }
-            if inSingle || inDouble {
-                i += 1; continue
-            }
-            if c == "{" {
-                if depth == 0 { braceStart = i; sawDelim = false }
-                depth += 1
-            } else if c == "}" {
-                if depth > 0 {
-                    depth -= 1
-                    if depth == 0, braceStart != nil, sawDelim {
-                        return true
-                    }
-                }
-            } else if depth == 1 {
-                // A top-level comma, or `..` between braces, qualifies
-                // the pair as a brace expansion candidate.
-                if c == "," { sawDelim = true }
-                else if c == ".", i + 1 < hi, chars[i + 1] == "." {
-                    sawDelim = true
-                }
-            }
-            i += 1
-        }
-        return false
-    }
-
     /// First half of argv expansion: walk the word and resolve every
     /// substitution. The result is a list of ``WordFragment``s carrying
     /// quote/source provenance so the *caller* can decide when to do
@@ -112,27 +53,19 @@ extension Shell {
     func collectArgFragments(word node: Node) async throws -> [WordFragment] {
         let parts: [Node]
         switch node.kind {
-        case .word(_, let p), .assignment(_, let p):
-            parts = p
+        case .word(_, let nodeParts), .assignment(_, let nodeParts):
+            parts = nodeParts
         default:
             return []
         }
 
         let chars = Array(currentSource)
-        let lo = max(0, node.range.lowerBound)
-        let hi = min(chars.count, node.range.upperBound)
-        guard lo < hi else { return [] }
+        let low = max(0, node.range.lowerBound)
+        let high = min(chars.count, node.range.upperBound)
+        guard low < high else { return [] }
 
         return try await collectFragments(
-            chars: chars, lo: lo, hi: hi, parts: parts)
-    }
-
-    /// Second half of argv expansion: take fragments from
-    /// ``collectArgFragments(word:)`` and apply field splitting using
-    /// the *current* `$IFS`. Renamed from the old internal helper so
-    /// the executor can call it after applying prefix assignments.
-    func assembleArgs(_ fragments: [WordFragment]) -> [String] {
-        return assembleFragmentsToArgs(fragments)
+            chars: chars, low: low, high: high, parts: parts)
     }
 
     // MARK: Fragment collection
@@ -140,131 +73,6 @@ extension Shell {
     /// One piece of a word, tagged with how it came in. The caller's
     /// assembler decides whether to merge it into the current arg or
     /// split it out into separate args.
-    /// Decode bash's `$'…'` ANSI-C quoting body into the bytes it
-    /// represents. Mirrors what `bash` calls "ANSI-C escape
-    /// expansion": the escapes specified in the GNU bash reference,
-    /// including the octal / hex / unicode / control-char forms.
-    /// Unrecognised escape sequences are preserved verbatim (a
-    /// backslash + the following character), matching real bash.
-    static func decodeAnsiCEscapes(_ s: String) -> String {
-        var out = ""
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            guard c == "\\", i + 1 < chars.count else {
-                out.append(c)
-                i += 1
-                continue
-            }
-            let next = chars[i + 1]
-            switch next {
-            case "a":  out.append("\u{07}"); i += 2
-            case "b":  out.append("\u{08}"); i += 2
-            case "e", "E": out.append("\u{1B}"); i += 2
-            case "f":  out.append("\u{0C}"); i += 2
-            case "n":  out.append("\n");     i += 2
-            case "r":  out.append("\r");     i += 2
-            case "t":  out.append("\t");     i += 2
-            case "v":  out.append("\u{0B}"); i += 2
-            case "\\": out.append("\\");     i += 2
-            case "'":  out.append("'");      i += 2
-            case "\"": out.append("\"");     i += 2
-            case "?":  out.append("?");      i += 2
-            case "0"..."7":
-                // Octal escape: up to three digits.
-                var digits = ""
-                var j = i + 1
-                while j < chars.count, digits.count < 3,
-                      ("0"..."7").contains(chars[j])
-                {
-                    digits.append(chars[j]); j += 1
-                }
-                if let v = UInt32(digits, radix: 8),
-                   let u = Unicode.Scalar(v)
-                {
-                    out.unicodeScalars.append(u)
-                }
-                i = j
-            case "x":
-                // `\xHH` — up to two hex digits.
-                var digits = ""
-                var j = i + 2
-                while j < chars.count, digits.count < 2,
-                      chars[j].isHexDigit
-                {
-                    digits.append(chars[j]); j += 1
-                }
-                if !digits.isEmpty,
-                   let v = UInt32(digits, radix: 16),
-                   let u = Unicode.Scalar(v)
-                {
-                    out.unicodeScalars.append(u)
-                    i = j
-                } else {
-                    // Bash preserves `\x` literally when no hex
-                    // digits follow.
-                    out.append("\\"); out.append("x")
-                    i += 2
-                }
-            case "u":
-                // `\uHHHH` — up to four hex digits.
-                var digits = ""
-                var j = i + 2
-                while j < chars.count, digits.count < 4,
-                      chars[j].isHexDigit
-                {
-                    digits.append(chars[j]); j += 1
-                }
-                if !digits.isEmpty,
-                   let v = UInt32(digits, radix: 16),
-                   let u = Unicode.Scalar(v)
-                {
-                    out.unicodeScalars.append(u)
-                    i = j
-                } else {
-                    out.append("\\"); out.append("u")
-                    i += 2
-                }
-            case "U":
-                // `\UHHHHHHHH` — up to eight hex digits.
-                var digits = ""
-                var j = i + 2
-                while j < chars.count, digits.count < 8,
-                      chars[j].isHexDigit
-                {
-                    digits.append(chars[j]); j += 1
-                }
-                if !digits.isEmpty,
-                   let v = UInt32(digits, radix: 16),
-                   let u = Unicode.Scalar(v)
-                {
-                    out.unicodeScalars.append(u)
-                    i = j
-                } else {
-                    out.append("\\"); out.append("U")
-                    i += 2
-                }
-            case "c":
-                // `\cX` — control character (X with bit 6 toggled).
-                if i + 2 < chars.count,
-                   let ascii = chars[i + 2].asciiValue
-                {
-                    out.append(Character(Unicode.Scalar(ascii & 0x1F)))
-                    i += 3
-                } else {
-                    out.append("\\"); out.append("c")
-                    i += 2
-                }
-            default:
-                // Unrecognised — preserve `\X` verbatim.
-                out.append("\\"); out.append(next)
-                i += 2
-            }
-        }
-        return out
-    }
-
     enum WordFragment {
         /// Came from quoted text (single or double), an escaped char,
         /// or unquoted literal source. No further splitting.
@@ -278,12 +86,15 @@ extension Shell {
         case dollarAtUnquoted([String])
     }
 
+    // Top-level expansion driver: routes over substitution nodes plus
+    // quote-state characters; per-case helpers would scatter the
+    // tightly-coupled lookahead and quote-state across multiple
+    // functions.
+    // swiftlint:disable:next function_body_length
     private func collectFragments(chars: [Character],
-                                  lo: Int, hi: Int,
-                                  parts: [Node]) async throws -> [WordFragment]
-    {
-        var fragments: [WordFragment] = []
-        var literalBuf = ""
+                                  low: Int, high: Int,
+                                  parts: [Node]) async throws -> [WordFragment] {
+        var builder = FragmentBuilder()
         var inDoubleQuote = false
         // Snapshot when entering a quote — used to decide whether the
         // pair was empty (so `""` and `''` emit an explicit empty
@@ -291,426 +102,152 @@ extension Shell {
         var quoteEnterFragments = 0
         var quoteEnterBufLen = 0
 
-        func flushLiteral() {
-            if !literalBuf.isEmpty {
-                fragments.append(.literal(literalBuf))
-                literalBuf = ""
-            }
-        }
-
         var queue = parts.sorted { $0.range.lowerBound < $1.range.lowerBound }
-        var i = lo
+        var index = low
 
-        while i < hi {
+        while index < high {
             // Substitution at this position?
-            if let head = queue.first, i == head.range.lowerBound {
-                if case .parameter(let body) = head.kind {
-                    if body == "@" {
-                        flushLiteral()
-                        if inDoubleQuote {
-                            fragments.append(
-                                .dollarAtQuoted(positionalParameters))
-                        } else {
-                            fragments.append(
-                                .dollarAtUnquoted(positionalParameters))
-                        }
-                        i = min(hi, head.range.upperBound)
-                        queue.removeFirst()
-                        continue
-                    }
-                    if body == "*" {
-                        flushLiteral()
-                        // `"$*"` joins on the first IFS char (default
-                        // space). Unquoted `$*` uses the same join then
-                        // gets IFS-split downstream — usually equivalent
-                        // to unquoted `$@` for simple params.
-                        let joined = positionalParameters
-                            .joined(separator: dollarStarSeparator())
-                        if inDoubleQuote {
-                            literalBuf += joined
-                        } else {
-                            fragments.append(.unquotedSub(joined))
-                        }
-                        i = min(hi, head.range.upperBound)
-                        queue.removeFirst()
-                        continue
-                    }
-                    // `${!arr[@]}` and `${!arr[*]}` — list of
-                    // indices (indexed array) or keys (associative
-                    // array) with the same per-arg splitting as
-                    // `${arr[@]}`. Quoted form preserves spaces in
-                    // keys; unquoted IFS-splits.
-                    if body.hasPrefix("!"),
-                       let (arrName, sub) = arraySubscript(
-                            of: String(body.dropFirst())),
-                       sub == "@" || sub == "*"
-                    {
-                        let keys: [String]
-                        if let assoc = environment.associativeArrays[arrName] {
-                            keys = Array(assoc.keys)
-                        } else if let array = environment.arrays[arrName] {
-                            keys = array.sortedIndices.map(String.init)
-                        } else {
-                            keys = []
-                        }
-                        if sub == "@" {
-                            flushLiteral()
-                            if inDoubleQuote {
-                                fragments.append(.dollarAtQuoted(keys))
-                            } else {
-                                fragments.append(.dollarAtUnquoted(keys))
-                            }
-                        } else {
-                            // `*` — single space-joined string.
-                            flushLiteral()
-                            let joined = keys
-                                .joined(separator: dollarStarSeparator())
-                            if inDoubleQuote {
-                                literalBuf += joined
-                            } else {
-                                fragments.append(.unquotedSub(joined))
-                            }
-                        }
-                        i = min(hi, head.range.upperBound)
-                        queue.removeFirst()
-                        continue
-                    }
-                    // `arr[@]` and `arr[*]` — give the same per-arg
-                    // splitting behaviour as `$@` / `$*`. Works for
-                    // both indexed and associative arrays.
-                    if let (arrName, sub) = arraySubscript(of: body) {
-                        let values: [String]
-                        if let assoc = environment.associativeArrays[arrName] {
-                            values = Array(assoc.values)
-                        } else {
-                            values = environment.arrays[arrName]?
-                                .elementsInOrder ?? []
-                        }
-                        if sub == "@" {
-                            flushLiteral()
-                            if inDoubleQuote {
-                                fragments.append(.dollarAtQuoted(values))
-                            } else {
-                                fragments.append(.dollarAtUnquoted(values))
-                            }
-                            i = min(hi, head.range.upperBound)
-                            queue.removeFirst()
-                            continue
-                        }
-                        if sub == "*" {
-                            flushLiteral()
-                            let joined = values
-                                .joined(separator: dollarStarSeparator())
-                            if inDoubleQuote {
-                                literalBuf += joined
-                            } else {
-                                fragments.append(.unquotedSub(joined))
-                            }
-                            i = min(hi, head.range.upperBound)
-                            queue.removeFirst()
-                            continue
-                        }
-                        // `arr[N]` — falls through to generic resolve.
-                    }
+            if let head = queue.first, index == head.range.lowerBound {
+                if case .parameter(let body) = head.kind,
+                   try await handleSpecialParameter(
+                        body: body,
+                        inDoubleQuote: inDoubleQuote,
+                        builder: &builder) {
+                    index = min(high, head.range.upperBound)
+                    queue.removeFirst()
+                    continue
                 }
                 let value = try await resolve(part: head)
                 if inDoubleQuote {
-                    literalBuf += value
+                    builder.literalBuf += value
                 } else {
-                    flushLiteral()
-                    fragments.append(.unquotedSub(value))
+                    builder.flushLiteral()
+                    builder.fragments.append(.unquotedSub(value))
                 }
-                i = min(hi, head.range.upperBound)
+                index = min(high, head.range.upperBound)
                 queue.removeFirst()
                 continue
             }
 
-            let c = chars[i]
-            if c == "'", !inDoubleQuote {
-                // ANSI-C quoting: `$'…'`. The leading literal `$`
-                // we appended on the prior iteration is the marker
-                // that we're inside a `$'`-prefixed quote — strip
-                // it and run the body through bash's C-style
-                // backslash decoder (so `\033`, `\e`, `\n`, `\x1b`,
-                // `é`, etc. expand to the right bytes).
-                // Inside the body, only `\'` and `\\` affect the
-                // closing-quote scan; every other escape is left
-                // for the decoder.
-                let isAnsiC = (i > lo && chars[i - 1] == "$"
-                               && !literalBuf.isEmpty
-                               && literalBuf.last == "$")
-                let beforeFragments = fragments.count
-                let beforeLitLen = literalBuf.count
-                if isAnsiC {
-                    literalBuf.removeLast()        // consume the `$`
-                    i += 1                         // consume the opening `'`
-                    var body = ""
-                    while i < hi, chars[i] != "'" {
-                        if chars[i] == "\\", i + 1 < hi {
-                            // Preserve the escape pair as-is; the
-                            // decoder interprets it (including `\'`,
-                            // which musn't terminate the quote here).
-                            body.append(chars[i])
-                            body.append(chars[i + 1])
-                            i += 2
-                            continue
-                        }
-                        body.append(chars[i])
-                        i += 1
-                    }
-                    literalBuf += Self.decodeAnsiCEscapes(body)
-                } else {
-                    // Plain single-quoted: every char is literal,
-                    // including `$`. An empty `''` still emits an
-                    // empty literal so `cmd ''` becomes `cmd ""`.
-                    // Inside a `"..."` run a `'` is just a literal
-                    // character.
-                    i += 1
-                    while i < hi, chars[i] != "'" {
-                        literalBuf.append(chars[i])
-                        i += 1
-                    }
-                }
-                if i < hi { i += 1 }
-                if fragments.count == beforeFragments,
-                   literalBuf.count == beforeLitLen
-                {
-                    fragments.append(.literal(""))
-                }
+            let char = chars[index]
+            if char == "'", !inDoubleQuote {
+                index = handleSingleQuoteAt(chars: chars, low: low, high: high,
+                                            index: index, builder: &builder)
                 continue
             }
-            if c == "\"" {
+            if char == "\"" {
                 if inDoubleQuote {
                     // Closing — check if the pair was empty.
-                    if fragments.count == quoteEnterFragments,
-                       literalBuf.count == quoteEnterBufLen
-                    {
-                        fragments.append(.literal(""))
+                    if builder.fragments.count == quoteEnterFragments,
+                       builder.literalBuf.count == quoteEnterBufLen {
+                        builder.fragments.append(.literal(""))
                     }
                     inDoubleQuote = false
                 } else {
-                    quoteEnterFragments = fragments.count
-                    quoteEnterBufLen = literalBuf.count
+                    quoteEnterFragments = builder.fragments.count
+                    quoteEnterBufLen = builder.literalBuf.count
                     inDoubleQuote = true
                 }
-                i += 1
+                index += 1
                 continue
             }
-            if c == "\\" {
-                i += 1
-                if i < hi {
-                    let next = chars[i]
-                    // POSIX line continuation: `\<newline>` removes both
-                    // characters. Applies outside single quotes and even
-                    // inside double quotes.
-                    if next == "\n" {
-                        i += 1
-                        continue
-                    }
-                    if inDoubleQuote, !"$`\"\\".contains(next) {
-                        // Inside "..." backslash only escapes the meta
-                        // chars `$ ` " \`; everywhere else `\X` stays
-                        // as two characters (e.g. `\n` inside a dquoted
-                        // word fed to `printf`).
-                        literalBuf.append(c)
-                        literalBuf.append(next)
-                    } else {
-                        literalBuf.append(next)
-                    }
-                    i += 1
-                }
+            if char == "\\" {
+                index = handleBackslashAt(chars: chars, high: high, index: index,
+                                          inDoubleQuote: inDoubleQuote,
+                                          builder: &builder)
                 continue
             }
-            literalBuf.append(c)
-            i += 1
+            builder.literalBuf.append(char)
+            index += 1
         }
-        flushLiteral()
-        return fragments
+        builder.flushLiteral()
+        return builder.fragments
     }
 
-    // MARK: Assembly
-
-    private func assembleFragmentsToArgs(_ fragments: [WordFragment]) -> [String] {
-        var args: [String] = []
-        var current = ""
-        // True once any fragment has contributed to `current` — even if
-        // that contribution was the empty string (from `""` or `''`).
-        // Distinguishes `cmd ""` (1 arg, "") from `cmd $UNSET` (0 args).
-        var currentLive = false
-
-        func startNewArg() {
-            args.append(current)
-            current = ""
-            currentLive = false
-        }
-
-        for frag in fragments {
-            switch frag {
-            case .literal(let s):
-                current += s
-                currentLive = true
-
-            case .unquotedSub(let s):
-                let pieces = ifsSplit(s)
-                if pieces.isEmpty { continue }
-                appendPiecesAsArgs(pieces,
-                                   current: &current,
-                                   currentLive: &currentLive,
-                                   args: &args)
-
-            case .dollarAtQuoted(let values):
-                if values.isEmpty { continue }
-                appendPiecesAsArgs(values,
-                                   current: &current,
-                                   currentLive: &currentLive,
-                                   args: &args)
-
-            case .dollarAtUnquoted(let values):
-                if values.isEmpty { continue }
-                var pieces: [String] = []
-                for value in values {
-                    pieces.append(contentsOf: ifsSplit(value))
+    /// Handle a `'…'` or `$'…'` quoted region starting at `index`
+    /// (the opening single-quote). Mutates the builder in place and
+    /// returns the index just past the closing `'`.
+    private func handleSingleQuoteAt(chars: [Character],
+                                     low: Int, high: Int,
+                                     index startIndex: Int,
+                                     builder: inout FragmentBuilder) -> Int {
+        // ANSI-C quoting: `$'…'`. The leading literal `$`
+        // we appended on the prior iteration is the marker
+        // that we're inside a `$'`-prefixed quote — strip
+        // it and run the body through bash's C-style
+        // backslash decoder (so `\033`, `\e`, `\n`, `\x1b`,
+        // `é`, etc. expand to the right bytes).
+        // Inside the body, only `\'` and `\\` affect the
+        // closing-quote scan; every other escape is left
+        // for the decoder.
+        let isAnsiC = (startIndex > low && chars[startIndex - 1] == "$"
+                       && !builder.literalBuf.isEmpty
+                       && builder.literalBuf.last == "$")
+        let beforeFragments = builder.fragments.count
+        let beforeLitLen = builder.literalBuf.count
+        var index = startIndex
+        if isAnsiC {
+            builder.literalBuf.removeLast()    // consume the `$`
+            index += 1                         // consume the opening `'`
+            var body = ""
+            while index < high, chars[index] != "'" {
+                if chars[index] == "\\", index + 1 < high {
+                    // Preserve the escape pair as-is; the
+                    // decoder interprets it (including `\'`,
+                    // which musn't terminate the quote here).
+                    body.append(chars[index])
+                    body.append(chars[index + 1])
+                    index += 2
+                    continue
                 }
-                if pieces.isEmpty { continue }
-                appendPiecesAsArgs(pieces,
-                                   current: &current,
-                                   currentLive: &currentLive,
-                                   args: &args)
+                body.append(chars[index])
+                index += 1
+            }
+            builder.literalBuf += Self.decodeAnsiCEscapes(body)
+        } else {
+            // Plain single-quoted: every char is literal,
+            // including `$`. An empty `''` still emits an
+            // empty literal so `cmd ''` becomes `cmd ""`.
+            // Inside a `"..."` run a `'` is just a literal
+            // character.
+            index += 1
+            while index < high, chars[index] != "'" {
+                builder.literalBuf.append(chars[index])
+                index += 1
             }
         }
-
-        if currentLive { args.append(current) }
-        return args
+        if index < high { index += 1 }
+        if builder.fragments.count == beforeFragments,
+           builder.literalBuf.count == beforeLitLen {
+            builder.fragments.append(.literal(""))
+        }
+        return index
     }
 
-    private func appendPiecesAsArgs(
-        _ pieces: [String],
-        current: inout String,
-        currentLive: inout Bool,
-        args: inout [String]
-    ) {
-        for (idx, piece) in pieces.enumerated() {
-            if idx == 0 {
-                current += piece
-            } else {
-                args.append(current)
-                current = piece
-            }
-            currentLive = true
+    /// Handle a `\X` escape at `index` (the backslash). Mutates the
+    /// builder in place and returns the index just past the escape.
+    private func handleBackslashAt(chars: [Character],
+                                   high: Int,
+                                   index startIndex: Int,
+                                   inDoubleQuote: Bool,
+                                   builder: inout FragmentBuilder) -> Int {
+        var index = startIndex + 1
+        guard index < high else { return index }
+        let next = chars[index]
+        // POSIX line continuation: `\<newline>` removes both
+        // characters. Applies outside single quotes and even
+        // inside double quotes.
+        if next == "\n" { return index + 1 }
+        if inDoubleQuote, !"$`\"\\".contains(next) {
+            // Inside "..." backslash only escapes the meta
+            // chars `$ ` " \`; everywhere else `\X` stays
+            // as two characters (e.g. `\n` inside a dquoted
+            // word fed to `printf`).
+            builder.literalBuf.append("\\")
+            builder.literalBuf.append(next)
+        } else {
+            builder.literalBuf.append(next)
         }
-    }
-
-    /// Split `s` on the active `$IFS` value, following bash's two-tier
-    /// rule:
-    ///
-    /// - **Whitespace IFS chars** (`space`, `tab`, `newline` — by
-    ///   default *all* of `$IFS`): runs of them collapse to a single
-    ///   delimiter; leading/trailing runs produce no empty fields.
-    /// - **Non-whitespace IFS chars** (e.g. `:` when `IFS=":"`): each
-    ///   one is a *hard* delimiter that *does* produce an empty field
-    ///   if there's nothing to its left, and it absorbs adjacent
-    ///   whitespace IFS chars.
-    ///
-    /// Special cases:
-    /// - `IFS` unset → default `" \t\n"`.
-    /// - `IFS` set to empty string → no splitting (returns `[s]`).
-    /// - Empty input → `[]`.
-    func ifsSplit(_ s: String) -> [String] {
-        guard let ifs = environment["IFS"] else {
-            return defaultWhitespaceSplit(s)
-        }
-        if ifs.isEmpty { return [s] }
-        if s.isEmpty { return [] }
-
-        let defaultWhitespace: Set<Character> = [" ", "\t", "\n"]
-        let ifsChars = Set(ifs)
-        let ifsWhitespace = ifsChars.intersection(defaultWhitespace)
-        let ifsHard = ifsChars.subtracting(defaultWhitespace)
-
-        // Pure-whitespace IFS: just collapse runs and trim edges.
-        if ifsHard.isEmpty {
-            return s.split(whereSeparator: { ifsWhitespace.contains($0) })
-                    .map(String.init)
-        }
-
-        // Each delimiter *run* (a maximal block of IFS chars) ends one
-        // field and contributes some number of empty fields:
-        // - hardCount = 0 (run is pure whitespace) → emit the field
-        //   only if non-empty; no empties.
-        // - hardCount > 0 → emit the field unconditionally, then
-        //   `hardCount - 1` extra empty fields.
-        //
-        // This is what makes "a : b" yield ["a", "b"] (one delimiter
-        // total — surrounding whitespace is absorbed by the colon)
-        // while "a::b" yields ["a", "", "b"] (two delimiters → empty
-        // between them) and "a:" yields just ["a"] (trailing single
-        // hard doesn't add an empty after the last field).
-        var fields: [String] = []
-        var current = ""
-        var i = s.startIndex
-
-        while i < s.endIndex {
-            let c = s[i]
-            if !ifsChars.contains(c) {
-                current.append(c)
-                i = s.index(after: i)
-                continue
-            }
-            // Start of a delimiter run.
-            var hardCount = 0
-            while i < s.endIndex, ifsChars.contains(s[i]) {
-                if ifsHard.contains(s[i]) { hardCount += 1 }
-                i = s.index(after: i)
-            }
-            if hardCount == 0 {
-                if !current.isEmpty {
-                    fields.append(current)
-                    current = ""
-                }
-            } else {
-                fields.append(current)
-                current = ""
-                for _ in 1..<hardCount {
-                    fields.append("")
-                }
-            }
-        }
-        if !current.isEmpty {
-            fields.append(current)
-        }
-        return fields
-    }
-
-    private func defaultWhitespaceSplit(_ s: String) -> [String] {
-        let ws: Set<Character> = [" ", "\t", "\n"]
-        return s.split(whereSeparator: { ws.contains($0) }).map(String.init)
-    }
-
-    /// First char of `$IFS` (unset ⇒ `" "`, empty ⇒ `""`). Used to
-    /// join `$*` / `"$*"`.
-    private func dollarStarSeparator() -> String {
-        guard let ifs = environment["IFS"] else { return " " }
-        if ifs.isEmpty { return "" }
-        return String(ifs.first!)
-    }
-
-    /// Split `arr[sub]` into `("arr", "sub")`. Only matches when the
-    /// part before `[` is a valid identifier — so `${#arr[@]}` (which
-    /// has body `#arr[@]`) doesn't get misclassified here and stays
-    /// on the slow path through ``resolveParameter``.
-    private func arraySubscript(of body: String) -> (String, String)? {
-        guard let lb = body.firstIndex(of: "["), body.last == "]" else {
-            return nil
-        }
-        let head = String(body[..<lb])
-        guard let first = head.first,
-              first.isLetter || first == "_",
-              head.dropFirst().allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" })
-        else { return nil }
-        let after = body.index(after: lb)
-        let last = body.index(before: body.endIndex)
-        guard after <= last else { return nil }
-        let sub = String(body[after..<last])
-        return (head, sub)
+        return index + 1
     }
 }

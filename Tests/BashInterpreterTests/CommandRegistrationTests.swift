@@ -130,8 +130,7 @@ import Testing
     @Test func defaultRegistryContainsBundledCommands() {
         let defaults = Shell.defaultCommands()
         for name in ["echo", "true", "false", ":", "pwd", "cd",
-                     "export", "unset", "exit", "break", "continue"]
-        {
+                     "export", "unset", "exit", "break", "continue"] {
             #expect(defaults[name] != nil,
                 "bundled command `\(name)` missing from default registry")
         }

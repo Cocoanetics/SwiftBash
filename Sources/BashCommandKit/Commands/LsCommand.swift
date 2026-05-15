@@ -71,7 +71,7 @@ public struct LsCommand: ParsableBashCommand {
         let targets = paths.isEmpty ? ["."] : paths
         var hadError = false
 
-        for (i, path) in targets.enumerated() {
+        for (index, path) in targets.enumerated() {
             let resolved = Shell.bashCurrent.resolvePath(path)
             let meta: FileMetadata?
             do {
@@ -88,7 +88,7 @@ public struct LsCommand: ParsableBashCommand {
             }
 
             if directoryOnly || meta.kind != .directory {
-                if i > 0 { Shell.bashCurrent.stdout("\n") }
+                if index > 0 { Shell.bashCurrent.stdout("\n") }
                 let entry = Entry(name: path, meta: meta)
                 if long {
                     Shell.bashCurrent.stdout(formatLong(entry) + "\n")
@@ -101,7 +101,7 @@ public struct LsCommand: ParsableBashCommand {
             do {
                 try await listDirectory(path: path, fullPath: resolved,
                                         showHeader: targets.count > 1 || recursive,
-                                        leadingNewline: i > 0)
+                                        leadingNewline: index > 0)
             } catch {
                 Shell.bashCurrent.stderr("ls: \(path): \(error)\n")
                 hadError = true
@@ -112,6 +112,10 @@ public struct LsCommand: ParsableBashCommand {
 
     // MARK: - Directory listing
 
+    // ls listing assembles entry filtering, dotfile handling, long/short
+    // format selection, and recursion in one place; rule budget needs
+    // a surgical disable.
+    // swiftlint:disable:next cyclomatic_complexity
     private func listDirectory(path: String, fullPath: String,
                                showHeader: Bool, leadingNewline: Bool) async throws {
         let rawEntries = try await Shell.bashCurrent.fileSystem.list(fullPath)
@@ -148,20 +152,20 @@ public struct LsCommand: ParsableBashCommand {
             // have block counts, but POSIX accepts a 0-or-count value.
             let total = entries.reduce(0) { $0 + Int(($1.meta?.size ?? 0) / 1024) }
             Shell.bashCurrent.stdout("total \(total)\n")
-            for e in entries {
-                Shell.bashCurrent.stdout(formatLong(e) + "\n")
+            for entry in entries {
+                Shell.bashCurrent.stdout(formatLong(entry) + "\n")
             }
         } else {
-            for e in entries {
-                Shell.bashCurrent.stdout(formatEntry(name: e.name, meta: e.meta) + "\n")
+            for entry in entries {
+                Shell.bashCurrent.stdout(formatEntry(name: entry.name, meta: entry.meta) + "\n")
             }
         }
 
         if recursive {
             // Recurse into real subdirectories (not "." / "..").
-            var subdirs: [Entry] = entries.filter { e in
-                guard e.name != "." && e.name != ".." else { return false }
-                return e.meta?.kind == .directory
+            var subdirs: [Entry] = entries.filter { entry in
+                guard entry.name != "." && entry.name != ".." else { return false }
+                return entry.meta?.kind == .directory
             }
             sort(&subdirs)
             if reverse { subdirs.reverse() }
@@ -179,9 +183,9 @@ public struct LsCommand: ParsableBashCommand {
             entries.sort { ($0.meta?.size ?? 0) > ($1.meta?.size ?? 0) }
         } else if sortByTime {
             entries.sort {
-                let a = $0.meta?.modifiedAt ?? Date(timeIntervalSince1970: 0)
-                let b = $1.meta?.modifiedAt ?? Date(timeIntervalSince1970: 0)
-                return a > b
+                let leftTime = $0.meta?.modifiedAt ?? Date(timeIntervalSince1970: 0)
+                let rightTime = $1.meta?.modifiedAt ?? Date(timeIntervalSince1970: 0)
+                return leftTime > rightTime
             }
         } else {
             entries.sort { $0.name < $1.name }
@@ -199,16 +203,16 @@ public struct LsCommand: ParsableBashCommand {
         }
     }
 
-    private func formatLong(_ e: Entry) -> String {
+    private func formatLong(_ entry: Entry) -> String {
         let host = Shell.bashCurrent.hostInfo
-        let kind = e.meta?.kind ?? .file
+        let kind = entry.meta?.kind ?? .file
         // Real permission bits from FileMetadata.mode, formatted as
         // bash-style `rwxrw-r--`. Falls back to defaults only when
         // metadata is unavailable.
-        let modeBits = e.meta?.mode ?? (kind == .directory ? 0o755 : 0o644)
+        let modeBits = entry.meta?.mode ?? (kind == .directory ? 0o755 : 0o644)
         let mode = formatMode(kind: kind, bits: modeBits)
 
-        let nlinks = e.meta?.linkCount ?? 1
+        let nlinks = entry.meta?.linkCount ?? 1
 
         // Owner / group from synthetic-by-default `HostInfo`. Looking
         // up names per uid/gid would require a passwd-database
@@ -218,11 +222,11 @@ public struct LsCommand: ParsableBashCommand {
         let owner = host.userName
         let group = host.groupName
 
-        let size = e.meta?.size ?? 0
+        let size = entry.meta?.size ?? 0
         let sizeStr = humanReadable
             ? humanSize(size).leftPad(width: 5)
             : String(size).leftPad(width: 5)
-        let mtime = e.meta?.modifiedAt ?? Date(timeIntervalSince1970: 0)
+        let mtime = entry.meta?.modifiedAt ?? Date(timeIntervalSince1970: 0)
         let suffix: String
         if classify {
             switch kind {
@@ -234,9 +238,9 @@ public struct LsCommand: ParsableBashCommand {
             suffix = ""
         }
         var line = "\(mode) \(nlinks) \(owner) \(group)"
-            + " \(sizeStr) \(formatDate(mtime)) \(e.name)\(suffix)"
-        if kind == .symlink, let t = e.meta?.symlinkTarget {
-            line += " -> \(t)"
+            + " \(sizeStr) \(formatDate(mtime)) \(entry.name)\(suffix)"
+        if kind == .symlink, let target = entry.meta?.symlinkTarget {
+            line += " -> \(target)"
         }
         return line
     }
@@ -254,49 +258,55 @@ public struct LsCommand: ParsableBashCommand {
         case .other:     kindCh = "?"
         }
         // Owner/group/other rwx triples.
-        let owner = rwxTriple(
-            r: bits & 0o400, w: bits & 0o200, x: bits & 0o100,
-            extra: bits & 0o4000, extraOnChar: "s", extraOffChar: "S")
-        let group = rwxTriple(
-            r: bits & 0o040, w: bits & 0o020, x: bits & 0o010,
-            extra: bits & 0o2000, extraOnChar: "s", extraOffChar: "S")
-        let other = rwxTriple(
-            r: bits & 0o004, w: bits & 0o002, x: bits & 0o001,
-            extra: bits & 0o1000, extraOnChar: "t", extraOffChar: "T")
+        let owner = rwxTriple(RwxTripleSpec(
+            readBit: bits & 0o400, writeBit: bits & 0o200, execBit: bits & 0o100,
+            extraBit: bits & 0o4000, extraOnChar: "s", extraOffChar: "S"))
+        let group = rwxTriple(RwxTripleSpec(
+            readBit: bits & 0o040, writeBit: bits & 0o020, execBit: bits & 0o010,
+            extraBit: bits & 0o2000, extraOnChar: "s", extraOffChar: "S"))
+        let other = rwxTriple(RwxTripleSpec(
+            readBit: bits & 0o004, writeBit: bits & 0o002, execBit: bits & 0o001,
+            extraBit: bits & 0o1000, extraOnChar: "t", extraOffChar: "T"))
         return String(kindCh) + owner + group + other
     }
 
-    private func rwxTriple(r: UInt16, w: UInt16, x: UInt16,
-                           extra: UInt16,
-                           extraOnChar: Character,
-                           extraOffChar: Character) -> String {
+    private struct RwxTripleSpec {
+        let readBit: UInt16
+        let writeBit: UInt16
+        let execBit: UInt16
+        let extraBit: UInt16
+        let extraOnChar: Character
+        let extraOffChar: Character
+    }
+
+    private func rwxTriple(_ spec: RwxTripleSpec) -> String {
         var out = ""
-        out.append(r != 0 ? "r" : "-")
-        out.append(w != 0 ? "w" : "-")
-        if extra != 0 {
+        out.append(spec.readBit != 0 ? "r" : "-")
+        out.append(spec.writeBit != 0 ? "w" : "-")
+        if spec.extraBit != 0 {
             // setuid/setgid/sticky takes the x position; case toggles
             // on whether the underlying execute bit is set.
-            out.append(x != 0 ? extraOnChar : extraOffChar)
+            out.append(spec.execBit != 0 ? spec.extraOnChar : spec.extraOffChar)
         } else {
-            out.append(x != 0 ? "x" : "-")
+            out.append(spec.execBit != 0 ? "x" : "-")
         }
         return out
     }
 
     private func humanSize(_ bytes: Int64) -> String {
-        let k = 1024.0
-        let n = Double(bytes)
-        if n < k { return String(bytes) }
-        if n < k * k {
-            let v = n / k
-            return v < 10 ? String(format: "%.1fK", v) : "\(Int(v.rounded()))K"
+        let kib = 1024.0
+        let total = Double(bytes)
+        if total < kib { return String(bytes) }
+        if total < kib * kib {
+            let scaled = total / kib
+            return scaled < 10 ? String(format: "%.1fK", scaled) : "\(Int(scaled.rounded()))K"
         }
-        if n < k * k * k {
-            let v = n / (k * k)
-            return v < 10 ? String(format: "%.1fM", v) : "\(Int(v.rounded()))M"
+        if total < kib * kib * kib {
+            let scaled = total / (kib * kib)
+            return scaled < 10 ? String(format: "%.1fM", scaled) : "\(Int(scaled.rounded()))M"
         }
-        let v = n / (k * k * k)
-        return v < 10 ? String(format: "%.1fG", v) : "\(Int(v.rounded()))G"
+        let scaled = total / (kib * kib * kib)
+        return scaled < 10 ? String(format: "%.1fG", scaled) : "\(Int(scaled.rounded()))G"
     }
 
     private func formatDate(_ date: Date) -> String {
@@ -304,13 +314,13 @@ public struct LsCommand: ParsableBashCommand {
         let now = Date()
         let sixMonthsAgo = now.addingTimeInterval(-180 * 24 * 60 * 60)
         let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-        let months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         let mon = months[(comps.month ?? 1) - 1]
         let day = String(comps.day ?? 1).leftPad(width: 2)
         if date > sixMonthsAgo {
-            let h = String(format: "%02d", comps.hour ?? 0)
-            let m = String(format: "%02d", comps.minute ?? 0)
-            return "\(mon) \(day) \(h):\(m)"
+            let hour = String(format: "%02d", comps.hour ?? 0)
+            let minute = String(format: "%02d", comps.minute ?? 0)
+            return "\(mon) \(day) \(hour):\(minute)"
         }
         return "\(mon) \(day)  \(comps.year ?? 1970)"
     }

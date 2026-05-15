@@ -144,8 +144,8 @@ import Testing
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["hello world", "second"]
         cap.shell.register(name: "showargs") { argv in
-            for (i, arg) in argv.dropFirst().enumerated() {
-                Shell.bashCurrent.stdout("[\(i + 1)]\(arg)\n")
+            for (idx, arg) in argv.dropFirst().enumerated() {
+                Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }
             return .success
         }

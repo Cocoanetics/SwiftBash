@@ -13,7 +13,7 @@ public struct JqThrown: Error, CustomStringConvertible {
     public init(_ value: JqValue) { self.value = value }
     public var description: String {
         switch value {
-        case .string(let s): return s
+        case .string(let str): return str
         default: return JqFormatter.compact(value)
         }
     }
@@ -29,7 +29,11 @@ enum JqTokenKind: Equatable, Hashable {
     case dot, dotdot, pipe, comma, colon, semicolon
     case lparen, rparen, lbracket, rbracket, lbrace, rbrace
     case question, plus, minus, star, slash, percent
+    // Two-letter comparison op spellings mirror jq's source-level tokens.
+    // swiftlint:disable:next identifier_name
     case eq, ne, lt, le, gt, ge
+    // `or`, `not_` mirror jq operator names.
+    // swiftlint:disable:next identifier_name
     case and, or, not_
     case alt        // //
     case assign     // =
@@ -39,10 +43,18 @@ enum JqTokenKind: Equatable, Hashable {
     case variable(String)  // $name (including '$')
     case number(Double)
     case string(String)    // unprocessed for interpolation - raw inner content
+    // `if_`, `else_` mirror Swift-reserved keywords used as jq tokens.
+    // swiftlint:disable:next identifier_name
     case if_, then, elif, else_, end
+    // `as_`, `try_`, `catch_` mirror Swift-reserved keywords used as jq tokens.
+    // swiftlint:disable:next identifier_name
     case as_, try_, catch_
+    // `true_`, `false_` mirror Swift-reserved literals used as jq tokens.
+    // swiftlint:disable:next identifier_name
     case true_, false_, null
     case reduce, foreach
+    // `break_` mirrors a Swift-reserved keyword used as a jq token.
+    // swiftlint:disable:next identifier_name
     case label, break_
     case def
     case eof
@@ -59,8 +71,8 @@ struct JqLexer {
     private var pos = 0
     private var startOfToken = 0
 
-    init(_ s: String) {
-        self.source = Array(s)
+    init(_ source: String) {
+        self.source = Array(source)
     }
 
     mutating func tokenize() throws -> [JqToken] {
@@ -79,54 +91,55 @@ struct JqLexer {
         "true": .true_, "false": .false_, "null": .null,
         "reduce": .reduce, "foreach": .foreach,
         "label": .label, "break": .break_,
-        "def": .def,
+        "def": .def
     ]
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private mutating func nextToken() throws -> JqToken? {
         while pos < source.count {
             startOfToken = pos
-            let c = source[pos]
+            let char = source[pos]
             // whitespace
-            if c == " " || c == "\t" || c == "\n" || c == "\r" {
+            if char == " " || char == "\t" || char == "\n" || char == "\r" {
                 pos += 1
                 continue
             }
             // comments
-            if c == "#" {
+            if char == "#" {
                 while pos < source.count && source[pos] != "\n" { pos += 1 }
                 continue
             }
             // multi-char operators
-            if c == "." && peek(1) == "." {
+            if char == "." && peek(1) == "." {
                 pos += 2
                 return JqToken(kind: .dotdot, pos: startOfToken)
             }
-            if c == "=" && peek(1) == "=" {
+            if char == "=" && peek(1) == "=" {
                 pos += 2; return JqToken(kind: .eq, pos: startOfToken)
             }
-            if c == "!" && peek(1) == "=" {
+            if char == "!" && peek(1) == "=" {
                 pos += 2; return JqToken(kind: .ne, pos: startOfToken)
             }
-            if c == "<" && peek(1) == "=" {
+            if char == "<" && peek(1) == "=" {
                 pos += 2; return JqToken(kind: .le, pos: startOfToken)
             }
-            if c == ">" && peek(1) == "=" {
+            if char == ">" && peek(1) == "=" {
                 pos += 2; return JqToken(kind: .ge, pos: startOfToken)
             }
-            if c == "/" && peek(1) == "/" {
+            if char == "/" && peek(1) == "/" {
                 pos += 2
                 if peek(0) == "=" { pos += 1; return JqToken(kind: .updateAlt, pos: startOfToken) }
                 return JqToken(kind: .alt, pos: startOfToken)
             }
-            if c == "+" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateAdd, pos: startOfToken) }
-            if c == "-" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateSub, pos: startOfToken) }
-            if c == "*" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateMul, pos: startOfToken) }
-            if c == "/" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateDiv, pos: startOfToken) }
-            if c == "%" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateMod, pos: startOfToken) }
-            if c == "|" && peek(1) == "=" { pos += 2; return JqToken(kind: .updatePipe, pos: startOfToken) }
-            if c == "=" { pos += 1; return JqToken(kind: .assign, pos: startOfToken) }
+            if char == "+" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateAdd, pos: startOfToken) }
+            if char == "-" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateSub, pos: startOfToken) }
+            if char == "*" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateMul, pos: startOfToken) }
+            if char == "/" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateDiv, pos: startOfToken) }
+            if char == "%" && peek(1) == "=" { pos += 2; return JqToken(kind: .updateMod, pos: startOfToken) }
+            if char == "|" && peek(1) == "=" { pos += 2; return JqToken(kind: .updatePipe, pos: startOfToken) }
+            if char == "=" { pos += 1; return JqToken(kind: .assign, pos: startOfToken) }
 
-            switch c {
+            switch char {
             case ".": pos += 1; return JqToken(kind: .dot, pos: startOfToken)
             case "|": pos += 1; return JqToken(kind: .pipe, pos: startOfToken)
             case ",": pos += 1; return JqToken(kind: .comma, pos: startOfToken)
@@ -150,70 +163,71 @@ struct JqLexer {
             }
 
             // numbers
-            if c.isASCII && (c.isNumber || (c == "." && pos + 1 < source.count && source[pos + 1].isNumber)) {
+            if char.isASCII && (char.isNumber || (char == "." && pos + 1 < source.count && source[pos + 1].isNumber)) {
                 return try readNumber()
             }
 
             // strings
-            if c == "\"" {
+            if char == "\"" {
                 return try readString()
             }
 
             // identifiers, $vars, @formats
-            if isIdentStart(c) || c == "$" || c == "@" {
+            if isIdentStart(char) || char == "$" || char == "@" {
                 return readIdentifier()
             }
 
-            throw JqError("jq: parse error: Unexpected character '\(c)' at position \(pos)")
+            throw JqError("jq: parse error: Unexpected character '\(char)' at position \(pos)")
         }
         return nil
     }
 
     private func peek(_ offset: Int) -> Character? {
-        let i = pos + offset
-        return i < source.count ? source[i] : nil
+        let idx = pos + offset
+        return idx < source.count ? source[idx] : nil
     }
 
     private mutating func readNumber() throws -> JqToken {
-        var s = ""
+        var buf = ""
         while pos < source.count {
-            let c = source[pos]
-            if c.isNumber || c == "." {
-                s.append(c); pos += 1
-            } else if c == "e" || c == "E" {
-                s.append(c); pos += 1
+            let char = source[pos]
+            if char.isNumber || char == "." {
+                buf.append(char); pos += 1
+            } else if char == "e" || char == "E" {
+                buf.append(char); pos += 1
                 if pos < source.count && (source[pos] == "+" || source[pos] == "-") {
-                    s.append(source[pos]); pos += 1
+                    buf.append(source[pos]); pos += 1
                 }
             } else {
                 break
             }
         }
-        guard let n = Double(s) else {
-            throw JqError("jq: parse error: invalid number '\(s)'")
+        guard let num = Double(buf) else {
+            throw JqError("jq: parse error: invalid number '\(buf)'")
         }
-        return JqToken(kind: .number(n), pos: startOfToken)
+        return JqToken(kind: .number(num), pos: startOfToken)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private mutating func readString() throws -> JqToken {
         pos += 1  // consume opening quote
-        var s = ""
+        var buf = ""
         while pos < source.count && source[pos] != "\"" {
-            let c = source[pos]
-            if c == "\\" {
+            let char = source[pos]
+            if char == "\\" {
                 pos += 1
                 if pos >= source.count { break }
-                let e = source[pos]
-                switch e {
-                case "n": s.append("\n")
-                case "r": s.append("\r")
-                case "t": s.append("\t")
-                case "b": s.append("\u{08}")
-                case "f": s.append("\u{0C}")
-                case "/": s.append("/")
-                case "\\": s.append("\\")
-                case "\"": s.append("\"")
-                case "(": s.append("\\("); // preserve for interpolation
+                let esc = source[pos]
+                switch esc {
+                case "n": buf.append("\n")
+                case "r": buf.append("\r")
+                case "t": buf.append("\t")
+                case "b": buf.append("\u{08}")
+                case "f": buf.append("\u{0C}")
+                case "/": buf.append("/")
+                case "\\": buf.append("\\")
+                case "\"": buf.append("\"")
+                case "(": buf.append("\\(") // preserve for interpolation
                 case "u":
                     pos += 1
                     var hex = ""
@@ -223,44 +237,44 @@ struct JqLexer {
                     }
                     pos -= 1
                     if let scalar = UInt32(hex, radix: 16),
-                       let u = Unicode.Scalar(scalar) {
-                        s.append(Character(u))
+                       let unicodeScalar = Unicode.Scalar(scalar) {
+                        buf.append(Character(unicodeScalar))
                     }
-                default: s.append(e)
+                default: buf.append(esc)
                 }
                 pos += 1
             } else {
-                s.append(c); pos += 1
+                buf.append(char); pos += 1
             }
         }
         if pos < source.count { pos += 1 }  // closing quote
-        return JqToken(kind: .string(s), pos: startOfToken)
+        return JqToken(kind: .string(buf), pos: startOfToken)
     }
 
     private mutating func readIdentifier() -> JqToken {
-        var s = ""
+        var buf = ""
         // first char might be $ or @ or alpha
-        s.append(source[pos]); pos += 1
+        buf.append(source[pos]); pos += 1
         while pos < source.count, isIdentContinue(source[pos]) {
-            s.append(source[pos]); pos += 1
+            buf.append(source[pos]); pos += 1
         }
-        if s.hasPrefix("$") {
-            return JqToken(kind: .variable(s), pos: startOfToken)
+        if buf.hasPrefix("$") {
+            return JqToken(kind: .variable(buf), pos: startOfToken)
         }
-        if s.hasPrefix("@") {
-            return JqToken(kind: .format(s), pos: startOfToken)
+        if buf.hasPrefix("@") {
+            return JqToken(kind: .format(buf), pos: startOfToken)
         }
-        if let kw = JqLexer.keywords[s] {
-            return JqToken(kind: kw, pos: startOfToken)
+        if let keyword = JqLexer.keywords[buf] {
+            return JqToken(kind: keyword, pos: startOfToken)
         }
-        return JqToken(kind: .ident(s), pos: startOfToken)
+        return JqToken(kind: .ident(buf), pos: startOfToken)
     }
 
-    private func isIdentStart(_ c: Character) -> Bool {
-        c.isASCII && (c.isLetter || c == "_")
+    private func isIdentStart(_ char: Character) -> Bool {
+        char.isASCII && (char.isLetter || char == "_")
     }
 
-    private func isIdentContinue(_ c: Character) -> Bool {
-        c.isASCII && (c.isLetter || c.isNumber || c == "_")
+    private func isIdentContinue(_ char: Character) -> Bool {
+        char.isASCII && (char.isLetter || char.isNumber || char == "_")
     }
 }

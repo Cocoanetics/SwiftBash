@@ -16,51 +16,55 @@ public struct DeclareCommand: Command {
     public init(name: String = "declare") { self.name = name }
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
-        var i = 1
+        var index = 1
         var associative = false
 
         // Option pass — accept multiple flags, e.g. `declare -Ar map`.
-        while i < argv.count, argv[i].hasPrefix("-"), argv[i] != "-" {
-            for c in argv[i].dropFirst() {
-                switch c {
+        while index < argv.count, argv[index].hasPrefix("-"), argv[index] != "-" {
+            for char in argv[index].dropFirst() {
+                switch char {
                 case "A": associative = true
                 case "r", "x", "i", "a", "g": break
                 default:
-                    Shell.bashCurrent.stderr("declare: -\(c): invalid option\n")
+                    Shell.bashCurrent.stderr("declare: -\(char): invalid option\n")
                     return ExitStatus(2)
                 }
             }
-            i += 1
+            index += 1
         }
 
         // Each remaining arg is `NAME` or `NAME=VALUE`.
-        for raw in argv[i...] {
-            let nameOnly: String
-            let value: String?
-            if let eq = raw.firstIndex(of: "=") {
-                nameOnly = String(raw[..<eq])
-                value = String(raw[raw.index(after: eq)...])
-            } else {
-                nameOnly = raw
-                value = nil
-            }
-
-            if associative {
-                if Shell.bashCurrent.environment.associativeArrays[nameOnly] == nil {
-                    Shell.bashCurrent.environment.associativeArrays[nameOnly] = [:]
-                }
-                Shell.bashCurrent.environment.arrays.removeValue(forKey: nameOnly)
-                Shell.bashCurrent.environment.variables.removeValue(forKey: nameOnly)
-                if let value {
-                    // `declare -A m=value` is unusual in real scripts
-                    // (typically followed by `m[k]=v` lines instead);
-                    // we treat the bare value as the empty-key entry.
-                    Shell.bashCurrent.environment.associativeArrays[nameOnly]?[""] = value
-                }
-            } else if let value {
-                Shell.bashCurrent.environment[nameOnly] = value
-            }
+        for raw in argv[index...] {
+            applyAssignment(raw, associative: associative)
         }
         return .success
+    }
+
+    private func applyAssignment(_ raw: String, associative: Bool) {
+        let nameOnly: String
+        let value: String?
+        if let eqIdx = raw.firstIndex(of: "=") {
+            nameOnly = String(raw[..<eqIdx])
+            value = String(raw[raw.index(after: eqIdx)...])
+        } else {
+            nameOnly = raw
+            value = nil
+        }
+
+        if associative {
+            if Shell.bashCurrent.environment.associativeArrays[nameOnly] == nil {
+                Shell.bashCurrent.environment.associativeArrays[nameOnly] = [:]
+            }
+            Shell.bashCurrent.environment.arrays.removeValue(forKey: nameOnly)
+            Shell.bashCurrent.environment.variables.removeValue(forKey: nameOnly)
+            if let value {
+                // `declare -A m=value` is unusual in real scripts
+                // (typically followed by `m[k]=v` lines instead);
+                // we treat the bare value as the empty-key entry.
+                Shell.bashCurrent.environment.associativeArrays[nameOnly]?[""] = value
+            }
+        } else if let value {
+            Shell.bashCurrent.environment[nameOnly] = value
+        }
     }
 }

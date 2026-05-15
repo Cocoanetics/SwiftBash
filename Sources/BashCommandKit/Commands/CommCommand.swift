@@ -49,35 +49,50 @@ public struct CommCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("comm: \(err.message)\n")
             return .failure
         }
-        let a = lines[0]
-        let b = lines[1]
+        let leftLines = lines[0]
+        let rightLines = lines[1]
 
         let col2Indent = suppress1 ? "" : "\t"
         let col3Indent =
             (suppress1 ? "" : "\t") + (suppress2 ? "" : "\t")
 
-        var i = 0, j = 0
-        while i < a.count, j < b.count {
-            if a[i] == b[j] {
-                if !suppress3 { Shell.bashCurrent.stdout(col3Indent + a[i] + "\n") }
-                i += 1; j += 1
-            } else if a[i] < b[j] {
-                if !suppress1 { Shell.bashCurrent.stdout(a[i] + "\n") }
-                i += 1
+        emitMerged(
+            left: leftLines, right: rightLines,
+            col2Indent: col2Indent, col3Indent: col3Indent)
+        return .success
+    }
+
+    private func emitMerged(left: [String], right: [String],
+                            col2Indent: String, col3Indent: String) {
+        var leftIdx = 0
+        var rightIdx = 0
+        while leftIdx < left.count, rightIdx < right.count {
+            if left[leftIdx] == right[rightIdx] {
+                if !suppress3 {
+                    Shell.bashCurrent.stdout(col3Indent + left[leftIdx] + "\n")
+                }
+                leftIdx += 1
+                rightIdx += 1
+            } else if left[leftIdx] < right[rightIdx] {
+                if !suppress1 { Shell.bashCurrent.stdout(left[leftIdx] + "\n") }
+                leftIdx += 1
             } else {
-                if !suppress2 { Shell.bashCurrent.stdout(col2Indent + b[j] + "\n") }
-                j += 1
+                if !suppress2 {
+                    Shell.bashCurrent.stdout(col2Indent + right[rightIdx] + "\n")
+                }
+                rightIdx += 1
             }
         }
-        while i < a.count {
-            if !suppress1 { Shell.bashCurrent.stdout(a[i] + "\n") }
-            i += 1
+        while leftIdx < left.count {
+            if !suppress1 { Shell.bashCurrent.stdout(left[leftIdx] + "\n") }
+            leftIdx += 1
         }
-        while j < b.count {
-            if !suppress2 { Shell.bashCurrent.stdout(col2Indent + b[j] + "\n") }
-            j += 1
+        while rightIdx < right.count {
+            if !suppress2 {
+                Shell.bashCurrent.stdout(col2Indent + right[rightIdx] + "\n")
+            }
+            rightIdx += 1
         }
-        return .success
     }
 
     private struct CommError: Error { let message: String }
@@ -85,8 +100,8 @@ public struct CommCommand: ParsableBashCommand {
     private static func readBoth(files: [String]) async throws -> [[String]] {
         var stdinUsed = false
         var out: [[String]] = []
-        for f in files {
-            if f == "-" {
+        for file in files {
+            if file == "-" {
                 guard !stdinUsed else {
                     throw CommError(
                         message: "stdin can only be used once")
@@ -97,11 +112,14 @@ public struct CommCommand: ParsableBashCommand {
                 out.append(lines)
             } else {
                 do {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(file)
+                    // Files may contain non-UTF-8 bytes; coerce lossily so
+                    // sort-style comparisons still produce something usable.
+                    // swiftlint:disable:next optional_data_string_conversion
                     let text = String(decoding: data, as: UTF8.self)
                     out.append(SortCommand.splitLines(text))
                 } catch {
-                    throw CommError(message: "\(f): \(error)")
+                    throw CommError(message: "\(file): \(error)")
                 }
             }
         }

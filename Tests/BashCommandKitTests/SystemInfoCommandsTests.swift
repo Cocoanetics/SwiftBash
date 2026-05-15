@@ -21,8 +21,8 @@ import Foundation
     @Test func unameMachine() async throws {
         let cap = makeShell()
         try await cap.shell.run("uname -m")
-        let m = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(m == "arm64" || m == "x86_64" || m == "i386")
+        let machine = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(machine == "arm64" || machine == "x86_64" || machine == "i386")
     }
 
     @Test func unameAll() async throws {
@@ -42,16 +42,16 @@ import Foundation
     @Test func idUserOnly() async throws {
         let cap = makeShell()
         try await cap.shell.run("id -u")
-        let s = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(Int(s) != nil)
+        let userId = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(Int(userId) != nil)
     }
 
     @Test func idUserName() async throws {
         let cap = makeShell()
         try await cap.shell.run("id -un")
-        let s = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userName = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         // Synthetic by default — never the real host's user name.
-        #expect(s == "user")
+        #expect(userName == "user")
     }
 
     @Test func dfDefault() async throws {

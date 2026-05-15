@@ -5,19 +5,22 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct FindAdvancedTests {
 
-    private func makeShell() -> (CapturingShell, String) {
+    private func makeShell() throws -> (CapturingShell, String) {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         let dir = NSTemporaryDirectory() + "find-adv-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true)
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
 
-    private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
+    private func cleanup(_ path: String) {
+        try? FileManager.default.removeItem(atPath: path)
+    }
 
     @Test func sizePredicateBytes() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try Data(repeating: 0x41, count: 100).write(to: URL(fileURLWithPath: dir + "/small"))
         try Data(repeating: 0x42, count: 5000).write(to: URL(fileURLWithPath: dir + "/big"))
         try await cap.shell.run("find . -size +1000c -type f")
@@ -27,27 +30,27 @@ import Foundation
     }
 
     @Test func sizePredicateKib() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try Data(repeating: 0x41, count: 4096).write(to: URL(fileURLWithPath: dir + "/four"))
         try await cap.shell.run("find . -size 4k -type f")
         #expect(cap.stdout.contains("four"))
     }
 
     @Test func mtimeRecent() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch fresh; find . -mtime -1 -type f")
         // Just-created file should be < 1 day old.
         #expect(cap.stdout.contains("fresh"))
     }
 
     @Test func mmin() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch new; find . -mmin -5 -type f")
         #expect(cap.stdout.contains("new"))
     }
 
     @Test func permExact() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o644], ofItemAtPath: dir + "/f")
@@ -57,7 +60,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func permAllOf() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: dir + "/f")
@@ -68,7 +71,7 @@ import Foundation
     #endif
 
     @Test func permAnyOf() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         _ = FileManager.default.createFile(atPath: dir + "/f", contents: Data())
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600], ofItemAtPath: dir + "/f")
@@ -80,14 +83,14 @@ import Foundation
     }
 
     @Test func regexPredicate() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch foo123 bar; find . -regex '.*foo[0-9]+'")
         #expect(cap.stdout.contains("foo123"))
         #expect(!cap.stdout.contains("bar"))
     }
 
     @Test func iregexPredicate() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch FooBar; find . -iregex '.*foobar'")
         #expect(cap.stdout.contains("FooBar"))
     }

@@ -92,7 +92,7 @@ import Testing
         #expect(cap.stdout == "a b c:d\n")
     }
 
-    // MARK: -r raw mode
+    // MARK: - r raw mode
 
     @Test func rawModePreservesBackslash() async throws {
         let cap = makeShell()
@@ -150,7 +150,7 @@ import Testing
         #expect(cap.stdout == "a=first b=second\n")
     }
 
-    // MARK: -p prompt
+    // MARK: - p prompt
 
     @Test func promptWritesToStderr() async throws {
         let cap = makeShell()

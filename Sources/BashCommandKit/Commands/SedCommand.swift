@@ -59,17 +59,22 @@ public struct SedCommand: ParsableBashCommand {
 
     public init() {}
 
+    // `sed` execution combines script loading, file iteration, in-place
+    // writeback, and stream pipelining. Splitting would scatter shared state.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         // Gather scripts and files.
         var scripts = expressions
         var files = positionals
-        for sf in scriptFiles {
+        for scriptFile in scriptFiles {
             do {
-                let data = try await Shell.bashCurrent.readDataAtPath(sf)
+                let data = try await Shell.bashCurrent.readDataAtPath(scriptFile)
+                // sed scripts may legitimately be partial UTF-8 in binary contexts.
+                // swiftlint:disable:next optional_data_string_conversion
                 let text = String(decoding: data, as: UTF8.self)
                 scripts.append(text)
             } catch {
-                Shell.bashCurrent.stderr("sed: couldn't open file \(sf): \(error)\n")
+                Shell.bashCurrent.stderr("sed: couldn't open file \(scriptFile): \(error)\n")
                 return ExitStatus(2)
             }
         }
@@ -83,7 +88,7 @@ public struct SedCommand: ParsableBashCommand {
         }
         let extendedFlag = extendedRegexp || rOption
 
-        let parsed: (commands: [SedCommandNode], silentMode: Bool, extendedMode: Bool)
+        let parsed: SedParser.ParseResult
         do {
             parsed = try SedParser.parse(scripts: scripts, extendedRegex: extendedFlag)
         } catch let err as SedScriptError {
@@ -97,23 +102,25 @@ public struct SedCommand: ParsableBashCommand {
                 Shell.bashCurrent.stderr("sed: -i requires file arguments\n")
                 return ExitStatus(2)
             }
-            for f in files {
+            for path in files {
                 try Task.checkCancellation()
-                if f == "-" { continue }
+                if path == "-" { continue }
                 do {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(path)
+                    // sed input may legitimately be partial UTF-8.
+                    // swiftlint:disable:next optional_data_string_conversion
                     let text = String(decoding: data, as: UTF8.self)
                     let result = await runScript(parsed.commands, on: text,
-                                                 filename: f,
+                                                 filename: path,
                                                  silent: effectiveSilent)
                     if let err = result.errorMessage {
                         Shell.bashCurrent.stderr(err + "\n")
                         return ExitStatus(result.exitCode ?? 1)
                     }
                     try await Shell.bashCurrent.writeData(Data(result.output.utf8),
-                                              toPath: f, append: false)
+                                              toPath: path, append: false)
                 } catch {
-                    Shell.bashCurrent.stderr("sed: \(f): \(error)\n")
+                    Shell.bashCurrent.stderr("sed: \(path): \(error)\n")
                     return .failure
                 }
             }
@@ -127,17 +134,23 @@ public struct SedCommand: ParsableBashCommand {
             content = await Shell.bashCurrent.stdin.readAllString()
         } else {
             var stdinConsumed = false
-            for f in files {
+            for path in files {
                 let chunk: String
-                if f == "-" {
-                    if stdinConsumed { chunk = "" }
-                    else { chunk = await Shell.bashCurrent.stdin.readAllString(); stdinConsumed = true }
+                if path == "-" {
+                    if stdinConsumed {
+                        chunk = ""
+                    } else {
+                        chunk = await Shell.bashCurrent.stdin.readAllString()
+                        stdinConsumed = true
+                    }
                 } else {
                     do {
-                        let data = try await Shell.bashCurrent.readDataAtPath(f)
+                        let data = try await Shell.bashCurrent.readDataAtPath(path)
+                        // sed input may legitimately be partial UTF-8.
+                        // swiftlint:disable:next optional_data_string_conversion
                         chunk = String(decoding: data, as: UTF8.self)
                     } catch {
-                        Shell.bashCurrent.stderr("sed: \(f): No such file or directory\n")
+                        Shell.bashCurrent.stderr("sed: \(path): No such file or directory\n")
                         return ExitStatus(2)
                     }
                 }
@@ -172,6 +185,8 @@ public struct SedCommand: ParsableBashCommand {
         for path in collectReadTargets(cmds) {
             do {
                 let data = try await Shell.bashCurrent.readDataAtPath(path)
+                // sed `r` reads may legitimately be partial UTF-8.
+                // swiftlint:disable:next optional_data_string_conversion
                 fileCache[path] = String(decoding: data, as: UTF8.self)
             } catch {
                 // Missing files yield empty input — matches sed semantics.
@@ -191,10 +206,10 @@ public struct SedCommand: ParsableBashCommand {
 
     private func collectReadTargets(_ cmds: [SedCommandNode]) -> Set<String> {
         var out = Set<String>()
-        for c in cmds {
-            switch c {
-            case .readFile(_, let f), .readFileLine(_, let f):
-                out.insert(f)
+        for cmd in cmds {
+            switch cmd {
+            case .readFile(_, let path), .readFileLine(_, let path):
+                out.insert(path)
             case .group(_, let inner):
                 out.formUnion(collectReadTargets(inner))
             default: break

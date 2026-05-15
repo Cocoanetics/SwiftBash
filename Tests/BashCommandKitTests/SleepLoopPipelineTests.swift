@@ -69,8 +69,8 @@ import Foundation
 
         let counter = CallCounter()
         cap.shell.register(name: "status") { _ in
-            let n = counter.increment()
-            Shell.bashCurrent.stdout(n >= 3 ? "completed\n" : "running\n")
+            let calls = counter.increment()
+            Shell.bashCurrent.stdout(calls >= 3 ? "completed\n" : "running\n")
             return .success
         }
 
@@ -121,17 +121,17 @@ import Foundation
 
 private final class CallCounter: @unchecked Sendable {
     private let lock = NSLock()
-    private var n = 0
+    private var count = 0
 
     func increment() -> Int {
         lock.lock(); defer { lock.unlock() }
-        n += 1
-        return n
+        count += 1
+        return count
     }
 
     var value: Int {
         lock.lock(); defer { lock.unlock() }
-        return n
+        return count
     }
 }
 

@@ -8,20 +8,20 @@ public struct ShiftCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
-        let n: Int
+        let count: Int
         if let raw = args.first {
             guard let parsed = Int(raw), parsed >= 0 else {
                 Shell.bashCurrent.stderr("shift: \(raw): numeric argument required\n")
                 return .failure
             }
-            n = parsed
+            count = parsed
         } else {
-            n = 1
+            count = 1
         }
-        if n > Shell.bashCurrent.positionalParameters.count {
+        if count > Shell.bashCurrent.positionalParameters.count {
             return .failure
         }
-        Shell.bashCurrent.positionalParameters.removeFirst(n)
+        Shell.bashCurrent.positionalParameters.removeFirst(count)
         return .success
     }
 }

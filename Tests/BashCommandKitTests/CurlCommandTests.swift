@@ -11,16 +11,15 @@ import Foundation
         var requests: [NetworkRequest] = []
         private let lock = NSLock()
 
-        private func record(_ r: NetworkRequest) -> NetworkResponse? {
+        private func record(_ request: NetworkRequest) -> NetworkResponse? {
             lock.lock(); defer { lock.unlock() }
-            requests.append(r)
-            return responses[r.url.absoluteString]
+            requests.append(request)
+            return responses[request.url.absoluteString]
         }
 
         func performOnce(_ request: NetworkRequest) async throws
-            -> NetworkResponse
-        {
-            if let r = record(request) { return r }
+            -> NetworkResponse {
+            if let recorded = record(request) { return recorded }
             return NetworkResponse(
                 status: 200, statusText: "OK",
                 headers: ["Content-Type": "text/plain"],
@@ -38,7 +37,7 @@ import Foundation
         fileSystem: FileSystem? = nil
     ) throws -> CapturingShell {
         let cap = CapturingShell()
-        if let fs = fileSystem { cap.shell.fileSystem = fs }
+        if let fileSystem { cap.shell.fileSystem = fileSystem }
         cap.shell.registerStandardCommands()
         cap.shell.networkConfig = config
 
@@ -92,6 +91,8 @@ import Foundation
         #expect(mock.requests.first?.method == "POST")
         #expect(mock.requests.first?.headers["Content-Type"]
                 == "application/x-www-form-urlencoded")
+        // Test body bytes are deterministic UTF-8; decode-only suffices.
+        // swiftlint:disable:next optional_data_string_conversion
         let body = String(decoding: mock.requests.first?.body ?? Data(),
                           as: UTF8.self)
         #expect(body.contains("name") && body.contains("alice"))
@@ -124,7 +125,7 @@ import Foundation
         #expect(cap.stderr.contains("not allowed"))
     }
 
-    // MARK: -o file
+    // MARK: - o file
 
     @Test func dashOWritesBodyToFile() async throws {
         let mock = MockNet()
@@ -142,12 +143,14 @@ import Foundation
         try await cap.shell.run(
             "curl -o /out.bin https://api.example.com/data")
         let data = try await cap.shell.fileSystem.readData("/out.bin")
+        // Test payload is deterministic UTF-8; decode-only suffices.
+        // swiftlint:disable:next optional_data_string_conversion
         #expect(String(decoding: data, as: UTF8.self) == "payload")
         #expect(cap.stdout.isEmpty,
                 "body should NOT also go to stdout when -o is used")
     }
 
-    // MARK: -i (include headers)
+    // MARK: - i (include headers)
 
     @Test func includeHeadersPrependsResponseLine() async throws {
         let mock = MockNet()
@@ -168,7 +171,7 @@ import Foundation
         #expect(cap.stdout.hasSuffix("hello"))
     }
 
-    // MARK: -f
+    // MARK: - f
 
     @Test func failOnHTTPErrorExits22() async throws {
         let mock = MockNet()
@@ -187,7 +190,7 @@ import Foundation
         #expect(!cap.stdout.contains("nope"))
     }
 
-    // MARK: -u
+    // MARK: - u
 
     @Test func basicAuthHeaderInjected() async throws {
         let mock = MockNet()
@@ -204,7 +207,7 @@ import Foundation
                 == "Basic YWxpY2U6c2VjcmV0")
     }
 
-    // MARK: -A
+    // MARK: - A
 
     @Test func userAgentOverride() async throws {
         let mock = MockNet()
@@ -219,7 +222,7 @@ import Foundation
         #expect(mock.requests.first?.headers["User-Agent"] == "MyAgent/1.0")
     }
 
-    // MARK: -G
+    // MARK: - G
 
     @Test func getModeMovesDataToQueryString() async throws {
         let mock = MockNet()

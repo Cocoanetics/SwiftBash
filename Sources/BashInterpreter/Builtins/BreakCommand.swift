@@ -23,10 +23,10 @@ public struct BreakCommand: Command {
 /// Parse the optional `N` argument for break/continue.
 func parseLevels(_ argv: [String], builtin: String) throws -> Int {
     guard let raw = argv.dropFirst().first else { return 1 }
-    guard let n = Int(raw), n >= 1 else {
+    guard let count = Int(raw), count >= 1 else {
         throw BashInterpreterError.invalidArguments(
             builtin: builtin,
             message: "loop count out of range: \(raw)")
     }
-    return n
+    return count
 }

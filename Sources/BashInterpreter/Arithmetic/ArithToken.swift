@@ -12,7 +12,8 @@ public enum ArithToken: Hashable, Sendable {
     // Increment / decrement
     case plusPlus, minusMinus
 
-    // Comparison
+    // Comparison — two-letter spellings mirror operator source forms.
+    // swiftlint:disable:next identifier_name
     case lt, gt, le, ge, eq, neq
 
     // Logical
@@ -43,8 +44,8 @@ public enum ArithToken: Hashable, Sendable {
     /// A human-readable rendering used in error messages.
     public var description: String {
         switch self {
-        case .int(let n): return "\(n)"
-        case .ident(let s): return s
+        case .int(let num): return "\(num)"
+        case .ident(let name): return name
         case .plus: return "+"
         case .minus: return "-"
         case .star: return "*"

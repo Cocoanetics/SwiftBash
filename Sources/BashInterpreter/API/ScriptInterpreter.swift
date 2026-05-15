@@ -71,8 +71,7 @@ public struct ScriptInterpreterContext: Sendable {
     public init(scriptPath: String,
                 source: String,
                 shebang: String?,
-                argv: [String])
-    {
+                argv: [String]) {
         self.scriptPath = scriptPath
         self.source = source
         self.shebang = shebang
@@ -87,8 +86,7 @@ public struct ClosureScriptInterpreter: ScriptInterpreter {
     private let body: @Sendable (ScriptInterpreterContext) async throws -> ExitStatus
 
     public init(name: String,
-                body: @Sendable @escaping (ScriptInterpreterContext) async throws -> ExitStatus)
-    {
+                body: @Sendable @escaping (ScriptInterpreterContext) async throws -> ExitStatus) {
         self.name = name
         self.body = body
     }

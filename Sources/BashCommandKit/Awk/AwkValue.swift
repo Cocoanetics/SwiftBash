@@ -16,10 +16,10 @@ public enum AwkValue: Sendable {
     /// are truthy because they're not the canonical form.
     public var isTruthy: Bool {
         switch self {
-        case .number(let n): return n != 0
-        case .string(let s):
-            if s.isEmpty { return false }
-            if s == "0" { return false }
+        case .number(let num): return num != 0
+        case .string(let str):
+            if str.isEmpty { return false }
+            if str == "0" { return false }
             return true
         }
     }
@@ -28,9 +28,9 @@ public enum AwkValue: Sendable {
     /// yields `0`, matching POSIX. NaN is preserved.
     public var asNumber: Double {
         switch self {
-        case .number(let n): return n
-        case .string(let s):
-            return AwkValue.parseLeadingNumber(s)
+        case .number(let num): return num
+        case .string(let str):
+            return AwkValue.parseLeadingNumber(str)
         }
     }
 
@@ -39,8 +39,8 @@ public enum AwkValue: Sendable {
     /// shortest round-trip.
     public var asString: String {
         switch self {
-        case .string(let s): return s
-        case .number(let n): return AwkValue.formatNumber(n)
+        case .string(let str): return str
+        case .number(let num): return AwkValue.formatNumber(num)
         }
     }
 
@@ -50,47 +50,55 @@ public enum AwkValue: Sendable {
     public var looksLikeNumber: Bool {
         switch self {
         case .number: return true
-        case .string(let s):
-            let t = s.trimmingCharacters(in: .whitespaces)
-            if t.isEmpty { return false }
-            return Double(t) != nil
+        case .string(let str):
+            let trimmed = str.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { return false }
+            return Double(trimmed) != nil
         }
     }
 
-    public static func formatNumber(_ n: Double) -> String {
-        if n.isNaN { return "nan" }
-        if n.isInfinite { return n > 0 ? "inf" : "-inf" }
-        if n == n.rounded() && abs(n) < 1e16 {
-            return String(Int64(n))
+    public static func formatNumber(_ num: Double) -> String {
+        if num.isNaN { return "nan" }
+        if num.isInfinite { return num > 0 ? "inf" : "-inf" }
+        if num == num.rounded() && abs(num) < 1e16 {
+            return String(Int64(num))
         }
         // Mimic AWK's default %.6g for non-integer numbers.
-        return AwkPrintf.format("%.6g", values: [.number(n)])
+        return AwkPrintf.format("%.6g", values: [.number(num)])
     }
 
     /// Parse a leading prefix as a number (matching `strtod`):
     /// leading whitespace, optional sign, digits / dot / exponent.
     /// Returns 0 when no digits are present.
-    static func parseLeadingNumber(_ s: String) -> Double {
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count, chars[i] == " " || chars[i] == "\t" { i += 1 }
-        let start = i
-        if i < chars.count, chars[i] == "+" || chars[i] == "-" { i += 1 }
+    static func parseLeadingNumber(_ str: String) -> Double {
+        let chars = Array(str)
+        var idx = 0
+        while idx < chars.count, chars[idx] == " " || chars[idx] == "\t" { idx += 1 }
+        let start = idx
+        if idx < chars.count, chars[idx] == "+" || chars[idx] == "-" { idx += 1 }
         var sawDigit = false
-        while i < chars.count, chars[i].isASCII, chars[i].isNumber { i += 1; sawDigit = true }
-        if i < chars.count, chars[i] == "." {
-            i += 1
-            while i < chars.count, chars[i].isASCII, chars[i].isNumber { i += 1; sawDigit = true }
+        while idx < chars.count, chars[idx].isASCII, chars[idx].isNumber {
+            idx += 1; sawDigit = true
         }
-        if sawDigit, i < chars.count, chars[i] == "e" || chars[i] == "E" {
-            var j = i + 1
-            if j < chars.count, chars[j] == "+" || chars[j] == "-" { j += 1 }
+        if idx < chars.count, chars[idx] == "." {
+            idx += 1
+            while idx < chars.count, chars[idx].isASCII, chars[idx].isNumber {
+                idx += 1; sawDigit = true
+            }
+        }
+        if sawDigit, idx < chars.count, chars[idx] == "e" || chars[idx] == "E" {
+            var expIdx = idx + 1
+            if expIdx < chars.count, chars[expIdx] == "+" || chars[expIdx] == "-" {
+                expIdx += 1
+            }
             var expDigit = false
-            while j < chars.count, chars[j].isASCII, chars[j].isNumber { j += 1; expDigit = true }
-            if expDigit { i = j }
+            while expIdx < chars.count, chars[expIdx].isASCII, chars[expIdx].isNumber {
+                expIdx += 1; expDigit = true
+            }
+            if expDigit { idx = expIdx }
         }
         if !sawDigit { return 0 }
-        let prefix = String(chars[start..<i])
+        let prefix = String(chars[start..<idx])
         return Double(prefix) ?? 0
     }
 }

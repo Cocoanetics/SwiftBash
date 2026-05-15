@@ -17,60 +17,71 @@ public struct UnexpandCommand: ParsableBashCommand {
 
     public init() {}
 
+    // The flag-parsing while-loop has high branch density (one branch
+    // per supported flag form); splitting it would just add plumbing.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var tabSpec = "8"
         var allBlanks = false
         var files: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { files.append(rawArgv[index]); index += 1 }
                 break
             }
-            if a == "-a" || a == "--all" { allBlanks = true; i += 1; continue }
-            if a == "-t" || a == "--tabs" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-a" || arg == "--all" { allBlanks = true; index += 1; continue }
+            if arg == "-t" || arg == "--tabs" {
+                guard index + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("unexpand: -t requires LIST\n"); return ExitStatus(2)
                 }
-                tabSpec = rawArgv[i + 1]; allBlanks = true; i += 2; continue
+                tabSpec = rawArgv[index + 1]; allBlanks = true; index += 2; continue
             }
-            if a.hasPrefix("--tabs=") {
-                tabSpec = String(a.dropFirst("--tabs=".count)); allBlanks = true
-                i += 1; continue
+            if arg.hasPrefix("--tabs=") {
+                tabSpec = String(arg.dropFirst("--tabs=".count)); allBlanks = true
+                index += 1; continue
             }
-            if a.hasPrefix("-t") && a.count > 2 {
-                tabSpec = String(a.dropFirst(2)); allBlanks = true; i += 1; continue
+            if arg.hasPrefix("-t") && arg.count > 2 {
+                tabSpec = String(arg.dropFirst(2)); allBlanks = true; index += 1; continue
             }
-            if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.bashCurrent.stderr("unexpand: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg != "-" && arg.count > 1 {
+                Shell.bashCurrent.stderr("unexpand: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); index += 1
         }
 
         let stops = ExpandCommand.parseTabStops(tabSpec)
         let inputs = files.isEmpty ? ["-"] : files
         var hadError = false
-        for f in inputs {
+        for file in inputs {
             try Task.checkCancellation()
             do {
                 let text: String
-                if f == "-" { text = await Shell.bashCurrent.stdin.readAllString() }
-                else {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
+                if file == "-" {
+                    text = await Shell.bashCurrent.stdin.readAllString()
+                } else {
+                    let data = try await Shell.bashCurrent.readDataAtPath(file)
+                    // unexpand operates on arbitrary file bytes; lossy
+                    // decoding is the standard behavior for text utils.
+                    // swiftlint:disable:next optional_data_string_conversion
                     text = String(decoding: data, as: UTF8.self)
                 }
                 Shell.bashCurrent.stdout(UnexpandCommand.unexpand(text, stops: stops, allBlanks: allBlanks))
             } catch {
-                Shell.bashCurrent.stderr("unexpand: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("unexpand: \(file): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
+    // Compression logic for spaces-to-tabs is a fused state machine
+    // with both leading/all-blanks modes and a tab-vs-space inner
+    // branch; complexity is intrinsic.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func unexpand(_ text: String, stops: [Int], allBlanks: Bool) -> String {
         guard !stops.isEmpty else { return text }
         let width = stops[0]
@@ -83,15 +94,15 @@ public struct UnexpandCommand: ParsableBashCommand {
             var processed = ""
             var spaceRunStart = 0
             var inLeading = true
-            var i = line.startIndex
-            while i < line.endIndex {
-                let c = line[i]
-                if c == " " {
-                    if (allBlanks || inLeading) {
+            var cursor = line.startIndex
+            while cursor < line.endIndex {
+                let char = line[cursor]
+                if char == " " {
+                    if allBlanks || inLeading {
                         // Try to compress.
                         let nextStop = col + (width - col % width)
-                        // Count consecutive spaces from i.
-                        var runEnd = i
+                        // Count consecutive spaces from cursor.
+                        var runEnd = cursor
                         var spaces = 0
                         while runEnd < line.endIndex && line[runEnd] == " " {
                             spaces += 1
@@ -101,28 +112,28 @@ public struct UnexpandCommand: ParsableBashCommand {
                         if spaces >= needed && needed > 0 {
                             processed.append("\t")
                             col = nextStop
-                            i = line.index(i, offsetBy: needed)
+                            cursor = line.index(cursor, offsetBy: needed)
                             spaceRunStart = col
                         } else {
                             processed += String(repeating: " ", count: spaces)
                             col += spaces
-                            i = runEnd
+                            cursor = runEnd
                         }
                         continue
                     }
-                    processed.append(c); col += 1
+                    processed.append(char); col += 1
                 } else {
-                    inLeading = inLeading && c == "\t"
-                    if c == "\t" {
+                    inLeading = inLeading && char == "\t"
+                    if char == "\t" {
                         // Treat as a real tab.
                         let next = col + (width - col % width)
-                        processed.append(c); col = next
+                        processed.append(char); col = next
                     } else {
-                        if c != " " { inLeading = false }
-                        processed.append(c); col += 1
+                        if char != " " { inLeading = false }
+                        processed.append(char); col += 1
                     }
                 }
-                i = line.index(after: i)
+                cursor = line.index(after: cursor)
                 _ = spaceRunStart
             }
             out += processed + "\n"

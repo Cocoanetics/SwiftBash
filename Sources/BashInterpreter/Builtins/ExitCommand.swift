@@ -12,12 +12,12 @@ public struct ExitCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let status: ExitStatus
         if let raw = argv.dropFirst().first {
-            guard let n = Int32(raw) else {
+            guard let code = Int32(raw) else {
                 throw BashInterpreterError.invalidArguments(
                     builtin: "exit",
                     message: "numeric argument required: \(raw)")
             }
-            status = ExitStatus(n)
+            status = ExitStatus(code)
         } else {
             status = Shell.bashCurrent.lastExitStatus
         }

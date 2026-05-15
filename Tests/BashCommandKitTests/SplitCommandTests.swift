@@ -5,19 +5,19 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct SplitCommandTests {
 
-    private func makeShellWithDir() -> (CapturingShell, String) {
+    private func makeShellWithDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "split-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
 
-    private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
+    private func cleanup(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
 
     @Test func defaultLines() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("seq 5 | split -l 2")
         // Expect xaa, xab, xac
         let names = try FileManager.default.contentsOfDirectory(atPath: dir).sorted()
@@ -28,7 +28,7 @@ import Foundation
     }
 
     @Test func bytesMode() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("printf abcdefghij | split -b 4")
         let names = try FileManager.default.contentsOfDirectory(atPath: dir).sorted()
         #expect(names == ["xaa", "xab", "xac"])
@@ -38,28 +38,28 @@ import Foundation
     }
 
     @Test func numericSuffixes() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("seq 4 | split -l 2 -d")
         let names = try FileManager.default.contentsOfDirectory(atPath: dir).sorted()
         #expect(names == ["x00", "x01"])
     }
 
     @Test func customPrefix() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("seq 2 | split -l 1 - chunk")
         let names = try FileManager.default.contentsOfDirectory(atPath: dir).sorted()
         #expect(names == ["chunkaa", "chunkab"])
     }
 
     @Test func additionalSuffix() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("seq 2 | split -l 1 --additional-suffix=.txt")
         let names = try FileManager.default.contentsOfDirectory(atPath: dir).sorted()
         #expect(names == ["xaa.txt", "xab.txt"])
     }
 
     @Test func sizeWithSuffix() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         // 1K size unit
         _ = FileManager.default.createFile(
             atPath: dir + "/big",

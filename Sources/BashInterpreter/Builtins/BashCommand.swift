@@ -32,6 +32,10 @@ public struct BashCommand: Command {
     public let name: String
     public init(name: String = "bash") { self.name = name }
 
+    // Argv parsing for bash invocations is inherently switch-heavy
+    // (per-character short-flag bundle, plus --foo long flags). Splitting
+    // it further would just create plumbing for no readability win.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
 
@@ -45,23 +49,23 @@ public struct BashCommand: Command {
         var parseOnly = false
         var modeFlags = SubshellModeFlags()
         var sawDoubleDash = false
-        var dashCSource: String? = nil
-        var dashCName: String? = nil
+        var dashCSource: String?
+        var dashCName: String?
         var dashCExtra: [String] = []
-        var i = 0
-        parseLoop: while i < args.count {
-            let a = args[i]
+        var index = 0
+        parseLoop: while index < args.count {
+            let arg = args[index]
             if sawDoubleDash { break }
-            if a == "--" { sawDoubleDash = true; i += 1; break }
-            if a == "--version" {
+            if arg == "--" { sawDoubleDash = true; index += 1; break }
+            if arg == "--version" {
                 Shell.bashCurrent.stdout(SwiftBashVersion.banner + "\n")
                 return .success
             }
-            if a == "--help" {
+            if arg == "--help" {
                 Shell.bashCurrent.stdout(Self.helpText(name: name))
                 return .success
             }
-            if !a.hasPrefix("-") || a.count <= 1 {
+            if !arg.hasPrefix("-") || arg.count <= 1 {
                 // First positional — script path.
                 break
             }
@@ -70,8 +74,8 @@ public struct BashCommand: Command {
             // parse loop. Other characters accumulate into mode
             // flags. We walk character-by-character so combos like
             // `-eux` work.
-            for (j, ch) in a.dropFirst().enumerated() {
-                switch ch {
+            for (charOffset, char) in arg.dropFirst().enumerated() {
+                switch char {
                 case "n": parseOnly = true
                 case "e": modeFlags.errexit = true
                 case "u": modeFlags.nounset = true
@@ -94,33 +98,33 @@ public struct BashCommand: Command {
                     // of the CMD (real bash treats `-exc 'cmd'`
                     // identically to `-ex -c 'cmd'`). The CMD's
                     // value is the NEXT argv element.
-                    let tail = a.dropFirst(j + 2)
+                    let tail = arg.dropFirst(charOffset + 2)
                     if !tail.isEmpty {
                         // `-cCMD` form — rare but allowed.
                         dashCSource = String(tail)
                     } else {
-                        guard i + 1 < args.count else {
+                        guard index + 1 < args.count else {
                             Shell.bashCurrent.stderr(
                                 "\(name): -c: option requires an argument\n")
                             return ExitStatus(2)
                         }
-                        dashCSource = args[i + 1]
-                        i += 1
+                        dashCSource = args[index + 1]
+                        index += 1
                     }
                     // `$0` for the -c body, then positionals.
-                    if i + 1 < args.count {
-                        dashCName = args[i + 1]
-                        dashCExtra = Array(args.dropFirst(i + 2))
+                    if index + 1 < args.count {
+                        dashCName = args[index + 1]
+                        dashCExtra = Array(args.dropFirst(index + 2))
                     }
-                    i += 1
+                    index += 1
                     break parseLoop
                 default:
                     Shell.bashCurrent.stderr(
-                        "\(name): -\(ch): invalid option\n")
+                        "\(name): -\(char): invalid option\n")
                     return ExitStatus(2)
                 }
             }
-            i += 1
+            index += 1
         }
 
         // -c form short-circuits — runs the literal CMD as the
@@ -132,12 +136,15 @@ public struct BashCommand: Command {
                 args: dashCExtra,
                 mode: modeFlags)
         }
-        let positional = Array(args[i...])
+        let positional = Array(args[index...])
         guard let path = positional.first else {
             // `bash -n` / `bash -x` with no file: real bash drops to
             // its interactive REPL. We have none, so drain stdin.
             let data = await drainStdin()
             if data.isEmpty { return .success }
+            // Script bytes may include non-UTF8 in heredocs/comments;
+            // lossy decode is the standard bash behavior.
+            // swiftlint:disable:next optional_data_string_conversion
             let source = String(decoding: data, as: UTF8.self)
             if parseOnly { return try parseCheck(source: source) }
             return try await runScript(
@@ -156,6 +163,8 @@ public struct BashCommand: Command {
                 "\(name): \(path): No such file or directory\n")
             return ExitStatus(127)
         }
+        // Same rationale as the stdin path above — accept lossy decode.
+        // swiftlint:disable:next optional_data_string_conversion
         let source = String(decoding: data, as: UTF8.self)
         if parseOnly { return try parseCheck(source: source) }
         return try await runScript(
@@ -180,8 +189,8 @@ public struct BashCommand: Command {
     /// parser.
     private func parseCheck(source: String) throws -> ExitStatus {
         var src = source
-        if src.hasPrefix("#!"), let nl = src.firstIndex(of: "\n") {
-            src = String(src[src.index(after: nl)...])
+        if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
+            src = String(src[src.index(after: newline)...])
         }
         do {
             _ = try BashSyntax.parse(src)
@@ -203,18 +212,17 @@ public struct BashCommand: Command {
     private func runScript(source: String,
                            scriptName: String,
                            args: [String],
-                           mode: SubshellModeFlags) async throws -> ExitStatus
-    {
+                           mode: SubshellModeFlags) async throws -> ExitStatus {
         var src = source
-        if src.hasPrefix("#!"), let nl = src.firstIndex(of: "\n") {
-            src = String(src[src.index(after: nl)...])
+        if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
+            src = String(src[src.index(after: newline)...])
         }
         let sub = Shell.bashCurrent.copy()
         sub.scriptName = scriptName
         sub.positionalParameters = args
         if mode.errexit { sub.errexit = true }
         if mode.nounset { sub.nounset = true }
-        if mode.xtrace  { sub.xtrace = true }
+        if mode.xtrace { sub.xtrace = true }
         if mode.verbose { sub.verbose = true }
         // Once we hand control to the sub-shell, its stdin is
         // whatever the parent had; we already inherited that

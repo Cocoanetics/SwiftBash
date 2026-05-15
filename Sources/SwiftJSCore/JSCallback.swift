@@ -44,8 +44,8 @@ extension JSValue {
 final class JSCallbackBox {
     let invoke: ([JSValue]) -> Any?
 
-    init(_ f: @escaping ([JSValue]) -> Any?) {
-        self.invoke = f
+    init(_ closure: @escaping ([JSValue]) -> Any?) {
+        self.invoke = closure
     }
 
     /// The shared `JSClassRef` for callback objects. Lazily created
@@ -88,12 +88,11 @@ final class JSCallbackBox {
     }()
 }
 
-/// `@convention(c)` trampoline matching `JSObjectCallAsFunctionCallback`.
-/// Invoked by JSC every time a JS-side caller calls a closure-backed
-/// function object.
-private let jsCallbackTrampoline: JSObjectCallAsFunctionCallback = {
-    ctxRef, function, _, argumentCount, arguments, exception in
-
+// `@convention(c)` trampoline matching `JSObjectCallAsFunctionCallback`.
+// Invoked by JSC every time a JS-side caller calls a closure-backed
+// function object.
+// swiftlint:disable:next line_length
+private let jsCallbackTrampoline: JSObjectCallAsFunctionCallback = { ctxRef, function, _, argumentCount, arguments, exception in
     let ctxRef = ctxRef!  // C API guarantees non-null
     let function = function!
 
@@ -113,8 +112,8 @@ private let jsCallbackTrampoline: JSObjectCallAsFunctionCallback = {
     var swiftArgs: [JSValue] = []
     swiftArgs.reserveCapacity(argumentCount)
     if let arguments = arguments {
-        for i in 0..<argumentCount {
-            if let argRef = arguments[i] {
+        for index in 0..<argumentCount {
+            if let argRef = arguments[index] {
                 swiftArgs.append(JSValue(ref: argRef, in: context))
             } else {
                 swiftArgs.append(

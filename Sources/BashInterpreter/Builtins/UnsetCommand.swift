@@ -13,22 +13,23 @@ public struct UnsetCommand: Command {
     public let name = "unset"
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity
     public func run(_ argv: [String]) async throws -> ExitStatus {
-        var i = 1
+        var index = 1
         var operateOnFunctions = false
-        while i < argv.count, argv[i].hasPrefix("-"), argv[i] != "--" {
-            switch argv[i] {
+        while index < argv.count, argv[index].hasPrefix("-"), argv[index] != "--" {
+            switch argv[index] {
             case "-f": operateOnFunctions = true
             case "-v": operateOnFunctions = false
             default:
-                Shell.bashCurrent.stderr("unset: invalid option: \(argv[i])\n")
+                Shell.bashCurrent.stderr("unset: invalid option: \(argv[index])\n")
                 return ExitStatus(2)
             }
-            i += 1
+            index += 1
         }
-        if i < argv.count, argv[i] == "--" { i += 1 }
+        if index < argv.count, argv[index] == "--" { index += 1 }
 
-        for raw in argv[i...] {
+        for raw in argv[index...] {
             if operateOnFunctions {
                 // Functions live in the command registry alongside
                 // builtins; remove only function-defined commands.
@@ -39,9 +40,9 @@ public struct UnsetCommand: Command {
             }
 
             // `arr[N]` — element-level unset.
-            if let lb = raw.firstIndex(of: "["), raw.last == "]" {
-                let head = String(raw[..<lb])
-                let after = raw.index(after: lb)
+            if let lbracket = raw.firstIndex(of: "["), raw.last == "]" {
+                let head = String(raw[..<lbracket])
+                let after = raw.index(after: lbracket)
                 let last = raw.index(before: raw.endIndex)
                 let sub = String(raw[after..<last])
 
@@ -54,9 +55,9 @@ public struct UnsetCommand: Command {
                     if sub == "@" || sub == "*" {
                         // `unset arr[@]` removes the whole array.
                         Shell.bashCurrent.environment.arrays.removeValue(forKey: head)
-                    } else if let n = Int(sub) {
-                        let resolved = n >= 0 ? n
-                            : ((array.entries.keys.max() ?? -1) + 1 + n)
+                    } else if let idxValue = Int(sub) {
+                        let resolved = idxValue >= 0 ? idxValue
+                            : ((array.entries.keys.max() ?? -1) + 1 + idxValue)
                         array[resolved] = nil
                         Shell.bashCurrent.environment.arrays[head] = array
                     }

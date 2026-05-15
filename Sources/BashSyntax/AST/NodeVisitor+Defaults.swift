@@ -8,6 +8,7 @@ extension NodeVisitor {
     public mutating func visitCommand(_ node: Node, parts: [Node]) -> Bool { true }
     public mutating func visitPipeline(_ node: Node, parts: [Node]) -> Bool { true }
     public mutating func visitPipe(_ node: Node, pipe: String) {}
+    // swiftlint:disable:next identifier_name
     public mutating func visitOperator(_ node: Node, op: String) {}
     public mutating func visitWord(_ node: Node, word: String, parts: [Node]) -> Bool { true }
     public mutating func visitAssignment(_ node: Node, word: String, parts: [Node]) -> Bool { true }

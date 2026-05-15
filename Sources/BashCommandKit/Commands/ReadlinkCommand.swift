@@ -24,8 +24,8 @@ public struct ReadlinkCommand: ParsableBashCommand {
             return ExitStatus(2)
         }
         var hadError = false
-        for f in files {
-            let resolved = Shell.bashCurrent.resolvePath(f)
+        for file in files {
+            let resolved = Shell.bashCurrent.resolvePath(file)
             if canonicalize {
                 if let canonical = try? await Shell.bashCurrent.fileSystem
                     .canonicalize(resolved, allowMissing: true) {
@@ -36,13 +36,13 @@ public struct ReadlinkCommand: ParsableBashCommand {
                 continue
             }
             guard let meta = try? await Shell.bashCurrent.fileSystem.metadata(resolved) else {
-                Shell.bashCurrent.stderr("readlink: \(f): No such file or directory\n")
+                Shell.bashCurrent.stderr("readlink: \(file): No such file or directory\n")
                 hadError = true; continue
             }
             if let target = meta.symlinkTarget {
                 Shell.bashCurrent.stdout(target + "\n")
             } else {
-                Shell.bashCurrent.stderr("readlink: \(f): Not a symlink\n")
+                Shell.bashCurrent.stderr("readlink: \(file): Not a symlink\n")
                 hadError = true
             }
         }

@@ -51,13 +51,13 @@ public struct DfCommand: ParsableBashCommand {
         let label = host.hostName.padding(toLength: 14,
                                           withPad: " ", startingAt: 0)
         var hadError = false
-        for p in target {
-            let resolved = Shell.bashCurrent.resolvePath(p)
+        for path in target {
+            let resolved = Shell.bashCurrent.resolvePath(path)
             // Confirm the path actually exists in the shell's
             // filesystem before reporting.
             guard (try? await Shell.bashCurrent.fileSystem.metadata(resolved)) != nil
             else {
-                Shell.bashCurrent.stderr("df: \(p): no such file or directory\n")
+                Shell.bashCurrent.stderr("df: \(path): no such file or directory\n")
                 hadError = true; continue
             }
             // Sizes unknown for a virtual mount; emit `-` placeholders

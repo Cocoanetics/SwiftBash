@@ -25,62 +25,97 @@ public struct ExpandCommand: ParsableBashCommand {
         var initialOnly = false
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
-                break
-            }
-            if a == "-i" || a == "--initial" { initialOnly = true; i += 1; continue }
-            if a == "-t" || a == "--tabs" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("expand: -t requires LIST\n"); return ExitStatus(2)
-                }
-                tabSpec = rawArgv[i + 1]; i += 2; continue
-            }
-            if a.hasPrefix("--tabs=") {
-                tabSpec = String(a.dropFirst("--tabs=".count)); i += 1; continue
-            }
-            if a.hasPrefix("-t") && a.count > 2 {
-                tabSpec = String(a.dropFirst(2)); i += 1; continue
-            }
-            if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                // Allow -N as shorthand for -t N (GNU).
-                if let _ = Int(a.dropFirst()) {
-                    tabSpec = String(a.dropFirst()); i += 1; continue
-                }
-                Shell.bashCurrent.stderr("expand: unknown option: \(a)\n"); return ExitStatus(2)
-            }
-            files.append(a); i += 1
+        if let earlyStatus = parseArgs(
+            tabSpec: &tabSpec, initialOnly: &initialOnly, files: &files) {
+            return earlyStatus
         }
 
         let stops = ExpandCommand.parseTabStops(tabSpec)
         let inputs = files.isEmpty ? ["-"] : files
         var hadError = false
-        for f in inputs {
+        for file in inputs {
             try Task.checkCancellation()
             do {
-                let text: String
-                if f == "-" { text = await Shell.bashCurrent.stdin.readAllString() }
-                else {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
-                    text = String(decoding: data, as: UTF8.self)
-                }
-                Shell.bashCurrent.stdout(ExpandCommand.expand(text, stops: stops, initialOnly: initialOnly))
+                let text = try await readText(file: file)
+                Shell.bashCurrent.stdout(ExpandCommand.expand(
+                    text, stops: stops, initialOnly: initialOnly))
             } catch {
-                Shell.bashCurrent.stderr("expand: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("expand: \(file): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
+    private mutating func parseArgs(tabSpec: inout String,
+                                    initialOnly: inout Bool,
+                                    files: inout [String]) -> ExitStatus? {
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count {
+                    files.append(rawArgv[index])
+                    index += 1
+                }
+                break
+            }
+            if arg == "-i" || arg == "--initial" {
+                initialOnly = true
+                index += 1
+                continue
+            }
+            if arg == "-t" || arg == "--tabs" {
+                guard index + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("expand: -t requires LIST\n")
+                    return ExitStatus(2)
+                }
+                tabSpec = rawArgv[index + 1]
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--tabs=") {
+                tabSpec = String(arg.dropFirst("--tabs=".count))
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-t") && arg.count > 2 {
+                tabSpec = String(arg.dropFirst(2))
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-") && arg != "-" && arg.count > 1 {
+                // Allow -N as shorthand for -t N (GNU).
+                if Int(arg.dropFirst()) != nil {
+                    tabSpec = String(arg.dropFirst())
+                    index += 1
+                    continue
+                }
+                Shell.bashCurrent.stderr("expand: unknown option: \(arg)\n")
+                return ExitStatus(2)
+            }
+            files.append(arg)
+            index += 1
+        }
+        return nil
+    }
+
+    private func readText(file: String) async throws -> String {
+        if file == "-" {
+            return await Shell.bashCurrent.stdin.readAllString()
+        }
+        let data = try await Shell.bashCurrent.readDataAtPath(file)
+        // Files may contain non-UTF-8 bytes; lossy decode keeps text
+        // flowing through the pipeline rather than crashing.
+        // swiftlint:disable:next optional_data_string_conversion
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// Parse `8`, `4`, `1,5,9`, `4 8 12`. Uniform-width returns a
     /// single-element list whose entry is interpreted as a width.
-    static func parseTabStops(_ s: String) -> [Int] {
-        let parts = s.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\t" })
+    static func parseTabStops(_ spec: String) -> [Int] {
+        let parts = spec.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\t" })
         return parts.compactMap { Int($0) }
     }
 
@@ -102,11 +137,11 @@ public struct ExpandCommand: ParsableBashCommand {
         for line in lines {
             var col = 0
             var seenNonBlank = false
-            for c in line {
-                if c == "\t", !initialOnly || !seenNonBlank {
+            for char in line {
+                if char == "\t", !initialOnly || !seenNonBlank {
                     let next: Int
-                    if let w = uniformWidth, w > 0 {
-                        next = col + (w - col % w)
+                    if let width = uniformWidth, width > 0 {
+                        next = col + (width - col % width)
                     } else if let target = explicit.first(where: { $0 > col }) {
                         next = target
                     } else {
@@ -115,8 +150,8 @@ public struct ExpandCommand: ParsableBashCommand {
                     out += String(repeating: " ", count: next - col)
                     col = next
                 } else {
-                    if c != " " && c != "\t" { seenNonBlank = true }
-                    out.append(c); col += 1
+                    if char != " " && char != "\t" { seenNonBlank = true }
+                    out.append(char); col += 1
                 }
             }
             out.append("\n")

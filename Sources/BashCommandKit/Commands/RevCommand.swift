@@ -25,15 +25,16 @@ public struct RevCommand: ParsableBashCommand {
             return .success
         }
         var hadError = false
-        for f in files {
+        for file in files {
             do {
-                let data = try await Shell.bashCurrent.readDataAtPath(f)
+                let data = try await Shell.bashCurrent.readDataAtPath(file)
+                // swiftlint:disable:next optional_data_string_conversion
                 let text = String(decoding: data, as: UTF8.self)
                 for line in SortCommand.splitLines(text) {
                     Shell.bashCurrent.stdout(String(line.reversed()) + "\n")
                 }
             } catch {
-                Shell.bashCurrent.stderr("rev: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("rev: \(file): \(error)\n")
                 hadError = true
             }
         }

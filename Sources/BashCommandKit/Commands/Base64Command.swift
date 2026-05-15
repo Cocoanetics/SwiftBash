@@ -24,11 +24,11 @@ public struct Base64Command: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         let data: Data
-        if let f = input, f != "-" {
+        if let file = input, file != "-" {
             do {
-                data = try await Shell.bashCurrent.readDataAtPath(f)
+                data = try await Shell.bashCurrent.readDataAtPath(file)
             } catch {
-                Shell.bashCurrent.stderr("base64: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("base64: \(file): \(error)\n")
                 return .failure
             }
         } else {

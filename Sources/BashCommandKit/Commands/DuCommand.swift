@@ -23,11 +23,12 @@ public struct DuCommand: ParsableBashCommand {
 
     private enum Unit { case bytes, kib, mib, human }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var unit: Unit = .kib
         var summarize = false
         var allFiles = false
-        var maxDepth: Int? = nil
+        var maxDepth: Int?
         var paths: [String] = []
         // Expand combined short-flag bundles like `-sh` into
         // `-s -h` before the main parse loop. Real `du` accepts
@@ -46,67 +47,78 @@ public struct DuCommand: ParsableBashCommand {
             }
             return [token]
         }
-        var i = 0
-        while i < argv.count {
-            let a = argv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { paths.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < argv.count {
+            let arg = argv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { paths.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-s" || a == "--summarize" { summarize = true; i += 1; continue }
-            if a == "-a" || a == "--all" { allFiles = true; i += 1; continue }
-            if a == "-h" || a == "--human-readable" { unit = .human; i += 1; continue }
-            if a == "-b" || a == "--bytes" { unit = .bytes; i += 1; continue }
-            if a == "-k" { unit = .kib; i += 1; continue }
-            if a == "-m" { unit = .mib; i += 1; continue }
-            if a == "-d" || a == "--max-depth" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
+            if arg == "-s" || arg == "--summarize" { summarize = true; idx += 1; continue }
+            if arg == "-a" || arg == "--all" { allFiles = true; idx += 1; continue }
+            if arg == "-h" || arg == "--human-readable" { unit = .human; idx += 1; continue }
+            if arg == "-b" || arg == "--bytes" { unit = .bytes; idx += 1; continue }
+            if arg == "-k" { unit = .kib; idx += 1; continue }
+            if arg == "-m" { unit = .mib; idx += 1; continue }
+            if arg == "-d" || arg == "--max-depth" {
+                guard idx + 1 < rawArgv.count, let num = Int(rawArgv[idx + 1]) else {
                     Shell.bashCurrent.stderr("du: -d requires N\n"); return ExitStatus(2)
                 }
-                maxDepth = n; i += 2; continue
+                maxDepth = num; idx += 2; continue
             }
-            if a.hasPrefix("--max-depth=") {
-                guard let n = Int(a.dropFirst("--max-depth=".count)) else {
+            if arg.hasPrefix("--max-depth=") {
+                guard let num = Int(arg.dropFirst("--max-depth=".count)) else {
                     Shell.bashCurrent.stderr("du: invalid --max-depth\n"); return ExitStatus(2)
                 }
-                maxDepth = n; i += 1; continue
+                maxDepth = num; idx += 1; continue
             }
-            if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.bashCurrent.stderr("du: unknown option: \(a)\n"); return ExitStatus(2)
+            if arg.hasPrefix("-") && arg != "-" && arg.count > 1 {
+                Shell.bashCurrent.stderr("du: unknown option: \(arg)\n"); return ExitStatus(2)
             }
-            paths.append(a); i += 1
+            paths.append(arg); idx += 1
         }
         if paths.isEmpty { paths = ["."] }
 
         var hadError = false
-        for p in paths {
-            let resolved = Shell.bashCurrent.resolvePath(p)
+        for path in paths {
+            let resolved = Shell.bashCurrent.resolvePath(path)
             do {
-                let total = try await walk(displayPath: p, abs: resolved,
-                                           depth: 0, unit: unit,
-                                           maxDepth: summarize ? 0 : maxDepth,
-                                           allFiles: allFiles, summarize: summarize)
+                let options = WalkOptions(unit: unit,
+                                          maxDepth: summarize ? 0 : maxDepth,
+                                          allFiles: allFiles,
+                                          summarize: summarize)
+                let total = try await walk(displayPath: path, abs: resolved,
+                                           depth: 0, options: options)
                 if summarize {
-                    Shell.bashCurrent.stdout("\(formatSize(total, unit: unit))\t\(p)\n")
+                    Shell.bashCurrent.stdout("\(formatSize(total, unit: unit))\t\(path)\n")
                 }
             } catch {
-                Shell.bashCurrent.stderr("du: \(p): \(error)\n")
+                Shell.bashCurrent.stderr("du: \(path): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
+    /// Bundle of long-lived walk parameters; keeps `walk` under the
+    /// function-parameter-count limit.
+    private struct WalkOptions {
+        let unit: Unit
+        let maxDepth: Int?
+        let allFiles: Bool
+        let summarize: Bool
+    }
+
     private func walk(displayPath: String, abs: String, depth: Int,
-                      unit: Unit, maxDepth: Int?, allFiles: Bool, summarize: Bool) async throws -> Int64 {
+                      options: WalkOptions) async throws -> Int64 {
         try Task.checkCancellation()
         guard let meta = try await Shell.bashCurrent.fileSystem.metadata(abs) else {
             throw FileSystemError.notFound(abs)
         }
         if meta.kind != .directory {
-            if allFiles && !summarize {
-                Shell.bashCurrent.stdout("\(formatSize(meta.size, unit: unit))\t\(displayPath)\n")
+            if options.allFiles && !options.summarize {
+                Shell.bashCurrent.stdout("\(formatSize(meta.size, unit: options.unit))\t\(displayPath)\n")
             }
             return meta.size
         }
@@ -118,14 +130,12 @@ public struct DuCommand: ParsableBashCommand {
             let childDisplay = displayPath == "." ? "./\(name)"
                 : (displayPath as NSString).appendingPathComponent(name)
             total += try await walk(displayPath: childDisplay, abs: childAbs,
-                                    depth: depth + 1, unit: unit,
-                                    maxDepth: maxDepth, allFiles: allFiles,
-                                    summarize: summarize)
+                                    depth: depth + 1, options: options)
         }
-        if !summarize {
-            let withinDepth = (maxDepth.map { depth <= $0 } ?? true)
+        if !options.summarize {
+            let withinDepth = (options.maxDepth.map { depth <= $0 } ?? true)
             if withinDepth {
-                Shell.bashCurrent.stdout("\(formatSize(total, unit: unit))\t\(displayPath)\n")
+                Shell.bashCurrent.stdout("\(formatSize(total, unit: options.unit))\t\(displayPath)\n")
             }
         }
         return total
@@ -141,18 +151,18 @@ public struct DuCommand: ParsableBashCommand {
     }
 
     private func humanReadable(_ bytes: Int64) -> String {
-        let n = Double(bytes)
-        let k = 1024.0
-        if n < k { return "\(bytes)B" }
-        if n < k * k {
-            let v = n / k
-            return v < 10 ? String(format: "%.1fK", v) : "\(Int(v.rounded()))K"
+        let num = Double(bytes)
+        let kib = 1024.0
+        if num < kib { return "\(bytes)B" }
+        if num < kib * kib {
+            let val = num / kib
+            return val < 10 ? String(format: "%.1fK", val) : "\(Int(val.rounded()))K"
         }
-        if n < k * k * k {
-            let v = n / (k * k)
-            return v < 10 ? String(format: "%.1fM", v) : "\(Int(v.rounded()))M"
+        if num < kib * kib * kib {
+            let val = num / (kib * kib)
+            return val < 10 ? String(format: "%.1fM", val) : "\(Int(val.rounded()))M"
         }
-        let v = n / (k * k * k)
-        return v < 10 ? String(format: "%.1fG", v) : "\(Int(v.rounded()))G"
+        let val = num / (kib * kib * kib)
+        return val < 10 ? String(format: "%.1fG", val) : "\(Int(val.rounded()))G"
     }
 }

@@ -18,6 +18,11 @@ public struct CdCommand: Command {
     public let name = "cd"
     public init() {}
 
+    // POSIX `cd` is a sequential pipeline (flag parse → target resolve →
+    // metadata check → physical canonicalize → env update → optional
+    // print). Splitting per-step would scatter the shared `target`/
+    // `absolute`/`printAfter` locals across multiple functions.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func run(_ argv: [String]) async throws -> ExitStatus {
         // Parse leading -L / -P flags. The last one wins, matching bash.
         var physical = false
@@ -72,8 +77,7 @@ public struct CdCommand: Command {
             // path on canonicalize failure — we already verified the
             // directory exists, so this is a defensive guard.
             if let canon = try? await Shell.bashCurrent.fileSystem
-                .canonicalize(absolute, allowMissing: false)
-            {
+                .canonicalize(absolute, allowMissing: false) {
                 absolute = canon
             }
         }

@@ -37,14 +37,14 @@ public struct ChmodCommand: ParsableBashCommand {
             return ExitStatus(2)
         }
         var hadError = false
-        for f in operands.dropFirst() {
-            let resolved = Shell.bashCurrent.resolvePath(f)
+        for file in operands.dropFirst() {
+            let resolved = Shell.bashCurrent.resolvePath(file)
             do {
                 try await applyMode(to: resolved,
                                     symbolic: symbolic,
                                     octalMode: octalMode)
             } catch {
-                Shell.bashCurrent.stderr("chmod: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("chmod: \(file): \(error)\n")
                 hadError = true
             }
         }
@@ -92,9 +92,8 @@ public struct ChmodCommand: ParsableBashCommand {
     /// One `who op perms` clause, e.g. `u+x` or `go=r`. Multiple clauses
     /// can be comma-separated in a single mode argument.
     fileprivate struct SymbolicClause {
-        enum Op { case add, remove, set }
         let whoMask: UInt16   // permission bits this clause writes into
-        let op: Op
+        let operation: SymbolicOp
         let permBits: UInt16  // r/w/x bits as an "all-positions" mask
 
         func apply(to current: UInt16) -> UInt16 {
@@ -103,13 +102,15 @@ public struct ChmodCommand: ParsableBashCommand {
             // user/group/other depending on whoMask, then mask to whoMask.
             let replicated = (permBits << 6) | (permBits << 3) | permBits
             let target = replicated & whoMask
-            switch op {
+            switch operation {
             case .add:    return current | target
             case .remove: return current & ~target
             case .set:    return (current & ~whoMask) | target
             }
         }
     }
+
+    fileprivate enum SymbolicOp { case add, remove, set }
 
     /// Parse a symbolic chmod expression like `u+x`, `+x`, `go-w`,
     /// `u=rwx,go=rx`. Returns `nil` if the string isn't a valid symbolic
@@ -123,50 +124,54 @@ public struct ChmodCommand: ParsableBashCommand {
         return clauses.isEmpty ? nil : clauses
     }
 
+    // Symbolic-mode parser: three sequential char-class switches over
+    // [ugoa] / [+-=] / [rwxX]. Each switch is the spec table; splitting
+    // them apart would scatter a single short parser.
+    // swiftlint:disable:next cyclomatic_complexity
     private func parseClause(_ raw: String) -> SymbolicClause? {
-        var i = raw.startIndex
+        var index = raw.startIndex
         // `who` — optional run of `[ugoa]`. Default to "a" (all) when
         // missing, matching bash and POSIX.
         var who: UInt16 = 0
         let whoChars: Set<Character> = ["u", "g", "o", "a"]
-        while i < raw.endIndex, whoChars.contains(raw[i]) {
-            switch raw[i] {
+        while index < raw.endIndex, whoChars.contains(raw[index]) {
+            switch raw[index] {
             case "u": who |= 0o700
             case "g": who |= 0o070
             case "o": who |= 0o007
             case "a": who |= 0o777
             default:  break
             }
-            i = raw.index(after: i)
+            index = raw.index(after: index)
         }
         if who == 0 { who = 0o777 }
 
         // `op` — exactly one of `+`, `-`, `=`.
-        guard i < raw.endIndex else { return nil }
-        let opChar = raw[i]
-        let op: SymbolicClause.Op
+        guard index < raw.endIndex else { return nil }
+        let opChar = raw[index]
+        let operation: SymbolicOp
         switch opChar {
-        case "+": op = .add
-        case "-": op = .remove
-        case "=": op = .set
+        case "+": operation = .add
+        case "-": operation = .remove
+        case "=": operation = .set
         default: return nil
         }
-        i = raw.index(after: i)
+        index = raw.index(after: index)
 
         // `perms` — run of `[rwxX]`. We treat capital `X` as `x`.
         // Extensions like `s` (setuid) and `t` (sticky) aren't supported
         // by the underlying FileSystem.chmod surface, so we leave them
         // for a future PR rather than silently swallow them.
         var perm: UInt16 = 0
-        while i < raw.endIndex {
-            switch raw[i] {
+        while index < raw.endIndex {
+            switch raw[index] {
             case "r": perm |= 0o4
             case "w": perm |= 0o2
             case "x", "X": perm |= 0o1
             default: return nil
             }
-            i = raw.index(after: i)
+            index = raw.index(after: index)
         }
-        return SymbolicClause(whoMask: who, op: op, permBits: perm)
+        return SymbolicClause(whoMask: who, operation: operation, permBits: perm)
     }
 }
