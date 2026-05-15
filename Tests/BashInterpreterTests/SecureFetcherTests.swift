@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+// swiftlint:disable:next type_body_length - cohesive test suite for the secure fetcher
 @Suite(.timeLimit(.minutes(1))) struct SecureFetcherTests {
 
     // MARK: Mock fetcher
@@ -23,9 +24,8 @@ import Foundation
         }
 
         func performOnce(_ request: NetworkRequest) async throws
-            -> NetworkResponse
-        {
-            if let r = record(request) { return r }
+            -> NetworkResponse {
+            if let response = record(request) { return response }
             // Default 200 with empty body so tests don't have to seed
             // every URL.
             return NetworkResponse(
@@ -46,8 +46,7 @@ import Foundation
     private func req(_ url: String,
                      method: String = "GET",
                      headers: [String: String] = [:],
-                     body: Data? = nil) -> NetworkRequest
-    {
+                     body: Data? = nil) -> NetworkRequest {
         NetworkRequest(url: URL(string: url)!,
                        method: method,
                        headers: headers,
@@ -171,7 +170,7 @@ import Foundation
         let resp = try await fetcher.fetch(req(
             "https://api.example.com/start"))
         #expect(resp.status == 200)
-        #expect(String(decoding: resp.body, as: UTF8.self) == "hello")
+        #expect(String(bytes: resp.body, encoding: .utf8) == "hello")
         #expect(mock.requests.count == 2,
                 "should have followed the 302")
     }
@@ -200,12 +199,12 @@ import Foundation
     @Test func tooManyRedirects() async throws {
         let mock = MockFetcher()
         // Each /n redirects to /n+1, ad infinitum.
-        for n in 0..<50 {
-            let url = "https://api.example.com/r\(n)"
+        for idx in 0..<50 {
+            let url = "https://api.example.com/r\(idx)"
             mock.responses[url] = NetworkResponse(
                 status: 302, statusText: "Found",
                 headers: ["Location":
-                    "https://api.example.com/r\(n + 1)"],
+                    "https://api.example.com/r\(idx + 1)"],
                 body: Data(),
                 finalURL: URL(string: url)!)
         }

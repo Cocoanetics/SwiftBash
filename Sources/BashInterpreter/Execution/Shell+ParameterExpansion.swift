@@ -2,13 +2,17 @@ import Foundation
 
 extension Shell {
 
-    /// Evaluate a parsed ``ParameterForm`` against this shell's environment,
-    /// returning the resulting string.
-    ///
-    /// Default / alternative / error messages may themselves contain
-    /// `$var` or `${var}` references, which are re-expanded via a simple
-    /// inner pass. Command substitutions and arithmetic inside parameter
-    /// bodies are NOT yet supported.
+    // Evaluate a parsed ``ParameterForm`` against this shell's environment,
+    // returning the resulting string.
+    //
+    // Default / alternative / error messages may themselves contain `$var`
+    // or `${var}` references, which are re-expanded via a simple inner pass.
+    // Command substitutions and arithmetic inside parameter bodies are NOT
+    // yet supported.
+    //
+    // Each bash parameter-form variant has its own arm, so this switch is
+    // intrinsically wide; per-form helpers would lose the inline state.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     func applyParameterForm(_ form: ParameterForm) async throws -> String {
         let form = try await expandingSubscripts(in: form)
         switch form {
@@ -30,16 +34,14 @@ extension Shell {
             if nounset, lookupOptional(name) == nil,
                // `${#arr[@]}` always answers 0 rather than erroring
                // even when the array is unset — matches real bash.
-               !(parseSubscriptedName(name).map { $0.1 == "@" || $0.1 == "*" } ?? false)
-            {
+               !(parseSubscriptedName(name).map { $0.1 == "@" || $0.1 == "*" } ?? false) {
                 stderr("\(errorLocationPrefix())\(name): unbound variable\n")
                 throw ShellExit(status: ExitStatus(1))
             }
             // `${#arr[@]}` / `${#arr[*]}` returns element COUNT, not
             // the joined string's character length.
             if let (arrName, sub) = parseSubscriptedName(name),
-               sub == "@" || sub == "*"
-            {
+               sub == "@" || sub == "*" {
                 if let assoc = environment.associativeArrays[arrName] {
                     return String(assoc.count)
                 }
@@ -50,14 +52,14 @@ extension Shell {
         case .defaultValue(let name, let checkEmpty, let value):
             let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
-                return try await recursivelyExpand(value)
+                return try await recursivelyExpandParameterWord(value)
             }
             return raw ?? ""
 
         case .assignDefault(let name, let checkEmpty, let value):
             let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
-                let expanded = try await recursivelyExpand(value)
+                let expanded = try await recursivelyExpandParameterWord(value)
                 environment[name] = expanded
                 return expanded
             }
@@ -68,7 +70,7 @@ extension Shell {
             if isMissing(raw, checkEmpty: checkEmpty) {
                 let msg = message.isEmpty
                     ? "parameter null or not set"
-                    : try await recursivelyExpand(message)
+                    : try await recursivelyExpandParameterWord(message)
                 // Match bash: write `script:line: var: msg` to stderr,
                 // then exit with status 1. Inside a subshell the
                 // existing `ShellExit` catch in `executeSubshellGroup`
@@ -83,7 +85,7 @@ extension Shell {
             if isMissing(raw, checkEmpty: checkEmpty) {
                 return ""
             }
-            return try await recursivelyExpand(value)
+            return try await recursivelyExpandParameterWord(value)
 
         case .removePrefix(let name, let pattern, let longest):
             return stripPrefix(lookup(name),
@@ -96,7 +98,7 @@ extension Shell {
                                longest: longest)
 
         case .replace(let name, let pattern, let replacement, let all, let anchor):
-            let expandedRepl = try await recursivelyExpand(replacement)
+            let expandedRepl = try await recursivelyExpandParameterWord(replacement)
             return replace(in: lookup(name),
                            pattern: pattern,
                            replacement: expandedRepl,
@@ -136,12 +138,13 @@ extension Shell {
                     // culprit and matches bash's diagnostic shape.
                     offsetExpr
                 } ?? offsetExpr
-                stderr("\(errorLocationPrefix())\(failed.trimmingCharacters(in: .whitespaces)): syntax error: invalid arithmetic expression\n")
+                let trimmed = failed.trimmingCharacters(in: .whitespaces)
+                stderr("\(errorLocationPrefix())\(trimmed): "
+                       + "syntax error: invalid arithmetic expression\n")
                 throw ShellExit(status: ExitStatus(1))
             }
             if let (arrName, sub) = parseSubscriptedName(name),
-               sub == "@" || sub == "*"
-            {
+               sub == "@" || sub == "*" {
                 let elements = environment.arrays[arrName]?.elementsInOrder ?? []
                 let sliced = sliceArray(elements, offset: offset, length: length)
                 let sep = sub == "*"
@@ -215,9 +218,8 @@ extension Shell {
             break
         }
         if !name.isEmpty, name.allSatisfy(\.isNumber),
-           let n = Int(name), n >= 1
-        {
-            let idx = n - 1
+           let number = Int(name), number >= 1 {
+            let idx = number - 1
             return idx < positionalParameters.count
                 ? positionalParameters[idx]
                 : nil
@@ -245,9 +247,8 @@ extension Shell {
         // Digit-only names address positional parameters
         // (`${1}`, `${10}`, length-of `${#10}`, etc.).
         if !name.isEmpty, name.allSatisfy(\.isNumber),
-           let n = Int(name), n >= 1
-        {
-            let idx = n - 1
+           let number = Int(name), number >= 1 {
+            let idx = number - 1
             return idx < positionalParameters.count
                 ? positionalParameters[idx]
                 : ""
@@ -262,25 +263,27 @@ extension Shell {
     /// Split `arr[sub]` into `("arr", "sub")`. Returns `nil` if
     /// `name` isn't a subscripted form.
     private func parseSubscriptedName(_ name: String) -> (String, String)? {
-        guard let lb = name.firstIndex(of: "["), name.last == "]" else {
+        guard let leftBracket = name.firstIndex(of: "["), name.last == "]" else {
             return nil
         }
-        let head = String(name[..<lb])
-        let after = name.index(after: lb)
+        let head = String(name[..<leftBracket])
+        let after = name.index(after: leftBracket)
         let last = name.index(before: name.endIndex)
         guard after <= last else { return nil }
         let sub = String(name[after..<last])
         return (head, sub)
     }
 
-    /// Pre-expand any `$var` / `${...}` / `$(cmd)` / `$((expr))` /
-    /// backticks inside an array subscript. `${arr[$k]}` becomes
-    /// `${arr[<value-of-k>]}` before the form is dispatched.
-    /// `[@]` and `[*]` are passed through unchanged. Names without
-    /// subscripts are returned as-is.
+    // Pre-expand any `$var` / `${...}` / `$(cmd)` / `$((expr))` /
+    // backticks inside an array subscript. `${arr[$k]}` becomes
+    // `${arr[<value-of-k>]}` before the form is dispatched.
+    // `[@]` and `[*]` are passed through unchanged. Names without
+    // subscripts are returned as-is.
+    // Per-variant rewrap of the ParameterForm enum; the wide switch is
+    // intrinsic to the data model.
+    // swiftlint:disable:next cyclomatic_complexity
     private func expandingSubscripts(in form: ParameterForm)
-        async throws -> ParameterForm
-    {
+        async throws -> ParameterForm {
         switch form {
         case .plain(let name):
             return .plain(try await expandedSubscript(in: name))
@@ -288,39 +291,39 @@ extension Shell {
             return .length(try await expandedSubscript(in: name))
         case .indices(let name):
             return .indices(try await expandedSubscript(in: name))
-        case .defaultValue(let name, let ce, let v):
+        case .defaultValue(let name, let checkEmpty, let value):
             return .defaultValue(name: try await expandedSubscript(in: name),
-                                 checkEmpty: ce, value: v)
-        case .assignDefault(let name, let ce, let v):
+                                 checkEmpty: checkEmpty, value: value)
+        case .assignDefault(let name, let checkEmpty, let value):
             return .assignDefault(name: try await expandedSubscript(in: name),
-                                  checkEmpty: ce, value: v)
-        case .errorIfUnset(let name, let ce, let m):
+                                  checkEmpty: checkEmpty, value: value)
+        case .errorIfUnset(let name, let checkEmpty, let message):
             return .errorIfUnset(name: try await expandedSubscript(in: name),
-                                 checkEmpty: ce, message: m)
-        case .alternative(let name, let ce, let v):
+                                 checkEmpty: checkEmpty, message: message)
+        case .alternative(let name, let checkEmpty, let value):
             return .alternative(name: try await expandedSubscript(in: name),
-                                checkEmpty: ce, value: v)
-        case .removePrefix(let name, let p, let l):
+                                checkEmpty: checkEmpty, value: value)
+        case .removePrefix(let name, let pattern, let longest):
             return .removePrefix(
                 name: try await expandedSubscript(in: name),
-                pattern: p, longest: l)
-        case .removeSuffix(let name, let p, let l):
+                pattern: pattern, longest: longest)
+        case .removeSuffix(let name, let pattern, let longest):
             return .removeSuffix(
                 name: try await expandedSubscript(in: name),
-                pattern: p, longest: l)
-        case .replace(let name, let p, let r, let all, let a):
+                pattern: pattern, longest: longest)
+        case .replace(let name, let pattern, let replacement, let all, let anchor):
             return .replace(name: try await expandedSubscript(in: name),
-                            pattern: p, replacement: r,
-                            all: all, anchor: a)
+                            pattern: pattern, replacement: replacement,
+                            all: all, anchor: anchor)
         case .substring(let name, let offsetExpr, let lengthExpr):
             return .substring(name: try await expandedSubscript(in: name),
                               offset: offsetExpr, length: lengthExpr)
         case .indirect(let name):
             return .indirect(try await expandedSubscript(in: name))
-        case .caseConvert(let name, let u, let all, let pat):
+        case .caseConvert(let name, let toUpper, let all, let pattern):
             return .caseConvert(
                 name: try await expandedSubscript(in: name),
-                toUpper: u, all: all, pattern: pat)
+                toUpper: toUpper, all: all, pattern: pattern)
         }
     }
 
@@ -353,13 +356,13 @@ extension Shell {
             case "@", "*":
                 return array.elementsInOrder.joined(separator: " ")
             default:
-                if let n = Int(sub) {
+                if let index = Int(sub) {
                     // Bash 4.3+: negative indices count from the end of
                     // the *highest* set slot, not from `count`. So for
                     // `arr[0]=a; arr[5]=b`, `${arr[-1]}` is `b` (the
                     // value at index 5, not index 4).
-                    let resolved = n >= 0 ? n
-                        : ((array.entries.keys.max() ?? -1) + 1 + n)
+                    let resolved = index >= 0 ? index
+                        : ((array.entries.keys.max() ?? -1) + 1 + index)
                     return array[resolved] ?? ""
                 }
                 return ""
@@ -379,185 +382,4 @@ extension Shell {
         return false
     }
 
-    // MARK: Inner expansion for parameter-operator words
-
-    /// Expand the "word" portion of a parameter-form operator
-    /// (e.g. the `$(date)` in `${BAR:-$(date)}`) — same rules as
-    /// inside a double-quoted string. Implementation lives in
-    /// ``expandHeredocBody(_:)``; both contexts share semantics.
-    private func recursivelyExpand(_ s: String) async throws -> String {
-        try await expandHeredocBody(s)
-    }
-
-    // MARK: Prefix / suffix pattern operations
-
-    /// Returns `value` with the shortest or longest prefix matching
-    /// `pattern` removed; returns `value` unchanged if no prefix matches.
-    private func stripPrefix(_ value: String,
-                             pattern: String,
-                             longest: Bool) -> String {
-        let chars = Array(value)
-        let range = longest
-            ? Array((0...chars.count).reversed())
-            : Array(0...chars.count)
-        for length in range {
-            let prefix = String(chars.prefix(length))
-            if GlobMatcher.match(pattern: pattern, string: prefix) {
-                return String(chars.dropFirst(length))
-            }
-        }
-        return value
-    }
-
-    /// Returns `value` with the shortest or longest suffix matching
-    /// `pattern` removed.
-    private func stripSuffix(_ value: String,
-                             pattern: String,
-                             longest: Bool) -> String {
-        let chars = Array(value)
-        let range = longest
-            ? Array((0...chars.count).reversed())
-            : Array(0...chars.count)
-        for length in range {
-            let suffix = String(chars.suffix(length))
-            if GlobMatcher.match(pattern: pattern, string: suffix) {
-                return String(chars.dropLast(length))
-            }
-        }
-        return value
-    }
-
-    // MARK: Replace
-
-    private func replace(in value: String,
-                         pattern: String,
-                         replacement: String,
-                         all: Bool,
-                         anchor: ParameterForm.ReplaceAnchor) -> String {
-        let chars = Array(value)
-
-        // Anchored variants only look at one position.
-        switch anchor {
-        case .start:
-            if let len = longestMatch(of: pattern, in: chars, at: 0) {
-                return replacement + String(chars.dropFirst(len))
-            }
-            return value
-        case .end:
-            for len in (0...chars.count).reversed() {
-                let suffix = String(chars.suffix(len))
-                if GlobMatcher.match(pattern: pattern, string: suffix) {
-                    return String(chars.dropLast(len)) + replacement
-                }
-            }
-            return value
-        case .any:
-            break
-        }
-
-        var result = ""
-        var i = 0
-        while i < chars.count {
-            if let len = longestMatch(of: pattern, in: chars, at: i), len > 0 {
-                result.append(replacement)
-                i += len
-                if !all {
-                    result.append(String(chars[i...]))
-                    return result
-                }
-            } else {
-                result.append(chars[i])
-                i += 1
-            }
-        }
-        return result
-    }
-
-    // MARK: Case conversion
-
-    /// Apply `${var^}` / `${var^^}` / `${var,}` / `${var,,}` semantics.
-    /// `pattern` empty means "every character matches".
-    func applyCaseConvert(value: String,
-                          toUpper: Bool,
-                          all: Bool,
-                          pattern: String) -> String
-    {
-        let effectivePattern = pattern.isEmpty ? "?" : pattern
-        var out = ""
-        var first = true
-        for ch in value {
-            let matches = GlobMatcher.match(
-                pattern: effectivePattern, string: String(ch))
-            let shouldConvert = matches && (all || first)
-            if shouldConvert {
-                out += toUpper ? String(ch).uppercased()
-                                : String(ch).lowercased()
-            } else {
-                out.append(ch)
-            }
-            first = false
-        }
-        return out
-    }
-
-    /// The length of the longest prefix of `chars[i…]` that fully matches
-    /// `pattern` as a glob. Returns `nil` when no match exists.
-    private func longestMatch(of pattern: String,
-                              in chars: [Character], at i: Int) -> Int? {
-        let remaining = chars.count - i
-        for len in (0...remaining).reversed() {
-            let slice = String(chars[i..<i + len])
-            if GlobMatcher.match(pattern: pattern, string: slice) {
-                return len
-            }
-        }
-        return nil
-    }
-
-    // MARK: Substring
-
-    /// Slice `array` per bash's `${arr[@]:offset[:length]}` rules:
-    /// negative `offset` indexes from the end; nil `length` is "all
-    /// remaining"; negative `length` truncates that many elements
-    /// from the end of the result.
-    private func sliceArray(_ array: [String],
-                            offset: Int,
-                            length: Int?) -> [String] {
-        let n = array.count
-        var start = offset < 0 ? max(0, n + offset) : min(offset, n)
-        let end: Int
-        switch length {
-        case .none:
-            end = n
-        case .some(let len) where len >= 0:
-            end = min(n, start + len)
-        case .some(let len):
-            end = max(start, n + len)
-        }
-        if end < start { return [] }
-        start = min(start, end)
-        return Array(array[start..<end])
-    }
-
-    private func substring(of value: String, offset: Int, length: Int?) -> String {
-        let chars = Array(value)
-        let n = chars.count
-
-        // Offset: negative means "from the end".
-        var start = offset < 0 ? max(0, n + offset) : min(offset, n)
-
-        let end: Int
-        switch length {
-        case .none:
-            end = n
-        case .some(let len) where len >= 0:
-            end = min(n, start + len)
-        case .some(let len):
-            // Negative length: end that many chars from the end of the value.
-            end = max(start, n + len)
-        }
-        if end < start { return "" }
-        start = min(start, end)
-        return String(chars[start..<end])
-    }
 }

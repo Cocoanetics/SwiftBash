@@ -2,30 +2,36 @@ import Foundation
 
 extension Shell {
 
-    /// Try dispatching `argv[0]` as a path-invoked external script.
-    ///
-    /// Returns the script's exit status when handled (file exists, has
-    /// a `#!`-shebang, and an interpreter is registered for it).
-    /// Returns `nil` only when the candidate isn't path-shaped, or
-    /// when the file exists but has no recognised shebang — both fall
-    /// through to the caller's `command not found` branch.
-    ///
-    /// Behaviour mirrors the kernel's `binfmt_script` plus bash's own
-    /// permission-error reporting:
-    /// - token has no `/` → `nil` (treat as bare name, look up in PATH)
-    /// - non-existent file → `127`, `No such file or directory`
-    /// - directory or non-regular file → `126`, `Is a directory`
-    /// - regular file without the execute bit set → `126`,
-    ///   `Permission denied` (matches `bash ./script` when the file
-    ///   isn't `chmod +x`'d)
-    /// - filesystem error probing or reading the path (sandbox denial,
-    ///   real EACCES, IO error) → `126` with a permission-shaped
-    ///   diagnostic, NOT `command not found` — the path exists in the
-    ///   user's command line, masking the failure as a lookup miss is
-    ///   unhelpful
-    /// - file present but no shebang → `nil` (might be a binary; let
-    ///   the caller fall through)
-    /// - shebang names an interpreter that isn't registered → `nil`
+    // Try dispatching `argv[0]` as a path-invoked external script.
+    //
+    // Returns the script's exit status when handled (file exists, has
+    // a `#!`-shebang, and an interpreter is registered for it).
+    // Returns `nil` only when the candidate isn't path-shaped, or
+    // when the file exists but has no recognised shebang — both fall
+    // through to the caller's `command not found` branch.
+    //
+    // Behaviour mirrors the kernel's `binfmt_script` plus bash's own
+    // permission-error reporting:
+    // - token has no `/` → `nil` (treat as bare name, look up in PATH)
+    // - non-existent file → `127`, `No such file or directory`
+    // - directory or non-regular file → `126`, `Is a directory`
+    // - regular file without the execute bit set → `126`,
+    //   `Permission denied` (matches `bash ./script` when the file
+    //   isn't `chmod +x`'d)
+    // - filesystem error probing or reading the path (sandbox denial,
+    //   real EACCES, IO error) → `126` with a permission-shaped
+    //   diagnostic, NOT `command not found` — the path exists in the
+    //   user's command line, masking the failure as a lookup miss is
+    //   unhelpful
+    // - file present but no shebang → `nil` (might be a binary; let
+    //   the caller fall through)
+    // - shebang names an interpreter that isn't registered → `nil`
+    //
+    // Sequential pipeline (path-shape check → metadata → permission
+    // gate → file read → shebang parse → interpreter dispatch →
+    // optional bash-fallback). Splitting per-stage would scatter the
+    // shared `head`/`meta`/`data`/`raw`/`shebangLine` locals.
+    // swiftlint:disable:next function_body_length
     func dispatchAsExternalScriptIfApplicable(
         argv: [String]
     ) async throws -> ExitStatus? {
@@ -86,6 +92,7 @@ extension Shell {
                 "\(errorLocationPrefix())\(head): \(err.shellMessage())\n")
             return ExitStatus(126)
         }
+        // swiftlint:disable:next optional_data_string_conversion
         let raw = String(decoding: data, as: UTF8.self)
         let (rewritten, shebangLine) = stripShebang(raw)
 
@@ -96,8 +103,7 @@ extension Shell {
         // propagates; this stays consistent with `bash FILE` semantics.
         if let shebangLine,
            let parsed = parseShebangLine(shebangLine),
-           let interpreter = scriptInterpreters[parsed.interpreter]
-        {
+           let interpreter = scriptInterpreters[parsed.interpreter] {
             let context = ScriptInterpreterContext(
                 scriptPath: resolved,
                 source: rewritten,

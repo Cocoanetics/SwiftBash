@@ -6,11 +6,17 @@ import Foundation
 /// see the right NR / FILENAME / hold-space.
 public final class AwkContext: @unchecked Sendable {
     // built-in scalars
+    // AWK spec-defined variable name.
+    // swiftlint:disable:next identifier_name
     public var FS: String = " "
     public var OFS: String = " "
     public var ORS: String = "\n"
     public var OFMT: String = "%.6g"
+    // AWK spec-defined variable name.
+    // swiftlint:disable:next identifier_name
     public var NR: Int = 0
+    // AWK spec-defined variable name.
+    // swiftlint:disable:next identifier_name
     public var NF: Int = 0
     public var FNR: Int = 0
     public var FILENAME: String = ""
@@ -74,8 +80,8 @@ public final class AwkContext: @unchecked Sendable {
     // cwd + injected file IO closure (set by AwkCommand)
     public var cwd: String = "."
     public var readFile: (String) throws -> String = { _ in throw AwkRuntimeError("file IO not configured") }
-    public var resolvePath: (String, String) -> String = { cwd, p in
-        p.hasPrefix("/") ? p : "\(cwd)/\(p)"
+    public var resolvePath: (String, String) -> String = { cwd, path in
+        path.hasPrefix("/") ? path : "\(cwd)/\(path)"
     }
 
     public init() {}

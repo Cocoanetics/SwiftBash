@@ -10,8 +10,6 @@ import FoundationNetworking
 #endif
 import BashInterpreter
 
-
-
 /// Mutable holder for the resolve/reject handles of a Promise, used
 /// so the URLSession callback (non-isolated) can post the JSValues
 /// back to the main thread without capturing them in its closure.
@@ -74,6 +72,7 @@ extension JSRuntime {
         context.evaluateScript(shim)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func makeFetchPromise(urlVal: JSValue, initVal: JSValue?) -> JSValue? {
         // Build a Promise we control via Swift-side resolve/reject.
         // The resolve/reject handles are stashed in a Box so the
@@ -111,33 +110,35 @@ extension JSRuntime {
         var abortSignal: JSValue?
         var method = "GET"
         if let initVal, initVal.isObject {
-            if let m = initVal.objectForKeyedSubscript("method"), m.isString {
-                request.httpMethod = m.toString()
-                method = m.toString() ?? "GET"
+            if let methodVal = initVal.objectForKeyedSubscript("method"), methodVal.isString {
+                request.httpMethod = methodVal.toString()
+                method = methodVal.toString() ?? "GET"
             }
-            if let h = initVal.objectForKeyedSubscript("headers"), h.isObject {
+            if let headersVal = initVal.objectForKeyedSubscript("headers"), headersVal.isObject {
                 // `toDictionary()` already returns `[String: Any]?`,
                 // so the `as? [String: Any]` was a no-op cast that
                 // tripped a "conditional downcast does nothing"
                 // warning under Swift 6.
-                if let dict = h.toDictionary() {
-                    for (k, v) in dict {
-                        request.setValue(String(describing: v), forHTTPHeaderField: k)
+                if let dict = headersVal.toDictionary() {
+                    for (key, value) in dict {
+                        request.setValue(String(describing: value),
+                                         forHTTPHeaderField: key)
                     }
                 }
             }
-            if let b = initVal.objectForKeyedSubscript("body"), !b.isUndefined, !b.isNull {
-                if b.isString {
-                    request.httpBody = (b.toString() ?? "").data(using: .utf8)
-                } else if let bytes = b.toArray() as? [NSNumber] {
+            if let bodyVal = initVal.objectForKeyedSubscript("body"),
+               !bodyVal.isUndefined, !bodyVal.isNull {
+                if bodyVal.isString {
+                    request.httpBody = (bodyVal.toString() ?? "").data(using: .utf8)
+                } else if let bytes = bodyVal.toArray() as? [NSNumber] {
                     request.httpBody = Data(bytes.map { $0.uint8Value })
                 }
             }
-            if let s = initVal.objectForKeyedSubscript("signal"), s.isObject {
-                abortSignal = s
+            if let signalVal = initVal.objectForKeyedSubscript("signal"), signalVal.isObject {
+                abortSignal = signalVal
                 // Already-aborted? Reject synchronously.
-                if s.objectForKeyedSubscript("aborted").toBool() {
-                    let reason = s.objectForKeyedSubscript("reason")
+                if signalVal.objectForKeyedSubscript("aborted").toBool() {
+                    let reason = signalVal.objectForKeyedSubscript("reason")
                     let err = (reason?.isObject == true)
                         ? reason!
                         : makeJSError(
@@ -196,8 +197,8 @@ extension JSRuntime {
                 guard let http = response as? HTTPURLResponse
                 else { return [:] }
                 var out: [String: String] = [:]
-                for (k, v) in http.allHeaderFields {
-                    out[String(describing: k)] = String(describing: v)
+                for (key, value) in http.allHeaderFields {
+                    out[String(describing: key)] = String(describing: value)
                 }
                 return out
             }()
@@ -210,12 +211,12 @@ extension JSRuntime {
             }()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if let s = self.pendingTimers.removeValue(forKey: sentinelID) {
-                    s.cancel()
+                if let sentinel = self.pendingTimers.removeValue(forKey: sentinelID) {
+                    sentinel.cancel()
                 }
                 if let errorDesc {
                     var extras: [String: Any] = [
-                        "url": urlString,
+                        "url": urlString
                     ]
                     if let errnoText { extras["errno"] = errnoText }
                     let isAbort = (errorCode == "ABORT_ERR")
@@ -257,10 +258,11 @@ extension JSRuntime {
         return promise
     }
 
-    /// Map a URLError to the closest Node-style symbolic code so JS
-    /// `catch (e) { if (e.code === 'ENOTFOUND') ... }` matches the
-    /// shape user code expects. Falls back to `ERR_NETWORK` for
-    /// anything we don't have a more specific mapping for.
+    // Map a URLError to the closest Node-style symbolic code so JS
+    // `catch (e) { if (e.code === 'ENOTFOUND') ... }` matches the
+    // shape user code expects. Falls back to `ERR_NETWORK` for
+    // anything we don't have a more specific mapping for.
+    // swiftlint:disable:next cyclomatic_complexity
     fileprivate static func fetchErrorCode(_ error: Error?) -> String? {
         guard let error else { return nil }
         guard let urlError = error as? URLError else { return "ERR_NETWORK" }
@@ -297,8 +299,8 @@ extension JSRuntime {
         let ctx = context
         let bytesValue = JSValue(object: bytes, in: ctx)!
         let headersDict = JSValue(newObjectIn: ctx)!
-        for (k, v) in headers {
-            headersDict.setObject(v, forKeyedSubscript: k)
+        for (key, value) in headers {
+            headersDict.setObject(value, forKeyedSubscript: key)
         }
 
         let factory = ctx.evaluateScript(#"""

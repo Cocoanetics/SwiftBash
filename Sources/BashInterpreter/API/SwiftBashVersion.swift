@@ -19,7 +19,7 @@ public enum SwiftBashVersion {
     /// `BASH_VERSINFO` array — `(major minor patch build release machine)`.
     /// Real bash sets this as a 6-element indexed array; we mirror it.
     public static let bashVersionInfo: [String] = [
-        "4", "4", "20", "1", "release", "swift-bash",
+        "4", "4", "20", "1", "release", "swift-bash"
     ]
 
     /// Full `bash --version` banner. Intentionally identifies us as

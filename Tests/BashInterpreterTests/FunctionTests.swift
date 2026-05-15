@@ -124,8 +124,8 @@ import Foundation
 
     @Test func returnOutsideFunctionWarns() async throws {
         let cap = makeShell()
-        let s = try await cap.shell.run("return 5")
-        #expect(s == .failure)
+        let status = try await cap.shell.run("return 5")
+        #expect(status == .failure)
         #expect(cap.stderr.contains("only `return' from a function"))
     }
 
@@ -168,8 +168,8 @@ import Foundation
 
     @Test func localOutsideFunctionFails() async throws {
         let cap = makeShell()
-        let s = try await cap.shell.run("local X=hi")
-        #expect(s == .failure)
+        let status = try await cap.shell.run("local X=hi")
+        #expect(status == .failure)
         #expect(cap.stderr.contains("only be used in a function"))
     }
 
@@ -232,8 +232,8 @@ import Foundation
 
     @Test func sourceMissingFileFails() async throws {
         let cap = makeShell()
-        let s = try await cap.shell.run("source /no/such/file")
-        #expect(s == .failure)
+        let status = try await cap.shell.run("source /no/such/file")
+        #expect(status == .failure)
         #expect(cap.stderr.contains("No such"))
     }
 
@@ -269,9 +269,9 @@ import Foundation
         // Use a closure-registered consumer so we don't depend on
         // BashCommandKit being loaded in BashInterpreter tests.
         cap.shell.register(name: "count") { _ in
-            var n = 0
-            for await _ in Shell.bashCurrent.stdin.lines { n += 1 }
-            Shell.bashCurrent.stdout("\(n)\n")
+            var count = 0
+            for await _ in Shell.bashCurrent.stdin.lines { count += 1 }
+            Shell.bashCurrent.stdout("\(count)\n")
             return .success
         }
         try await cap.shell.run("""

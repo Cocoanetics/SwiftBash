@@ -4,57 +4,59 @@ import Foundation
 /// served from a per-context cache that the interpreter pre-populates.
 enum AwkExpressions {
 
+    // swiftlint:disable:next cyclomatic_complexity - AWK expression dispatch is inherently wide
     static func eval(_ ctx: AwkContext, _ expr: AwkExpr) throws -> AwkValue {
         switch expr {
-        case .number(let n):
-            return .number(n)
-        case .string(let s):
-            return .string(s)
+        case .number(let num):
+            return .number(num)
+        case .string(let str):
+            return .string(str)
         case .regex(let pat):
             // A bare regex in expression context matches against $0.
             return .number(matchRegex(pat, ctx.line) ? 1 : 0)
         case .field(let idx):
-            let i = Int(try eval(ctx, idx).asNumber.rounded(.towardZero))
-            return AwkFields.getField(ctx, i)
+            let fieldIdx = Int(try eval(ctx, idx).asNumber.rounded(.towardZero))
+            return AwkFields.getField(ctx, fieldIdx)
         case .variable(let name):
             return getVariable(ctx, name)
         case .arrayAccess(let name, let key):
-            let k = try eval(ctx, key).asString
-            return getArrayElement(ctx, name, k)
-        case .binary(let op, let l, let r):
-            return try evalBinary(ctx, op, l, r)
-        case .unary(let op, let operand):
-            let v = try eval(ctx, operand)
-            switch op {
-            case .not: return .number(v.isTruthy ? 0 : 1)
-            case .neg: return .number(-v.asNumber)
-            case .pos: return .number(+v.asNumber)
+            let keyStr = try eval(ctx, key).asString
+            return getArrayElement(ctx, name, keyStr)
+        case .binary(let oper, let lhs, let rhs):
+            return try evalBinary(ctx, oper, lhs, rhs)
+        case .unary(let oper, let operand):
+            let value = try eval(ctx, operand)
+            switch oper {
+            case .not: return .number(value.isTruthy ? 0 : 1)
+            case .neg: return .number(-value.asNumber)
+            case .pos: return .number(+value.asNumber)
             }
-        case .ternary(let c, let t, let e):
-            return try eval(ctx, c).isTruthy ? try eval(ctx, t) : try eval(ctx, e)
+        case .ternary(let cond, let then, let els):
+            return try eval(ctx, cond).isTruthy ? try eval(ctx, then) : try eval(ctx, els)
         case .call(let name, let args):
             return try AwkBuiltins.call(ctx, name: name, args: args)
-        case .assignment(let op, let target, let value):
-            return try evalAssignment(ctx, op, target, value)
-        case .preIncrement(let lv): return try evalIncDec(ctx, lv, +1, returnNew: true)
-        case .preDecrement(let lv): return try evalIncDec(ctx, lv, -1, returnNew: true)
-        case .postIncrement(let lv): return try evalIncDec(ctx, lv, +1, returnNew: false)
-        case .postDecrement(let lv): return try evalIncDec(ctx, lv, -1, returnNew: false)
+        case .assignment(let oper, let target, let value):
+            return try evalAssignment(ctx, oper, target, value)
+        case .preIncrement(let lval): return try evalIncDec(ctx, lval, +1, returnNew: true)
+        case .preDecrement(let lval): return try evalIncDec(ctx, lval, -1, returnNew: true)
+        case .postIncrement(let lval): return try evalIncDec(ctx, lval, +1, returnNew: false)
+        case .postDecrement(let lval): return try evalIncDec(ctx, lval, -1, returnNew: false)
         case .inExpr(let key, let arrayName):
-            let k = try evalArrayKey(ctx, key)
-            return .number(hasArrayElement(ctx, arrayName, k) ? 1 : 0)
-        case .getline(let v, let file, let cmd):
-            return try AwkGetline.run(ctx, variable: v, file: file, command: cmd)
+            let keyStr = try evalArrayKey(ctx, key)
+            return .number(hasArrayElement(ctx, arrayName, keyStr) ? 1 : 0)
+        case .getline(let value, let file, let cmd):
+            return try AwkGetline.run(ctx, variable: value, file: file, command: cmd)
         case .tuple(let elems):
             // Comma operator: evaluate all, return last.
             var last: AwkValue = .empty
-            for e in elems { last = try eval(ctx, e) }
+            for elem in elems { last = try eval(ctx, elem) }
             return last
         }
     }
 
     // MARK: - Variables / arrays
 
+    // swiftlint:disable:next cyclomatic_complexity - dispatch over AWK special variable names
     static func getVariable(_ ctx: AwkContext, _ name: String) -> AwkValue {
         switch name {
         case "FS": return .string(ctx.FS)
@@ -73,6 +75,7 @@ enum AwkExpressions {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity - dispatch over AWK special variable names
     static func setVariable(_ ctx: AwkContext, _ name: String, _ value: AwkValue) {
         switch name {
         case "FS": ctx.FS = value.asString
@@ -90,159 +93,111 @@ enum AwkExpressions {
         }
     }
 
-    static func resolveArray(_ ctx: AwkContext, _ name: String) -> String {
-        // Follow alias chain (for function param pass-by-reference).
-        var resolved = name
-        var seen = Set<String>()
-        while let alias = ctx.arrayAliases[resolved], !seen.contains(resolved) {
-            seen.insert(resolved)
-            resolved = alias
-        }
-        return resolved
-    }
-
-    static func getArrayElement(_ ctx: AwkContext, _ name: String, _ key: String) -> AwkValue {
-        if name == "ARGV" { return ctx.ARGV[key] ?? .empty }
-        if name == "ENVIRON" { return ctx.ENVIRON[key] ?? .empty }
-        let resolved = resolveArray(ctx, name)
-        return ctx.arrays[resolved]?[key] ?? .empty
-    }
-
-    static func setArrayElement(_ ctx: AwkContext, _ name: String, _ key: String, _ value: AwkValue) {
-        let resolved = resolveArray(ctx, name)
-        if ctx.arrays[resolved] == nil { ctx.arrays[resolved] = AwkArray() }
-        ctx.arrays[resolved]![key] = value
-    }
-
-    static func hasArrayElement(_ ctx: AwkContext, _ name: String, _ key: String) -> Bool {
-        if name == "ARGV" { return ctx.ARGV[key] != nil }
-        if name == "ENVIRON" { return ctx.ENVIRON[key] != nil }
-        let resolved = resolveArray(ctx, name)
-        return ctx.arrays[resolved]?[key] != nil
-    }
-
-    static func deleteArrayElement(_ ctx: AwkContext, _ name: String, _ key: String) {
-        let resolved = resolveArray(ctx, name)
-        ctx.arrays[resolved]?.remove(key)
-    }
-
-    static func deleteArray(_ ctx: AwkContext, _ name: String) {
-        let resolved = resolveArray(ctx, name)
-        ctx.arrays[resolved]?.clear()
-    }
-
-    /// `(i, j) in arr` joins the tuple parts with SUBSEP.
-    static func evalArrayKey(_ ctx: AwkContext, _ key: AwkExpr) throws -> String {
-        if case .tuple(let elems) = key {
-            var parts: [String] = []
-            for e in elems { parts.append(try eval(ctx, e).asString) }
-            return parts.joined(separator: ctx.SUBSEP)
-        }
-        return try eval(ctx, key).asString
-    }
+    // Array operations live in `AwkExpressions+Arrays.swift`.
 
     // MARK: - Binary
 
-    static func evalBinary(_ ctx: AwkContext, _ op: AwkBinaryOp,
-                           _ l: AwkExpr, _ r: AwkExpr) throws -> AwkValue {
+    // swiftlint:disable:next cyclomatic_complexity - arithmetic op dispatch
+    static func evalBinary(_ ctx: AwkContext, _ oper: AwkBinaryOp,
+                           _ lhs: AwkExpr, _ rhs: AwkExpr) throws -> AwkValue {
         // Short-circuit
-        if op == .and {
-            let lv = try eval(ctx, l)
-            if !lv.isTruthy { return .number(0) }
-            return .number(try eval(ctx, r).isTruthy ? 1 : 0)
+        if oper == .and {
+            let lhsVal = try eval(ctx, lhs)
+            if !lhsVal.isTruthy { return .number(0) }
+            return .number(try eval(ctx, rhs).isTruthy ? 1 : 0)
         }
-        if op == .or {
-            let lv = try eval(ctx, l)
-            if lv.isTruthy { return .number(1) }
-            return .number(try eval(ctx, r).isTruthy ? 1 : 0)
+        if oper == .or {
+            let lhsVal = try eval(ctx, lhs)
+            if lhsVal.isTruthy { return .number(1) }
+            return .number(try eval(ctx, rhs).isTruthy ? 1 : 0)
         }
         // Match operators — RHS may be a literal regex.
-        if op == .match || op == .notMatch {
-            let lv = try eval(ctx, l)
+        if oper == .match || oper == .notMatch {
+            let lhsVal = try eval(ctx, lhs)
             let pat: String
-            if case .regex(let p) = r { pat = p }
-            else { pat = try eval(ctx, r).asString }
-            let matches = matchRegex(pat, lv.asString)
-            let positive = (op == .match) == matches
+            if case .regex(let parsedPat) = rhs { pat = parsedPat } else { pat = try eval(ctx, rhs).asString }
+            let matches = matchRegex(pat, lhsVal.asString)
+            let positive = (oper == .match) == matches
             return .number(positive ? 1 : 0)
         }
-        let lv = try eval(ctx, l)
-        let rv = try eval(ctx, r)
-        if op == .concat { return .string(lv.asString + rv.asString) }
-        if isComparison(op) {
-            return .number(applyComparison(op, lv, rv) ? 1 : 0)
+        let lhsVal = try eval(ctx, lhs)
+        let rhsVal = try eval(ctx, rhs)
+        if oper == .concat { return .string(lhsVal.asString + rhsVal.asString) }
+        if isComparison(oper) {
+            return .number(applyComparison(oper, lhsVal, rhsVal) ? 1 : 0)
         }
-        let ln = lv.asNumber, rn = rv.asNumber
-        switch op {
-        case .add: return .number(ln + rn)
-        case .sub: return .number(ln - rn)
-        case .mul: return .number(ln * rn)
+        let lhsNum = lhsVal.asNumber, rhsNum = rhsVal.asNumber
+        switch oper {
+        case .add: return .number(lhsNum + rhsNum)
+        case .sub: return .number(lhsNum - rhsNum)
+        case .mul: return .number(lhsNum * rhsNum)
         case .div:
-            if rn == 0 { throw AwkRuntimeError("division by zero") }
-            return .number(ln / rn)
+            if rhsNum == 0 { throw AwkRuntimeError("division by zero") }
+            return .number(lhsNum / rhsNum)
         case .mod:
-            if rn == 0 { throw AwkRuntimeError("division by zero in %") }
-            return .number(ln.truncatingRemainder(dividingBy: rn))
-        case .pow: return .number(pow(ln, rn))
+            if rhsNum == 0 { throw AwkRuntimeError("division by zero in %") }
+            return .number(lhsNum.truncatingRemainder(dividingBy: rhsNum))
+        case .pow: return .number(pow(lhsNum, rhsNum))
         default: return .empty
         }
     }
 
-    static func isComparison(_ op: AwkBinaryOp) -> Bool {
-        switch op {
+    static func isComparison(_ oper: AwkBinaryOp) -> Bool {
+        switch oper {
         case .eq, .ne, .lt, .le, .gt, .ge: return true
         default: return false
         }
     }
 
-    static func applyComparison(_ op: AwkBinaryOp, _ l: AwkValue, _ r: AwkValue) -> Bool {
-        let ln = l.looksLikeNumber, rn = r.looksLikeNumber
-        if ln && rn {
-            let a = l.asNumber, b = r.asNumber
-            switch op {
-            case .lt: return a < b
-            case .le: return a <= b
-            case .gt: return a > b
-            case .ge: return a >= b
-            case .eq: return a == b
-            case .ne: return a != b
+    // swiftlint:disable:next cyclomatic_complexity - 6 comparison ops, evaluated twice
+    static func applyComparison(_ oper: AwkBinaryOp, _ lhs: AwkValue, _ rhs: AwkValue) -> Bool {
+        let lhsNumeric = lhs.looksLikeNumber, rhsNumeric = rhs.looksLikeNumber
+        if lhsNumeric && rhsNumeric {
+            let lhsNum = lhs.asNumber, rhsNum = rhs.asNumber
+            switch oper {
+            case .lt: return lhsNum < rhsNum
+            case .le: return lhsNum <= rhsNum
+            case .gt: return lhsNum > rhsNum
+            case .ge: return lhsNum >= rhsNum
+            case .eq: return lhsNum == rhsNum
+            case .ne: return lhsNum != rhsNum
             default: return false
             }
         }
-        let a = l.asString, b = r.asString
-        switch op {
-        case .lt: return a < b
-        case .le: return a <= b
-        case .gt: return a > b
-        case .ge: return a >= b
-        case .eq: return a == b
-        case .ne: return a != b
+        let lhsStr = lhs.asString, rhsStr = rhs.asString
+        switch oper {
+        case .lt: return lhsStr < rhsStr
+        case .le: return lhsStr <= rhsStr
+        case .gt: return lhsStr > rhsStr
+        case .ge: return lhsStr >= rhsStr
+        case .eq: return lhsStr == rhsStr
+        case .ne: return lhsStr != rhsStr
         default: return false
         }
     }
 
     // MARK: - Assignments
 
-    static func evalAssignment(_ ctx: AwkContext, _ op: AwkAssignOp,
+    static func evalAssignment(_ ctx: AwkContext, _ oper: AwkAssignOp,
                                _ target: AwkLValue, _ value: AwkExpr) throws -> AwkValue {
         let newVal = try eval(ctx, value)
         let final: AwkValue
-        if op == .assign {
+        if oper == .assign {
             final = newVal
         } else {
             let cur = try readLValue(ctx, target)
-            let a = cur.asNumber, b = newVal.asNumber
-            switch op {
-            case .addAssign: final = .number(a + b)
-            case .subAssign: final = .number(a - b)
-            case .mulAssign: final = .number(a * b)
+            let lhsNum = cur.asNumber, rhsNum = newVal.asNumber
+            switch oper {
+            case .addAssign: final = .number(lhsNum + rhsNum)
+            case .subAssign: final = .number(lhsNum - rhsNum)
+            case .mulAssign: final = .number(lhsNum * rhsNum)
             case .divAssign:
-                if b == 0 { throw AwkRuntimeError("division by zero in /=") }
-                final = .number(a / b)
+                if rhsNum == 0 { throw AwkRuntimeError("division by zero in /=") }
+                final = .number(lhsNum / rhsNum)
             case .modAssign:
-                if b == 0 { throw AwkRuntimeError("division by zero in %=") }
-                final = .number(a.truncatingRemainder(dividingBy: b))
-            case .powAssign: final = .number(pow(a, b))
+                if rhsNum == 0 { throw AwkRuntimeError("division by zero in %=") }
+                final = .number(lhsNum.truncatingRemainder(dividingBy: rhsNum))
+            case .powAssign: final = .number(pow(lhsNum, rhsNum))
             default: final = newVal
             }
         }
@@ -250,33 +205,33 @@ enum AwkExpressions {
         return final
     }
 
-    static func readLValue(_ ctx: AwkContext, _ lv: AwkLValue) throws -> AwkValue {
-        switch lv {
-        case .variable(let n): return getVariable(ctx, n)
+    static func readLValue(_ ctx: AwkContext, _ lval: AwkLValue) throws -> AwkValue {
+        switch lval {
+        case .variable(let name): return getVariable(ctx, name)
         case .field(let idx):
-            let i = Int(try eval(ctx, idx).asNumber.rounded(.towardZero))
-            return AwkFields.getField(ctx, i)
-        case .arrayAccess(let n, let k):
-            return getArrayElement(ctx, n, try eval(ctx, k).asString)
+            let fieldIdx = Int(try eval(ctx, idx).asNumber.rounded(.towardZero))
+            return AwkFields.getField(ctx, fieldIdx)
+        case .arrayAccess(let name, let key):
+            return getArrayElement(ctx, name, try eval(ctx, key).asString)
         }
     }
 
-    static func writeLValue(_ ctx: AwkContext, _ lv: AwkLValue, _ value: AwkValue) throws {
-        switch lv {
-        case .variable(let n): setVariable(ctx, n, value)
+    static func writeLValue(_ ctx: AwkContext, _ lval: AwkLValue, _ value: AwkValue) throws {
+        switch lval {
+        case .variable(let name): setVariable(ctx, name, value)
         case .field(let idx):
-            let i = Int(try eval(ctx, idx).asNumber.rounded(.towardZero))
-            AwkFields.setField(ctx, i, value)
-        case .arrayAccess(let n, let k):
-            setArrayElement(ctx, n, try eval(ctx, k).asString, value)
+            let fieldIdx = Int(try eval(ctx, idx).asNumber.rounded(.towardZero))
+            AwkFields.setField(ctx, fieldIdx, value)
+        case .arrayAccess(let name, let key):
+            setArrayElement(ctx, name, try eval(ctx, key).asString, value)
         }
     }
 
-    static func evalIncDec(_ ctx: AwkContext, _ lv: AwkLValue, _ delta: Double,
+    static func evalIncDec(_ ctx: AwkContext, _ lval: AwkLValue, _ delta: Double,
                            returnNew: Bool) throws -> AwkValue {
-        let cur = try readLValue(ctx, lv).asNumber
+        let cur = try readLValue(ctx, lval).asNumber
         let new = cur + delta
-        try writeLValue(ctx, lv, .number(new))
+        try writeLValue(ctx, lval, .number(new))
         return .number(returnNew ? new : cur)
     }
 

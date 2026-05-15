@@ -26,9 +26,9 @@ public struct LocalCommand: Command {
         for spec in argv.dropFirst() {
             let name: String
             let value: String?
-            if let eq = spec.firstIndex(of: "=") {
-                name = String(spec[..<eq])
-                value = String(spec[spec.index(after: eq)...])
+            if let equalsIndex = spec.firstIndex(of: "=") {
+                name = String(spec[..<equalsIndex])
+                value = String(spec[spec.index(after: equalsIndex)...])
             } else {
                 name = spec
                 value = nil

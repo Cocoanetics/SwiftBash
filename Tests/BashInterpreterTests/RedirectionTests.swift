@@ -4,10 +4,10 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct RedirectionTests {
 
-    private func makeShell() -> (CapturingShell, String) {
+    private func makeShell() throws -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()
         let dir = (base as NSString).appendingPathComponent("redir-\(UUID())")
-        try! FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = dir
@@ -25,7 +25,7 @@ import Foundation
     // MARK: > (truncate)
 
     @Test func truncateCreatesFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("echo hello > out.txt")
         #expect(readFile("\(dir)/out.txt") == "hello\n")
         #expect(cap.stdout == "",
@@ -33,7 +33,7 @@ import Foundation
     }
 
     @Test func truncateOverwritesExistingContent() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("echo first > out.txt")
         try await cap.shell.run("echo second > out.txt")
         #expect(readFile("\(dir)/out.txt") == "second\n")
@@ -44,7 +44,7 @@ import Foundation
         // A single command that produces multiple writes should still
         // end up with all output in the file (streaming, not clobbered
         // after each write).
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.register(name: "emit") { _ in
             Shell.bashCurrent.stdout("a\n")
             Shell.bashCurrent.stdout("b\n")
@@ -58,7 +58,7 @@ import Foundation
     // MARK: >> (append)
 
     @Test func appendAddsToEnd() async throws {
-        let (_, dir) = makeShell(); defer { cleanup(dir) }
+        let (_, dir) = try makeShell(); defer { cleanup(dir) }
         let cap = CapturingShell()
         cap.shell.environment.workingDirectory = dir
         try await cap.shell.run("echo one > log.txt")
@@ -68,7 +68,7 @@ import Foundation
     }
 
     @Test func appendCreatesIfMissing() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("echo created >> new.txt")
         #expect(readFile("\(dir)/new.txt") == "created\n")
     }
@@ -76,7 +76,7 @@ import Foundation
     // MARK: Stderr redirection
 
     @Test func stderrRedirectToFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.register(name: "warn") { _ in
             Shell.bashCurrent.stdout("out\n")
             Shell.bashCurrent.stderr("err\n")
@@ -93,7 +93,7 @@ import Foundation
     // MARK: 2>&1
 
     @Test func stderrToStdoutSameFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.register(name: "noisy") { _ in
             Shell.bashCurrent.stdout("out\n")
             Shell.bashCurrent.stderr("err\n")
@@ -111,7 +111,7 @@ import Foundation
     @Test func stderrToStdoutReversedOrderDiffers() async throws {
         // `2>&1 > out.txt` dups stderr to stdout BEFORE redirecting
         // stdout → so stderr still points at the caller's stdout.
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.register(name: "noisy") { _ in
             Shell.bashCurrent.stdout("out\n")
             Shell.bashCurrent.stderr("err\n")
@@ -125,7 +125,7 @@ import Foundation
     }
 
     @Test func stdoutToStderr() async throws {
-        let (cap, _) = makeShell()
+        let (cap, _) = try makeShell()
         cap.shell.register(name: "mixed") { _ in
             Shell.bashCurrent.stdout("out\n")
             return .success
@@ -138,13 +138,13 @@ import Foundation
     // MARK: < (stdin from file)
 
     @Test func stdinFromFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try "line1\nline2\n".write(
             toFile: "\(dir)/in.txt", atomically: true, encoding: .utf8)
         cap.shell.register(name: "count") { _ in
-            var n = 0
-            for await _ in Shell.bashCurrent.stdin.lines { n += 1 }
-            Shell.bashCurrent.stdout("\(n)\n")
+            var count = 0
+            for await _ in Shell.bashCurrent.stdin.lines { count += 1 }
+            Shell.bashCurrent.stdout("\(count)\n")
             return .success
         }
         try await cap.shell.run("count < in.txt")
@@ -152,7 +152,7 @@ import Foundation
     }
 
     @Test func stdinFromMissingFileFails() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         // A failed `<file` redirect is a per-command failure now,
         // not script-fatal — bash prints a `script: line N: file:
         // No such file or directory` diagnostic and the simple
@@ -166,10 +166,10 @@ import Foundation
     // MARK: heredoc
 
     @Test func heredocBecomesStdin() async throws {
-        let (cap, _) = makeShell()
+        let (cap, _) = try makeShell()
         cap.shell.register(name: "capture") { _ in
-            let s = await Shell.bashCurrent.stdin.readAllString()
-            Shell.bashCurrent.stdout("[\(s)]")
+            let stdinStr = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout("[\(stdinStr)]")
             return .success
         }
         try await cap.shell.run("""
@@ -182,11 +182,11 @@ import Foundation
     }
 
     @Test func unquotedHeredocExpandsVariables() async throws {
-        let (cap, _) = makeShell()
+        let (cap, _) = try makeShell()
         cap.shell.environment["NAME"] = "oliver"
         cap.shell.register(name: "capture") { _ in
-            let s = await Shell.bashCurrent.stdin.readAllString()
-            Shell.bashCurrent.stdout(s)
+            let stdinStr = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(stdinStr)
             return .success
         }
         try await cap.shell.run("""
@@ -199,11 +199,11 @@ import Foundation
     }
 
     @Test func quotedHeredocStaysLiteral() async throws {
-        let (cap, _) = makeShell()
+        let (cap, _) = try makeShell()
         cap.shell.environment["NAME"] = "oliver"
         cap.shell.register(name: "capture") { _ in
-            let s = await Shell.bashCurrent.stdin.readAllString()
-            Shell.bashCurrent.stdout(s)
+            let stdinStr = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(stdinStr)
             return .success
         }
         try await cap.shell.run("""
@@ -218,14 +218,14 @@ import Foundation
     // MARK: Redirect + pipeline
 
     @Test func redirectInsidePipeline() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.register(name: "emit") { _ in
             Shell.bashCurrent.stdout("one\ntwo\nthree\n")
             return .success
         }
         cap.shell.register(name: "upper") { _ in
-            let s = await Shell.bashCurrent.stdin.readAllString()
-            Shell.bashCurrent.stdout(s.uppercased())
+            let stdinStr = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(stdinStr.uppercased())
             return .success
         }
         try await cap.shell.run("emit | upper > out.txt")
@@ -236,7 +236,7 @@ import Foundation
     // MARK: Compound redirect
 
     @Test func redirectOnForLoop() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("""
             for x in a b c; do
               echo $x
@@ -248,14 +248,14 @@ import Foundation
     }
 
     @Test func redirectOnGroup() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("{ echo a; echo b; } > out.txt")
         #expect(readFile("\(dir)/out.txt") == "a\nb\n")
         #expect(cap.stdout == "")
     }
 
     @Test func redirectOnIf() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("""
             if true; then
               echo yes
@@ -267,7 +267,7 @@ import Foundation
     // MARK: Failure cleanup
 
     @Test func noRedirectLeakAfterCommand() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("echo first > out.txt")
         try await cap.shell.run("echo second")
         // The second `echo` without redirect must reach stdout, proving
@@ -277,7 +277,7 @@ import Foundation
     }
 
     @Test func redirectRestoresOnCommandFailure() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         _ = try? await cap.shell.run("nosuchcommand > out.txt")
         try await cap.shell.run("echo after")
         #expect(cap.stdout == "after\n",
@@ -287,7 +287,7 @@ import Foundation
     // MARK: Assignments + redirect only
 
     @Test func standaloneRedirectCreatesEmptyFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("> empty.txt")
         #expect(FileManager.default.fileExists(atPath: "\(dir)/empty.txt"))
         #expect(readFile("\(dir)/empty.txt") == "")
@@ -297,7 +297,7 @@ import Foundation
     // MARK: Variable-based target
 
     @Test func redirectTargetCanBeVariable() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.environment["LOG"] = "log.txt"
         try await cap.shell.run("echo hi > $LOG")
         #expect(readFile("\(dir)/log.txt") == "hi\n")
@@ -305,7 +305,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func redirectTargetCanUseTilde() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         cap.shell.environment["HOME"] = dir
         try await cap.shell.run("echo hi > ~/greeting.txt")
         #expect(readFile("\(dir)/greeting.txt") == "hi\n")

@@ -49,17 +49,17 @@ import Foundation
         // -s belongs to `more`; here we just verify multi-file headers.
         let cap = makeShell()
         let tag = UUID().uuidString
-        let p1 = NSTemporaryDirectory() + "less-p1-\(tag).txt"
-        let p2 = NSTemporaryDirectory() + "less-p2-\(tag).txt"
+        let path1 = NSTemporaryDirectory() + "less-p1-\(tag).txt"
+        let path2 = NSTemporaryDirectory() + "less-p2-\(tag).txt"
         defer {
-            try? FileManager.default.removeItem(atPath: p1)
-            try? FileManager.default.removeItem(atPath: p2)
+            try? FileManager.default.removeItem(atPath: path1)
+            try? FileManager.default.removeItem(atPath: path2)
         }
-        try await cap.shell.run("printf 'A\\n' > '\(p1)'")
-        try await cap.shell.run("printf 'B\\n' > '\(p2)'")
-        try await cap.shell.run("less '\(p1)' '\(p2)'")
-        #expect(cap.stdout.contains(p1))
-        #expect(cap.stdout.contains(p2))
+        try await cap.shell.run("printf 'A\\n' > '\(path1)'")
+        try await cap.shell.run("printf 'B\\n' > '\(path2)'")
+        try await cap.shell.run("less '\(path1)' '\(path2)'")
+        #expect(cap.stdout.contains(path1))
+        #expect(cap.stdout.contains(path2))
         #expect(cap.stdout.contains("A"))
         #expect(cap.stdout.contains("B"))
     }
@@ -180,7 +180,7 @@ import Foundation
         cap.shell.stdoutIsTTY = true
         // 100 lines, LINES=24 → too tall → pager.
         var body = ""
-        for n in 1...100 { body += "line \(n)\\n" }
+        for num in 1...100 { body += "line \(num)\\n" }
         try await cap.shell.run("printf '\(body)' | less -F")
         let reqs = presenter.requests
         #expect(reqs.count == 1)

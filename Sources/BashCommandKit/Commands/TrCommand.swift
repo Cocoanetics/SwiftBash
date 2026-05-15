@@ -34,72 +34,97 @@ public struct TrCommand: ParsableBashCommand {
 
     public init() {}
 
-    public mutating func execute() async throws -> ExitStatus {
+    /// Decoded option flags + positional SET arguments.
+    private struct Options {
         var deleteMode = false
         var squeezeMode = false
         var complementMode = false
         var positional: [String] = []
+    }
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { positional.append(rawArgv[i]); i += 1 }
-                break
-            }
-            if a.hasPrefix("-"), a.count > 1, a != "-" {
-                for ch in a.dropFirst() {
-                    switch ch {
-                    case "d": deleteMode = true
-                    case "s": squeezeMode = true
-                    case "c", "C": complementMode = true
-                    default:
-                        Shell.bashCurrent.stderr("tr: invalid option -- \(ch)\n")
-                        return ExitStatus(2)
-                    }
-                }
-                i += 1; continue
-            }
-            positional.append(a); i += 1
+    /// Pre-computed per-character behaviour used by ``transform``.
+    fileprivate struct Transform {
+        let set1Members: Set<Character>
+        let set2: [Character]
+        let map: [Character: Character]
+        let squeezeSet: Set<Character>
+        let deleteMode: Bool
+        let squeezeMode: Bool
+        let complementMode: Bool
+
+        func isInSet1(_ char: Character) -> Bool {
+            complementMode ? !set1Members.contains(char) : set1Members.contains(char)
         }
+    }
 
-        guard let set1Raw = positional.first else {
+    public mutating func execute() async throws -> ExitStatus {
+        var options = Options()
+        if let earlyStatus = parseFlags(into: &options) { return earlyStatus }
+
+        guard let set1Raw = options.positional.first else {
             Shell.bashCurrent.stderr("tr: missing SET1\n")
             return ExitStatus(2)
         }
         let set1 = Self.expandSet(set1Raw)
-        let set2: [Character] = positional.count >= 2
-            ? Self.expandSet(positional[1])
+        let set2: [Character] = options.positional.count >= 2
+            ? Self.expandSet(options.positional[1])
             : []
+        let transform = makeTransform(options: options, set1: set1, set2: set2)
+        await runStream(transform: transform)
+        return .success
+    }
 
-        // Build the membership predicate for SET1 (with optional complement).
-        let set1Members = Set(set1)
-        let isInSet1 = { (c: Character) -> Bool in
-            complementMode ? !set1Members.contains(c) : set1Members.contains(c)
-        }
-
-        // Translation map (only meaningful when SET2 is given and not
-        // pure delete). Complement of SET1 with translation maps every
-        // *other* char to the last char of SET2.
-        var map: [Character: Character] = [:]
-        if !deleteMode, !set2.isEmpty {
-            if complementMode {
-                // Bash semantics: every non-SET1 char → last(SET2).
-                // Easier to apply per-char in the transform loop.
-            } else {
-                for (idx, c) in set1.enumerated() {
-                    let r = idx < set2.count ? set2[idx] : set2[set2.count - 1]
-                    map[c] = r
+    private mutating func parseFlags(into options: inout Options) -> ExitStatus? {
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count {
+                    options.positional.append(rawArgv[index])
+                    index += 1
                 }
+                break
+            }
+            if arg.hasPrefix("-"), arg.count > 1, arg != "-" {
+                for char in arg.dropFirst() {
+                    switch char {
+                    case "d": options.deleteMode = true
+                    case "s": options.squeezeMode = true
+                    case "c", "C": options.complementMode = true
+                    default:
+                        Shell.bashCurrent.stderr("tr: invalid option -- \(char)\n")
+                        return ExitStatus(2)
+                    }
+                }
+                index += 1
+                continue
+            }
+            options.positional.append(arg)
+            index += 1
+        }
+        return nil
+    }
+
+    private func makeTransform(options: Options,
+                               set1: [Character],
+                               set2: [Character]) -> Transform {
+        let set1Members = Set(set1)
+        var map: [Character: Character] = [:]
+        if !options.deleteMode, !set2.isEmpty, !options.complementMode {
+            // Bash semantics: every non-SET1 char → last(SET2). We handle
+            // the complement case in the transform loop instead of
+            // pre-computing a map.
+            for (idx, char) in set1.enumerated() {
+                let replacement = idx < set2.count
+                    ? set2[idx]
+                    : set2[set2.count - 1]
+                map[char] = replacement
             }
         }
-
-        // For -s, decide which set determines "runs of repeats". Without
-        // translation it's SET1; with translation it's SET2 (POSIX).
         let squeezeSet: Set<Character>
-        if squeezeMode {
-            if !deleteMode, !set2.isEmpty {
+        if options.squeezeMode {
+            if !options.deleteMode, !set2.isEmpty {
                 squeezeSet = Set(set2)
             } else {
                 squeezeSet = set1Members
@@ -107,51 +132,29 @@ public struct TrCommand: ParsableBashCommand {
         } else {
             squeezeSet = []
         }
+        return Transform(set1Members: set1Members, set2: set2, map: map,
+                         squeezeSet: squeezeSet,
+                         deleteMode: options.deleteMode,
+                         squeezeMode: options.squeezeMode,
+                         complementMode: options.complementMode)
+    }
 
-        // Stream-process input. We accumulate "previous emitted char" so
-        // squeeze can collapse runs across chunk boundaries.
-        var prev: Character? = nil
-
+    private func runStream(transform: Transform) async {
+        var prev: Character?
         for await chunk in Shell.bashCurrent.stdin.bytes {
-            let s = String(decoding: chunk, as: UTF8.self)
+            // tr is byte-stream oriented; binary input is legitimate
+            // (e.g. `tr -d '\0'`), so a lossy decode is appropriate.
+            // swiftlint:disable:next optional_data_string_conversion
+            let text = String(decoding: chunk, as: UTF8.self)
             var out = ""
-            for ch in s {
-                if deleteMode {
-                    if isInSet1(ch) { continue }
-                    if squeezeMode, squeezeSet.contains(ch), prev == ch {
-                        continue
-                    }
-                    out.append(ch); prev = ch
-                    continue
+            for char in text {
+                if let emitted = transform.process(char, previous: prev) {
+                    out.append(emitted)
+                    prev = emitted
                 }
-                if !set2.isEmpty {
-                    let translated: Character
-                    if isInSet1(ch) {
-                        if complementMode {
-                            translated = set2[set2.count - 1]
-                        } else {
-                            translated = map[ch] ?? ch
-                        }
-                    } else {
-                        translated = ch
-                    }
-                    if squeezeMode, squeezeSet.contains(translated),
-                       prev == translated
-                    {
-                        continue
-                    }
-                    out.append(translated); prev = translated
-                    continue
-                }
-                // -s only (no SET2, no -d): squeeze runs in SET1.
-                if squeezeMode, squeezeSet.contains(ch), prev == ch {
-                    continue
-                }
-                out.append(ch); prev = ch
             }
             Shell.bashCurrent.stdout(out)
         }
-        return .success
     }
 
     // MARK: SET expansion
@@ -159,101 +162,20 @@ public struct TrCommand: ParsableBashCommand {
     /// Expand a raw SET into a flat `[Character]`. Handles ranges
     /// (`a-z`), backslash escapes, and POSIX character classes.
     static func expandSet(_ raw: String) -> [Character] {
-        let chars = Array(raw)
-        var i = 0
+        var cursor = SetCursor(chars: Array(raw))
         var out: [Character] = []
-
-        func appendClass(_ name: String) -> Bool {
-            let added: [Character]
-            switch name {
-            case "alnum": added = _trMakeRange("0", "9") + _trMakeRange("a", "z") + _trMakeRange("A", "Z")
-            case "alpha": added = _trMakeRange("a", "z") + _trMakeRange("A", "Z")
-            case "digit": added = _trMakeRange("0", "9")
-            case "lower": added = _trMakeRange("a", "z")
-            case "upper": added = _trMakeRange("A", "Z")
-            case "space": added = [" ", "\t", "\n", "\r", "\u{0B}", "\u{0C}"]
-            case "blank": added = [" ", "\t"]
-            case "punct": added = Array(Self.punctChars)
-            case "xdigit": added = _trMakeRange("0", "9") + _trMakeRange("a", "f") + _trMakeRange("A", "F")
-            case "cntrl":
-                added = (0...31).map { Character(UnicodeScalar($0)!) } + [Character(UnicodeScalar(127))]
-            case "print":
-                added = (32...126).map { Character(UnicodeScalar($0)!) }
-            case "graph":
-                added = (33...126).map { Character(UnicodeScalar($0)!) }
-            default: return false
-            }
-            out.append(contentsOf: added)
-            return true
-        }
-
-        // Expand `[:class:]` if at the cursor; advances `i` and returns true.
-        func tryClass() -> Bool {
-            // `[:` ... `:]`
-            guard i + 1 < chars.count, chars[i] == "[", chars[i + 1] == ":"
-            else { return false }
-            var j = i + 2
-            var name = ""
-            while j < chars.count, chars[j] != ":" {
-                name.append(chars[j]); j += 1
-            }
-            guard j + 1 < chars.count, chars[j] == ":", chars[j + 1] == "]"
-            else { return false }
-            if appendClass(name) {
-                i = j + 2
-                return true
-            }
-            return false
-        }
-
-        func decodeEscape() -> Character? {
-            guard i + 1 < chars.count else { return nil }
-            let n = chars[i + 1]
-            i += 2
-            switch n {
-            case "n":  return "\n"
-            case "t":  return "\t"
-            case "r":  return "\r"
-            case "\\": return "\\"
-            case "'":  return "'"
-            case "\"": return "\""
-            case "0":  return "\0"
-            default:   return n
-            }
-        }
-
-        func nextChar() -> Character? {
-            guard i < chars.count else { return nil }
-            if chars[i] == "\\" {
-                return decodeEscape()
-            }
-            let c = chars[i]
-            i += 1
-            return c
-        }
-
-        while i < chars.count {
-            if tryClass() { continue }
-            guard let start = nextChar() else { break }
+        while !cursor.isAtEnd {
+            if cursor.consumePosixClass(into: &out) { continue }
+            guard let start = cursor.nextChar() else { break }
             // Range form `a-z`: peek for the `-` and a successor.
-            if i < chars.count, chars[i] == "-",
-               i + 1 < chars.count, chars[i + 1] != "-" {
-                i += 1  // eat '-'
-                guard let end = nextChar() else {
+            if cursor.isRangeFollowing {
+                cursor.advance()
+                guard let end = cursor.nextChar() else {
                     out.append(start)
                     out.append("-")
                     continue
                 }
-                if let lo = start.asciiValue, let hi = end.asciiValue, lo <= hi {
-                    for v in lo...hi {
-                        out.append(Character(UnicodeScalar(v)))
-                    }
-                } else {
-                    // Non-ASCII range: just emit endpoints, conservative.
-                    out.append(start)
-                    out.append("-")
-                    out.append(end)
-                }
+                appendRange(start: start, end: end, into: &out)
             } else {
                 out.append(start)
             }
@@ -261,19 +183,173 @@ public struct TrCommand: ParsableBashCommand {
         return out
     }
 
-    private static let punctChars: [Character] = Array(
+    private static func appendRange(start: Character,
+                                    end: Character,
+                                    into out: inout [Character]) {
+        if let low = start.asciiValue, let high = end.asciiValue, low <= high {
+            for value in low...high {
+                out.append(Character(UnicodeScalar(value)))
+            }
+        } else {
+            // Non-ASCII range: just emit endpoints, conservative.
+            out.append(start)
+            out.append("-")
+            out.append(end)
+        }
+    }
+
+    static let punctChars: [Character] = Array(
         "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 }
 
-private extension ClosedRange where Bound == Character {
-    /// Inclusive range `"a"..."z"` materialised to `[Character]`.
-    static func char(_ lo: Character, _ hi: Character) -> [Character] {
-        guard let a = lo.asciiValue, let b = hi.asciiValue else { return [] }
-        return (a...b).map { Character(UnicodeScalar($0)) }
+// MARK: - Transform application
+
+extension TrCommand.Transform {
+    /// Apply this transform to one character. Returns the character to
+    /// emit (after translation), or `nil` if the character should be
+    /// dropped (delete mode or squeezed run).
+    fileprivate func process(_ char: Character,
+                             previous: Character?) -> Character? {
+        if deleteMode {
+            if isInSet1(char) { return nil }
+            if squeezeMode, squeezeSet.contains(char), previous == char {
+                return nil
+            }
+            return char
+        }
+        if !set2.isEmpty {
+            let translated: Character
+            if isInSet1(char) {
+                if complementMode {
+                    translated = set2[set2.count - 1]
+                } else {
+                    translated = map[char] ?? char
+                }
+            } else {
+                translated = char
+            }
+            if squeezeMode, squeezeSet.contains(translated),
+               previous == translated {
+                return nil
+            }
+            return translated
+        }
+        // -s only (no SET2, no -d): squeeze runs in SET1.
+        if squeezeMode, squeezeSet.contains(char), previous == char {
+            return nil
+        }
+        return char
     }
 }
 
-private func _trMakeRange(_ lo: Character, _ hi: Character) -> [Character] {
-    guard let a = lo.asciiValue, let b = hi.asciiValue, a <= b else { return [] }
-    return (a...b).map { Character(UnicodeScalar($0)) }
+// MARK: - SET cursor
+
+/// Walks the raw bytes of a `tr` SET expression. Encapsulates the
+/// `\<esc>`, `[:class:]`, and range-peek logic so the main expansion
+/// loop reads as a state machine.
+private struct SetCursor {
+    let chars: [Character]
+    var index: Int = 0
+
+    var isAtEnd: Bool { index >= chars.count }
+
+    var isRangeFollowing: Bool {
+        index < chars.count
+            && chars[index] == "-"
+            && index + 1 < chars.count
+            && chars[index + 1] != "-"
+    }
+
+    mutating func advance() { index += 1 }
+
+    mutating func nextChar() -> Character? {
+        guard index < chars.count else { return nil }
+        if chars[index] == "\\" {
+            return decodeEscape()
+        }
+        let char = chars[index]
+        index += 1
+        return char
+    }
+
+    mutating func decodeEscape() -> Character? {
+        guard index + 1 < chars.count else { return nil }
+        let next = chars[index + 1]
+        index += 2
+        switch next {
+        case "n":  return "\n"
+        case "t":  return "\t"
+        case "r":  return "\r"
+        case "\\": return "\\"
+        case "'":  return "'"
+        case "\"": return "\""
+        case "0":  return "\0"
+        default:   return next
+        }
+    }
+
+    /// If the cursor is at `[:class:]`, consume it and append the
+    /// matching characters; otherwise leave the cursor untouched.
+    mutating func consumePosixClass(into out: inout [Character]) -> Bool {
+        guard index + 1 < chars.count,
+              chars[index] == "[", chars[index + 1] == ":"
+        else { return false }
+        var probe = index + 2
+        var name = ""
+        while probe < chars.count, chars[probe] != ":" {
+            name.append(chars[probe])
+            probe += 1
+        }
+        guard probe + 1 < chars.count,
+              chars[probe] == ":", chars[probe + 1] == "]"
+        else { return false }
+        guard let chars = SetCursor.classCharacters(name) else { return false }
+        out.append(contentsOf: chars)
+        index = probe + 2
+        return true
+    }
+
+    // The switch tabulates 11 POSIX character classes; each case is
+    // a one-liner, so splitting into helpers would obscure the table.
+    // swiftlint:disable:next cyclomatic_complexity
+    static func classCharacters(_ name: String) -> [Character]? {
+        switch name {
+        case "alnum":
+            return makeRange("0", "9")
+                + makeRange("a", "z")
+                + makeRange("A", "Z")
+        case "alpha":
+            return makeRange("a", "z") + makeRange("A", "Z")
+        case "digit": return makeRange("0", "9")
+        case "lower": return makeRange("a", "z")
+        case "upper": return makeRange("A", "Z")
+        case "space":
+            return [" ", "\t", "\n", "\r", "\u{0B}", "\u{0C}"]
+        case "blank": return [" ", "\t"]
+        case "punct": return TrCommand.punctChars
+        case "xdigit":
+            return makeRange("0", "9")
+                + makeRange("a", "f")
+                + makeRange("A", "F")
+        case "cntrl":
+            // swiftlint:disable:next force_unwrapping
+            return (0...31).map { Character(UnicodeScalar($0)!) }
+                + [Character(UnicodeScalar(127))]
+        case "print":
+            // swiftlint:disable:next force_unwrapping
+            return (32...126).map { Character(UnicodeScalar($0)!) }
+        case "graph":
+            // swiftlint:disable:next force_unwrapping
+            return (33...126).map { Character(UnicodeScalar($0)!) }
+        default: return nil
+        }
+    }
+
+    static func makeRange(_ low: Character, _ high: Character) -> [Character] {
+        guard let lowByte = low.asciiValue,
+              let highByte = high.asciiValue,
+              lowByte <= highByte
+        else { return [] }
+        return (lowByte...highByte).map { Character(UnicodeScalar($0)) }
+    }
 }

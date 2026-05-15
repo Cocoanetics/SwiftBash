@@ -55,8 +55,8 @@ extension JSRuntime {
             // exists in Security.framework on Apple platforms.
             var rng = SystemRandomNumberGenerator()
             var bytes = [UInt8](repeating: 0, count: max(0, count))
-            for i in 0..<bytes.count {
-                bytes[i] = UInt8.random(in: 0...255, using: &rng)
+            for index in 0..<bytes.count {
+                bytes[index] = UInt8.random(in: 0...255, using: &rng)
             }
             let bufCtor = self.context.objectForKeyedSubscript("Buffer")!
             return bufCtor.invokeMethod("from", withArguments: [bytes])
@@ -74,7 +74,7 @@ extension JSRuntime {
             let bBytes = Self.bytesFor(args[1])
             guard aBytes.count == bBytes.count else { return false }
             var diff: UInt8 = 0
-            for i in 0..<aBytes.count { diff |= aBytes[i] ^ bBytes[i] }
+            for index in 0..<aBytes.count { diff |= aBytes[index] ^ bBytes[index] }
             return diff == 0
         }
         crypto.setObject(timingSafeEqual, forKeyedSubscript: "timingSafeEqual")
@@ -115,6 +115,7 @@ extension JSRuntime {
                 case "hex":     return bytes.map { String(format: "%02x", $0) }.joined()
                 case "base64":  return Data(bytes).base64EncodedString()
                 case "utf-8", "utf8":
+                                // swiftlint:disable:next optional_data_string_conversion
                                 return String(decoding: bytes, as: UTF8.self)
                 default:        return bytes.map { String(format: "%02x", $0) }.joined()
                 }
@@ -161,6 +162,10 @@ private final class HashState {
         buffer.append(contentsOf: bytes)
     }
 
+    // Two algorithm switches (HMAC + plain hash) drive the branch
+    // count; each branch is a distinct CryptoKit type, so splitting
+    // them out doesn't reduce complexity.
+    // swiftlint:disable:next cyclomatic_complexity
     func finalize() -> [UInt8]? {
         let data = Data(buffer)
         if let key {

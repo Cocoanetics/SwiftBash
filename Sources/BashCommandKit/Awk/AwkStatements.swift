@@ -7,8 +7,8 @@ import Foundation
 enum AwkStatements {
 
     static func executeBlock(_ ctx: AwkContext, _ stmts: [AwkStmt]) throws {
-        for s in stmts {
-            try executeStmt(ctx, s)
+        for stmt in stmts {
+            try executeStmt(ctx, stmt)
             if shouldBreak(ctx) { break }
         }
     }
@@ -18,25 +18,26 @@ enum AwkStatements {
         || ctx.loopBreak || ctx.loopContinue || ctx.hasReturn
     }
 
-    static func executeStmt(_ ctx: AwkContext, _ s: AwkStmt) throws {
-        switch s {
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    static func executeStmt(_ ctx: AwkContext, _ stmt: AwkStmt) throws {
+        switch stmt {
         case .block(let inner):
             try executeBlock(ctx, inner)
-        case .exprStmt(let e):
-            _ = try AwkExpressions.eval(ctx, e)
+        case .exprStmt(let expr):
+            _ = try AwkExpressions.eval(ctx, expr)
         case .print(let args, let output):
             try executePrint(ctx, args, output)
         case .printf(let format, let args, let output):
             try executePrintf(ctx, format, args, output)
-        case .ifStmt(let c, let t, let e):
-            if try AwkExpressions.eval(ctx, c).isTruthy {
-                try executeStmt(ctx, t)
-            } else if let e { try executeStmt(ctx, e) }
-        case .whileStmt(let c, let body):
-            var n = 0
-            while try AwkExpressions.eval(ctx, c).isTruthy {
-                n += 1
-                if n > ctx.maxIterations {
+        case .ifStmt(let cond, let thenStmt, let elseStmt):
+            if try AwkExpressions.eval(ctx, cond).isTruthy {
+                try executeStmt(ctx, thenStmt)
+            } else if let elseStmt { try executeStmt(ctx, elseStmt) }
+        case .whileStmt(let cond, let body):
+            var count = 0
+            while try AwkExpressions.eval(ctx, cond).isTruthy {
+                count += 1
+                if count > ctx.maxIterations {
                     throw AwkRuntimeError("while loop exceeded max iterations")
                 }
                 ctx.loopContinue = false
@@ -44,40 +45,41 @@ enum AwkStatements {
                 if ctx.loopBreak { ctx.loopBreak = false; break }
                 if ctx.shouldExit || ctx.shouldNext || ctx.hasReturn { break }
             }
-        case .doWhile(let body, let c):
-            var n = 0
+        case .doWhile(let body, let cond):
+            var count = 0
             repeat {
-                n += 1
-                if n > ctx.maxIterations {
+                count += 1
+                if count > ctx.maxIterations {
                     throw AwkRuntimeError("do-while loop exceeded max iterations")
                 }
                 ctx.loopContinue = false
                 try executeStmt(ctx, body)
                 if ctx.loopBreak { ctx.loopBreak = false; break }
                 if ctx.shouldExit || ctx.shouldNext || ctx.hasReturn { break }
-            } while try AwkExpressions.eval(ctx, c).isTruthy
+            } while try AwkExpressions.eval(ctx, cond).isTruthy
+            // swiftlint:disable:next identifier_name - `init_` mirrors Swift's reserved word
         case .forStmt(let init_, let cond, let upd, let body):
-            if let i = init_ { _ = try AwkExpressions.eval(ctx, i) }
-            var n = 0
+            if let initExpr = init_ { _ = try AwkExpressions.eval(ctx, initExpr) }
+            var count = 0
             while true {
-                if let c = cond {
-                    if !(try AwkExpressions.eval(ctx, c).isTruthy) { break }
+                if let condExpr = cond {
+                    if !(try AwkExpressions.eval(ctx, condExpr).isTruthy) { break }
                 }
-                n += 1
-                if n > ctx.maxIterations {
+                count += 1
+                if count > ctx.maxIterations {
                     throw AwkRuntimeError("for loop exceeded max iterations")
                 }
                 ctx.loopContinue = false
                 try executeStmt(ctx, body)
                 if ctx.loopBreak { ctx.loopBreak = false; break }
                 if ctx.shouldExit || ctx.shouldNext || ctx.hasReturn { break }
-                if let u = upd { _ = try AwkExpressions.eval(ctx, u) }
+                if let updExpr = upd { _ = try AwkExpressions.eval(ctx, updExpr) }
             }
-        case .forIn(let v, let arr, let body):
+        case .forIn(let varName, let arr, let body):
             let resolved = AwkExpressions.resolveArray(ctx, arr)
             guard let array = ctx.arrays[resolved] else { return }
             for key in array.keys {
-                ctx.vars[v] = .string(key)
+                ctx.vars[varName] = .string(key)
                 ctx.loopContinue = false
                 try executeStmt(ctx, body)
                 if ctx.loopBreak { ctx.loopBreak = false; break }
@@ -89,18 +91,18 @@ enum AwkStatements {
         case .nextfile: ctx.shouldNextFile = true
         case .exit(let code):
             ctx.shouldExit = true
-            if let c = code {
-                ctx.exitCode = Int(try AwkExpressions.eval(ctx, c).asNumber.rounded(.towardZero))
+            if let codeExpr = code {
+                ctx.exitCode = Int(try AwkExpressions.eval(ctx, codeExpr).asNumber.rounded(.towardZero))
             }
-        case .return_(let v):
+        case .return_(let value):
             ctx.hasReturn = true
-            ctx.returnValue = v != nil ? try AwkExpressions.eval(ctx, v!) : .empty
+            ctx.returnValue = value != nil ? try AwkExpressions.eval(ctx, value!) : .empty
         case .delete(let target):
             switch target {
-            case .arrayAccess(let n, let k):
-                AwkExpressions.deleteArrayElement(ctx, n, try AwkExpressions.eval(ctx, k).asString)
-            case .variable(let n):
-                AwkExpressions.deleteArray(ctx, n)
+            case .arrayAccess(let name, let key):
+                AwkExpressions.deleteArrayElement(ctx, name, try AwkExpressions.eval(ctx, key).asString)
+            case .variable(let name):
+                AwkExpressions.deleteArray(ctx, name)
             case .field:
                 throw AwkRuntimeError("cannot delete a field")
             }
@@ -111,9 +113,9 @@ enum AwkStatements {
 
     private static func executePrint(_ ctx: AwkContext, _ args: [AwkExpr], _ output: AwkOutput?) throws {
         var pieces: [String] = []
-        for a in args {
-            let v = try AwkExpressions.eval(ctx, a)
-            pieces.append(formatForPrint(ctx, v))
+        for arg in args {
+            let value = try AwkExpressions.eval(ctx, arg)
+            pieces.append(formatForPrint(ctx, value))
         }
         let text = pieces.joined(separator: ctx.OFS) + ctx.ORS
         try writeOutput(ctx, output, text)
@@ -123,19 +125,19 @@ enum AwkStatements {
                                       _ args: [AwkExpr], _ output: AwkOutput?) throws {
         let fmt = try AwkExpressions.eval(ctx, format).asString
         var values: [AwkValue] = []
-        for a in args { values.append(try AwkExpressions.eval(ctx, a)) }
+        for arg in args { values.append(try AwkExpressions.eval(ctx, arg)) }
         try writeOutput(ctx, output, AwkPrintf.format(fmt, values: values))
     }
 
     /// Numbers print exactly when integral; otherwise via OFMT.
-    private static func formatForPrint(_ ctx: AwkContext, _ v: AwkValue) -> String {
-        switch v {
-        case .number(let n):
-            if n == n.rounded() && abs(n) < Double(Int64.max) {
-                return String(Int64(n))
+    private static func formatForPrint(_ ctx: AwkContext, _ value: AwkValue) -> String {
+        switch value {
+        case .number(let num):
+            if num == num.rounded() && abs(num) < Double(Int64.max) {
+                return String(Int64(num))
             }
-            return AwkPrintf.format(ctx.OFMT, values: [.number(n)])
-        case .string(let s): return s
+            return AwkPrintf.format(ctx.OFMT, values: [.number(num)])
+        case .string(let str): return str
         }
     }
 

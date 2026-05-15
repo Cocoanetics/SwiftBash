@@ -1,3 +1,6 @@
+// Public API surface for the bash interpreter — splitting would
+// scatter the Shell type's documented surface across multiple files.
+// swiftlint:disable file_length
 import Foundation
 import BashSyntax
 import ShellKit
@@ -28,7 +31,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// Source range of the simple command currently being dispatched —
     /// used to render `script.sh: line N:` prefixes on errors so they
     /// match bash's formatting. Set/cleared by ``executeSimpleCommand``.
-    public internal(set) var currentCommandRange: Range<Int>? = nil
+    public internal(set) var currentCommandRange: Range<Int>?
 
     /// Compute the 1-indexed line number containing `position` in
     /// ``currentSource``. Returns 1 for any out-of-range position.
@@ -36,8 +39,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         let chars = Array(currentSource)
         let limit = min(max(0, position), chars.count)
         var line = 1
-        for i in 0..<limit {
-            if chars[i] == "\n" { line += 1 }
+        for offset in 0..<limit where chars[offset] == "\n" {
+            line += 1
         }
         return line
     }
@@ -55,8 +58,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// is `true`, the line number is suppressed since each REPL
     /// input is its own implicit line 1.
     public func errorLocationPrefix() -> String {
-        if let r = currentCommandRange, !interactive {
-            return "\(scriptName): line \(lineNumber(for: r.lowerBound)): "
+        if let range = currentCommandRange, !interactive {
+            return "\(scriptName): line \(lineNumber(for: range.lowerBound)): "
         }
         return "\(scriptName): "
     }
@@ -96,10 +99,10 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     public var shoptOptions: [String: Bool] = [
         "nullglob": false,    // unmatched globs disappear (vs. literal pass-through)
         "globstar": false,    // `**` matches across directory boundaries
-        "extglob":  false,    // enables `?(p) *(p) +(p) @(p) !(p)` patterns
+        "extglob": false,    // enables `?(p) *(p) +(p) @(p) !(p)` patterns
         "nocaseglob": false,  // case-insensitive globbing
-        "dotglob":  false,    // include leading-dot files in globs
-        "nocasematch": false, // case-insensitive `[[ s == p ]]` and `case`
+        "dotglob": false,    // include leading-dot files in globs
+        "nocasematch": false // case-insensitive `[[ s == p ]]` and `case`
     ]
 
     /// Counter tracking nested "checked" contexts in which `errexit`
@@ -157,7 +160,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// `nil` — the default — means no host UI is available, so the
     /// builtins fall back to non-interactive behaviour (real `less`
     /// on a non-TTY just cats its input).
-    public var interactivePresenter: (any InteractivePresenter)? = nil
+    public var interactivePresenter: (any InteractivePresenter)?
 
     /// `true` when this shell's `stdout` writes to an interactive
     /// surface (a terminal emulator, a SwiftUI text view, …) rather
@@ -191,8 +194,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
     /// One pending `<(cmd)` or `>(cmd)` substitution.
     struct ProcessSub: Sendable {
-        enum Kind: Sendable { case input, output }
-        let kind: Kind
+        let kind: ProcessSubKind
         let path: String
         let consumer: Node?  // for `.output`, the command to feed
     }
@@ -314,8 +316,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
                             stdout: OutputSink? = nil,
                             stderr: OutputSink? = nil,
                             commands: [String: Command] = Shell.defaultCommands(),
-                            fileSystem: FileSystem = RealFileSystem())
-    {
+                            fileSystem: FileSystem = RealFileSystem()) {
         // `stdin:` is passed explicitly to disambiguate this call from
         // the convenience init (which doesn't have a `stdin:` parameter)
         // — without it the overload set is ambiguous between the two.
@@ -337,10 +338,9 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         // variables a bash shell normally sets at startup but that a
         // parent process *doesn't* pass down. Caller-supplied values
         // win.
-        for (key, value) in Self.runtimeEnvDefaults() {
-            if self.environment.variables[key] == nil {
-                self.environment.variables[key] = value
-            }
+        for (key, value) in Self.runtimeEnvDefaults()
+            where self.environment.variables[key] == nil {
+            self.environment.variables[key] = value
         }
         if self.environment.variables["PWD"] == nil {
             self.environment.variables["PWD"] = self.environment.workingDirectory
@@ -353,24 +353,24 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// always wins.
     private static func runtimeEnvDefaults() -> [(String, String)] {
         return [
-            ("PATH",      "/usr/bin:/bin"),
-            ("HOME",      "/home/\(HostInfo.synthetic.userName)"),
-            ("USER",      HostInfo.synthetic.userName),
-            ("LOGNAME",   HostInfo.synthetic.userName),
-            ("HOSTNAME",  HostInfo.synthetic.hostName),
-            ("SHELL",     "/bin/bash"),
-            ("TERM",      "dumb"),
-            ("LANG",      "C.UTF-8"),
-            ("LC_ALL",    "C.UTF-8"),
-            ("IFS",       " \t\n"),
-            ("OPTIND",    "1"),
-            ("OSTYPE",    "darwin"),
-            ("MACHTYPE",  "\(HostInfo.synthetic.machine)-apple-darwin"),
-            ("HOSTTYPE",  HostInfo.synthetic.machine),
-            ("PS1",       #"\s-\v\$ "#),
-            ("PS2",       "> "),
-            ("PS4",       "+ "),
-            ("SHLVL",     "1"),
+            ("PATH", "/usr/bin:/bin"),
+            ("HOME", "/home/\(HostInfo.synthetic.userName)"),
+            ("USER", HostInfo.synthetic.userName),
+            ("LOGNAME", HostInfo.synthetic.userName),
+            ("HOSTNAME", HostInfo.synthetic.hostName),
+            ("SHELL", "/bin/bash"),
+            ("TERM", "dumb"),
+            ("LANG", "C.UTF-8"),
+            ("LC_ALL", "C.UTF-8"),
+            ("IFS", " \t\n"),
+            ("OPTIND", "1"),
+            ("OSTYPE", "darwin"),
+            ("MACHTYPE", "\(HostInfo.synthetic.machine)-apple-darwin"),
+            ("HOSTTYPE", HostInfo.synthetic.machine),
+            ("PS1", #"\s-\v\$ "#),
+            ("PS2", "> "),
+            ("PS4", "+ "),
+            ("SHLVL", "1")
         ]
     }
 
@@ -432,10 +432,10 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             GetoptsCommand(),
             BashCommand(name: "bash"),
             BashCommand(name: "sh"),
-            BashCommand(name: "dash"),
+            BashCommand(name: "dash")
         ]
         var dict: [String: Command] = [:]
-        for b in all { dict[b.name] = b }
+        for builtin in all { dict[builtin.name] = builtin }
         return dict
     }
 
@@ -505,3 +505,6 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
 // String-based callers keep working because `OutputSink` provides
 // `callAsFunction(_ text: String)` — no changes needed in commands.
+
+/// Direction of a `<(cmd)` / `>(cmd)` process substitution.
+enum ProcessSubKind: Sendable { case input, output }

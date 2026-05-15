@@ -67,8 +67,7 @@ public struct PagerRequest: Sendable {
                 startAtEnd: Bool = false,
                 lineNumbers: Bool = false,
                 ignoreCaseInSearch: Bool = false,
-                chopLongLines: Bool = false)
-    {
+                chopLongLines: Bool = false) {
         self.content = content
         self.mode = mode
         self.title = title

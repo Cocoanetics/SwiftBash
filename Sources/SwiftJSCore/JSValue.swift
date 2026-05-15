@@ -109,12 +109,12 @@ public final class JSValue {
     // MARK: - Type predicates
 
     public var isUndefined: Bool { JSValueIsUndefined(context.raw, raw) }
-    public var isNull: Bool      { JSValueIsNull(context.raw, raw) }
-    public var isBoolean: Bool   { JSValueIsBoolean(context.raw, raw) }
-    public var isNumber: Bool    { JSValueIsNumber(context.raw, raw) }
-    public var isString: Bool    { JSValueIsString(context.raw, raw) }
-    public var isObject: Bool    { JSValueIsObject(context.raw, raw) }
-    public var isArray: Bool     { JSValueIsArray(context.raw, raw) }
+    public var isNull: Bool { JSValueIsNull(context.raw, raw) }
+    public var isBoolean: Bool { JSValueIsBoolean(context.raw, raw) }
+    public var isNumber: Bool { JSValueIsNumber(context.raw, raw) }
+    public var isString: Bool { JSValueIsString(context.raw, raw) }
+    public var isObject: Bool { JSValueIsObject(context.raw, raw) }
+    public var isArray: Bool { JSValueIsArray(context.raw, raw) }
 
     // MARK: - Conversions to Swift natives
 
@@ -132,8 +132,8 @@ public final class JSValue {
 
     public func toNumber() -> Double {
         var exception: JSValueRef?
-        let n = JSValueToNumber(context.raw, raw, &exception)
-        return exception == nil ? n : .nan
+        let num = JSValueToNumber(context.raw, raw, &exception)
+        return exception == nil ? num : .nan
     }
 
     /// Implements the JS `ToInt32` abstract operation
@@ -150,14 +150,14 @@ public final class JSValue {
     /// host process whenever a script handed us a huge Number
     /// (e.g. through `process.exit(2 ** 53)` or a timer ID).
     public func toInt32() -> Int32 {
-        let n = toNumber()
-        guard n.isFinite else { return 0 }
-        let truncated = n.rounded(.towardZero)
+        let num = toNumber()
+        guard num.isFinite else { return 0 }
+        let truncated = num.rounded(.towardZero)
         let mod: Double = 4_294_967_296            // 2^32
-        var u = truncated.truncatingRemainder(dividingBy: mod)
-        if u < 0 { u += mod }                       // wrap to [0, 2^32)
-        if u >= 2_147_483_648 { u -= mod }          // 2^31 → negative
-        return Int32(u)
+        var unsigned = truncated.truncatingRemainder(dividingBy: mod)
+        if unsigned < 0 { unsigned += mod }                       // wrap to [0, 2^32)
+        if unsigned >= 2_147_483_648 { unsigned -= mod }          // 2^31 → negative
+        return Int32(unsigned)
     }
 
     public func toBool() -> Bool {
@@ -175,9 +175,9 @@ public final class JSValue {
 
         var out: [Any] = []
         out.reserveCapacity(length)
-        for i in 0..<length {
+        for idx in 0..<length {
             guard let elt = JSObjectGetPropertyAtIndex(context.raw, obj,
-                                                       UInt32(i), nil)
+                                                       UInt32(idx), nil)
             else { out.append(NSNull()); continue }
             out.append(JSValue(ref: elt, in: context).toSwiftAny() ?? NSNull())
         }
@@ -222,8 +222,8 @@ public final class JSValue {
 
         var out: [String: Any] = [:]
         out.reserveCapacity(count)
-        for i in 0..<count {
-            guard let nameRef = JSPropertyNameArrayGetNameAtIndex(names, i)
+        for idx in 0..<count {
+            guard let nameRef = JSPropertyNameArrayGetNameAtIndex(names, idx)
             else { continue }
             let key = JSValue.string(from: nameRef)
             var exception: JSValueRef?
@@ -241,12 +241,12 @@ public final class JSValue {
     /// and by the trampoline when bridging native return values.
     public func toSwiftAny() -> Any? {
         if isUndefined { return nil }
-        if isNull      { return NSNull() }
-        if isBoolean   { return toBool() }
-        if isNumber    { return toNumber() }
-        if isString    { return toString() ?? "" }
-        if isArray     { return toArray() ?? [] }
-        if isObject    { return toDictionary() ?? [:] }
+        if isNull { return NSNull() }
+        if isBoolean { return toBool() }
+        if isNumber { return toNumber() }
+        if isString { return toString() ?? "" }
+        if isArray { return toArray() ?? [] }
+        if isObject { return toDictionary() ?? [:] }
         return nil
     }
 
@@ -298,18 +298,18 @@ public final class JSValue {
     /// raises.
     @discardableResult
     public func call(withArguments arguments: [Any]) -> JSValue? {
-        guard let fn = JSValueToObject(context.raw, raw, nil) else { return nil }
+        guard let fnObj = JSValueToObject(context.raw, raw, nil) else { return nil }
         let argRefs = arguments.compactMap {
             JSValue.bridgeToJS($0, in: context)
         }
         var argRefsBuffer: [JSValueRef?] = argRefs
         var exception: JSValueRef?
         let result = argRefsBuffer.withUnsafeMutableBufferPointer { buf in
-            JSObjectCallAsFunction(context.raw, fn, nil,
+            JSObjectCallAsFunction(context.raw, fnObj, nil,
                                    buf.count, buf.baseAddress, &exception)
         }
-        if let ex = exception {
-            context.exception = JSValue(ref: ex, in: context)
+        if let raisedException = exception {
+            context.exception = JSValue(ref: raisedException, in: context)
             return nil
         }
         return result.map { JSValue(ref: $0, in: context) }
@@ -329,7 +329,7 @@ public final class JSValue {
         guard let propRef = JSObjectGetProperty(context.raw, receiver,
                                                 methodNameRef, &exception),
               exception == nil,
-              let fn = JSValueToObject(context.raw, propRef, nil)
+              let fnObj = JSValueToObject(context.raw, propRef, nil)
         else { return nil }
 
         let argRefs = arguments.compactMap {
@@ -337,11 +337,11 @@ public final class JSValue {
         }
         var argRefsBuffer: [JSValueRef?] = argRefs
         let result = argRefsBuffer.withUnsafeMutableBufferPointer { buf in
-            JSObjectCallAsFunction(context.raw, fn, receiver,
+            JSObjectCallAsFunction(context.raw, fnObj, receiver,
                                    buf.count, buf.baseAddress, &exception)
         }
-        if let ex = exception {
-            context.exception = JSValue(ref: ex, in: context)
+        if let raisedException = exception {
+            context.exception = JSValue(ref: raisedException, in: context)
             return nil
         }
         return result.map { JSValue(ref: $0, in: context) }
@@ -361,46 +361,12 @@ public final class JSValue {
             JSObjectCallAsConstructor(context.raw, ctor,
                                       buf.count, buf.baseAddress, &exception)
         }
-        if let ex = exception {
-            context.exception = JSValue(ref: ex, in: context)
+        if let raisedException = exception {
+            context.exception = JSValue(ref: raisedException, in: context)
             return nil
         }
         return result.map { JSValue(ref: $0, in: context) }
     }
 
-    // MARK: - Internal helpers
-
-    /// Pull a Swift `String` out of a `JSStringRef`.
-    /// Pull a Swift `String` out of a `JSStringRef`, preserving any
-    /// embedded NUL bytes the JavaScript value contains.
-    /// `JSStringGetUTF8CString` writes UTF-8 bytes followed by a
-    /// trailing NUL and returns the total byte count *including* that
-    /// terminator. Decoding from `[byte 0, written - 1)` keeps the
-    /// JS string's own NULs in the result, where `String(cString:)`
-    /// would silently truncate at the first one.
-    static func string(from ref: JSStringRef) -> String {
-        let maxLen = JSStringGetMaximumUTF8CStringSize(ref)
-        guard maxLen > 0 else { return "" }
-        var buffer = [UInt8](repeating: 0, count: maxLen)
-        let written = buffer.withUnsafeMutableBufferPointer { buf -> Int in
-            guard let base = buf.baseAddress else { return 0 }
-            return base.withMemoryRebound(to: CChar.self, capacity: maxLen) { cBase in
-                JSStringGetUTF8CString(ref, cBase, maxLen)
-            }
-        }
-        let byteCount = max(0, written - 1)
-        return String(decoding: buffer.prefix(byteCount), as: UTF8.self)
-    }
-
-    /// Stringify any reasonable key shape — `String`, `NSString`,
-    /// `Substring`, `JSValue` (whose `toString()` we call). Used by
-    /// the keyed subscript accessors.
-    static func stringKey(from key: Any) -> String {
-        if let s = key as? String { return s }
-        if let s = key as? NSString { return s as String }
-        if let s = key as? Substring { return String(s) }
-        if let v = key as? JSValue { return v.toString() ?? "" }
-        return String(describing: key)
-    }
 }
 #endif  // !os(Windows)

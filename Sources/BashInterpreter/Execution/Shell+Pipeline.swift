@@ -3,34 +3,38 @@ import BashSyntax
 
 extension Shell {
 
-    /// Execute a `pipeline` node. Parts alternate between commands and
-    /// `.pipe("|" | "|&")` separators, with an optional leading
-    /// `.reservedWord("!")` that inverts the final exit status.
-    ///
-    /// Each stage runs in its own `Task` inside a `TaskGroup`, wired
-    /// together by fresh ``OutputSink``s. Upstream stages write into a
-    /// sink; the next stage's `stdin` is the sink's `bytes` stream.
-    /// Downstream termination cancels upstream producers.
+    // Execute a `pipeline` node. Parts alternate between commands and
+    // `.pipe("|" | "|&")` separators, with an optional leading
+    // `.reservedWord("!")` that inverts the final exit status.
+    //
+    // Each stage runs in its own `Task` inside a `TaskGroup`, wired
+    // together by fresh ``OutputSink``s. Upstream stages write into a
+    // sink; the next stage's `stdin` is the sink's `bytes` stream.
+    // Downstream termination cancels upstream producers.
+    //
+    // Per-stage closure + TaskGroup orchestration; splitting the loop
+    // would scatter the inter-stage stdio plumbing which has to stay
+    // local to the closure that captures it.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     func executePipeline(parts: [Node]) async throws -> ExitStatus {
-        var i = 0
+        var index = 0
         var invert = false
         if !parts.isEmpty,
-           case .reservedWord(let w) = parts[0].kind, w == "!"
-        {
+           case .reservedWord(let word) = parts[0].kind, word == "!" {
             invert = true
-            i = 1
+            index = 1
         }
 
         var stages: [Node] = []
         var pipeOps: [String] = []
-        while i < parts.count {
-            let node = parts[i]
-            if case .pipe(let op) = node.kind {
-                pipeOps.append(op)
+        while index < parts.count {
+            let node = parts[index]
+            if case .pipe(let operatorText) = node.kind {
+                pipeOps.append(operatorText)
             } else {
                 stages.append(node)
             }
-            i += 1
+            index += 1
         }
 
         guard !stages.isEmpty else { return .success }
@@ -131,8 +135,8 @@ extension Shell {
             if pipefailMode {
                 // Rightmost non-zero status, or .success if every
                 // stage succeeded.
-                for s in stageStatuses.reversed() where !s.isSuccess {
-                    return s
+                for status in stageStatuses.reversed() where !status.isSuccess {
+                    return status
                 }
                 return .success
             }

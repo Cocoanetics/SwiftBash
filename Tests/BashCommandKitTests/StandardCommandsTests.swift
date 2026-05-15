@@ -8,8 +8,7 @@ import Testing
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         for name in ["date", "basename", "dirname", "realpath",
-                     "seq", "sleep", "env", "whoami", "hostname"]
-        {
+                     "seq", "sleep", "env", "whoami", "hostname"] {
             #expect(cap.shell.commands[name] != nil,
                 "expected `\(name)` to be registered")
         }

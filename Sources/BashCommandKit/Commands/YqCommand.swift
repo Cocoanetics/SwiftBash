@@ -28,49 +28,52 @@ public struct YqCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var inFmt = "yaml"
         var outFmt = "yaml"
         var compact = false
         var raw = false
         var positionals: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { positionals.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { positionals.append(rawArgv[index]); index += 1 }
                 break
             }
-            if a == "-o" || a == "--output-format" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-o" || arg == "--output-format" {
+                guard index + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("yq: -o requires FORMAT\n"); return ExitStatus(2)
                 }
-                outFmt = rawArgv[i + 1]; i += 2; continue
+                outFmt = rawArgv[index + 1]; index += 2; continue
             }
-            if a == "-p" || a == "--input-format" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-p" || arg == "--input-format" {
+                guard index + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("yq: -p requires FORMAT\n"); return ExitStatus(2)
                 }
-                inFmt = rawArgv[i + 1]; i += 2; continue
+                inFmt = rawArgv[index + 1]; index += 2; continue
             }
-            if a == "-c" || a == "--compact" { compact = true; i += 1; continue }
-            if a == "-r" || a == "--raw-output" { raw = true; i += 1; continue }
-            if a.hasPrefix("-") && a != "-" {
-                Shell.bashCurrent.stderr("yq: unknown option: \(a)\n")
+            if arg == "-c" || arg == "--compact" { compact = true; index += 1; continue }
+            if arg == "-r" || arg == "--raw-output" { raw = true; index += 1; continue }
+            if arg.hasPrefix("-") && arg != "-" {
+                Shell.bashCurrent.stderr("yq: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            positionals.append(a); i += 1
+            positionals.append(arg); index += 1
         }
 
         let filterStr = positionals.first ?? "."
         let filePath = positionals.count > 1 ? positionals[1] : nil
 
         // Read input.
+        // swiftlint:disable:next identifier_name - YAML term: 'raw input' kept for readability
         let raw_input: String
         do {
-            if let p = filePath {
-                let data = try await Shell.bashCurrent.readDataAtPath(p)
+            if let path = filePath {
+                let data = try await Shell.bashCurrent.readDataAtPath(path)
+                // swiftlint:disable:next optional_data_string_conversion - YAML files may be partial UTF-8
                 raw_input = String(decoding: data, as: UTF8.self)
             } else {
                 raw_input = await Shell.bashCurrent.stdin.readAllString()
@@ -92,8 +95,8 @@ public struct YqCommand: ParsableBashCommand {
                 Shell.bashCurrent.stderr("yq: unsupported input format: \(inFmt)\n")
                 return ExitStatus(2)
             }
-        } catch let e as JqError {
-            Shell.bashCurrent.stderr("yq: \(e.message)\n")
+        } catch let error as JqError {
+            Shell.bashCurrent.stderr("yq: \(error.message)\n")
             return ExitStatus(2)
         } catch {
             Shell.bashCurrent.stderr("yq: \(error)\n")
@@ -104,16 +107,16 @@ public struct YqCommand: ParsableBashCommand {
         let ast: JqAST
         do {
             ast = try JqParser.parse(filterStr)
-        } catch let e as JqError {
-            Shell.bashCurrent.stderr("yq: parse error: \(e.message)\n")
+        } catch let error as JqError {
+            Shell.bashCurrent.stderr("yq: parse error: \(error.message)\n")
             return ExitStatus(3)
         }
         let ctx = JqContext()
         let results: [JqValue]
         do {
             results = try JqEvaluator.evaluate(value, ast, ctx: ctx)
-        } catch let e as JqError {
-            Shell.bashCurrent.stderr("yq: error: \(e.message)\n")
+        } catch let error as JqError {
+            Shell.bashCurrent.stderr("yq: error: \(error.message)\n")
             return ExitStatus(5)
         } catch {
             Shell.bashCurrent.stderr("yq: error: \(error)\n")
@@ -122,13 +125,13 @@ public struct YqCommand: ParsableBashCommand {
 
         // Format output.
         var out = ""
-        for r in results {
+        for result in results {
             switch outFmt {
             case "json":
                 let opts = JqFormatter.Options(compact: compact, raw: raw)
-                out += JqFormatter.format(r, options: opts) + "\n"
+                out += JqFormatter.format(result, options: opts) + "\n"
             case "yaml":
-                out += YamlEmitter.emit(r, raw: raw) + "\n"
+                out += YamlEmitter.emit(result, raw: raw) + "\n"
             default:
                 Shell.bashCurrent.stderr("yq: unsupported output format: \(outFmt)\n")
                 return ExitStatus(2)
@@ -141,19 +144,20 @@ public struct YqCommand: ParsableBashCommand {
 
 // MARK: - YAML parser (subset)
 
-/// Minimal YAML parser. Handles:
-/// - Block mappings (`key: value`)
-/// - Block sequences (`- item`)
-/// - Scalars: plain, single-quoted, double-quoted (with `\n` `\t`
-///   escapes)
-/// - Numbers (int / float), booleans (true/false/yes/no), null (~/null)
-/// - Flow style: `[a, b]` and `{x: 1, y: 2}`
-/// - Inline `# comment` is stripped
-/// - Multi-doc `---` separator: returns the first document
-///
-/// Skipped: anchors / aliases / merge keys / tags / block scalars
-/// (`|` `>`). A real YAML parser would handle these — this one is
-/// intentionally pragmatic.
+// Minimal YAML parser. Handles:
+// - Block mappings (`key: value`)
+// - Block sequences (`- item`)
+// - Scalars: plain, single-quoted, double-quoted (with `\n` `\t`
+//   escapes)
+// - Numbers (int / float), booleans (true/false/yes/no), null (~/null)
+// - Flow style: `[a, b]` and `{x: 1, y: 2}`
+// - Inline `# comment` is stripped
+// - Multi-doc `---` separator: returns the first document
+//
+// Skipped: anchors / aliases / merge keys / tags / block scalars
+// (`|` `>`). A real YAML parser would handle these — this one is
+// intentionally pragmatic.
+// swiftlint:disable:next type_body_length - pragmatic single-file YAML parser
 enum YamlParser {
 
     static func parse(_ source: String) throws -> JqValue {
@@ -162,14 +166,14 @@ enum YamlParser {
         let lines = text.components(separatedBy: "\n")
         // Multi-doc: take the first document up to the next `---`.
         var firstDoc: [String] = []
-        var i = 0
-        if i < lines.count, lines[i].trimmingCharacters(in: .whitespaces) == "---" {
-            i += 1
+        var index = 0
+        if index < lines.count, lines[index].trimmingCharacters(in: .whitespaces) == "---" {
+            index += 1
         }
-        while i < lines.count {
-            let stripped = lines[i].trimmingCharacters(in: .whitespaces)
+        while index < lines.count {
+            let stripped = lines[index].trimmingCharacters(in: .whitespaces)
             if stripped == "---" || stripped == "..." { break }
-            firstDoc.append(lines[i]); i += 1
+            firstDoc.append(lines[index]); index += 1
         }
         // Remove leading and trailing blank lines.
         while let first = firstDoc.first,
@@ -181,26 +185,26 @@ enum YamlParser {
             firstDoc.removeLast()
         }
         if firstDoc.isEmpty { return .null }
-        var p = Parser(lines: firstDoc, line: 0)
-        return try p.parseNode(indent: 0)
+        var parser = Parser(lines: firstDoc, line: 0)
+        return try parser.parseNode(indent: 0)
     }
 
-    static func stripComments(_ s: String) -> String {
+    static func stripComments(_ source: String) -> String {
         var out = ""
         var inSQ = false
         var inDQ = false
-        var i = s.startIndex
-        while i < s.endIndex {
-            let c = s[i]
-            if !inSQ && !inDQ && c == "#" {
+        var idx = source.startIndex
+        while idx < source.endIndex {
+            let char = source[idx]
+            if !inSQ && !inDQ && char == "#" {
                 // Skip to end of line.
-                while i < s.endIndex && s[i] != "\n" { i = s.index(after: i) }
+                while idx < source.endIndex && source[idx] != "\n" { idx = source.index(after: idx) }
                 continue
             }
-            if !inDQ && c == "'" { inSQ.toggle() }
-            if !inSQ && c == "\"" { inDQ.toggle() }
-            out.append(c)
-            i = s.index(after: i)
+            if !inDQ && char == "'" { inSQ.toggle() }
+            if !inSQ && char == "\"" { inDQ.toggle() }
+            out.append(char)
+            idx = source.index(after: idx)
         }
         return out
     }
@@ -212,12 +216,12 @@ enum YamlParser {
 
         func currentIndent() -> Int {
             guard !atEnd else { return -1 }
-            let l = lines[line]
-            var n = 0
-            for c in l {
-                if c == " " { n += 1 } else { break }
+            let lineText = lines[line]
+            var count = 0
+            for char in lineText {
+                if char == " " { count += 1 } else { break }
             }
-            return n
+            return count
         }
 
         mutating func parseNode(indent: Int) throws -> JqValue {
@@ -226,8 +230,8 @@ enum YamlParser {
                 line += 1
             }
             if atEnd { return .null }
-            let l = lines[line]
-            let trimmed = l.trimmingCharacters(in: .whitespaces)
+            let lineText = lines[line]
+            let trimmed = lineText.trimmingCharacters(in: .whitespaces)
 
             // Flow style — handled inline if the value is on one line.
             if trimmed.hasPrefix("[") || trimmed.hasPrefix("{") {
@@ -241,7 +245,7 @@ enum YamlParser {
             }
 
             // Block mapping: line contains `: ` or ends with `:`.
-            if let _ = trimmed.range(of: ":") {
+            if trimmed.range(of: ":") != nil {
                 return try parseBlockMapping(indent: indent)
             }
 
@@ -255,8 +259,8 @@ enum YamlParser {
             while !atEnd {
                 let cur = currentIndent()
                 if cur < indent { break }
-                let l = lines[line]
-                let trimmed = l.trimmingCharacters(in: .whitespaces)
+                let lineText = lines[line]
+                let trimmed = lineText.trimmingCharacters(in: .whitespaces)
                 if cur == indent, trimmed.hasPrefix("-") {
                     // Inline value after `- `: consume it as a scalar
                     // or nested mapping/sequence.
@@ -294,8 +298,8 @@ enum YamlParser {
             while !atEnd {
                 let cur = currentIndent()
                 if cur < indent { break }
-                let l = lines[line]
-                let trimmed = l.trimmingCharacters(in: .whitespaces)
+                let lineText = lines[line]
+                let trimmed = lineText.trimmingCharacters(in: .whitespaces)
                 guard cur == indent else { break }
                 guard let colon = colonSplit(trimmed) else { break }
                 let rawKey = String(trimmed[..<colon])
@@ -313,88 +317,90 @@ enum YamlParser {
             return .object(obj)
         }
 
-        /// Find the first top-level `:` (not inside quotes / brackets).
-        func colonSplit(_ s: String) -> String.Index? {
+        // Find the first top-level `:` (not inside quotes / brackets).
+        // swiftlint:disable:next cyclomatic_complexity
+        func colonSplit(_ source: String) -> String.Index? {
             var depthBracket = 0
             var depthBrace = 0
             var inSQ = false
             var inDQ = false
-            var i = s.startIndex
-            while i < s.endIndex {
-                let c = s[i]
-                if !inDQ, c == "'" { inSQ.toggle() }
-                if !inSQ, c == "\"" { inDQ.toggle() }
+            var idx = source.startIndex
+            while idx < source.endIndex {
+                let char = source[idx]
+                if !inDQ, char == "'" { inSQ.toggle() }
+                if !inSQ, char == "\"" { inDQ.toggle() }
                 if !inSQ && !inDQ {
-                    if c == "[" { depthBracket += 1 }
-                    if c == "]" { depthBracket -= 1 }
-                    if c == "{" { depthBrace += 1 }
-                    if c == "}" { depthBrace -= 1 }
-                    if c == ":" && depthBracket == 0 && depthBrace == 0 {
-                        let next = s.index(after: i)
-                        if next == s.endIndex { return i }
-                        if s[next] == " " || s[next] == "\t" { return i }
+                    if char == "[" { depthBracket += 1 }
+                    if char == "]" { depthBracket -= 1 }
+                    if char == "{" { depthBrace += 1 }
+                    if char == "}" { depthBrace -= 1 }
+                    if char == ":" && depthBracket == 0 && depthBrace == 0 {
+                        let next = source.index(after: idx)
+                        if next == source.endIndex { return idx }
+                        if source[next] == " " || source[next] == "\t" { return idx }
                     }
                 }
-                i = s.index(after: i)
+                idx = source.index(after: idx)
             }
             return nil
         }
     }
 
-    static func parseInlineValue(_ s: String) throws -> JqValue {
-        if s.hasPrefix("[") || s.hasPrefix("{") {
-            return try parseFlow(s)
+    static func parseInlineValue(_ source: String) throws -> JqValue {
+        if source.hasPrefix("[") || source.hasPrefix("{") {
+            return try parseFlow(source)
         }
-        return parseScalar(s)
+        return parseScalar(source)
     }
 
-    static func parseFlow(_ s: String) throws -> JqValue {
+    static func parseFlow(_ source: String) throws -> JqValue {
         // Convert flow YAML to JSON-ish on the fly: replace bare keys
         // with quoted strings, then run JSON parser. Pragmatic but
         // covers the common cases.
-        let cleaned = quoteBareIdents(s)
-        if let v = try? JqJSON.parse(cleaned) { return v }
-        return parseScalar(s)
+        let cleaned = quoteBareIdents(source)
+        if let value = try? JqJSON.parse(cleaned) { return value }
+        return parseScalar(source)
     }
 
-    static func quoteBareIdents(_ s: String) -> String {
+    // swiftlint:disable:next cyclomatic_complexity
+    static func quoteBareIdents(_ source: String) -> String {
         // Walk and add quotes around any unquoted bareword that's
         // followed by `:` (keys) or that would parse as a scalar.
         // For simplicity: also quote bare string values.
         var out = ""
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\"" {
+        let chars = Array(source)
+        var idx = 0
+        while idx < chars.count {
+            let char = chars[idx]
+            if char == "\"" {
                 // Pass through the whole double-quoted string.
-                out.append(c); i += 1
-                while i < chars.count {
-                    out.append(chars[i])
-                    if chars[i] == "\\" && i + 1 < chars.count {
-                        out.append(chars[i + 1]); i += 2; continue
+                out.append(char); idx += 1
+                while idx < chars.count {
+                    out.append(chars[idx])
+                    if chars[idx] == "\\" && idx + 1 < chars.count {
+                        out.append(chars[idx + 1]); idx += 2; continue
                     }
-                    if chars[i] == "\"" { i += 1; break }
-                    i += 1
+                    if chars[idx] == "\"" { idx += 1; break }
+                    idx += 1
                 }
                 continue
             }
-            if c == "'" {
+            if char == "'" {
                 out.append("\"")
-                i += 1
-                while i < chars.count {
-                    if chars[i] == "'" { i += 1; break }
-                    if chars[i] == "\"" { out += "\\\"" } else { out.append(chars[i]) }
-                    i += 1
+                idx += 1
+                while idx < chars.count {
+                    if chars[idx] == "'" { idx += 1; break }
+                    if chars[idx] == "\"" { out += "\\\"" } else { out.append(chars[idx]) }
+                    idx += 1
                 }
                 out.append("\"")
                 continue
             }
-            if c.isASCII, c.isLetter || c == "_" {
+            if char.isASCII, char.isLetter || char == "_" {
                 var word = ""
-                while i < chars.count, chars[i].isASCII,
-                      chars[i].isLetter || chars[i].isNumber || chars[i] == "_" || chars[i] == "-" {
-                    word.append(chars[i]); i += 1
+                while idx < chars.count, chars[idx].isASCII,
+                      chars[idx].isLetter || chars[idx].isNumber || chars[idx] == "_" || chars[idx] == "-" {
+                    word.append(chars[idx]); idx += 1
                 }
                 // Boolean / null literals — emit as JSON literal.
                 let lower = word.lowercased()
@@ -405,66 +411,72 @@ enum YamlParser {
                 }
                 continue
             }
-            out.append(c); i += 1
+            out.append(char); idx += 1
         }
         return out
     }
 
-    /// Parse a YAML scalar: numbers, true/false/null, quoted strings.
+    // Parse a YAML scalar: numbers, true/false/null, quoted strings.
     static func parseScalar(_ raw: String) -> JqValue {
-        let s = raw.trimmingCharacters(in: .whitespaces)
-        if s.isEmpty || s == "~" || s == "null" || s == "Null" || s == "NULL" { return .null }
-        if s == "true" || s == "True" || s == "TRUE" || s == "yes" || s == "Yes" || s == "YES" {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed == "~" || trimmed == "null" || trimmed == "Null" || trimmed == "NULL" {
+            return .null
+        }
+        if trimmed == "true" || trimmed == "True" || trimmed == "TRUE" ||
+            trimmed == "yes" || trimmed == "Yes" || trimmed == "YES" {
             return .bool(true)
         }
-        if s == "false" || s == "False" || s == "FALSE" || s == "no" || s == "No" || s == "NO" {
+        if trimmed == "false" || trimmed == "False" || trimmed == "FALSE" ||
+            trimmed == "no" || trimmed == "No" || trimmed == "NO" {
             return .bool(false)
         }
         // Numbers.
-        if let n = Int64(s) { return .number(Double(n)) }
-        if let n = Double(s), s.contains(".") || s.contains("e") || s.contains("E") {
-            return .number(n)
+        if let number = Int64(trimmed) { return .number(Double(number)) }
+        if let number = Double(trimmed),
+           trimmed.contains(".") || trimmed.contains("e") || trimmed.contains("E") {
+            return .number(number)
         }
         // Quoted strings.
-        if s.count >= 2, s.hasPrefix("\""), s.hasSuffix("\"") {
-            let inner = String(s.dropFirst().dropLast())
+        if trimmed.count >= 2, trimmed.hasPrefix("\""), trimmed.hasSuffix("\"") {
+            let inner = String(trimmed.dropFirst().dropLast())
             return .string(unescapeDouble(inner))
         }
-        if s.count >= 2, s.hasPrefix("'"), s.hasSuffix("'") {
-            let inner = String(s.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
+        if trimmed.count >= 2, trimmed.hasPrefix("'"), trimmed.hasSuffix("'") {
+            let inner = String(trimmed.dropFirst().dropLast())
+                .replacingOccurrences(of: "''", with: "'")
             return .string(inner)
         }
-        return .string(s)
+        return .string(trimmed)
     }
 
-    static func unquote(_ s: String) -> String {
-        if s.count >= 2, s.hasPrefix("\""), s.hasSuffix("\"") {
-            return unescapeDouble(String(s.dropFirst().dropLast()))
+    static func unquote(_ source: String) -> String {
+        if source.count >= 2, source.hasPrefix("\""), source.hasSuffix("\"") {
+            return unescapeDouble(String(source.dropFirst().dropLast()))
         }
-        if s.count >= 2, s.hasPrefix("'"), s.hasSuffix("'") {
-            return String(s.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
+        if source.count >= 2, source.hasPrefix("'"), source.hasSuffix("'") {
+            return String(source.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
         }
-        return s
+        return source
     }
 
-    static func unescapeDouble(_ s: String) -> String {
+    static func unescapeDouble(_ source: String) -> String {
         var out = ""
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            if chars[i] == "\\", i + 1 < chars.count {
-                let n = chars[i + 1]
-                switch n {
+        let chars = Array(source)
+        var idx = 0
+        while idx < chars.count {
+            if chars[idx] == "\\", idx + 1 < chars.count {
+                let next = chars[idx + 1]
+                switch next {
                 case "n": out += "\n"
                 case "t": out += "\t"
                 case "r": out += "\r"
                 case "\\": out += "\\"
                 case "\"": out += "\""
-                default: out.append(n)
+                default: out.append(next)
                 }
-                i += 2
+                idx += 2
             } else {
-                out.append(chars[i]); i += 1
+                out.append(chars[idx]); idx += 1
             }
         }
         return out
@@ -476,16 +488,17 @@ enum YamlParser {
 enum YamlEmitter {
 
     static func emit(_ value: JqValue, raw: Bool) -> String {
-        if raw, case .string(let s) = value { return s }
+        if raw, case .string(let str) = value { return str }
         return emitNode(value, indent: 0)
     }
 
-    static func emitNode(_ v: JqValue, indent: Int) -> String {
-        switch v {
+    // swiftlint:disable:next cyclomatic_complexity
+    static func emitNode(_ value: JqValue, indent: Int) -> String {
+        switch value {
         case .null: return "null"
-        case .bool(let b): return b ? "true" : "false"
-        case .number(let n): return JqValue.formatDouble(n)
-        case .string(let s): return needsQuoting(s) ? quote(s) : s
+        case .bool(let bool): return bool ? "true" : "false"
+        case .number(let number): return JqValue.formatDouble(number)
+        case .string(let str): return needsQuoting(str) ? quote(str) : str
         case .array(let arr):
             if arr.isEmpty { return "[]" }
             let pad = String(repeating: " ", count: indent)
@@ -496,7 +509,7 @@ enum YamlEmitter {
                     let firstLine = body.components(separatedBy: "\n").first!
                     let restLines = body.components(separatedBy: "\n").dropFirst()
                     lines.append("\(pad)- \(firstLine)")
-                    for l in restLines { lines.append("\(pad)  \(l)") }
+                    for line in restLines { lines.append("\(pad)  \(line)") }
                 } else {
                     lines.append("\(pad)- \(body)")
                 }
@@ -506,50 +519,53 @@ enum YamlEmitter {
             if obj.isEmpty { return "{}" }
             let pad = String(repeating: " ", count: indent)
             var lines: [String] = []
-            for (k, value) in obj {
-                let key = needsQuoting(k) ? quote(k) : k
+            for (key, value) in obj {
+                let formattedKey = needsQuoting(key) ? quote(key) : key
                 switch value {
-                case .object(let o) where !o.isEmpty:
+                case .object(let nestedObj) where !nestedObj.isEmpty:
                     let nested = emitNode(value, indent: indent + 2)
-                    lines.append("\(pad)\(key):")
+                    lines.append("\(pad)\(formattedKey):")
                     lines.append(nested)
-                case .array(let a) where !a.isEmpty:
+                case .array(let nestedArr) where !nestedArr.isEmpty:
                     let nested = emitNode(value, indent: indent)
-                    lines.append("\(pad)\(key):")
+                    lines.append("\(pad)\(formattedKey):")
                     lines.append(nested)
                 default:
-                    lines.append("\(pad)\(key): \(emitNode(value, indent: indent + 2))")
+                    lines.append("\(pad)\(formattedKey): \(emitNode(value, indent: indent + 2))")
                 }
             }
             return lines.joined(separator: "\n")
         }
     }
 
-    static func needsQuoting(_ s: String) -> Bool {
-        if s.isEmpty { return true }
-        if s == "null" || s == "true" || s == "false" || s == "yes" || s == "no" { return true }
-        if Double(s) != nil { return true }
-        if s.hasPrefix("- ") || s.hasPrefix("? ") || s.hasPrefix(": ") { return true }
-        for c in s {
-            if c == ":" || c == "#" || c == "\n" || c == "{" || c == "}" || c == "[" || c == "]" {
+    static func needsQuoting(_ source: String) -> Bool {
+        if source.isEmpty { return true }
+        if source == "null" || source == "true" || source == "false" ||
+            source == "yes" || source == "no" { return true }
+        if Double(source) != nil { return true }
+        if source.hasPrefix("- ") || source.hasPrefix("? ") || source.hasPrefix(": ") { return true }
+        for char in source {
+            if char == ":" || char == "#" || char == "\n" ||
+                char == "{" || char == "}" || char == "[" || char == "]" {
                 return true
             }
         }
         return false
     }
 
-    static func quote(_ s: String) -> String {
+    static func quote(_ source: String) -> String {
         var out = "\""
-        for c in s {
-            switch c {
+        for char in source {
+            switch char {
             case "\"": out += "\\\""
             case "\\": out += "\\\\"
             case "\n": out += "\\n"
             case "\t": out += "\\t"
-            default: out.append(c)
+            default: out.append(char)
             }
         }
         out += "\""
         return out
     }
+    // swiftlint:disable:next file_length - yq + YAML parser/emitter cohesive in one file
 }

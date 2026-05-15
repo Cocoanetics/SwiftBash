@@ -17,8 +17,7 @@ extension Shell {
     /// treated as a pattern. `dir/*.txt` works; `*/file.txt` doesn't
     /// expand the first component and is returned literally.
     func globExpand(_ expanded: String,
-                    originalWord: Node) async throws -> [String]
-    {
+                    originalWord: Node) async throws -> [String] {
         guard shouldGlob(originalWord) else { return [expanded] }
         let matches = await glob(expanded)
         if !matches.isEmpty { return matches }
@@ -28,36 +27,40 @@ extension Shell {
         return [expanded]
     }
 
-    /// True when the *raw source* of `word` contains a glob
-    /// metacharacter (`*`, `?`, `[`) outside of any quoted region —
-    /// matching bash's rule that quotes suppress pathname expansion.
+    // True when the *raw source* of `word` contains a glob
+    // metacharacter (`*`, `?`, `[`) outside of any quoted region —
+    // matching bash's rule that quotes suppress pathname expansion.
+    //
+    // Quote-state scanner over the raw word source; per-quote helpers
+    // would obscure the linear depth-tracking loop.
+    // swiftlint:disable:next cyclomatic_complexity
     private func shouldGlob(_ word: Node) -> Bool {
         let chars = Array(currentSource)
-        let lo = max(0, word.range.lowerBound)
-        let hi = min(chars.count, word.range.upperBound)
-        guard lo < hi else { return false }
+        let low = max(0, word.range.lowerBound)
+        let high = min(chars.count, word.range.upperBound)
+        guard low < high else { return false }
 
-        var i = lo
-        while i < hi {
-            let c = chars[i]
-            if c == "'" {
-                i += 1
-                while i < hi, chars[i] != "'" { i += 1 }
-                if i < hi { i += 1 }
+        var idx = low
+        while idx < high {
+            let char = chars[idx]
+            if char == "'" {
+                idx += 1
+                while idx < high, chars[idx] != "'" { idx += 1 }
+                if idx < high { idx += 1 }
                 continue
             }
-            if c == "\"" {
-                i += 1
-                while i < hi, chars[i] != "\"" {
-                    if chars[i] == "\\", i + 1 < hi { i += 2; continue }
-                    i += 1
+            if char == "\"" {
+                idx += 1
+                while idx < high, chars[idx] != "\"" {
+                    if chars[idx] == "\\", idx + 1 < high { idx += 2; continue }
+                    idx += 1
                 }
-                if i < hi { i += 1 }
+                if idx < high { idx += 1 }
                 continue
             }
-            if c == "\\" { i += 2; continue }
-            if c == "*" || c == "?" || c == "[" { return true }
-            i += 1
+            if char == "\\" { idx += 2; continue }
+            if char == "*" || char == "?" || char == "[" { return true }
+            idx += 1
         }
         return false
     }
@@ -89,8 +92,7 @@ extension Shell {
     private func globRecursive(base: String,
                                segments: [String],
                                segIdx: Int,
-                               isAbsolute: Bool) async -> [String]
-    {
+                               isAbsolute: Bool) async -> [String] {
         if segIdx >= segments.count {
             // Past the last segment — emit `base` if it actually exists.
             let resolved = resolvePath(base)
@@ -114,9 +116,9 @@ extension Shell {
             // (including base's children, recursively), keeping `**` as
             // the current segment.
             let dirs = await listDirectoriesRecursive(under: base)
-            for d in dirs {
+            for dir in dirs {
                 out.append(contentsOf: await globRecursive(
-                    base: d, segments: segments, segIdx: segIdx + 1,
+                    base: dir, segments: segments, segIdx: segIdx + 1,
                     isAbsolute: isAbsolute))
             }
             return out
@@ -125,8 +127,7 @@ extension Shell {
         // Plain segment: list the dir, match each entry.
         let resolvedBase = resolvePath(base)
         let entries: [FileEntry]
-        do { entries = try await fileSystem.list(resolvedBase) }
-        catch { return [] }
+        do { entries = try await fileSystem.list(resolvedBase) } catch { return [] }
 
         let includeHidden = seg.hasPrefix(".")
             || shoptOptions["dotglob"] == true
@@ -151,8 +152,8 @@ extension Shell {
     /// Single-segment match honouring `nocaseglob` / `extglob`.
     private func matches(pattern: String, string: String) -> Bool {
         let opts = GlobOptions(
-            extglob:    shoptOptions["extglob"] == true,
-            nocase:     shoptOptions["nocaseglob"] == true)
+            extglob: shoptOptions["extglob"] == true,
+            nocase: shoptOptions["nocaseglob"] == true)
         return GlobMatcher.match(pattern: pattern, string: string, options: opts)
     }
 

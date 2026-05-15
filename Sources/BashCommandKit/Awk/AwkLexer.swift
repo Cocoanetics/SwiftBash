@@ -12,8 +12,10 @@ enum AwkTokenKind: Equatable, Hashable {
     case kFunction, kPrint, kPrintf, kGetline
     // operators
     case plus, minus, star, slash, percent, caret
+    // swiftlint:disable:next identifier_name - AWK comparison operator names
     case eq, ne, lt, gt, le, ge
     case match, notMatch
+    // swiftlint:disable:next identifier_name - AWK logical operator `or`
     case and, or, not
     case assign, plusAssign, minusAssign, starAssign, slashAssign, percentAssign, caretAssign
     case increment, decrement
@@ -29,12 +31,13 @@ struct AwkToken: Equatable {
     let column: Int
 }
 
+// swiftlint:disable:next type_body_length - AWK lexer is one cohesive state machine
 struct AwkLexer {
     private let chars: [Character]
     private var pos = 0
     private var line = 1
     private var column = 1
-    private var lastTokenKind: AwkTokenKind? = nil
+    private var lastTokenKind: AwkTokenKind?
 
     init(_ source: String) {
         self.chars = Array(source)
@@ -50,7 +53,7 @@ struct AwkLexer {
         "exit": .kExit, "return": .kReturn,
         "delete": .kDelete, "function": .kFunction,
         "print": .kPrint, "printf": .kPrintf,
-        "getline": .kGetline,
+        "getline": .kGetline
     ]
 
     mutating func tokenize() throws -> [AwkToken] {
@@ -67,12 +70,12 @@ struct AwkLexer {
 
     private mutating func skipWhitespace() {
         while pos < chars.count {
-            let c = chars[pos]
-            if c == " " || c == "\t" || c == "\r" {
+            let char = chars[pos]
+            if char == " " || char == "\t" || char == "\r" {
                 advance()
-            } else if c == "\\" && pos + 1 < chars.count && chars[pos + 1] == "\n" {
+            } else if char == "\\" && pos + 1 < chars.count && chars[pos + 1] == "\n" {
                 advance(); advance()                    // line continuation
-            } else if c == "#" {
+            } else if char == "#" {
                 while pos < chars.count && chars[pos] != "\n" { advance() }
             } else {
                 break
@@ -90,22 +93,22 @@ struct AwkLexer {
     }
 
     private func peek(_ offset: Int = 0) -> Character? {
-        let i = pos + offset
-        return i < chars.count ? chars[i] : nil
+        let idx = pos + offset
+        return idx < chars.count ? chars[idx] : nil
     }
 
     private mutating func nextToken() throws -> AwkToken? {
         skipWhitespace()
         guard pos < chars.count else { return nil }
         let startLine = line, startColumn = column
-        let c = chars[pos]
-        if c == "\n" { advance(); return AwkToken(kind: .newline, line: startLine, column: startColumn) }
-        if c == "\"" { return try readString(startLine, startColumn) }
-        if c == "/" && canBeRegex() { return try readRegex(startLine, startColumn) }
-        if c.isASCII && (c.isNumber || (c == "." && peek(1)?.isNumber == true)) {
+        let char = chars[pos]
+        if char == "\n" { advance(); return AwkToken(kind: .newline, line: startLine, column: startColumn) }
+        if char == "\"" { return try readString(startLine, startColumn) }
+        if char == "/" && canBeRegex() { return try readRegex(startLine, startColumn) }
+        if char.isASCII && (char.isNumber || (char == "." && peek(1)?.isNumber == true)) {
             return readNumber(startLine, startColumn)
         }
-        if c.isASCII && (c.isLetter || c == "_") {
+        if char.isASCII && (char.isLetter || char == "_") {
             return readIdentifier(startLine, startColumn)
         }
         return try readOperator(startLine, startColumn)
@@ -126,58 +129,60 @@ struct AwkLexer {
         }
     }
 
-    private mutating func readString(_ sl: Int, _ sc: Int) throws -> AwkToken {
+    // swiftlint:disable:next cyclomatic_complexity
+    private mutating func readString(_ startLine: Int, _ startColumn: Int) throws -> AwkToken {
         advance()
-        var s = ""
+        var text = ""
         while pos < chars.count && chars[pos] != "\"" {
             if chars[pos] == "\\" {
                 advance()
                 guard pos < chars.count else { break }
-                let e = chars[pos]; advance()
-                switch e {
-                case "n": s.append("\n")
-                case "t": s.append("\t")
-                case "r": s.append("\r")
-                case "f": s.append("\u{0C}")
-                case "b": s.append("\u{08}")
-                case "v": s.append("\u{0B}")
-                case "a": s.append("\u{07}")
-                case "\\": s.append("\\")
-                case "\"": s.append("\"")
-                case "/": s.append("/")
+                let escape = chars[pos]; advance()
+                switch escape {
+                case "n": text.append("\n")
+                case "t": text.append("\t")
+                case "r": text.append("\r")
+                case "f": text.append("\u{0C}")
+                case "b": text.append("\u{08}")
+                case "v": text.append("\u{0B}")
+                case "a": text.append("\u{07}")
+                case "\\": text.append("\\")
+                case "\"": text.append("\"")
+                case "/": text.append("/")
                 case "x":
                     var hex = ""
                     while hex.count < 2, pos < chars.count, chars[pos].isHexDigit {
                         hex.append(chars[pos]); advance()
                     }
-                    if let n = UInt32(hex, radix: 16), let u = Unicode.Scalar(n) {
-                        s.append(Character(u))
+                    if let code = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(code) {
+                        text.append(Character(scalar))
                     } else {
-                        s.append("x")
+                        text.append("x")
                     }
                 default:
-                    if let v = e.asciiValue, v >= 0x30, v <= 0x37 {
-                        var oct = String(e)
+                    if let ascii = escape.asciiValue, ascii >= 0x30, ascii <= 0x37 {
+                        var oct = String(escape)
                         while oct.count < 3, pos < chars.count,
-                              let v2 = chars[pos].asciiValue, v2 >= 0x30, v2 <= 0x37 {
+                              let asciiCode = chars[pos].asciiValue,
+                              asciiCode >= 0x30, asciiCode <= 0x37 {
                             oct.append(chars[pos]); advance()
                         }
-                        if let n = UInt32(oct, radix: 8), let u = Unicode.Scalar(n) {
-                            s.append(Character(u))
+                        if let code = UInt32(oct, radix: 8), let scalar = Unicode.Scalar(code) {
+                            text.append(Character(scalar))
                         }
                     } else {
-                        s.append(e)
+                        text.append(escape)
                     }
                 }
             } else {
-                s.append(chars[pos]); advance()
+                text.append(chars[pos]); advance()
             }
         }
         if pos < chars.count { advance() }   // closing quote
-        return AwkToken(kind: .string(s), line: sl, column: sc)
+        return AwkToken(kind: .string(text), line: startLine, column: startColumn)
     }
 
-    private mutating func readRegex(_ sl: Int, _ sc: Int) throws -> AwkToken {
+    private mutating func readRegex(_ startLine: Int, _ startColumn: Int) throws -> AwkToken {
         advance()                           // opening /
         var pat = ""
         while pos < chars.count && chars[pos] != "/" {
@@ -193,110 +198,112 @@ struct AwkLexer {
             }
         }
         if pos < chars.count { advance() }
-        return AwkToken(kind: .regex(expandPosixClasses(pat)), line: sl, column: sc)
+        return AwkToken(kind: .regex(expandPosixClasses(pat)), line: startLine, column: startColumn)
     }
 
-    private mutating func readNumber(_ sl: Int, _ sc: Int) -> AwkToken {
-        var s = ""
+    private mutating func readNumber(_ startLine: Int, _ startColumn: Int) -> AwkToken {
+        var text = ""
         while pos < chars.count, chars[pos].isASCII, chars[pos].isNumber {
-            s.append(chars[pos]); advance()
+            text.append(chars[pos]); advance()
         }
         if pos < chars.count, chars[pos] == ".", peek(1)?.isNumber == true {
-            s.append(chars[pos]); advance()
+            text.append(chars[pos]); advance()
             while pos < chars.count, chars[pos].isASCII, chars[pos].isNumber {
-                s.append(chars[pos]); advance()
+                text.append(chars[pos]); advance()
             }
         }
         if pos < chars.count, chars[pos] == "e" || chars[pos] == "E" {
-            s.append(chars[pos]); advance()
+            text.append(chars[pos]); advance()
             if pos < chars.count, chars[pos] == "+" || chars[pos] == "-" {
-                s.append(chars[pos]); advance()
+                text.append(chars[pos]); advance()
             }
             while pos < chars.count, chars[pos].isASCII, chars[pos].isNumber {
-                s.append(chars[pos]); advance()
+                text.append(chars[pos]); advance()
             }
         }
-        return AwkToken(kind: .number(Double(s) ?? 0), line: sl, column: sc)
+        return AwkToken(kind: .number(Double(text) ?? 0), line: startLine, column: startColumn)
     }
 
-    private mutating func readIdentifier(_ sl: Int, _ sc: Int) -> AwkToken {
+    private mutating func readIdentifier(_ startLine: Int, _ startColumn: Int) -> AwkToken {
         var name = ""
-        while pos < chars.count, chars[pos].isASCII, (chars[pos].isLetter || chars[pos].isNumber || chars[pos] == "_") {
+        while pos < chars.count, chars[pos].isASCII, chars[pos].isLetter || chars[pos].isNumber || chars[pos] == "_" {
             name.append(chars[pos]); advance()
         }
-        if let kw = AwkLexer.keywords[name] {
-            return AwkToken(kind: kw, line: sl, column: sc)
+        if let keyword = AwkLexer.keywords[name] {
+            return AwkToken(kind: keyword, line: startLine, column: startColumn)
         }
-        return AwkToken(kind: .ident(name), line: sl, column: sc)
+        return AwkToken(kind: .ident(name), line: startLine, column: startColumn)
     }
 
-    private mutating func readOperator(_ sl: Int, _ sc: Int) throws -> AwkToken {
-        let c = chars[pos]; advance()
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    private mutating func readOperator(_ startLine: Int, _ startColumn: Int) throws -> AwkToken {
+        let char = chars[pos]; advance()
         let next = pos < chars.count ? chars[pos] : nil
-        switch c {
+        switch char {
         case "+":
-            if next == "+" { advance(); return AwkToken(kind: .increment, line: sl, column: sc) }
-            if next == "=" { advance(); return AwkToken(kind: .plusAssign, line: sl, column: sc) }
-            return AwkToken(kind: .plus, line: sl, column: sc)
+            if next == "+" { advance(); return AwkToken(kind: .increment, line: startLine, column: startColumn) }
+            if next == "=" { advance(); return AwkToken(kind: .plusAssign, line: startLine, column: startColumn) }
+            return AwkToken(kind: .plus, line: startLine, column: startColumn)
         case "-":
-            if next == "-" { advance(); return AwkToken(kind: .decrement, line: sl, column: sc) }
-            if next == "=" { advance(); return AwkToken(kind: .minusAssign, line: sl, column: sc) }
-            return AwkToken(kind: .minus, line: sl, column: sc)
+            if next == "-" { advance(); return AwkToken(kind: .decrement, line: startLine, column: startColumn) }
+            if next == "=" { advance(); return AwkToken(kind: .minusAssign, line: startLine, column: startColumn) }
+            return AwkToken(kind: .minus, line: startLine, column: startColumn)
         case "*":
-            if next == "*" { advance(); return AwkToken(kind: .caret, line: sl, column: sc) }
-            if next == "=" { advance(); return AwkToken(kind: .starAssign, line: sl, column: sc) }
-            return AwkToken(kind: .star, line: sl, column: sc)
+            if next == "*" { advance(); return AwkToken(kind: .caret, line: startLine, column: startColumn) }
+            if next == "=" { advance(); return AwkToken(kind: .starAssign, line: startLine, column: startColumn) }
+            return AwkToken(kind: .star, line: startLine, column: startColumn)
         case "/":
-            if next == "=" { advance(); return AwkToken(kind: .slashAssign, line: sl, column: sc) }
-            return AwkToken(kind: .slash, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .slashAssign, line: startLine, column: startColumn) }
+            return AwkToken(kind: .slash, line: startLine, column: startColumn)
         case "%":
-            if next == "=" { advance(); return AwkToken(kind: .percentAssign, line: sl, column: sc) }
-            return AwkToken(kind: .percent, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .percentAssign, line: startLine, column: startColumn) }
+            return AwkToken(kind: .percent, line: startLine, column: startColumn)
         case "^":
-            if next == "=" { advance(); return AwkToken(kind: .caretAssign, line: sl, column: sc) }
-            return AwkToken(kind: .caret, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .caretAssign, line: startLine, column: startColumn) }
+            return AwkToken(kind: .caret, line: startLine, column: startColumn)
         case "=":
-            if next == "=" { advance(); return AwkToken(kind: .eq, line: sl, column: sc) }
-            return AwkToken(kind: .assign, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .eq, line: startLine, column: startColumn) }
+            return AwkToken(kind: .assign, line: startLine, column: startColumn)
         case "!":
-            if next == "=" { advance(); return AwkToken(kind: .ne, line: sl, column: sc) }
-            if next == "~" { advance(); return AwkToken(kind: .notMatch, line: sl, column: sc) }
-            return AwkToken(kind: .not, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .ne, line: startLine, column: startColumn) }
+            if next == "~" { advance(); return AwkToken(kind: .notMatch, line: startLine, column: startColumn) }
+            return AwkToken(kind: .not, line: startLine, column: startColumn)
         case "<":
-            if next == "=" { advance(); return AwkToken(kind: .le, line: sl, column: sc) }
-            return AwkToken(kind: .lt, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .le, line: startLine, column: startColumn) }
+            return AwkToken(kind: .lt, line: startLine, column: startColumn)
         case ">":
-            if next == "=" { advance(); return AwkToken(kind: .ge, line: sl, column: sc) }
-            if next == ">" { advance(); return AwkToken(kind: .append, line: sl, column: sc) }
-            return AwkToken(kind: .gt, line: sl, column: sc)
+            if next == "=" { advance(); return AwkToken(kind: .ge, line: startLine, column: startColumn) }
+            if next == ">" { advance(); return AwkToken(kind: .append, line: startLine, column: startColumn) }
+            return AwkToken(kind: .gt, line: startLine, column: startColumn)
         case "&":
-            if next == "&" { advance(); return AwkToken(kind: .and, line: sl, column: sc) }
-            return AwkToken(kind: .ident("&"), line: sl, column: sc)
+            if next == "&" { advance(); return AwkToken(kind: .and, line: startLine, column: startColumn) }
+            return AwkToken(kind: .ident("&"), line: startLine, column: startColumn)
         case "|":
-            if next == "|" { advance(); return AwkToken(kind: .or, line: sl, column: sc) }
-            return AwkToken(kind: .pipe, line: sl, column: sc)
-        case "~": return AwkToken(kind: .match, line: sl, column: sc)
-        case "?": return AwkToken(kind: .question, line: sl, column: sc)
-        case ":": return AwkToken(kind: .colon, line: sl, column: sc)
-        case ",": return AwkToken(kind: .comma, line: sl, column: sc)
-        case ";": return AwkToken(kind: .semicolon, line: sl, column: sc)
-        case "(": return AwkToken(kind: .lparen, line: sl, column: sc)
-        case ")": return AwkToken(kind: .rparen, line: sl, column: sc)
-        case "{": return AwkToken(kind: .lbrace, line: sl, column: sc)
-        case "}": return AwkToken(kind: .rbrace, line: sl, column: sc)
-        case "[": return AwkToken(kind: .lbracket, line: sl, column: sc)
-        case "]": return AwkToken(kind: .rbracket, line: sl, column: sc)
-        case "$": return AwkToken(kind: .dollar, line: sl, column: sc)
+            if next == "|" { advance(); return AwkToken(kind: .or, line: startLine, column: startColumn) }
+            return AwkToken(kind: .pipe, line: startLine, column: startColumn)
+        case "~": return AwkToken(kind: .match, line: startLine, column: startColumn)
+        case "?": return AwkToken(kind: .question, line: startLine, column: startColumn)
+        case ":": return AwkToken(kind: .colon, line: startLine, column: startColumn)
+        case ",": return AwkToken(kind: .comma, line: startLine, column: startColumn)
+        case ";": return AwkToken(kind: .semicolon, line: startLine, column: startColumn)
+        case "(": return AwkToken(kind: .lparen, line: startLine, column: startColumn)
+        case ")": return AwkToken(kind: .rparen, line: startLine, column: startColumn)
+        case "{": return AwkToken(kind: .lbrace, line: startLine, column: startColumn)
+        case "}": return AwkToken(kind: .rbrace, line: startLine, column: startColumn)
+        case "[": return AwkToken(kind: .lbracket, line: startLine, column: startColumn)
+        case "]": return AwkToken(kind: .rbracket, line: startLine, column: startColumn)
+        case "$": return AwkToken(kind: .dollar, line: startLine, column: startColumn)
         default:
-            throw AwkParseError("unexpected character '\(c)' at line \(sl):\(sc)")
+            throw AwkParseError(
+                "unexpected character '\(char)' at line \(startLine):\(startColumn)")
         }
     }
 
     /// Expand POSIX character classes (`[[:alpha:]]` etc.) in regex
     /// patterns to ICU-friendly equivalents — `NSRegularExpression`
     /// understands them, but POSIX bracket-class form is more portable.
-    private func expandPosixClasses(_ p: String) -> String {
-        var s = p
+    private func expandPosixClasses(_ pattern: String) -> String {
+        var result = pattern
         let map: [(String, String)] = [
             ("[[:space:]]", "[ \\t\\n\\r\\f\\v]"),
             ("[[:blank:]]", "[ \\t]"),
@@ -309,11 +316,11 @@ struct AwkLexer {
             ("[[:graph:]]", "[!-~]"),
             ("[[:print:]]", "[ -~]"),
             ("[[:cntrl:]]", "[\\x00-\\x1f\\x7f]"),
-            ("[[:punct:]]", "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\]\\\\^_`{|}~]"),
+            ("[[:punct:]]", "[!\"#$%&'()*+,\\-./:;<=>?@\\[\\]\\\\^_`{|}~]")
         ]
         for (src, dst) in map {
-            s = s.replacingOccurrences(of: src, with: dst)
+            result = result.replacingOccurrences(of: src, with: dst)
         }
-        return s
+        return result
     }
 }

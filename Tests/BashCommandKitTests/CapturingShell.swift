@@ -14,9 +14,12 @@ final class CapturingShell: @unchecked Sendable {
         private let lock = NSLock()
         private var value = ""
         func append(_ data: Data) {
-            let s = String(decoding: data, as: UTF8.self)
+            // Bash output may include arbitrary bytes (binary cat,
+            // partial UTF-8 chunks). Lossy decode is intentional here.
+            // swiftlint:disable:next optional_data_string_conversion
+            let chunk = String(decoding: data, as: UTF8.self)
             lock.lock(); defer { lock.unlock() }
-            value.append(s)
+            value.append(chunk)
         }
         func read() -> String {
             lock.lock(); defer { lock.unlock() }

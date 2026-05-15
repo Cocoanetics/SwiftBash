@@ -8,10 +8,10 @@ import Foundation
 /// and `cd`s into it so relative paths in the script just work.
 @Suite(.timeLimit(.minutes(1))) struct FilesystemCommandsTests {
 
-    private func makeShell() -> (CapturingShell, String) {
+    private func makeShell() throws -> (CapturingShell, String) {
         let base = NSTemporaryDirectory()
         let dir = (base as NSString).appendingPathComponent("fs-cmds-\(UUID())")
-        try! FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
@@ -26,27 +26,27 @@ import Foundation
     // MARK: ls
 
     @Test func lsEmptyDirPrintsNothing() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("ls")
         #expect(cap.stdout == "")
     }
 
     @Test func lsListsSortedEntries() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch zeta alpha gamma")
         try await cap.shell.run("ls")
         #expect(cap.stdout == "alpha\ngamma\nzeta\n")
     }
 
     @Test func lsHidesDotfilesByDefault() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch visible .hidden")
         try await cap.shell.run("ls")
         #expect(cap.stdout == "visible\n")
     }
 
     @Test func lsDashAShowsDotfiles() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch visible .hidden")
         try await cap.shell.run("ls -a")
         // POSIX ls -a includes . and ..
@@ -54,14 +54,14 @@ import Foundation
     }
 
     @Test func lsOnMissingPathFails() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("ls nope")
         #expect(status == .failure)
         #expect(cap.stderr.contains("No such"))
     }
 
     @Test func lsOnRegularFilePrintsName() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch hello.txt")
         try await cap.shell.run("ls hello.txt")
         #expect(cap.stdout == "hello.txt\n")
@@ -70,28 +70,28 @@ import Foundation
     // MARK: mkdir
 
     @Test func mkdirCreatesDirectory() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir sub")
         try await cap.shell.run("ls")
         #expect(cap.stdout == "sub\n")
     }
 
     @Test func mkdirNestedFailsWithoutP() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("mkdir a/b/c")
         #expect(status == .failure)
         #expect(!cap.stderr.isEmpty)
     }
 
     @Test func mkdirPCreatesParents() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir -p a/b/c")
         try await cap.shell.run("ls a/b")
         #expect(cap.stdout == "c\n")
     }
 
     @Test func mkdirPSilentOnExisting() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir sub")
         let status = try await cap.shell.run("mkdir -p sub")
         #expect(status == .success)
@@ -100,7 +100,7 @@ import Foundation
     // MARK: rm
 
     @Test func rmRemovesFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch file.txt")
         try await cap.shell.run("rm file.txt")
         try await cap.shell.run("ls")
@@ -108,7 +108,7 @@ import Foundation
     }
 
     @Test func rmOnDirectoryNeedsRecursive() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir sub")
         try await cap.shell.run("touch sub/x")
         let status = try await cap.shell.run("rm sub")
@@ -116,7 +116,7 @@ import Foundation
     }
 
     @Test func rmRfRemovesDirectoryTree() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir -p sub/inner")
         try await cap.shell.run("touch sub/x sub/inner/y")
         try await cap.shell.run("rm -rf sub")
@@ -125,13 +125,13 @@ import Foundation
     }
 
     @Test func rmMissingFailsWithoutForce() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("rm nope")
         #expect(status == .failure)
     }
 
     @Test func rmFForceMissingIsSilentSuccess() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("rm -f nope")
         #expect(status == .success)
         #expect(cap.stderr == "")
@@ -140,7 +140,7 @@ import Foundation
     // MARK: mv
 
     @Test func mvRenames() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch a.txt")
         try await cap.shell.run("mv a.txt b.txt")
         try await cap.shell.run("ls")
@@ -148,7 +148,7 @@ import Foundation
     }
 
     @Test func mvIntoDirectory() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir bucket")
         try await cap.shell.run("touch a.txt b.txt")
         try await cap.shell.run("mv a.txt b.txt bucket")
@@ -157,7 +157,7 @@ import Foundation
     }
 
     @Test func mvMultipleSourcesToFileFails() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch a b c")
         let status = try await cap.shell.run("mv a b c")
         #expect(status == .failure)
@@ -166,7 +166,7 @@ import Foundation
     // MARK: cp
 
     @Test func cpCopiesFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch src.txt")
         try await cap.shell.run("cp src.txt dst.txt")
         try await cap.shell.run("ls")
@@ -174,7 +174,7 @@ import Foundation
     }
 
     @Test func cpDirectoryWithoutRecursiveFails() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir sub")
         let status = try await cap.shell.run("cp sub dst")
         #expect(status == .failure)
@@ -182,7 +182,7 @@ import Foundation
     }
 
     @Test func cpDashRCopiesDirectoryTree() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir -p sub/inner")
         try await cap.shell.run("touch sub/x sub/inner/y")
         try await cap.shell.run("cp -r sub duplicate")
@@ -191,7 +191,7 @@ import Foundation
     }
 
     @Test func cpMultipleIntoDirectory() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir bucket")
         try await cap.shell.run("touch a b")
         try await cap.shell.run("cp a b bucket")
@@ -202,14 +202,14 @@ import Foundation
     // MARK: touch
 
     @Test func touchCreatesFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch new.txt")
         #expect(FileManager.default.fileExists(
             atPath: (dir as NSString).appendingPathComponent("new.txt")))
     }
 
     @Test func touchMultiplePaths() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("touch a b c")
         try await cap.shell.run("ls")
         #expect(cap.stdout == "a\nb\nc\n")
@@ -218,9 +218,9 @@ import Foundation
     // MARK: integration
 
     @Test func catReadsFile() async throws {
-        let (cap, dir) = makeShell(); defer { cleanup(dir) }
-        let p = (dir as NSString).appendingPathComponent("hi.txt")
-        try "line1\nline2\n".write(toFile: p, atomically: true, encoding: .utf8)
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        let path = (dir as NSString).appendingPathComponent("hi.txt")
+        try "line1\nline2\n".write(toFile: path, atomically: true, encoding: .utf8)
         try await cap.shell.run("cat hi.txt")
         #expect(cap.stdout == "line1\nline2\n")
     }
@@ -264,10 +264,10 @@ private struct RejectingFileSystem: FileSystem {
     func remove(_ path: String, recursive: Bool) async throws {
         throw FileSystemError.io("nope: \(path)")
     }
-    func move(from: String, to: String) async throws {
-        throw FileSystemError.io("nope: \(from)")
+    func move(from: String, to destination: String) async throws {
+        throw FileSystemError.io("nope: \(from) → \(destination)")
     }
-    func copy(from: String, to: String) async throws {
-        throw FileSystemError.io("nope: \(from)")
+    func copy(from: String, to destination: String) async throws {
+        throw FileSystemError.io("nope: \(from) → \(destination)")
     }
 }

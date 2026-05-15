@@ -1,14 +1,17 @@
+// swiftlint:disable file_length
+// Large coverage suite covering the bash parser's many grammar branches.
 import Testing
 @testable import BashSyntax
 
+// swiftlint:disable:next type_body_length
 @Suite(.timeLimit(.minutes(1))) struct ParserTests {
 
     // MARK: Helpers
 
-    private func parse(_ s: String,
+    private func parse(_ source: String,
                        sourceLocation: SourceLocation = #_sourceLocation) -> Node {
         do {
-            return try BashSyntax.parseSingle(s)
+            return try BashSyntax.parseSingle(source)
         } catch {
             Issue.record("parse failed: \(error)", sourceLocation: sourceLocation)
             return Node(kind: .command(parts: []), range: 0..<0)
@@ -33,7 +36,7 @@ import Testing
             Issue.record("expected pipeline")
             return
         }
-        if case .pipe(let p) = parts[1].kind { #expect(p == "|&") }
+        if case .pipe(let pipeOp) = parts[1].kind { #expect(pipeOp == "|&") }
     }
 
     @Test func bang() {
@@ -72,8 +75,8 @@ import Testing
             return
         }
         #expect(parts.last?.kindName == "operator")
-        if case .operator(let op) = parts.last!.kind {
-            #expect(op == "&")
+        if case .operator(let oper) = parts.last!.kind {
+            #expect(oper == "&")
         }
     }
 
@@ -86,8 +89,8 @@ import Testing
             return
         }
         #expect(parts[0].kindName == "assignment")
-        if case .assignment(let w, _) = parts[0].kind {
-            #expect(w == "FOO=bar")
+        if case .assignment(let word, _) = parts[0].kind {
+            #expect(word == "FOO=bar")
         }
     }
 
@@ -232,7 +235,7 @@ import Testing
             Issue.record("expected function, got \(node.kindName)")
             return
         }
-        if case .word(let w, _) = name.kind { #expect(w == "hello") }
+        if case .word(let word, _) = name.kind { #expect(word == "hello") }
     }
 
     @Test func functionKeyword() {
@@ -241,7 +244,7 @@ import Testing
             Issue.record("expected function, got \(node.kindName)")
             return
         }
-        if case .word(let w, _) = name.kind { #expect(w == "hello") }
+        if case .word(let word, _) = name.kind { #expect(word == "hello") }
     }
 
     // MARK: Substitutions inside words
@@ -281,8 +284,8 @@ import Testing
         }
         if case .word(_, let wordParts) = parts[1].kind {
             #expect(wordParts.first?.kindName == "parameter")
-            if case .parameter(let v) = wordParts.first?.kind {
-                #expect(v == "HOME")
+            if case .parameter(let varName) = wordParts.first?.kind {
+                #expect(varName == "HOME")
             }
         } else {
             Issue.record("expected word with parameter child")
@@ -296,8 +299,8 @@ import Testing
             return
         }
         if case .word(_, let wordParts) = parts[1].kind {
-            if case .parameter(let v) = wordParts.first?.kind {
-                #expect(v == "foo:-bar")
+            if case .parameter(let varName) = wordParts.first?.kind {
+                #expect(varName == "foo:-bar")
             }
         } else {
             Issue.record("expected word with parameter child")
@@ -312,8 +315,8 @@ import Testing
         }
         if case .word(_, let wordParts) = parts[1].kind {
             #expect(wordParts.first?.kindName == "tilde")
-            if case .tilde(let v) = wordParts.first?.kind {
-                #expect(v == "~")
+            if case .tilde(let tildeText) = wordParts.first?.kind {
+                #expect(tildeText == "~")
             }
         } else {
             Issue.record("expected word with tilde child")
@@ -330,8 +333,7 @@ import Testing
             return
         }
         if case .command(let innerParts) = inner.kind,
-           case .word(_, let innerWordParts) = innerParts[1].kind
-        {
+           case .word(_, let innerWordParts) = innerParts[1].kind {
             #expect(innerWordParts.first?.kindName == "commandsubstitution")
         } else {
             Issue.record("expected nested command substitution")
@@ -396,8 +398,8 @@ import Testing
             }
         }
         let node = try BashSyntax.parseSingle("a && b | c || d")
-        var v = Counter()
-        node.walk(&v)
-        #expect(v.commandCount == 4)
+        var counter = Counter()
+        node.walk(&counter)
+        #expect(counter.commandCount == 4)
     }
 }

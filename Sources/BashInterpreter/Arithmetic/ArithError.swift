@@ -18,16 +18,16 @@ public enum ArithError: Error, Equatable, Sendable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .unexpectedCharacter(let c, let pos):
-            return "unexpected character '\(c)' at position \(pos)"
-        case .invalidNumber(let s):
-            return "invalid number literal: '\(s)'"
-        case .invalidBase(let b):
-            return "invalid base: \(b) (must be 2..64)"
-        case .digitOutOfRange(let d, let b):
-            return "digit '\(d)' out of range for base \(b)"
-        case .unexpectedToken(let s):
-            return "unexpected token: '\(s)'"
+        case .unexpectedCharacter(let char, let pos):
+            return "unexpected character '\(char)' at position \(pos)"
+        case .invalidNumber(let text):
+            return "invalid number literal: '\(text)'"
+        case .invalidBase(let base):
+            return "invalid base: \(base) (must be 2..64)"
+        case .digitOutOfRange(let digit, let base):
+            return "digit '\(digit)' out of range for base \(base)"
+        case .unexpectedToken(let text):
+            return "unexpected token: '\(text)'"
         case .unexpectedEnd:
             return "unexpected end of expression"
         case .expectedColon:
@@ -38,8 +38,8 @@ public enum ArithError: Error, Equatable, Sendable, CustomStringConvertible {
             return "division by zero"
         case .moduloByZero:
             return "modulo by zero"
-        case .negativeExponent(let e):
-            return "exponent must be non-negative (got \(e))"
+        case .negativeExponent(let exponent):
+            return "exponent must be non-negative (got \(exponent))"
         case .recursionLimit:
             return "variable recursion limit exceeded"
         }

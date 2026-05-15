@@ -49,9 +49,9 @@ public struct WcCommand: ParsableBashCommand {
                 let data = path == "-"
                     ? await Shell.bashCurrent.stdin.readAllData()
                     : try await Shell.bashCurrent.readDataAtPath(path)
-                let c = compute(data: data)
-                total.add(c)
-                Shell.bashCurrent.stdout(format(counts: c, label: path,
+                let counts = compute(data: data)
+                total.add(counts)
+                Shell.bashCurrent.stdout(format(counts: counts, label: path,
                                     showAll: showAll) + "\n")
             } catch FileSystemError.notFound {
                 Shell.bashCurrent.stderr("wc: \(path): No such file or directory\n")
@@ -80,6 +80,7 @@ public struct WcCommand: ParsableBashCommand {
     }
 
     private func compute(data: Data) -> Counts {
+        // swiftlint:disable:next optional_data_string_conversion - wc accepts non-UTF-8 byte streams
         let text = String(decoding: data, as: UTF8.self)
         return Counts(
             lines: text.filter { $0 == "\n" }.count,
@@ -88,15 +89,15 @@ public struct WcCommand: ParsableBashCommand {
             chars: text.count)
     }
 
-    private func format(counts c: Counts, label: String?, showAll: Bool) -> String {
+    private func format(counts: Counts, label: String?, showAll: Bool) -> String {
         var pieces: [String] = []
-        let pad = { (n: Int) in String(format: "%8d", n) }
-        if lines || showAll { pieces.append(pad(c.lines)) }
-        if words || showAll { pieces.append(pad(c.words)) }
-        if bytes || showAll { pieces.append(pad(c.bytes)) }
-        if chars             { pieces.append(pad(c.chars)) }
+        let pad = { (count: Int) in String(format: "%8d", count) }
+        if lines || showAll { pieces.append(pad(counts.lines)) }
+        if words || showAll { pieces.append(pad(counts.words)) }
+        if bytes || showAll { pieces.append(pad(counts.bytes)) }
+        if chars { pieces.append(pad(counts.chars)) }
         var out = pieces.joined(separator: " ")
-        if let l = label { out += " " + l }
+        if let label { out += " " + label }
         return out
     }
 }

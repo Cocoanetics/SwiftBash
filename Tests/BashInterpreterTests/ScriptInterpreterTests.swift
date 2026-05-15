@@ -2,6 +2,8 @@ import Testing
 import Foundation
 @testable import BashInterpreter
 
+// Reason: cohesive set of script-interpreter tests; splitting hurts discoverability.
+// swiftlint:disable:next type_body_length
 @Suite(.timeLimit(.minutes(1))) struct ScriptInterpreterTests {
 
     /// Drop a shebang script onto disk with the execute bit set —
@@ -26,8 +28,8 @@ import Foundation
     /// Embedded single quotes are encoded as `'\''` (the standard
     /// POSIX trick); UUID-bearing test paths don't contain quotes,
     /// but the helper is correct in general.
-    private static func bashQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    private static func bashQuote(_ str: String) -> String {
+        "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: parseShebangLine
@@ -137,8 +139,6 @@ import Foundation
         let path = dir + "/hello.foo"
         try Self.writeExecutable("#!/usr/bin/env foolang\nbody\n", to: path)
 
-        // Capture every interpreter invocation so we can assert on
-        // what the dispatcher hands over.
         actor Sink {
             var contexts: [ScriptInterpreterContext] = []
             func record(_ ctx: ScriptInterpreterContext) { contexts.append(ctx) }
@@ -153,17 +153,13 @@ import Foundation
         try await cap.shell.run("\(Self.bashQuote(path)) one two")
         let ctxs = await sink.contexts
         #expect(ctxs.count == 1)
-        // The dispatcher hands over the *resolved* path (drive-letter
-        // forward-slash form on Windows; identity on Unix). Compute
-        // the expected form via the same `resolvePath` so the
-        // assertion stays platform-independent.
+        // Dispatcher hands over the *resolved* path (Windows drive-letter
+        // form); compute via same resolvePath for platform-independence.
         let resolvedPath = cap.shell.resolvePath(path)
         #expect(ctxs.first?.scriptPath == resolvedPath)
         #expect(ctxs.first?.shebang == "#!/usr/bin/env foolang")
         #expect(ctxs.first?.argv == [resolvedPath, "one", "two"])
-        // Body should be stripped — no leading `#!` survives. The
-        // newline is retained so line 2 of the file is still line 2
-        // of the body.
+        // Body has `#!` stripped; the newline is kept so line N stays line N.
         #expect(ctxs.first?.source.hasPrefix("#!") == false)
         #expect(ctxs.first?.source.hasPrefix("\n") == true)
         #expect(cap.stdout == "ran:\(resolvedPath),one,two\n")
@@ -299,13 +295,9 @@ import Foundation
     #endif
 
     @Test func unreadableScriptReportsPermissionDenied() async throws {
-        // A path the FS rejects (sandbox denial, EACCES) on `metadata`
-        // / `readData` should surface as 126 with a permission-shaped
-        // diagnostic — masking it as `command not found` (the prior
-        // behaviour) hid real failures behind a misleading message.
+        // FS rejects metadata/readData → 126 (not 127), preserving the
+        // permission-shaped diagnostic.
         let cap = CapturingShell()
-        // FailingFileSystem rejects everything with permissionDenied
-        // so we exercise the "explicit path, FS error" branch.
         cap.shell.fileSystem = FailingFileSystem()
         cap.shell.registerScriptInterpreter(name: "foolang") { _ in .success }
         let status = try await cap.shell.run("/some/explicit/path")
@@ -314,10 +306,8 @@ import Foundation
     }
 
     @Test func unregisteredShebangFallsThroughToCommandNotFound() async throws {
-        // File exists with a shebang naming an interpreter we DON'T
-        // have. We don't synthesize a "no interpreter for X" error
-        // because falling through to bash's "command not found" lets
-        // PATH lookups (etc.) still take effect for bare names.
+        // Shebang names an unknown interpreter → falls through to
+        // bash's "command not found" (lets PATH lookups still take effect).
         let cap = CapturingShell()
         let dir = NSTemporaryDirectory()
             + "swift-bash-shebang-unreg-\(UUID().uuidString)"
@@ -332,8 +322,7 @@ import Foundation
     }
 
     @Test func interpretersInheritIntoSubshells() async throws {
-        // The registry must propagate via Shell.copy() so subshells
-        // dispatch the same interpreters.
+        // Registry must propagate via Shell.copy().
         let cap = CapturingShell()
         let dir = NSTemporaryDirectory()
             + "swift-bash-shebang-sub-\(UUID().uuidString)"
@@ -408,40 +397,4 @@ import Foundation
     }
 }
 
-// MARK: - Test helpers
-
-/// Synthetic FS that rejects every read with `permissionDenied`.
-/// Used to drive the dispatcher's explicit-path FS-error branch
-/// without depending on chmod-able real disk state.
-private struct FailingFileSystem: FileSystem {
-    func metadata(_ path: String) async throws -> FileMetadata? {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func list(_ path: String) async throws -> [FileEntry] {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func canonicalize(_ path: String, allowMissing: Bool) async throws -> String {
-        path
-    }
-    func readData(_ path: String) async throws -> Data {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func writeData(_ data: Data, to path: String, append: Bool) async throws {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func touch(_ path: String) async throws {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func createDirectory(_ path: String, intermediates: Bool) async throws {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func remove(_ path: String, recursive: Bool) async throws {
-        throw FileSystemError.permissionDenied(path)
-    }
-    func move(from: String, to: String) async throws {
-        throw FileSystemError.permissionDenied(from)
-    }
-    func copy(from: String, to: String) async throws {
-        throw FileSystemError.permissionDenied(from)
-    }
-}
+// `FailingFileSystem` (used below) lives in `FailingFileSystem.swift`.

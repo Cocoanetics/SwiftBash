@@ -29,13 +29,13 @@ public struct DirnameCommand: ParsableBashCommand {
     static func dirname(of path: String) -> String {
         if path.isEmpty { return "." }
 
-        var p = path
+        var trimmed = path
         // Strip trailing slashes, but keep a single slash if that's all we have.
-        while p.count > 1, p.hasSuffix("/") { p.removeLast() }
-        if p == "/" { return "/" }
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        if trimmed == "/" { return "/" }
 
-        guard let lastSlash = p.lastIndex(of: "/") else { return "." }
-        let head = String(p[..<lastSlash])
+        guard let lastSlash = trimmed.lastIndex(of: "/") else { return "." }
+        let head = String(trimmed[..<lastSlash])
         // Strip any redundant trailing slashes on the head as well
         // (`/foo/bar` → head `/foo`, but `//foo` → head `/`).
         var result = head

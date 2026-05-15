@@ -2,40 +2,12 @@ import ArgumentParser
 import BashInterpreter
 import Foundation
 
-/// `curl [OPTIONS] URL` — HTTP client.
+/// `curl [OPTIONS] URL` — HTTP client. See README for supported flags.
 ///
 /// Network access is **deny-by-default**: the shell's
 /// ``Shell/networkConfig`` must contain a non-empty allow-list (or
 /// ``NetworkConfig/dangerouslyAllowFullInternetAccess`` must be `true`)
 /// before any URL will resolve.
-///
-/// ### Supported flags
-///
-/// | Flag | Effect |
-/// |------|--------|
-/// | `-X METHOD` / `--request` | HTTP method (default GET; POST when -d) |
-/// | `-H 'K: V'` / `--header` | Add a request header (repeatable) |
-/// | `-d STR` / `--data` / `--data-ascii` | URL-encoded request body |
-/// | `--data-raw STR` | Body verbatim, no `@file` reading |
-/// | `--data-binary STR` / `@file` | Body verbatim from string or file |
-/// | `--data-urlencode KEY=VAL` | URL-encode VAL into a body field |
-/// | `-F 'name=value'` | Multipart form field (basic) |
-/// | `-G` / `--get` | Send `-d` data as URL query instead of body |
-/// | `-o FILE` / `--output` | Write body to FILE instead of stdout |
-/// | `-O` / `--remote-name` | Save to a file named after the URL |
-/// | `-L` / `--location` | Follow redirects (always on for security) |
-/// | `-s` / `--silent` | Suppress progress (currently no-op; we never print progress) |
-/// | `-S` / `--show-error` | With -s, still show error messages |
-/// | `-i` / `--include` | Include response headers in output |
-/// | `-I` / `--head` | HEAD request, output headers |
-/// | `-v` / `--verbose` | Trace request + response on stderr |
-/// | `-f` / `--fail` | Exit 22 on HTTP 4xx/5xx, no body output |
-/// | `-u USER:PASS` / `--user` | HTTP Basic auth |
-/// | `-A AGENT` / `--user-agent` | Override `User-Agent` |
-/// | `-e URL` / `--referer` | Set `Referer` |
-/// | `-w FORMAT` / `--write-out` | Print FORMAT after the response |
-/// | `--max-time SEC` | Override the configured timeout |
-/// | `-k` / `--insecure` | Ignored — `URLSession` honours system trust |
 public struct CurlCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "curl",
@@ -52,12 +24,13 @@ public struct CurlCommand: ParsableBashCommand {
         return try await Self.run(argv: rawArgv, fetcher: nil)
     }
 
-    /// Test seam: same behaviour as ``execute(shell:)`` but lets
-    /// callers inject a pre-built ``SecureFetcher`` (typically wrapping
-    /// a mock ``NetworkFetcher``). When `injectedFetcher` is `nil`,
-    /// curl builds one from `Shell.bashCurrent.networkConfig` — production path.
+    // Test seam: same behaviour as `execute(shell:)` but lets
+    // callers inject a pre-built `SecureFetcher` (typically wrapping
+    // a mock `NetworkFetcher`). When `injectedFetcher` is `nil`,
+    // curl builds one from `Shell.bashCurrent.networkConfig` — production path.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public static func run(argv: [String],
-                           
+
                            fetcher injectedFetcher: SecureFetcher?
     ) async throws -> ExitStatus {
         let rawArgv = argv
@@ -67,11 +40,11 @@ public struct CurlCommand: ParsableBashCommand {
         } catch CurlParseError.missingURL {
             Shell.bashCurrent.stderr("curl: no URL specified\n")
             return ExitStatus(2)
-        } catch let CurlParseError.unknownOption(o) {
-            Shell.bashCurrent.stderr("curl: option \(o): is unknown\n")
+        } catch let CurlParseError.unknownOption(opt) {
+            Shell.bashCurrent.stderr("curl: option \(opt): is unknown\n")
             return ExitStatus(2)
-        } catch let CurlParseError.argumentRequired(o) {
-            Shell.bashCurrent.stderr("curl: option \(o): requires an argument\n")
+        } catch let CurlParseError.argumentRequired(opt) {
+            Shell.bashCurrent.stderr("curl: option \(opt): requires an argument\n")
             return ExitStatus(2)
         } catch {
             Shell.bashCurrent.stderr("curl: \(error)\n")
@@ -79,7 +52,7 @@ public struct CurlCommand: ParsableBashCommand {
         }
 
         // Configure: load body from --data-binary @file references.
-        var body: Data? = nil
+        var body: Data?
         var requestHeaders = opts.headers
         var method = opts.method ?? (opts.body != nil ? "POST" : "GET")
         if opts.headRequest {
@@ -88,8 +61,8 @@ public struct CurlCommand: ParsableBashCommand {
 
         if let raw = opts.body {
             switch raw {
-            case .string(let s):
-                body = Data(s.utf8)
+            case .string(let str):
+                body = Data(str.utf8)
             case .urlEncodedFields(let pairs):
                 body = Data(pairs.map { encodeForm($0) }
                                   .joined(separator: "&").utf8)
@@ -116,7 +89,7 @@ public struct CurlCommand: ParsableBashCommand {
         if requestHeaders["User-Agent"] == nil {
             requestHeaders["User-Agent"] = "swift-bash-curl/0.1"
         }
-        if let ua = opts.userAgent { requestHeaders["User-Agent"] = ua }
+        if let agent = opts.userAgent { requestHeaders["User-Agent"] = agent }
         if let ref = opts.referer { requestHeaders["Referer"] = ref }
         if let auth = opts.basicAuth {
             let raw = "\(auth.user):\(auth.password)"
@@ -148,7 +121,7 @@ public struct CurlCommand: ParsableBashCommand {
                 return ExitStatus(7)
             }
             var effectiveConfig = netConfig
-            if let t = opts.maxTimeSeconds { effectiveConfig.timeoutSeconds = t }
+            if let timeout = opts.maxTimeSeconds { effectiveConfig.timeoutSeconds = timeout }
             do {
                 fetcher = try SecureFetcher(config: effectiveConfig)
             } catch let err as NetworkError {
@@ -198,8 +171,8 @@ public struct CurlCommand: ParsableBashCommand {
         if opts.includeHeaders || opts.headRequest {
             output.append(Data(
                 "HTTP/1.1 \(response.status) \(response.statusText)\r\n".utf8))
-            for k in response.headers.keys.sorted() {
-                output.append(Data("\(k): \(response.headers[k] ?? "")\r\n".utf8))
+            for key in response.headers.keys.sorted() {
+                output.append(Data("\(key): \(response.headers[key] ?? "")\r\n".utf8))
             }
             output.append(Data("\r\n".utf8))
         }
@@ -242,10 +215,10 @@ public struct CurlCommand: ParsableBashCommand {
 
 private struct ParsedOptions {
     var url: URL = URL(string: "http://invalid.invalid")!
-    var method: String? = nil
+    var method: String?
     var headers: [String: String] = [:]
-    var body: CurlBody? = nil
-    var outputPath: String? = nil
+    var body: CurlBody?
+    var outputPath: String?
     var remoteName: Bool = false
     var includeHeaders: Bool = false
     var headRequest: Bool = false
@@ -253,375 +226,150 @@ private struct ParsedOptions {
     var silent: Bool = false
     var showError: Bool = false
     var failOnError: Bool = false
-    var basicAuth: (user: String, password: String)? = nil
-    var userAgent: String? = nil
-    var referer: String? = nil
-    var writeOut: String? = nil
-    var maxTimeSeconds: TimeInterval? = nil
+    var basicAuth: (user: String, password: String)?
+    var userAgent: String?
+    var referer: String?
+    var writeOut: String?
+    var maxTimeSeconds: TimeInterval?
     var getMode: Bool = false
-}
-
-private enum CurlBody {
-    case string(String)
-    case urlEncodedFields([(String, String)])
-    case multipart([MultipartPart])
-    case fromFile(String)
-}
-
-private struct MultipartPart {
-    var name: String
-    var value: String          // for now, text-only `-F name=value`
-    var filename: String?
-    var contentType: String?
-}
-
-private enum CurlParseError: Error {
-    case missingURL
-    case unknownOption(String)
-    case argumentRequired(String)
 }
 
 extension CurlCommand {
 
-    fileprivate static func parse(_ argv: [String]) throws -> ParsedOptions
-    {
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    fileprivate static func parse(_ argv: [String]) throws -> ParsedOptions {
         var opts = ParsedOptions()
         var sawURL = false
         var pendingFormFields: [(String, String)] = []
         var pendingMultipart: [MultipartPart] = []
 
-        var i = 0
-        while i < argv.count {
-            let a = argv[i]
-            if a == "--" {
-                i += 1
-                while i < argv.count {
-                    if !sawURL, let u = URL(string: argv[i]) {
-                        opts.url = u; sawURL = true
+        var idx = 0
+        while idx < argv.count {
+            let arg = argv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < argv.count {
+                    if !sawURL, let parsed = URL(string: argv[idx]) {
+                        opts.url = parsed; sawURL = true
                     }
-                    i += 1
+                    idx += 1
                 }
                 break
             }
-            switch a {
+            switch arg {
             case "-X", "--request":
-                opts.method = try requireArg(argv, i, name: a)
-                i += 2
+                opts.method = try requireArg(argv, idx, name: arg)
+                idx += 2
             case "-H", "--header":
-                let h = try requireArg(argv, i, name: a)
-                if let (k, v) = splitHeader(h) {
-                    opts.headers[k] = v
+                let header = try requireArg(argv, idx, name: arg)
+                if let (key, value) = splitHeader(header) {
+                    opts.headers[key] = value
                 }
-                i += 2
+                idx += 2
             case "-d", "--data", "--data-ascii":
-                let s = try requireArg(argv, i, name: a)
-                appendBody(s, to: &opts.body, urlencode: false)
-                i += 2
+                let str = try requireArg(argv, idx, name: arg)
+                appendBody(str, to: &opts.body, urlencode: false)
+                idx += 2
             case "--data-raw":
-                let s = try requireArg(argv, i, name: a)
-                opts.body = .string(s)
-                i += 2
+                let str = try requireArg(argv, idx, name: arg)
+                opts.body = .string(str)
+                idx += 2
             case "--data-binary":
-                let s = try requireArg(argv, i, name: a)
-                if s.hasPrefix("@") {
-                    opts.body = .fromFile(String(s.dropFirst()))
+                let str = try requireArg(argv, idx, name: arg)
+                if str.hasPrefix("@") {
+                    opts.body = .fromFile(String(str.dropFirst()))
                 } else {
-                    opts.body = .string(s)
+                    opts.body = .string(str)
                 }
-                i += 2
+                idx += 2
             case "--data-urlencode":
-                let s = try requireArg(argv, i, name: a)
-                let (k, v) = splitFormField(s)
-                pendingFormFields.append((k, v))
+                let str = try requireArg(argv, idx, name: arg)
+                let (key, value) = splitFormField(str)
+                pendingFormFields.append((key, value))
                 opts.body = .urlEncodedFields(pendingFormFields)
-                i += 2
+                idx += 2
             case "-F", "--form":
-                let s = try requireArg(argv, i, name: a)
-                let (k, v) = splitFormField(s)
+                let str = try requireArg(argv, idx, name: arg)
+                let (key, value) = splitFormField(str)
                 pendingMultipart.append(MultipartPart(
-                    name: k, value: v, filename: nil, contentType: nil))
+                    name: key, value: value, filename: nil, contentType: nil))
                 opts.body = .multipart(pendingMultipart)
-                i += 2
+                idx += 2
             case "-G", "--get":
-                opts.getMode = true; i += 1
+                opts.getMode = true; idx += 1
             case "-o", "--output":
-                opts.outputPath = try requireArg(argv, i, name: a)
-                i += 2
+                opts.outputPath = try requireArg(argv, idx, name: arg)
+                idx += 2
             case "-O", "--remote-name":
-                opts.remoteName = true; i += 1
+                opts.remoteName = true; idx += 1
             case "-L", "--location":
                 // Always on (security: each hop revalidated).
-                i += 1
+                idx += 1
             case "-s", "--silent":
-                opts.silent = true; i += 1
+                opts.silent = true; idx += 1
             case "-S", "--show-error":
-                opts.showError = true; i += 1
+                opts.showError = true; idx += 1
             case "-i", "--include":
-                opts.includeHeaders = true; i += 1
+                opts.includeHeaders = true; idx += 1
             case "-I", "--head":
-                opts.headRequest = true; i += 1
+                opts.headRequest = true; idx += 1
             case "-v", "--verbose":
-                opts.verbose = true; i += 1
+                opts.verbose = true; idx += 1
             case "-f", "--fail":
-                opts.failOnError = true; i += 1
+                opts.failOnError = true; idx += 1
             case "-u", "--user":
-                let s = try requireArg(argv, i, name: a)
-                let parts = s.split(separator: ":", maxSplits: 1)
+                let str = try requireArg(argv, idx, name: arg)
+                let parts = str.split(separator: ":", maxSplits: 1)
                 let user = String(parts.first ?? "")
                 let pass = parts.count > 1 ? String(parts[1]) : ""
                 opts.basicAuth = (user, pass)
-                i += 2
+                idx += 2
             case "-A", "--user-agent":
-                opts.userAgent = try requireArg(argv, i, name: a)
-                i += 2
+                opts.userAgent = try requireArg(argv, idx, name: arg)
+                idx += 2
             case "-e", "--referer":
-                opts.referer = try requireArg(argv, i, name: a)
-                i += 2
+                opts.referer = try requireArg(argv, idx, name: arg)
+                idx += 2
             case "-w", "--write-out":
-                opts.writeOut = try requireArg(argv, i, name: a)
-                i += 2
+                opts.writeOut = try requireArg(argv, idx, name: arg)
+                idx += 2
             case "--max-time":
-                let raw = try requireArg(argv, i, name: a)
-                if let v = TimeInterval(raw) { opts.maxTimeSeconds = v }
-                i += 2
+                let raw = try requireArg(argv, idx, name: arg)
+                if let val = TimeInterval(raw) { opts.maxTimeSeconds = val }
+                idx += 2
             case "-k", "--insecure":
                 // URLSession-backed; we don't expose cert pinning.
-                i += 1
+                idx += 1
             case "-h", "--help":
                 Shell.bashCurrent.stdout(curlHelp)
                 throw CurlParseError.missingURL // returns 2 from caller
             default:
-                if a.hasPrefix("-"), a.count > 1, a != "-" {
-                    throw CurlParseError.unknownOption(a)
+                if arg.hasPrefix("-"), arg.count > 1, arg != "-" {
+                    throw CurlParseError.unknownOption(arg)
                 }
                 // Positional URL.
-                if let u = URL(string: a),
-                   let scheme = u.scheme, !scheme.isEmpty
-                {
-                    opts.url = u
+                if let parsed = URL(string: arg),
+                   let scheme = parsed.scheme, !scheme.isEmpty {
+                    opts.url = parsed
                     sawURL = true
-                } else if let u = URL(string: "http://" + a),
-                          let scheme = u.scheme, !scheme.isEmpty,
-                          u.host != nil
-                {
-                    opts.url = u
+                } else if let parsed = URL(string: "http://" + arg),
+                          let scheme = parsed.scheme, !scheme.isEmpty,
+                          parsed.host != nil {
+                    opts.url = parsed
                     sawURL = true
                 }
-                i += 1
+                idx += 1
             }
         }
         if !sawURL { throw CurlParseError.missingURL }
         return opts
     }
 
-    fileprivate static func requireArg(_ argv: [String], _ i: Int,
-                                       name: String) throws -> String
-    {
-        guard i + 1 < argv.count else {
+    fileprivate static func requireArg(_ argv: [String], _ idx: Int,
+                                       name: String) throws -> String {
+        guard idx + 1 < argv.count else {
             throw CurlParseError.argumentRequired(name)
         }
-        return argv[i + 1]
+        return argv[idx + 1]
     }
 }
-
-// MARK: - Body helpers
-
-private func appendBody(_ s: String, to body: inout CurlBody?,
-                        urlencode: Bool)
-{
-    // Multiple `-d` calls concatenate with `&`.
-    let pair = splitFormField(s)
-    let pairs: [(String, String)] = pair.0.isEmpty
-        ? [("", s)] : [pair]
-
-    if case .urlEncodedFields(let existing) = body {
-        body = .urlEncodedFields(existing + pairs)
-    } else if case .string(let existing) = body {
-        body = .string(existing + "&" + s)
-    } else {
-        body = .urlEncodedFields(pairs)
-    }
-}
-
-private func splitFormField(_ s: String) -> (String, String) {
-    if let idx = s.firstIndex(of: "=") {
-        let k = String(s[..<idx])
-        let v = String(s[s.index(after: idx)...])
-        return (k, v)
-    }
-    return ("", s)
-}
-
-private func splitHeader(_ s: String) -> (String, String)? {
-    guard let idx = s.firstIndex(of: ":") else { return nil }
-    let k = String(s[..<idx]).trimmingCharacters(in: .whitespaces)
-    let v = String(s[s.index(after: idx)...])
-                    .trimmingCharacters(in: .whitespaces)
-    return (k, v)
-}
-
-private func encodeForm(_ pair: (String, String)) -> String {
-    let kEnc = pair.0.addingPercentEncoding(
-        withAllowedCharacters: .urlQueryAllowed) ?? pair.0
-    let vEnc = pair.1.addingPercentEncoding(
-        withAllowedCharacters: .urlQueryAllowed) ?? pair.1
-    return kEnc.isEmpty ? vEnc : "\(kEnc)=\(vEnc)"
-}
-
-private func bodyAsPairs(_ body: CurlBody?) -> [(String, String)]? {
-    guard let body else { return nil }
-    if case .urlEncodedFields(let pairs) = body { return pairs }
-    if case .string(let s) = body, !s.isEmpty {
-        return [(splitFormField(s).0, splitFormField(s).1)]
-    }
-    return nil
-}
-
-private func appendQuery(to url: URL,
-                         pairs: [(String, String)]) -> URL?
-{
-    guard var comps = URLComponents(url: url,
-                                    resolvingAgainstBaseURL: false)
-    else { return nil }
-    var items = comps.queryItems ?? []
-    for (k, v) in pairs {
-        items.append(URLQueryItem(name: k, value: v))
-    }
-    comps.queryItems = items
-    return comps.url
-}
-
-private func encodeMultipart(parts: [MultipartPart],
-                             boundary: String) -> Data
-{
-    var out = Data()
-    for p in parts {
-        out.append(Data("--\(boundary)\r\n".utf8))
-        var headers = "Content-Disposition: form-data; name=\"\(p.name)\""
-        if let fn = p.filename { headers += "; filename=\"\(fn)\"" }
-        out.append(Data((headers + "\r\n").utf8))
-        if let ct = p.contentType {
-            out.append(Data("Content-Type: \(ct)\r\n".utf8))
-        }
-        out.append(Data("\r\n".utf8))
-        out.append(Data(p.value.utf8))
-        out.append(Data("\r\n".utf8))
-    }
-    out.append(Data("--\(boundary)--\r\n".utf8))
-    return out
-}
-
-// MARK: - Verbose tracing
-
-private func traceRequest(_ req: NetworkRequest) {
-    Shell.bashCurrent.stderr("> \(req.method) \(req.url.path.isEmpty ? "/" : req.url.path)"
-                 + " HTTP/1.1\r\n")
-    if let host = req.url.host { Shell.bashCurrent.stderr("> Host: \(host)\r\n") }
-    for k in req.headers.keys.sorted() {
-        Shell.bashCurrent.stderr("> \(k): \(req.headers[k] ?? "")\r\n")
-    }
-    Shell.bashCurrent.stderr(">\r\n")
-}
-
-private func traceResponse(_ resp: NetworkResponse) {
-    Shell.bashCurrent.stderr("< HTTP/1.1 \(resp.status) \(resp.statusText)\r\n")
-    for k in resp.headers.keys.sorted() {
-        Shell.bashCurrent.stderr("< \(k): \(resp.headers[k] ?? "")\r\n")
-    }
-    Shell.bashCurrent.stderr("<\r\n")
-}
-
-// MARK: - --write-out
-
-private func formatWriteOut(_ format: String,
-                            response: NetworkResponse) -> String
-{
-    var out = ""
-    var i = format.startIndex
-    while i < format.endIndex {
-        let c = format[i]
-        if c == "%", format.index(after: i) < format.endIndex {
-            let next = format[format.index(after: i)]
-            if next == "{" {
-                if let close = format[i...].firstIndex(of: "}") {
-                    let name = String(
-                        format[format.index(i, offsetBy: 2)..<close])
-                    out += writeOutVariable(name, response: response)
-                    i = format.index(after: close)
-                    continue
-                }
-            }
-            switch next {
-            case "%": out.append("%")
-            case "\n": out.append("\n")
-            default:
-                out += writeOutVariable(String(next), response: response)
-            }
-            i = format.index(i, offsetBy: 2)
-            continue
-        }
-        if c == "\\", format.index(after: i) < format.endIndex {
-            let n = format[format.index(after: i)]
-            switch n {
-            case "n": out.append("\n")
-            case "t": out.append("\t")
-            case "r": out.append("\r")
-            case "\\": out.append("\\")
-            default: out.append(n)
-            }
-            i = format.index(i, offsetBy: 2)
-            continue
-        }
-        out.append(c)
-        i = format.index(after: i)
-    }
-    return out
-}
-
-private func writeOutVariable(_ name: String,
-                              response: NetworkResponse) -> String
-{
-    switch name {
-    case "http_code", "response_code": return String(response.status)
-    case "size_download":             return String(response.body.count)
-    case "url_effective":             return response.finalURL.absoluteString
-    case "content_type":
-        return response.headers["Content-Type"] ?? ""
-    default:
-        return ""
-    }
-}
-
-// MARK: - Help
-
-private let curlHelp = """
-USAGE: curl [OPTIONS] URL
-
-Network access is gated by the shell's networkConfig: an empty
-allow-list rejects every URL with `Network access denied`.
-
-  -X METHOD         HTTP method
-  -H 'K: V'         Add a request header (repeatable)
-  -d STR            URL-encoded request body
-  --data-binary X   Body verbatim; @file reads from a file
-  --data-urlencode  K=V → URL-encoded into the body
-  -F 'name=value'   Multipart form field
-  -G                Send -d as ?query instead of body
-  -o FILE           Write body to FILE
-  -O                Save to a file named after the URL
-  -L                Follow redirects (each hop re-validated)
-  -s                Silent
-  -i                Include response headers in output
-  -I                HEAD request
-  -v                Trace request/response on stderr
-  -f                Exit 22 on HTTP 4xx/5xx
-  -u USER:PASS      Basic auth
-  -A AGENT          User-Agent
-  -e URL            Referer
-  -w FORMAT         Print FORMAT after the response
-  --max-time SEC    Override the configured timeout
-
-Exit codes follow curl's CURLE_* convention (7 = denied, 22 = HTTP
-error with -f, 28 = timeout, 47 = too many redirects, 56 = response
-too large).
-"""

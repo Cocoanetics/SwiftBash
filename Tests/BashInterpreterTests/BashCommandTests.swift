@@ -4,7 +4,7 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct BashCommandTests {
 
-    // MARK: --version / --help
+    // MARK: - -version / --help
 
     @Test func versionPrintsBanner() async throws {
         let cap = CapturingShell()
@@ -21,7 +21,7 @@ import Foundation
         #expect(cap.stdout.contains("-c COMMAND"))
     }
 
-    // MARK: -c forms
+    // MARK: - c forms
 
     @Test func dashCRunsInlineCommand() async throws {
         let cap = CapturingShell()

@@ -5,34 +5,34 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct LsCommandTests {
 
-    private func makeShellWithDir() -> (CapturingShell, String) {
+    private func makeShellWithDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "ls-tests-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
 
-    private func cleanup(_ p: String) {
-        try? FileManager.default.removeItem(atPath: p)
+    private func cleanup(_ path: String) {
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     @Test func lsBasic() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo a > a.txt; echo b > b.txt; ls")
         #expect(cap.stdout.contains("a.txt"))
         #expect(cap.stdout.contains("b.txt"))
     }
 
     @Test func lsHidden() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo x > .hidden; echo y > visible; ls")
         #expect(cap.stdout == "visible\n")
     }
 
     @Test func lsAllShowsHidden() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo x > .hidden; echo y > visible; ls -a")
         #expect(cap.stdout.contains(".hidden"))
         #expect(cap.stdout.contains("visible"))
@@ -40,7 +40,7 @@ import Foundation
     }
 
     @Test func lsAlmostAllSkipsDotEntries() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo x > .hidden; echo y > visible; ls -A")
         #expect(cap.stdout.contains(".hidden"))
         #expect(cap.stdout.contains("visible"))
@@ -51,7 +51,7 @@ import Foundation
     }
 
     @Test func lsLong() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo abc > f.txt; ls -l")
         #expect(cap.stdout.contains("total"))
         #expect(cap.stdout.contains("f.txt"))
@@ -61,7 +61,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func lsLongReflectsActualModeBits() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run(
             "touch a.txt; chmod 700 a.txt; touch b.txt; chmod 644 b.txt; ls -l")
         #expect(cap.stdout.contains("-rwx------"))
@@ -70,7 +70,7 @@ import Foundation
     #endif
 
     @Test func lsLongOwnerComesFromHostInfo() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         cap.shell.hostInfo.userName = "alice"
         cap.shell.hostInfo.groupName = "researchers"
         try await cap.shell.run("touch f.txt; ls -l f.txt")
@@ -78,7 +78,7 @@ import Foundation
     }
 
     @Test func lsLaShowsDotAndDotDotAsDirectories() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("ls -la")
         // Both `.` and `..` rendered with directory mode (`d…`),
         // not file mode (`-…`).
@@ -91,7 +91,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func lsLongShowsStickyBitOnDir() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir tmp; chmod 1777 tmp; ls -la")
         // `chmod 1777 tmp` → drwxrwxrwt (sticky bit + rwx for everyone).
         #expect(cap.stdout.contains("drwxrwxrwt"),
@@ -100,34 +100,34 @@ import Foundation
     #endif
 
     @Test func lsClassify() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir sub; echo x > a; ls -F")
         #expect(cap.stdout.contains("sub/"))
         #expect(cap.stdout.contains("a"))
     }
 
     @Test func lsSortBySize() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run(#"echo a > small; echo "long content here" > big; ls -S"#)
         let lines = cap.stdout.split(separator: "\n").map(String.init)
         #expect(lines == ["big", "small"])
     }
 
     @Test func lsReverse() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo x > a; echo x > b; echo x > c; ls -r")
         let lines = cap.stdout.split(separator: "\n").map(String.init)
         #expect(lines == ["c", "b", "a"])
     }
 
     @Test func lsDirectoryOnly() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir sub; ls -d sub")
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "sub")
     }
 
     @Test func lsRecursive() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try await cap.shell.run("mkdir -p a/b; echo x > a/file; echo y > a/b/inner; ls -R a")
         #expect(cap.stdout.contains("a:"))
         #expect(cap.stdout.contains("a/b:"))
@@ -135,7 +135,7 @@ import Foundation
     }
 
     @Test func lsHumanReadable() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         // Create a file > 1K (2048 bytes of 'A').
         _ = FileManager.default.createFile(
             atPath: dir + "/big",
@@ -145,7 +145,7 @@ import Foundation
     }
 
     @Test func lsMissingFile() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         let status = try await cap.shell.run("ls nope")
         #expect(status == .failure)
         #expect(cap.stderr.contains("No such file"))

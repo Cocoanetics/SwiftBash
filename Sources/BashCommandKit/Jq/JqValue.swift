@@ -66,7 +66,7 @@ public struct JqObject: Hashable, Sendable {
         self.keys = []
         self.storage = [:]
         self.keys.reserveCapacity(pairs.count)
-        for (k, v) in pairs { self[k] = v }
+        for (key, value) in pairs { self[key] = value }
     }
 
     public var count: Int { keys.count }
@@ -101,12 +101,12 @@ public struct JqObject: Hashable, Sendable {
 
 extension JqObject: Sequence {
     public func makeIterator() -> AnyIterator<(String, JqValue)> {
-        var i = 0
+        var index = 0
         return AnyIterator {
-            guard i < self.keys.count else { return nil }
-            let k = self.keys[i]
-            i += 1
-            return (k, self.storage[k]!)
+            guard index < self.keys.count else { return nil }
+            let key = self.keys[index]
+            index += 1
+            return (key, self.storage[key]!)
         }
     }
 }
@@ -148,43 +148,46 @@ extension JqValue: ExpressibleByDictionaryLiteral {
 // MARK: - Comparison & equality
 
 extension JqValue {
-    /// jq's heterogeneous deep-comparison: orders by type first, then by
-    /// value within type. Used by `sort`, `<`, `>`, `min`, `max`.
-    public static func jqCompare(_ a: JqValue, _ b: JqValue) -> Int {
-        let ta = a.typeOrder, tb = b.typeOrder
-        if ta != tb { return ta < tb ? -1 : 1 }
-        switch (a, b) {
+    // jq's heterogeneous deep-comparison: orders by type first, then by
+    // value within type. Used by `sort`, `<`, `>`, `min`, `max`.
+    // Switch over six JqValue cases × per-case comparison logic
+    // (arrays/objects need element-wise traversal); per-case helpers
+    // would scatter the type-order dispatch.
+    // swiftlint:disable:next cyclomatic_complexity
+    public static func jqCompare(_ lhs: JqValue, _ rhs: JqValue) -> Int {
+        let lhsOrder = lhs.typeOrder, rhsOrder = rhs.typeOrder
+        if lhsOrder != rhsOrder { return lhsOrder < rhsOrder ? -1 : 1 }
+        switch (lhs, rhs) {
         case (.null, .null): return 0
-        case (.bool(let x), .bool(let y)):
-            return x == y ? 0 : (!x && y ? -1 : 1)
-        case (.number(let x), .number(let y)):
+        case (.bool(let lhsBool), .bool(let rhsBool)):
+            return lhsBool == rhsBool ? 0 : (!lhsBool && rhsBool ? -1 : 1)
+        case (.number(let lhsNum), .number(let rhsNum)):
             // NaN handling: jq sorts NaN as if equal to itself
-            if x.isNaN && y.isNaN { return 0 }
-            if x.isNaN { return -1 }
-            if y.isNaN { return 1 }
-            return x < y ? -1 : (x > y ? 1 : 0)
-        case (.string(let x), .string(let y)):
-            return x < y ? -1 : (x > y ? 1 : 0)
-        case (.array(let xs), .array(let ys)):
-            for i in 0..<min(xs.count, ys.count) {
-                let c = jqCompare(xs[i], ys[i])
-                if c != 0 { return c }
+            if lhsNum.isNaN && rhsNum.isNaN { return 0 }
+            if lhsNum.isNaN { return -1 }
+            if rhsNum.isNaN { return 1 }
+            return lhsNum < rhsNum ? -1 : (lhsNum > rhsNum ? 1 : 0)
+        case (.string(let lhsStr), .string(let rhsStr)):
+            return lhsStr < rhsStr ? -1 : (lhsStr > rhsStr ? 1 : 0)
+        case (.array(let lhsArr), .array(let rhsArr)):
+            for index in 0..<min(lhsArr.count, rhsArr.count) {
+                let cmp = jqCompare(lhsArr[index], rhsArr[index])
+                if cmp != 0 { return cmp }
             }
-            return xs.count == ys.count ? 0 : (xs.count < ys.count ? -1 : 1)
-        case (.object(let xo), .object(let yo)):
-            let xk = xo.keys.sorted()
-            let yk = yo.keys.sorted()
-            for i in 0..<min(xk.count, yk.count) {
-                if xk[i] != yk[i] {
-                    return xk[i] < yk[i] ? -1 : 1
-                }
+            return lhsArr.count == rhsArr.count ? 0 : (lhsArr.count < rhsArr.count ? -1 : 1)
+        case (.object(let lhsObj), .object(let rhsObj)):
+            let lhsKeys = lhsObj.keys.sorted()
+            let rhsKeys = rhsObj.keys.sorted()
+            for index in 0..<min(lhsKeys.count, rhsKeys.count)
+                where lhsKeys[index] != rhsKeys[index] {
+                return lhsKeys[index] < rhsKeys[index] ? -1 : 1
             }
-            if xk.count != yk.count {
-                return xk.count < yk.count ? -1 : 1
+            if lhsKeys.count != rhsKeys.count {
+                return lhsKeys.count < rhsKeys.count ? -1 : 1
             }
-            for k in xk {
-                let c = jqCompare(xo[k] ?? .null, yo[k] ?? .null)
-                if c != 0 { return c }
+            for key in lhsKeys {
+                let cmp = jqCompare(lhsObj[key] ?? .null, rhsObj[key] ?? .null)
+                if cmp != 0 { return cmp }
             }
             return 0
         default:
@@ -192,25 +195,30 @@ extension JqValue {
         }
     }
 
-    /// jq's deep equality. Distinct from Swift `==` only for objects:
-    /// key order doesn't matter for equality.
-    public static func jqEqual(_ a: JqValue, _ b: JqValue) -> Bool {
-        switch (a, b) {
+    // jq's deep equality. Distinct from Swift `==` only for objects:
+    // key order doesn't matter for equality.
+    // Six-case dispatch over the JqValue enum with per-case element-
+    // wise traversal — same shape as jqCompare; same rationale.
+    // swiftlint:disable:next cyclomatic_complexity
+    public static func jqEqual(_ lhs: JqValue, _ rhs: JqValue) -> Bool {
+        switch (lhs, rhs) {
         case (.null, .null): return true
-        case (.bool(let x), .bool(let y)): return x == y
-        case (.number(let x), .number(let y)):
-            if x.isNaN && y.isNaN { return true }
-            return x == y
-        case (.string(let x), .string(let y)): return x == y
-        case (.array(let xs), .array(let ys)):
-            guard xs.count == ys.count else { return false }
-            for i in 0..<xs.count where !jqEqual(xs[i], ys[i]) { return false }
+        case (.bool(let lhsBool), .bool(let rhsBool)): return lhsBool == rhsBool
+        case (.number(let lhsNum), .number(let rhsNum)):
+            if lhsNum.isNaN && rhsNum.isNaN { return true }
+            return lhsNum == rhsNum
+        case (.string(let lhsStr), .string(let rhsStr)): return lhsStr == rhsStr
+        case (.array(let lhsArr), .array(let rhsArr)):
+            guard lhsArr.count == rhsArr.count else { return false }
+            for index in 0..<lhsArr.count where !jqEqual(lhsArr[index], rhsArr[index]) {
+                return false
+            }
             return true
-        case (.object(let xo), .object(let yo)):
-            guard xo.count == yo.count else { return false }
-            for k in xo.keys {
-                guard let yv = yo[k] else { return false }
-                if !jqEqual(xo[k]!, yv) { return false }
+        case (.object(let lhsObj), .object(let rhsObj)):
+            guard lhsObj.count == rhsObj.count else { return false }
+            for key in lhsObj.keys {
+                guard let rhsVal = rhsObj[key] else { return false }
+                if !jqEqual(lhsObj[key]!, rhsVal) { return false }
             }
             return true
         default:
@@ -224,14 +232,16 @@ extension JqValue {
     public static func jqContains(_ haystack: JqValue, _ needle: JqValue) -> Bool {
         if jqEqual(haystack, needle) { return true }
         switch (haystack, needle) {
-        case (.string(let h), .string(let n)):
-            return h.contains(n)
-        case (.array(let h), .array(let n)):
-            return n.allSatisfy { ni in h.contains { hi in jqContains(hi, ni) } }
-        case (.object(let h), .object(let n)):
-            for (k, nv) in n {
-                guard let hv = h[k] else { return false }
-                if !jqContains(hv, nv) { return false }
+        case (.string(let hayStr), .string(let needleStr)):
+            return hayStr.contains(needleStr)
+        case (.array(let hayArr), .array(let needleArr)):
+            return needleArr.allSatisfy { needleItem in
+                hayArr.contains { hayItem in jqContains(hayItem, needleItem) }
+            }
+        case (.object(let hayObj), .object(let needleObj)):
+            for (key, needleVal) in needleObj {
+                guard let hayVal = hayObj[key] else { return false }
+                if !jqContains(hayVal, needleVal) { return false }
             }
             return true
         default:
@@ -246,24 +256,24 @@ extension JqValue {
     /// Number formatted the way jq writes it: integers without `.0`,
     /// `null` for non-finite values (matching jq's output of NaN/inf).
     public var numberJSON: String? {
-        guard case .number(let n) = self else { return nil }
-        if !n.isFinite { return "null" }
-        if n == n.rounded() && abs(n) < 1e16 {
-            return String(Int64(n))
+        guard case .number(let value) = self else { return nil }
+        if !value.isFinite { return "null" }
+        if value == value.rounded() && abs(value) < 1e16 {
+            return String(Int64(value))
         }
-        return Self.formatDouble(n)
+        return Self.formatDouble(value)
     }
 
-    public static func formatDouble(_ n: Double) -> String {
-        if !n.isFinite {
-            if n.isNaN { return "null" }
-            return n > 0 ? "1.7976931348623157e+308" : "-1.7976931348623157e+308"
+    public static func formatDouble(_ value: Double) -> String {
+        if !value.isFinite {
+            if value.isNaN { return "null" }
+            return value > 0 ? "1.7976931348623157e+308" : "-1.7976931348623157e+308"
         }
-        if n == n.rounded() && abs(n) < 1e16 {
-            return String(Int64(n))
+        if value == value.rounded() && abs(value) < 1e16 {
+            return String(Int64(value))
         }
         // Shortest round-trip representation. Swift's default
-        // `String(n)` is shortest-round-trip already.
-        return String(n)
+        // `String(value)` is shortest-round-trip already.
+        return String(value)
     }
 }

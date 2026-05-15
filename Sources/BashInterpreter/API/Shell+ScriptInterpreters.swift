@@ -115,12 +115,12 @@ private func pathBasename(_ path: String) -> String {
 public func stripShebang(_ source: String) -> (source: String, shebang: String?) {
     guard source.hasPrefix("#!") else { return (source, nil) }
     let rest = source.dropFirst(2)
-    if let nl = rest.firstIndex(of: "\n") {
-        let shebangLine = "#!" + rest[..<nl]
+    if let newlineIdx = rest.firstIndex(of: "\n") {
+        let shebangLine = "#!" + rest[..<newlineIdx]
         // Drop the shebang content, keep the newline so line numbers
         // below stay accurate. The body therefore begins with `\n`,
         // and the original line 2 is still at line 2.
-        let stripped = String(rest[nl...])
+        let stripped = String(rest[newlineIdx...])
         return (stripped, shebangLine)
     }
     // Whole file is a shebang line with no trailing newline. Empty

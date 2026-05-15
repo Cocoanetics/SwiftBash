@@ -41,18 +41,21 @@ public struct BcCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        var ctx = Bc.Context()
+        var ctx = BcCalculator.Context()
         if mathlib { ctx.scale = 20 }
 
-        for f in files {
+        for file in files {
             do {
-                let data = try await Shell.bashCurrent.readDataAtPath(f)
-                let text = String(decoding: data, as: UTF8.self)
+                let data = try await Shell.bashCurrent.readDataAtPath(file)
+                guard let text = String(bytes: data, encoding: .utf8) else {
+                    Shell.bashCurrent.stderr("bc: \(file): invalid UTF-8\n")
+                    return .failure
+                }
                 if let exit = process(text, ctx: &ctx) {
                     return exit
                 }
             } catch {
-                Shell.bashCurrent.stderr("bc: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("bc: \(file): \(error)\n")
                 return .failure
             }
         }
@@ -67,32 +70,8 @@ public struct BcCommand: ParsableBashCommand {
 
     /// Process a chunk of bc input. Returns a non-nil status if the
     /// program should exit (e.g., on `quit`).
-    private func process(_ text: String, ctx: inout Bc.Context) -> ExitStatus? {
-        // Strip /* ... */ comments and # comments.
-        var stripped = ""
-        var i = text.startIndex
-        while i < text.endIndex {
-            let c = text[i]
-            if c == "/", text.index(after: i) < text.endIndex,
-               text[text.index(after: i)] == "*" {
-                // Skip until "*/".
-                i = text.index(i, offsetBy: 2)
-                while i < text.endIndex {
-                    if text[i] == "*", text.index(after: i) < text.endIndex,
-                       text[text.index(after: i)] == "/" {
-                        i = text.index(i, offsetBy: 2); break
-                    }
-                    i = text.index(after: i)
-                }
-                continue
-            }
-            if c == "#" {
-                while i < text.endIndex && text[i] != "\n" { i = text.index(after: i) }
-                continue
-            }
-            stripped.append(c)
-            i = text.index(after: i)
-        }
+    private func process(_ text: String, ctx: inout BcCalculator.Context) -> ExitStatus? {
+        let stripped = BcCalculator.stripComments(text)
         for raw in stripped.components(separatedBy: "\n") {
             // Real bc accepts multiple statements per line separated
             // by `;` (e.g. `scale=4; 22/7`). Split here so each
@@ -102,12 +81,12 @@ public struct BcCommand: ParsableBashCommand {
                 if line.isEmpty { continue }
                 if line == "quit" || line == "halt" { return .success }
                 do {
-                    if let result = try Bc.evalLine(line, ctx: &ctx) {
+                    if let result = try BcCalculator.evalLine(line, ctx: &ctx) {
                         Shell.bashCurrent.stdout(
-                            Bc.format(result, scale: ctx.scale) + "\n")
+                            BcCalculator.format(result, scale: ctx.scale) + "\n")
                     }
-                } catch let e as Bc.Error {
-                    Shell.bashCurrent.stderr("bc: \(e.message)\n")
+                } catch let bcError as BcCalculator.Error {
+                    Shell.bashCurrent.stderr("bc: \(bcError.message)\n")
                 } catch {
                     Shell.bashCurrent.stderr("bc: \(error)\n")
                 }
@@ -117,297 +96,74 @@ public struct BcCommand: ParsableBashCommand {
     }
 }
 
-enum Bc {
+enum BcCalculator {
     struct Context {
         var vars: [String: Double] = [:]
         var scale: Int = 0
     }
-    struct Error: Swift.Error { let message: String; init(_ m: String) { self.message = m } }
+    struct Error: Swift.Error {
+        let message: String
+        init(_ message: String) { self.message = message }
+    }
 
     /// Evaluate one bc statement. Returns the value to print, or nil
     /// for assignments / scale settings (which are silent).
     static func evalLine(_ line: String, ctx: inout Context) throws -> Double? {
-        var p = Parser(input: line, ctx: ctx)
-        let r = try p.parseTopLevel()
-        ctx = p.ctx
-        return r
+        var parser = Parser(input: line, ctx: ctx)
+        let result = try parser.parseTopLevel()
+        ctx = parser.ctx
+        return result
     }
 
     /// Format a Double the way bc does: integers without a decimal,
     /// otherwise truncated (not rounded) to `scale` digits.
-    static func format(_ v: Double, scale: Int) -> String {
-        if v.isNaN { return "nan" }
-        if v.isInfinite { return v > 0 ? "inf" : "-inf" }
-        if scale == 0 || v == v.rounded(.towardZero) {
-            return String(Int64(v.rounded(.towardZero)))
+    static func format(_ value: Double, scale: Int) -> String {
+        if value.isNaN { return "nan" }
+        if value.isInfinite { return value > 0 ? "inf" : "-inf" }
+        if scale == 0 || value == value.rounded(.towardZero) {
+            return String(Int64(value.rounded(.towardZero)))
         }
         // Truncate to `scale` decimals.
         let mult = pow(10.0, Double(scale))
-        let truncated = (v * mult).rounded(.towardZero) / mult
-        var s = String(format: "%.\(scale)f", truncated)
+        let truncated = (value * mult).rounded(.towardZero) / mult
+        var str = String(format: "%.\(scale)f", truncated)
         // Strip trailing zeros, but keep at least one digit after `.`.
-        if s.contains(".") {
-            while s.hasSuffix("0") { s.removeLast() }
-            if s.hasSuffix(".") { s.removeLast() }
+        if str.contains(".") {
+            while str.hasSuffix("0") { str.removeLast() }
+            if str.hasSuffix(".") { str.removeLast() }
         }
-        return s
+        return str
     }
 
-    fileprivate struct Parser {
-        var chars: [Character]
-        var pos = 0
-        var ctx: Context
-
-        init(input: String, ctx: Context) {
-            self.chars = Array(input)
-            self.ctx = ctx
-        }
-
-        mutating func parseTopLevel() throws -> Double? {
-            skipWS()
-            // Statement: assignment vs expression.
-            // A simple `var = expr` form: detect identifier followed by `=`.
-            if let savePos = identAhead() {
-                let endName = savePos
-                pos = endName
-                skipWS()
-                if pos < chars.count, chars[pos] == "=", peek(1) != "=" {
-                    pos += 1
-                    skipWS()
-                    let value = try parseExpr()
-                    let name = String(chars[0..<endName]).trimmingCharacters(in: .whitespaces)
-                    if name == "scale" {
-                        ctx.scale = max(0, Int(value))
-                    } else {
-                        ctx.vars[name] = value
+    /// Strip `/* ... */` block comments and `# ...` line comments from
+    /// bc input, mirroring GNU bc's tokenizer.
+    static func stripComments(_ text: String) -> String {
+        var stripped = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let char = text[index]
+            if char == "/", text.index(after: index) < text.endIndex,
+               text[text.index(after: index)] == "*" {
+                // Skip until "*/".
+                index = text.index(index, offsetBy: 2)
+                while index < text.endIndex {
+                    if text[index] == "*", text.index(after: index) < text.endIndex,
+                       text[text.index(after: index)] == "/" {
+                        index = text.index(index, offsetBy: 2); break
                     }
-                    return nil
+                    index = text.index(after: index)
                 }
-                pos = 0
+                continue
             }
-            let v = try parseExpr()
-            return v
-        }
-
-        /// If the input starts with an identifier followed by `=` (not
-        /// `==`), return the index just past the identifier; else nil.
-        mutating func identAhead() -> Int? {
-            let save = pos
-            skipWS()
-            var i = pos
-            while i < chars.count, isIdentChar(chars[i], first: i == pos) { i += 1 }
-            if i == pos { pos = save; return nil }
-            // Skip whitespace after the name.
-            var j = i
-            while j < chars.count, chars[j] == " " || chars[j] == "\t" { j += 1 }
-            if j < chars.count, chars[j] == "=", j + 1 < chars.count, chars[j + 1] != "=" {
-                pos = save
-                return i
-            }
-            pos = save
-            return nil
-        }
-
-        // Precedence climbing — bc grammar:
-        //  or > and > comparison > add/sub > mul/div/mod > pow > unary > primary
-        mutating func parseExpr() throws -> Double { try parseOr() }
-        mutating func parseOr() throws -> Double {
-            var l = try parseAnd()
-            while peekStr2() == "||" {
-                pos += 2; skipWS()
-                let r = try parseAnd()
-                l = (l != 0 || r != 0) ? 1 : 0
-            }
-            return l
-        }
-        mutating func parseAnd() throws -> Double {
-            var l = try parseComparison()
-            while peekStr2() == "&&" {
-                pos += 2; skipWS()
-                let r = try parseComparison()
-                l = (l != 0 && r != 0) ? 1 : 0
-            }
-            return l
-        }
-        mutating func parseComparison() throws -> Double {
-            let l = try parseAddSub()
-            if let op = peekCmpOp() {
-                pos += op.count; skipWS()
-                let r = try parseAddSub()
-                switch op {
-                case "==": return l == r ? 1 : 0
-                case "!=": return l != r ? 1 : 0
-                case "<=": return l <= r ? 1 : 0
-                case ">=": return l >= r ? 1 : 0
-                case "<":  return l < r ? 1 : 0
-                case ">":  return l > r ? 1 : 0
-                default:   return l
+            if char == "#" {
+                while index < text.endIndex && text[index] != "\n" {
+                    index = text.index(after: index)
                 }
+                continue
             }
-            return l
+            stripped.append(char)
+            index = text.index(after: index)
         }
-        mutating func parseAddSub() throws -> Double {
-            var l = try parseMulDiv()
-            while pos < chars.count, chars[pos] == "+" || chars[pos] == "-" {
-                let op = chars[pos]; pos += 1; skipWS()
-                let r = try parseMulDiv()
-                l = op == "+" ? l + r : l - r
-            }
-            return l
-        }
-        mutating func parseMulDiv() throws -> Double {
-            var l = try parsePow()
-            while pos < chars.count, chars[pos] == "*" || chars[pos] == "/" || chars[pos] == "%" {
-                let op = chars[pos]; pos += 1; skipWS()
-                let r = try parsePow()
-                if (op == "/" || op == "%") && r == 0 {
-                    throw Error("divide by zero")
-                }
-                switch op {
-                case "*": l = l * r
-                case "/": l = l / r
-                default:  l = l.truncatingRemainder(dividingBy: r)
-                }
-            }
-            return l
-        }
-        mutating func parsePow() throws -> Double {
-            let base = try parseUnary()
-            if pos < chars.count, chars[pos] == "^" {
-                pos += 1; skipWS()
-                let exp = try parsePow()  // right-associative
-                return pow(base, exp)
-            }
-            return base
-        }
-        mutating func parseUnary() throws -> Double {
-            if pos < chars.count, chars[pos] == "-" {
-                pos += 1; skipWS()
-                return -(try parseUnary())
-            }
-            if pos < chars.count, chars[pos] == "+" {
-                pos += 1; skipWS()
-                return try parseUnary()
-            }
-            if pos < chars.count, chars[pos] == "!" {
-                pos += 1; skipWS()
-                return try parseUnary() == 0 ? 1 : 0
-            }
-            return try parsePrimary()
-        }
-        mutating func parsePrimary() throws -> Double {
-            skipWS()
-            guard pos < chars.count else {
-                throw Error("syntax error: unexpected end")
-            }
-            if chars[pos] == "(" {
-                pos += 1; skipWS()
-                let v = try parseExpr()
-                skipWS()
-                guard pos < chars.count, chars[pos] == ")" else {
-                    throw Error("missing `)`")
-                }
-                pos += 1; skipWS()
-                return v
-            }
-            if chars[pos].isNumber || chars[pos] == "." {
-                return parseNumber()
-            }
-            if isIdentChar(chars[pos], first: true) {
-                let start = pos
-                while pos < chars.count, isIdentChar(chars[pos], first: false) { pos += 1 }
-                let name = String(chars[start..<pos])
-                skipWS()
-                if pos < chars.count, chars[pos] == "(" {
-                    pos += 1; skipWS()
-                    var args: [Double] = []
-                    if pos < chars.count, chars[pos] != ")" {
-                        args.append(try parseExpr())
-                        while pos < chars.count, chars[pos] == "," {
-                            pos += 1; skipWS()
-                            args.append(try parseExpr())
-                        }
-                    }
-                    skipWS()
-                    guard pos < chars.count, chars[pos] == ")" else {
-                        throw Error("missing `)`")
-                    }
-                    pos += 1; skipWS()
-                    return try callBuiltin(name: name, args: args)
-                }
-                if name == "scale" { return Double(ctx.scale) }
-                return ctx.vars[name] ?? 0
-            }
-            throw Error("unexpected character `\(chars[pos])`")
-        }
-
-        mutating func parseNumber() -> Double {
-            let start = pos
-            while pos < chars.count, chars[pos].isNumber || chars[pos] == "." { pos += 1 }
-            // Optional e/E exponent.
-            if pos < chars.count, chars[pos] == "e" || chars[pos] == "E" {
-                pos += 1
-                if pos < chars.count, chars[pos] == "+" || chars[pos] == "-" { pos += 1 }
-                while pos < chars.count, chars[pos].isNumber { pos += 1 }
-            }
-            let s = String(chars[start..<pos])
-            skipWS()
-            return Double(s) ?? 0
-        }
-
-        func callBuiltin(name: String, args: [Double]) throws -> Double {
-            switch name {
-            case "sqrt":
-                guard args.count == 1 else { throw Error("sqrt requires 1 argument") }
-                return args[0].squareRoot()
-            case "length":
-                guard args.count == 1 else { throw Error("length requires 1 argument") }
-                return Double(String(Int64(args[0].rounded(.towardZero))).count)
-            case "scale":
-                guard args.count == 1 else { throw Error("scale requires 1 argument") }
-                let s = "\(args[0])"
-                if let dot = s.firstIndex(of: ".") {
-                    return Double(s.distance(from: s.index(after: dot), to: s.endIndex))
-                }
-                return 0
-            case "s":   return sin(args[0])
-            case "c":   return cos(args[0])
-            case "a":   return atan(args[0])
-            case "l":   return log(args[0])
-            case "e":   return exp(args[0])
-            case "abs": return abs(args[0])
-            default:
-                throw Error("unknown function: \(name)")
-            }
-        }
-
-        // MARK: helpers
-
-        mutating func skipWS() {
-            while pos < chars.count, chars[pos] == " " || chars[pos] == "\t" { pos += 1 }
-        }
-        func peek(_ offset: Int) -> Character? {
-            let i = pos + offset
-            return i < chars.count ? chars[i] : nil
-        }
-        func peekStr2() -> String {
-            guard pos + 1 < chars.count else { return "" }
-            return String(chars[pos]) + String(chars[pos + 1])
-        }
-        func peekCmpOp() -> String? {
-            let two = peekStr2()
-            if two == "==" || two == "!=" || two == "<=" || two == ">=" { return two }
-            if pos < chars.count {
-                if chars[pos] == "<" { return "<" }
-                if chars[pos] == ">" { return ">" }
-            }
-            return nil
-        }
-        func isIdentChar(_ c: Character, first: Bool) -> Bool {
-            if c.isASCII && c.isLetter { return true }
-            if c == "_" { return true }
-            if !first && c.isASCII && c.isNumber { return true }
-            return false
-        }
+        return stripped
     }
 }

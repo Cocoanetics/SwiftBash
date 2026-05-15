@@ -2,29 +2,34 @@ import BashInterpreter
 
 extension Shell {
 
-    /// Register every command shipped with `BashCommandKit` on this Shell.bashCurrent.
-    ///
-    /// **Filesystem & navigation:** `ls`, `mkdir`, `rmdir`, `rm`, `mv`,
-    /// `cp`, `touch`, `find`, `realpath`, `basename`, `dirname`.
-    ///
-    /// **Reading & writing:** `cat`, `tee`, `head`, `tail`, `nl`, `tac`,
-    /// `rev`, `wc`.
-    ///
-    /// **Searching:** `grep`, `fgrep`, `egrep`, `rg`, `find`.
-    ///
-    /// **Text manipulation:** `sed`, `sort`, `uniq`, `tr`, `cut`,
-    /// `paste`, `comm`.
-    ///
-    /// **Encoding & hashing:** `base64`, `md5`, `md5sum`, `sha1sum`,
-    /// `sha256sum`, `xxd`, `od`.
-    ///
-    /// **Introspection / shell-state:** `which`, `type`, `command`,
-    /// `env`, `printenv`, `whoami`, `hostname`, `clear`.
-    ///
-    /// **Misc:** `date`, `seq`, `sleep`.
-    ///
-    /// Individual commands can still be registered à la carte via
-    /// ``register(_:)-<…>``; this is just the convenient one-call form.
+    // Register every command shipped with `BashCommandKit` on this Shell.
+    //
+    // **Filesystem & navigation:** `ls`, `mkdir`, `rmdir`, `rm`, `mv`,
+    // `cp`, `touch`, `find`, `realpath`, `basename`, `dirname`.
+    //
+    // **Reading & writing:** `cat`, `tee`, `head`, `tail`, `nl`, `tac`,
+    // `rev`, `wc`.
+    //
+    // **Searching:** `grep`, `fgrep`, `egrep`, `rg`, `find`.
+    //
+    // **Text manipulation:** `sed`, `sort`, `uniq`, `tr`, `cut`,
+    // `paste`, `comm`.
+    //
+    // **Encoding & hashing:** `base64`, `md5`, `md5sum`, `sha1sum`,
+    // `sha256sum`, `xxd`, `od`.
+    //
+    // **Introspection / shell-state:** `which`, `type`, `command`,
+    // `env`, `printenv`, `whoami`, `hostname`, `clear`.
+    //
+    // **Misc:** `date`, `seq`, `sleep`.
+    //
+    // Individual commands can still be registered à la carte via
+    // ``register(_:)-<…>``; this is just the convenient one-call form.
+    //
+    // Single flat registration list; splitting by category would scatter
+    // sibling commands across multiple files and add cross-file plumbing
+    // for no gain.
+    // swiftlint:disable:next function_body_length
     public func registerStandardCommands() {
         register(DateCommand.self)
         register(BasenameCommand.self)

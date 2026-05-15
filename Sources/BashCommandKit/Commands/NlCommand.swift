@@ -27,6 +27,9 @@ public struct NlCommand: ParsableBashCommand {
 
     private enum BodyStyle { case all, nonEmpty, off }
 
+    // `nl` accepts eight flag variants (short, combined, `=value`); the
+    // dispatch table is intrinsically wide.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var style: BodyStyle = .nonEmpty
         var width = 6
@@ -34,64 +37,66 @@ public struct NlCommand: ParsableBashCommand {
         var counter = 1
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { files.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-" { files.append("-"); i += 1; continue }
-            if a == "-b" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-" { files.append("-"); idx += 1; continue }
+            if arg == "-b" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("nl: -b requires TYPE\n"); return ExitStatus(2)
                 }
-                guard let s = parseStyle(rawArgv[i + 1]) else {
-                    Shell.bashCurrent.stderr("nl: invalid body numbering style: '\(rawArgv[i + 1])'\n")
+                guard let parsed = parseStyle(rawArgv[idx + 1]) else {
+                    Shell.bashCurrent.stderr("nl: invalid body numbering style: "
+                                             + "'\(rawArgv[idx + 1])'\n")
                     return ExitStatus(2)
                 }
-                style = s; i += 2; continue
+                style = parsed; idx += 2; continue
             }
-            if a.hasPrefix("-b") && a.count > 2 {
-                guard let s = parseStyle(String(a.dropFirst(2))) else {
-                    Shell.bashCurrent.stderr("nl: invalid body numbering style: '\(a.dropFirst(2))'\n")
+            if arg.hasPrefix("-b") && arg.count > 2 {
+                guard let parsed = parseStyle(String(arg.dropFirst(2))) else {
+                    Shell.bashCurrent.stderr("nl: invalid body numbering style: "
+                                             + "'\(arg.dropFirst(2))'\n")
                     return ExitStatus(2)
                 }
-                style = s; i += 1; continue
+                style = parsed; idx += 1; continue
             }
-            if a == "-w" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
+            if arg == "-w" {
+                guard idx + 1 < rawArgv.count, let value = Int(rawArgv[idx + 1]) else {
                     Shell.bashCurrent.stderr("nl: -w requires N\n"); return ExitStatus(2)
                 }
-                width = n; i += 2; continue
+                width = value; idx += 2; continue
             }
-            if a.hasPrefix("-w") && a.count > 2, let n = Int(a.dropFirst(2)) {
-                width = n; i += 1; continue
+            if arg.hasPrefix("-w") && arg.count > 2, let value = Int(arg.dropFirst(2)) {
+                width = value; idx += 1; continue
             }
-            if a == "-s" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-s" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("nl: -s requires STR\n"); return ExitStatus(2)
                 }
-                separator = rawArgv[i + 1]; i += 2; continue
+                separator = rawArgv[idx + 1]; idx += 2; continue
             }
-            if a.hasPrefix("-s") && a.count > 2 {
-                separator = String(a.dropFirst(2)); i += 1; continue
+            if arg.hasPrefix("-s") && arg.count > 2 {
+                separator = String(arg.dropFirst(2)); idx += 1; continue
             }
-            if a == "-v" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) else {
+            if arg == "-v" {
+                guard idx + 1 < rawArgv.count, let value = Int(rawArgv[idx + 1]) else {
                     Shell.bashCurrent.stderr("nl: -v requires N\n"); return ExitStatus(2)
                 }
-                counter = n; i += 2; continue
+                counter = value; idx += 2; continue
             }
-            if a.hasPrefix("-v") && a.count > 2, let n = Int(a.dropFirst(2)) {
-                counter = n; i += 1; continue
+            if arg.hasPrefix("-v") && arg.count > 2, let value = Int(arg.dropFirst(2)) {
+                counter = value; idx += 1; continue
             }
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                Shell.bashCurrent.stderr("nl: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
+                Shell.bashCurrent.stderr("nl: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); idx += 1
         }
 
         func emit(_ line: String) {
@@ -122,6 +127,8 @@ public struct NlCommand: ParsableBashCommand {
             }
             do {
                 let data = try await Shell.bashCurrent.readDataAtPath(path)
+                // nl input may legitimately be partial UTF-8.
+                // swiftlint:disable:next optional_data_string_conversion
                 let text = String(decoding: data, as: UTF8.self)
                 let parts = text.split(separator: "\n",
                                        omittingEmptySubsequences: false)
@@ -144,8 +151,8 @@ public struct NlCommand: ParsableBashCommand {
         return hadError ? .failure : .success
     }
 
-    private func parseStyle(_ s: String) -> BodyStyle? {
-        switch s {
+    private func parseStyle(_ name: String) -> BodyStyle? {
+        switch name {
         case "a": return .all
         case "t": return .nonEmpty
         case "n": return .off

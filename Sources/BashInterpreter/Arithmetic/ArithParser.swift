@@ -42,18 +42,18 @@ public struct ArithParser {
 
     private struct State {
         let tokens: [ArithToken]
-        var i: Int = 0
+        var index: Int = 0
 
         func peek(_ offset: Int = 0) -> ArithToken {
-            let j = i + offset
-            return j < tokens.count ? tokens[j] : .eof
+            let pos = index + offset
+            return pos < tokens.count ? tokens[pos] : .eof
         }
 
         @discardableResult
         mutating func advance() -> ArithToken {
-            let t = peek()
-            if i < tokens.count { i += 1 }
-            return t
+            let token = peek()
+            if index < tokens.count { index += 1 }
+            return token
         }
     }
 
@@ -79,6 +79,9 @@ public struct ArithParser {
     private static let POW     = (lbp: 140, rbp: 139) // right-assoc
     private static let POSTFIX = 150
 
+    // Flat dispatch over the operator-precedence table; one case per
+    // token type. Splitting per group would scatter the table.
+    // swiftlint:disable:next cyclomatic_complexity
     private func infixBP(_ tok: ArithToken) -> (lbp: Int, rbp: Int)? {
         switch tok {
         case .comma:               return Self.COMMA
@@ -110,22 +113,26 @@ public struct ArithParser {
 
     // MARK: Core loop
 
+    // Operator-precedence climbing with special-cased postfix, ternary,
+    // assignment, and comma branches. Splitting per-operator would
+    // obscure the recursion structure.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func parseExpression(minBP: Int, state: inout State) throws -> ArithExpr {
         var left = try parseNud(state: &state)
 
         while true {
             let tok = state.peek()
-            guard let bp = infixBP(tok), bp.lbp > minBP else { break }
+            guard let bindingPower = infixBP(tok), bindingPower.lbp > minBP else { break }
 
             // Postfix `++` / `--` — consume and wrap; don't recurse.
             if tok == .plusPlus || tok == .minusMinus {
                 state.advance()
-                let op: ArithExpr.IncDec = (tok == .plusPlus) ? .inc : .dec
+                let incDec: ArithExpr.IncDec = (tok == .plusPlus) ? .inc : .dec
                 switch left {
                 case .variable(let name):
-                    left = .postfix(op, name: name)
+                    left = .postfix(incDec, name: name)
                 case .arrayIndex(let name, let index):
-                    left = .postfixIndexed(op, name: name, index: index)
+                    left = .postfixIndexed(incDec, name: name, index: index)
                 default:
                     throw ArithError.invalidAssignmentTarget
                 }
@@ -140,7 +147,7 @@ public struct ArithParser {
                     throw ArithError.expectedColon
                 }
                 state.advance()
-                let elseExpr = try parseExpression(minBP: bp.rbp, state: &state)
+                let elseExpr = try parseExpression(minBP: bindingPower.rbp, state: &state)
                 left = .ternary(left, thenExpr, elseExpr)
                 continue
             }
@@ -149,7 +156,7 @@ public struct ArithParser {
             // variable or an indexed `arr[i]`.
             if let assignOp = assignmentOp(for: tok) {
                 state.advance()
-                let right = try parseExpression(minBP: bp.rbp, state: &state)
+                let right = try parseExpression(minBP: bindingPower.rbp, state: &state)
                 switch left {
                 case .variable(let name):
                     left = .assign(name: name, op: assignOp, rhs: right)
@@ -165,7 +172,7 @@ public struct ArithParser {
             // Comma / sequence.
             if tok == .comma {
                 state.advance()
-                let right = try parseExpression(minBP: bp.rbp, state: &state)
+                let right = try parseExpression(minBP: bindingPower.rbp, state: &state)
                 if case .sequence(var parts) = left {
                     parts.append(right)
                     left = .sequence(parts)
@@ -177,18 +184,22 @@ public struct ArithParser {
 
             // Regular infix binary operator.
             state.advance()
-            let right = try parseExpression(minBP: bp.rbp, state: &state)
+            let right = try parseExpression(minBP: bindingPower.rbp, state: &state)
             left = .binary(binaryOp(for: tok)!, left, right)
         }
 
         return left
     }
 
+    // Nud (null-denotation) handler — one case per leading-token type
+    // for the Pratt parser. Each case is a tight 2-3 line operation;
+    // flattening into helpers would harm readability.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func parseNud(state: inout State) throws -> ArithExpr {
         let tok = state.advance()
         switch tok {
-        case .int(let n):
-            return .int(n)
+        case .int(let value):
+            return .int(value)
         case .ident(let name):
             // `name[index]` — read array element.
             if state.peek() == .lBracket {
@@ -250,6 +261,8 @@ public struct ArithParser {
 
     // MARK: Dispatch tables
 
+    // Flat token-to-binary-op map; one case per supported operator.
+    // swiftlint:disable:next cyclomatic_complexity
     private func binaryOp(for tok: ArithToken) -> ArithExpr.BinaryOp? {
         switch tok {
         case .plus: return .add
@@ -275,6 +288,9 @@ public struct ArithParser {
         }
     }
 
+    // Flat token-to-assignment-op map; one case per supported `=`-style
+    // compound operator.
+    // swiftlint:disable:next cyclomatic_complexity
     private func assignmentOp(for tok: ArithToken) -> ArithExpr.AssignOp? {
         switch tok {
         case .assign: return .set

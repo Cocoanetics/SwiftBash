@@ -4,31 +4,10 @@ import Foundation
 
 /// `grep [OPTIONS] PATTERN [FILE...]` — print lines matching PATTERN.
 ///
-/// With no `FILE`, reads stdin. With multiple files (or `-r`), each
-/// output line is prefixed with the file name. Streams line-by-line so
-/// `tail -f log | grep ERROR` works without buffering.
-///
-/// ### Pattern flavours
-/// - default: plain substring match
-/// - `-E` / `--extended-regexp`: ERE via `NSRegularExpression`
-///
-/// ### Output / matching flags
-/// - `-i` / `--ignore-case`
-/// - `-v` / `--invert-match`
-/// - `-n` / `--line-number` — prefix line numbers
-/// - `-c` / `--count` — print the per-file match count
-/// - `-l` / `--files-with-matches` — print matching file names only
-/// - `-q` / `--quiet` — no output; exit 0 on first match, 1 otherwise
-///
-/// ### Context
-/// - `-A NUM` / `--after-context` — N lines after each match
-/// - `-B NUM` / `--before-context` — N lines before each match
-/// - `-C NUM` / `--context` — shorthand for `-A NUM -B NUM`
-///
-/// ### Recursive search
-/// - `-r` / `-R` / `--recursive` — descend into directory arguments
-/// - `--include=GLOB` — only consider files whose basename matches
-///   GLOB. Repeatable; without `--include` every file is searched.
+/// Pattern is a substring by default; `-E` enables ERE via
+/// `NSRegularExpression`. Supports `-i`, `-v`, `-n`, `-c`, `-l`, `-q`,
+/// `-A`, `-B`, `-C`, `-r`/`-R`, and `--include=GLOB`. Streams line-by-
+/// line so `tail -f log | grep ERROR` works without buffering.
 public struct GrepCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "grep",
@@ -124,10 +103,10 @@ public struct GrepCommand: ParsableBashCommand {
 
         var anyMatched = false
         for input in inputs {
-            let r = await searchOne(input: input,
-                                    matcher: matcher,
-                                    opts: opts)
-            if r { anyMatched = true }
+            let result = await searchOne(input: input,
+                                         matcher: matcher,
+                                         opts: opts)
+            if result { anyMatched = true }
             if quiet, anyMatched { break }
         }
         return anyMatched ? .success : .failure
@@ -172,17 +151,16 @@ public struct GrepCommand: ParsableBashCommand {
                 let walked = await walkDirectory(displayPath: file,
                                                  absolutePath: resolved)
                 out.append(contentsOf: walked)
-            } else if let s = await openFile(displayPath: file,
-                                             absolutePath: resolved) {
-                out.append(s)
+            } else if let source = await openFile(displayPath: file,
+                                                  absolutePath: resolved) {
+                out.append(source)
             }
         }
         return out
     }
 
     private func walkDirectory(displayPath: String,
-                               absolutePath: String) async -> [Source]
-    {
+                               absolutePath: String) async -> [Source] {
         var result: [Source] = []
         let entries: [String]
         do {
@@ -206,13 +184,12 @@ public struct GrepCommand: ParsableBashCommand {
             } else {
                 if !include.isEmpty,
                    !include.contains(where: {
-                       Self.globMatch(pattern: $0, string: name) })
-                {
+                       Self.globMatch(pattern: $0, string: name) }) {
                     continue
                 }
-                if let s = await openFile(displayPath: childDisplay,
-                                          absolutePath: childAbs) {
-                    result.append(s)
+                if let source = await openFile(displayPath: childDisplay,
+                                               absolutePath: childAbs) {
+                    result.append(source)
                 }
             }
         }
@@ -220,8 +197,7 @@ public struct GrepCommand: ParsableBashCommand {
     }
 
     private func openFile(displayPath: String,
-                          absolutePath: String) async -> Source?
-    {
+                          absolutePath: String) async -> Source? {
         do {
             let stream = try await Shell.bashCurrent.openInputPath(absolutePath)
             return Source(displayName: displayPath, input: stream)
@@ -243,12 +219,12 @@ public struct GrepCommand: ParsableBashCommand {
         let before: Int
     }
 
-    /// Run the matcher against one source, emitting output per `opts`.
-    /// Returns true if at least one line matched.
+    // Run the matcher against one source, emitting output per `opts`.
+    // Returns true if at least one line matched.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func searchOne(input: Source,
                            matcher: LineMatcher,
-                           opts: OutputOptions) async -> Bool
-    {
+                           opts: OutputOptions) async -> Bool {
         let needsContext = opts.before > 0 || opts.after > 0
         var beforeBuf = RingBuffer<(Int, String)>(capacity: opts.before)
         var afterRemaining = 0
@@ -274,13 +250,11 @@ public struct GrepCommand: ParsableBashCommand {
                         Shell.bashCurrent.stdout("--\n")
                     }
                     // Flush before-context.
-                    for (bn, bl) in beforeBuf.elements {
-                        if bn > lastEmittedLine {
-                            emit(file: input.displayName, lineNum: bn,
-                                 line: bl, isMatch: false,
-                                 opts: opts)
-                            lastEmittedLine = bn
-                        }
+                    for (bufLineNum, bufLine) in beforeBuf.elements where bufLineNum > lastEmittedLine {
+                        emit(file: input.displayName, lineNum: bufLineNum,
+                             line: bufLine, isMatch: false,
+                             opts: opts)
+                        lastEmittedLine = bufLineNum
                     }
                     // Emit the matched line.
                     emit(file: input.displayName, lineNum: lineNum,
@@ -305,11 +279,11 @@ public struct GrepCommand: ParsableBashCommand {
         // and never reach here.
         if opts.countOnly {
             // GNU prints `0` per file even with no matches.
-            let n = matchCount
+            let count = matchCount
             if opts.showName {
-                Shell.bashCurrent.stdout("\(input.displayName):\(n)\n")
+                Shell.bashCurrent.stdout("\(input.displayName):\(count)\n")
             } else {
-                Shell.bashCurrent.stdout("\(n)\n")
+                Shell.bashCurrent.stdout("\(count)\n")
             }
         }
         return matchCount > 0
@@ -322,8 +296,7 @@ public struct GrepCommand: ParsableBashCommand {
                       lineNum: Int,
                       line: String,
                       isMatch: Bool,
-                      opts: OutputOptions)
-    {
+                      opts: OutputOptions) {
         let sep = isMatch ? ":" : "-"
         var out = ""
         if opts.showName { out += file + sep }
@@ -332,116 +305,4 @@ public struct GrepCommand: ParsableBashCommand {
         Shell.bashCurrent.stdout(out)
     }
 
-    // MARK: Match strategies
-
-    /// Compiles the pattern once per command invocation and answers
-    /// "does this line match?" for each input line.
-    struct LineMatcher: Sendable {
-        let invert: Bool
-        let kind: Kind
-
-        enum Kind: Sendable {
-            case substring(needle: String, ignoreCase: Bool)
-            case regex(NSRegularExpression)
-        }
-
-        init(pattern: String,
-             extendedRegexp: Bool,
-             ignoreCase: Bool,
-             invert: Bool) throws
-        {
-            self.invert = invert
-            if extendedRegexp {
-                var opts: NSRegularExpression.Options = []
-                if ignoreCase { opts.insert(.caseInsensitive) }
-                self.kind = .regex(try NSRegularExpression(
-                    pattern: pattern, options: opts))
-            } else {
-                self.kind = .substring(
-                    needle: ignoreCase ? pattern.lowercased() : pattern,
-                    ignoreCase: ignoreCase)
-            }
-        }
-
-        func matches(_ line: String) -> Bool {
-            let raw: Bool
-            switch kind {
-            case .substring(let needle, let ci):
-                let h = ci ? line.lowercased() : line
-                raw = h.contains(needle)
-            case .regex(let re):
-                let r = NSRange(line.startIndex..., in: line)
-                raw = re.firstMatch(in: line, options: [], range: r) != nil
-            }
-            return invert ? !raw : raw
-        }
-    }
-
-    // MARK: Helpers
-
-    /// Fixed-capacity FIFO ring buffer used for `-B` before-context.
-    /// Iterating `elements` walks oldest → newest.
-    struct RingBuffer<T> {
-        private var storage: [T] = []
-        private let capacity: Int
-
-        init(capacity: Int) {
-            self.capacity = capacity
-            storage.reserveCapacity(max(capacity, 0))
-        }
-
-        mutating func push(_ element: T) {
-            guard capacity > 0 else { return }
-            if storage.count == capacity { storage.removeFirst() }
-            storage.append(element)
-        }
-
-        var elements: [T] { storage }
-    }
-
-    // MARK: Glob matching for --include
-    //
-    // Same fnmatch-style matcher used elsewhere in BashCommandKit; the
-    // public `BashInterpreter.GlobMatcher` is internal to that target.
-
-    static func globMatch(pattern: String, string: String) -> Bool {
-        let p = Array(pattern)
-        let s = Array(string)
-        return globMatch(p, 0, s, 0)
-    }
-
-    private static func globMatch(_ p: [Character], _ pi: Int,
-                                  _ s: [Character], _ si: Int) -> Bool {
-        var pi = pi
-        var si = si
-        while pi < p.count {
-            let c = p[pi]
-            switch c {
-            case "*":
-                while pi < p.count, p[pi] == "*" { pi += 1 }
-                if pi == p.count { return true }
-                var k = si
-                while k <= s.count {
-                    if globMatch(p, pi, s, k) { return true }
-                    k += 1
-                }
-                return false
-            case "?":
-                if si >= s.count { return false }
-                pi += 1
-                si += 1
-            case "\\":
-                guard pi + 1 < p.count, si < s.count,
-                      p[pi + 1] == s[si]
-                else { return false }
-                pi += 2
-                si += 1
-            default:
-                if si >= s.count || s[si] != c { return false }
-                pi += 1
-                si += 1
-            }
-        }
-        return si == s.count
-    }
 }

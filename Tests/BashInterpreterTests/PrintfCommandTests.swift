@@ -224,7 +224,7 @@ import Testing
         #expect(cap.stdout == "0.0001")
     }
 
-    // MARK: -v VAR
+    // MARK: - v VAR
 
     @Test func dashVAssigns() async throws {
         let cap = makeShell()

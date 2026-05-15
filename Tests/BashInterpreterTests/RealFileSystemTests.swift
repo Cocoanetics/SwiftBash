@@ -5,10 +5,10 @@ import Foundation
 @Suite(.timeLimit(.minutes(1))) struct RealFileSystemTests {
 
     /// Fresh temp directory per test, automatically cleaned up.
-    private static func makeTempDir() -> String {
+    private static func makeTempDir() throws -> String {
         let base = NSTemporaryDirectory()
         let dir = (base as NSString).appendingPathComponent("fs-test-\(UUID())")
-        try! FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -20,26 +20,26 @@ import Foundation
     // MARK: metadata
 
     @Test func metadataForFile() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("a.txt")
-        try "hello".write(toFile: p, atomically: true, encoding: .utf8)
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("a.txt")
+        try "hello".write(toFile: filePath, atomically: true, encoding: .utf8)
 
-        let fs = RealFileSystem()
-        let meta = try await fs.metadata(p)
+        let fileSystem = RealFileSystem()
+        let meta = try await fileSystem.metadata(filePath)
         #expect(meta?.kind == .file)
         #expect(meta?.size == 5)
     }
 
     @Test func metadataForDirectory() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let fs = RealFileSystem()
-        let meta = try await fs.metadata(root)
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let fileSystem = RealFileSystem()
+        let meta = try await fileSystem.metadata(root)
         #expect(meta?.kind == .directory)
     }
 
     @Test func metadataNilForMissing() async throws {
-        let fs = RealFileSystem()
-        let meta = try await fs.metadata("/definitely/not/here/\(UUID())")
+        let fileSystem = RealFileSystem()
+        let meta = try await fileSystem.metadata("/definitely/not/here/\(UUID())")
         #expect(meta == nil)
     }
 
@@ -54,8 +54,8 @@ import Foundation
         #else
         let path = "/tmp"
         #endif
-        let fs = RealFileSystem()
-        let meta = try await fs.metadata(path)
+        let fileSystem = RealFileSystem()
+        let meta = try await fileSystem.metadata(path)
         #expect(meta?.kind == .directory)
     }
     #endif
@@ -63,76 +63,76 @@ import Foundation
     // MARK: list
 
     @Test func listReturnsEntries() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
         for name in ["a", "b", "c"] {
             _ = FileManager.default.createFile(
                 atPath: (root as NSString).appendingPathComponent(name),
                 contents: nil)
         }
-        let fs = RealFileSystem()
-        let entries = try await fs.list(root)
+        let fileSystem = RealFileSystem()
+        let entries = try await fileSystem.list(root)
         #expect(Set(entries.map(\.name)) == ["a", "b", "c"])
     }
 
     @Test func listMissingThrowsNotFound() async throws {
-        let fs = RealFileSystem()
+        let fileSystem = RealFileSystem()
         await #expect(throws: FileSystemError.self) {
-            try await fs.list("/definitely/not/here/\(UUID())")
+            try await fileSystem.list("/definitely/not/here/\(UUID())")
         }
     }
 
     // MARK: read / write
 
     @Test func writeThenRead() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("hi.txt")
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("hi.txt")
+        let fileSystem = RealFileSystem()
 
-        try await fs.writeData(Data("hello\n".utf8), to: p, append: false)
-        let read = try await fs.readData(p)
-        #expect(String(decoding: read, as: UTF8.self) == "hello\n")
+        try await fileSystem.writeData(Data("hello\n".utf8), to: filePath, append: false)
+        let read = try await fileSystem.readData(filePath)
+        #expect(String(bytes: read, encoding: .utf8) == "hello\n")
     }
 
     @Test func appendAddsAtEnd() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("log.txt")
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("log.txt")
+        let fileSystem = RealFileSystem()
 
-        try await fs.writeData(Data("one\n".utf8), to: p, append: false)
-        try await fs.writeData(Data("two\n".utf8), to: p, append: true)
+        try await fileSystem.writeData(Data("one\n".utf8), to: filePath, append: false)
+        try await fileSystem.writeData(Data("two\n".utf8), to: filePath, append: true)
 
-        let read = try await fs.readData(p)
-        #expect(String(decoding: read, as: UTF8.self) == "one\ntwo\n")
+        let read = try await fileSystem.readData(filePath)
+        #expect(String(bytes: read, encoding: .utf8) == "one\ntwo\n")
     }
 
     @Test func appendCreatesIfMissing() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("new.txt")
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("new.txt")
+        let fileSystem = RealFileSystem()
 
-        try await fs.writeData(Data("created\n".utf8), to: p, append: true)
-        let read = try await fs.readData(p)
-        #expect(String(decoding: read, as: UTF8.self) == "created\n")
+        try await fileSystem.writeData(Data("created\n".utf8), to: filePath, append: true)
+        let read = try await fileSystem.readData(filePath)
+        #expect(String(bytes: read, encoding: .utf8) == "created\n")
     }
 
     @Test func readMissingThrows() async throws {
-        let fs = RealFileSystem()
+        let fileSystem = RealFileSystem()
         await #expect(throws: FileSystemError.self) {
-            try await fs.readData("/definitely/not/here/\(UUID())")
+            try await fileSystem.readData("/definitely/not/here/\(UUID())")
         }
     }
 
     // MARK: streaming read
 
     @Test func openReadStreamsChunks() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("big.bin")
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("big.bin")
         // 128 KB of zeros so we exercise at least two chunks.
         let payload = Data(repeating: 0x41, count: 128 * 1024)
-        try payload.write(to: URL(fileURLWithPath: p))
+        try payload.write(to: URL(fileURLWithPath: filePath))
 
-        let fs = RealFileSystem()
-        let source = try await fs.openRead(p)
+        let fileSystem = RealFileSystem()
+        let source = try await fileSystem.openRead(filePath)
         var accumulated = Data()
         for await chunk in source.bytes { accumulated.append(chunk) }
         #expect(accumulated == payload)
@@ -141,62 +141,62 @@ import Foundation
     // MARK: touch
 
     @Test func touchCreatesEmptyFile() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("new.txt")
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("new.txt")
+        let fileSystem = RealFileSystem()
 
-        try await fs.touch(p)
-        let meta = try await fs.metadata(p)
+        try await fileSystem.touch(filePath)
+        let meta = try await fileSystem.metadata(filePath)
         #expect(meta?.kind == .file)
         #expect(meta?.size == 0)
     }
 
     @Test func touchUpdatesMtime() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("existing.txt")
-        try "content".write(toFile: p, atomically: true, encoding: .utf8)
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("existing.txt")
+        try "content".write(toFile: filePath, atomically: true, encoding: .utf8)
 
         // Roll mtime back to the epoch so we can prove touch updates it.
         try FileManager.default.setAttributes(
             [.modificationDate: Date(timeIntervalSince1970: 0)],
-            ofItemAtPath: p)
+            ofItemAtPath: filePath)
 
-        let fs = RealFileSystem()
-        try await fs.touch(p)
-        let meta = try await fs.metadata(p)
+        let fileSystem = RealFileSystem()
+        try await fileSystem.touch(filePath)
+        let meta = try await fileSystem.metadata(filePath)
         #expect(meta!.modifiedAt.timeIntervalSince1970 > 1_000_000_000)
     }
 
     // MARK: createDirectory
 
     @Test func createDirectory() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("sub")
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("sub")
+        let fileSystem = RealFileSystem()
 
-        try await fs.createDirectory(p, intermediates: false)
-        let meta = try await fs.metadata(p)
+        try await fileSystem.createDirectory(filePath, intermediates: false)
+        let meta = try await fileSystem.metadata(filePath)
         #expect(meta?.kind == .directory)
     }
 
     @Test func createDirectoryRequiresParentsForNestedPath() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("a/b/c")
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("a/b/c")
+        let fileSystem = RealFileSystem()
 
         await #expect(throws: FileSystemError.self) {
-            try await fs.createDirectory(p, intermediates: false)
+            try await fileSystem.createDirectory(filePath, intermediates: false)
         }
-        try await fs.createDirectory(p, intermediates: true)
-        let meta = try await fs.metadata(p)
+        try await fileSystem.createDirectory(filePath, intermediates: true)
+        let meta = try await fileSystem.metadata(filePath)
         #expect(meta?.kind == .directory)
     }
 
     @Test func createDirectoryAlreadyExistsThrows() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let fs = RealFileSystem()
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let fileSystem = RealFileSystem()
         let err = await #expect(throws: FileSystemError.self) {
-            try await fs.createDirectory(root, intermediates: false)
+            try await fileSystem.createDirectory(root, intermediates: false)
         }
         if case .alreadyExists = err { } else {
             Issue.record("expected .alreadyExists, got \(String(describing: err))")
@@ -206,18 +206,18 @@ import Foundation
     // MARK: remove
 
     @Test func removeFile() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let p = (root as NSString).appendingPathComponent("gone.txt")
-        _ = FileManager.default.createFile(atPath: p, contents: Data())
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let filePath = (root as NSString).appendingPathComponent("gone.txt")
+        _ = FileManager.default.createFile(atPath: filePath, contents: Data())
 
-        let fs = RealFileSystem()
-        try await fs.remove(p, recursive: false)
-        let meta = try await fs.metadata(p)
+        let fileSystem = RealFileSystem()
+        try await fileSystem.remove(filePath, recursive: false)
+        let meta = try await fileSystem.metadata(filePath)
         #expect(meta == nil)
     }
 
     @Test func removeDirectoryNeedsRecursive() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
         let sub = (root as NSString).appendingPathComponent("sub")
         try FileManager.default.createDirectory(
             atPath: sub, withIntermediateDirectories: false)
@@ -225,53 +225,55 @@ import Foundation
             atPath: (sub as NSString).appendingPathComponent("file"),
             contents: Data())
 
-        let fs = RealFileSystem()
+        let fileSystem = RealFileSystem()
         await #expect(throws: FileSystemError.self) {
-            try await fs.remove(sub, recursive: false)
+            try await fileSystem.remove(sub, recursive: false)
         }
-        try await fs.remove(sub, recursive: true)
-        let meta = try await fs.metadata(sub)
+        try await fileSystem.remove(sub, recursive: true)
+        let meta = try await fileSystem.metadata(sub)
         #expect(meta == nil)
     }
 
     @Test func removeEmptyDirectoryNonRecursively() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
         let sub = (root as NSString).appendingPathComponent("empty")
         try FileManager.default.createDirectory(
             atPath: sub, withIntermediateDirectories: false)
 
-        let fs = RealFileSystem()
-        try await fs.remove(sub, recursive: false)
-        #expect(try await fs.metadata(sub) == nil)
+        let fileSystem = RealFileSystem()
+        try await fileSystem.remove(sub, recursive: false)
+        #expect(try await fileSystem.metadata(sub) == nil)
     }
 
     // MARK: move / copy
 
     @Test func moveRenames() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let a = (root as NSString).appendingPathComponent("a.txt")
-        let b = (root as NSString).appendingPathComponent("b.txt")
-        try "payload".write(toFile: a, atomically: true, encoding: .utf8)
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let src = (root as NSString).appendingPathComponent("a.txt")
+        let dst = (root as NSString).appendingPathComponent("b.txt")
+        try "payload".write(toFile: src, atomically: true, encoding: .utf8)
 
-        let fs = RealFileSystem()
-        try await fs.move(from: a, to: b)
-        #expect(try await fs.metadata(a) == nil)
-        #expect(try await fs.metadata(b)?.kind == .file)
-        #expect(String(decoding: try await fs.readData(b), as: UTF8.self)
+        let fileSystem = RealFileSystem()
+        try await fileSystem.move(from: src, to: dst)
+        #expect(try await fileSystem.metadata(src) == nil)
+        #expect(try await fileSystem.metadata(dst)?.kind == .file)
+        // swiftlint:disable:next optional_data_string_conversion - test reads file written above
+        #expect(String(decoding: try await fileSystem.readData(dst), as: UTF8.self)
                 == "payload")
     }
 
     @Test func copyFile() async throws {
-        let root = Self.makeTempDir(); defer { cleanup(root) }
-        let a = (root as NSString).appendingPathComponent("src.txt")
-        let b = (root as NSString).appendingPathComponent("dst.txt")
-        try "data".write(toFile: a, atomically: true, encoding: .utf8)
+        let root = try Self.makeTempDir(); defer { cleanup(root) }
+        let src = (root as NSString).appendingPathComponent("src.txt")
+        let dst = (root as NSString).appendingPathComponent("dst.txt")
+        try "data".write(toFile: src, atomically: true, encoding: .utf8)
 
-        let fs = RealFileSystem()
-        try await fs.copy(from: a, to: b)
-        #expect(try await fs.metadata(a)?.kind == .file)
-        #expect(try await fs.metadata(b)?.kind == .file)
-        #expect(String(decoding: try await fs.readData(b), as: UTF8.self)
+        let fileSystem = RealFileSystem()
+        try await fileSystem.copy(from: src, to: dst)
+        #expect(try await fileSystem.metadata(src)?.kind == .file)
+        #expect(try await fileSystem.metadata(dst)?.kind == .file)
+        // swiftlint:disable:next optional_data_string_conversion - test reads file written above
+        #expect(String(decoding: try await fileSystem.readData(dst), as: UTF8.self)
                 == "data")
     }
 
@@ -291,19 +293,19 @@ import Foundation
         let input = "/usr/bin/.."
         let expected = "/usr"
         #endif
-        let fs = RealFileSystem()
-        let resolved = try await fs.canonicalize(input, allowMissing: false)
+        let fileSystem = RealFileSystem()
+        let resolved = try await fileSystem.canonicalize(input, allowMissing: false)
         #expect(resolved == expected)
     }
     #endif
 
     @Test func canonicalizeMissingThrowsUnlessAllowed() async throws {
-        let fs = RealFileSystem()
+        let fileSystem = RealFileSystem()
         let fake = "/nope/\(UUID())"
         await #expect(throws: FileSystemError.self) {
-            try await fs.canonicalize(fake, allowMissing: false)
+            try await fileSystem.canonicalize(fake, allowMissing: false)
         }
-        let ok = try await fs.canonicalize(fake, allowMissing: true)
-        #expect(ok == fake)
+        let resolved = try await fileSystem.canonicalize(fake, allowMissing: true)
+        #expect(resolved == fake)
     }
 }

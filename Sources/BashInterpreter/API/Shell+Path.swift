@@ -37,20 +37,19 @@ extension Shell {
     /// True for paths that don't need to be joined with the working
     /// directory: `/foo` everywhere, plus `C:\foo` / `C:/foo` / UNC
     /// (`\\server\share`) on Windows.
-    static func isAbsolutePath(_ p: String) -> Bool {
-        if p.hasPrefix("/") { return true }
+    static func isAbsolutePath(_ path: String) -> Bool {
+        if path.hasPrefix("/") { return true }
         #if os(Windows)
         // Drive letter: `C:\…` or `C:/…`.
-        let chars = Array(p)
+        let chars = Array(path)
         if chars.count >= 3,
            chars[0].isLetter,
            chars[1] == ":",
-           chars[2] == "/" || chars[2] == "\\"
-        {
+           chars[2] == "/" || chars[2] == "\\" {
             return true
         }
         // UNC roots: `\\server\share\…` or `//server/share/…`.
-        if p.hasPrefix("\\\\") || p.hasPrefix("//") { return true }
+        if path.hasPrefix("\\\\") || path.hasPrefix("//") { return true }
         #endif
         return false
     }
@@ -83,7 +82,7 @@ extension Shell {
         // the rebuilt string still stems from that drive.
         let isUnixAbsolute = normalized.hasPrefix("/")
         var stack: [String] = []
-        var driveRoot: String? = nil
+        var driveRoot: String?
         var saw: [Substring] = normalized.split(
             separator: "/", omittingEmptySubsequences: true)
         #if os(Windows)
@@ -93,8 +92,7 @@ extension Shell {
         if let first = saw.first,
            first.count == 2,
            let firstChar = first.first, firstChar.isLetter,
-           first.last == ":"
-        {
+           first.last == ":" {
             driveRoot = String(first)
             saw = Array(saw.dropFirst())
         }

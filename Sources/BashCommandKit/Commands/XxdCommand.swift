@@ -31,11 +31,11 @@ public struct XxdCommand: ParsableBashCommand {
 
     public mutating func execute() async throws -> ExitStatus {
         let data: Data
-        if let f = input, f != "-" {
+        if let file = input, file != "-" {
             do {
-                data = try await Shell.bashCurrent.readDataAtPath(f)
+                data = try await Shell.bashCurrent.readDataAtPath(file)
             } catch {
-                Shell.bashCurrent.stderr("xxd: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("xxd: \(file): \(error)\n")
                 return .failure
             }
         } else {
@@ -80,15 +80,14 @@ public struct XxdCommand: ParsableBashCommand {
     /// (`0x40`), or `0`-prefixed octal (`0100`). Returns nil for
     /// anything else (negative numbers, garbage, overflow). Mirrors
     /// the syntax real xxd accepts.
-    static func parseLength(_ s: String) -> Int? {
-        let trimmed = s.trimmingCharacters(in: .whitespaces)
+    static func parseLength(_ str: String) -> Int? {
+        let trimmed = str.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         if trimmed.lowercased().hasPrefix("0x") {
             return Int(trimmed.dropFirst(2), radix: 16)
         }
         if trimmed.hasPrefix("0"), trimmed.count > 1,
-           trimmed.dropFirst().allSatisfy({ $0.isNumber })
-        {
+           trimmed.dropFirst().allSatisfy({ $0.isNumber }) {
             return Int(trimmed, radix: 8)
         }
         return Int(trimmed, radix: 10)
@@ -99,24 +98,24 @@ public struct XxdCommand: ParsableBashCommand {
     static func format(offset: Int, row: [UInt8],
                        bytesPerRow: Int) -> String {
         var hex = ""
-        for i in 0..<bytesPerRow {
-            if i < row.count {
-                hex += String(format: "%02x", row[i])
+        for idx in 0..<bytesPerRow {
+            if idx < row.count {
+                hex += String(format: "%02x", row[idx])
             } else {
                 hex += "  "
             }
             // Group in pairs of 2 bytes (4 hex chars).
-            if i % 2 == 1, i + 1 < bytesPerRow {
+            if idx % 2 == 1, idx + 1 < bytesPerRow {
                 hex += " "
             }
         }
         var ascii = ""
-        for b in row {
+        for byte in row {
             // Match xxd: only printable ASCII (0x20..0x7e); everything
             // else (including tab/newline) becomes `.`.
             ascii.append(
-                (b >= 0x20 && b <= 0x7e)
-                    ? Character(UnicodeScalar(b))
+                (byte >= 0x20 && byte <= 0x7e)
+                    ? Character(UnicodeScalar(byte))
                     : ".")
         }
         return String(format: "%08x: %@  %@",

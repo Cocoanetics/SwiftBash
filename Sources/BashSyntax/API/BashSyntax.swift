@@ -48,17 +48,17 @@ public enum BashSyntax {
                         range: baseOffset..<(baseOffset + body.count))
         }
         while true {
-            let t = try tokenizer.nextToken()
-            if t.type == .eof { break }
-            if t.type == .newline {
+            let tok = try tokenizer.nextToken()
+            if tok.type == .eof { break }
+            if tok.type == .newline {
                 out.append("\n")
                 continue
             }
-            if t.type == .word || t.type == .assignmentWord {
-                let r = try expander.expand(token: t)
-                out.append(r.expanded)
+            if tok.type == .word || tok.type == .assignmentWord {
+                let expanded = try expander.expand(token: tok)
+                out.append(expanded.expanded)
             } else {
-                out.append(t.value)
+                out.append(tok.value)
             }
         }
         return out

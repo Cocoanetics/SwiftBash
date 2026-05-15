@@ -76,8 +76,7 @@ public final class DictionaryEnvProvider: EnvProvider {
     public init(_ initial: [String: String] = [:]) { storage = initial }
     public func get(_ key: String) -> String? { storage[key] }
     public func set(_ key: String, _ value: String?) {
-        if let value { storage[key] = value }
-        else { storage.removeValue(forKey: key) }
+        if let value { storage[key] = value } else { storage.removeValue(forKey: key) }
     }
     public var allKeys: [String] { Array(storage.keys) }
 }

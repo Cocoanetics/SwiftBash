@@ -48,8 +48,8 @@ public struct ExprCommand: ParsableBashCommand {
             if !parser.atEnd {
                 throw ExprError("syntax error: \(parser.peek() ?? "")")
             }
-        } catch let e as ExprError {
-            Shell.bashCurrent.stderr("expr: \(e.message)\n")
+        } catch let exprErr as ExprError {
+            Shell.bashCurrent.stderr("expr: \(exprErr.message)\n")
             return ExitStatus(2)
         }
         Shell.bashCurrent.stdout(result + "\n")
@@ -57,22 +57,25 @@ public struct ExprCommand: ParsableBashCommand {
     }
 }
 
-private struct ExprError: Error { let message: String; init(_ m: String) { self.message = m } }
+private struct ExprError: Error {
+    let message: String
+    init(_ message: String) { self.message = message }
+}
 
 private struct ExprParser {
     let args: [String]
-    var i: Int = 0
-    var atEnd: Bool { i >= args.count }
-    func peek() -> String? { i < args.count ? args[i] : nil }
+    var index: Int = 0
+    var atEnd: Bool { index >= args.count }
+    func peek() -> String? { index < args.count ? args[index] : nil }
     mutating func advance() -> String? {
-        guard i < args.count else { return nil }
-        let t = args[i]; i += 1; return t
+        guard index < args.count else { return nil }
+        let token = args[index]; index += 1; return token
     }
 
     mutating func parseOr() throws -> String {
         var left = try parseAnd()
         while peek() == "|" {
-            i += 1
+            index += 1
             let right = try parseAnd()
             if left == "0" || left.isEmpty { left = right }
         }
@@ -82,7 +85,7 @@ private struct ExprParser {
     mutating func parseAnd() throws -> String {
         var left = try parseComparison()
         while peek() == "&" {
-            i += 1
+            index += 1
             let right = try parseComparison()
             if left == "0" || left.isEmpty || right == "0" || right.isEmpty {
                 left = "0"
@@ -91,26 +94,30 @@ private struct ExprParser {
         return left
     }
 
+    // POSIX expr comparison: six relops, dispatched twice (once for the
+    // numeric path, once for the string path). One coherent switch is
+    // clearer than per-op helpers shared across two type branches.
+    // swiftlint:disable:next cyclomatic_complexity
     mutating func parseComparison() throws -> String {
         var left = try parseAddSub()
         let ops: Set<String> = ["=", "!=", "<", ">", "<=", ">="]
-        while let op = peek(), ops.contains(op) {
-            i += 1
+        while let cmpOp = peek(), ops.contains(cmpOp) {
+            index += 1
             let right = try parseAddSub()
             let leftN = Int(left), rightN = Int(right)
             let numeric = leftN != nil && rightN != nil
             let result: Bool
-            if numeric, let a = leftN, let b = rightN {
-                switch op {
-                case "=":  result = a == b
-                case "!=": result = a != b
-                case "<":  result = a < b
-                case ">":  result = a > b
-                case "<=": result = a <= b
-                default:   result = a >= b
+            if numeric, let lhs = leftN, let rhs = rightN {
+                switch cmpOp {
+                case "=":  result = lhs == rhs
+                case "!=": result = lhs != rhs
+                case "<":  result = lhs < rhs
+                case ">":  result = lhs > rhs
+                case "<=": result = lhs <= rhs
+                default:   result = lhs >= rhs
                 }
             } else {
-                switch op {
+                switch cmpOp {
                 case "=":  result = left == right
                 case "!=": result = left != right
                 case "<":  result = left < right
@@ -126,32 +133,32 @@ private struct ExprParser {
 
     mutating func parseAddSub() throws -> String {
         var left = try parseMulDiv()
-        while let op = peek(), op == "+" || op == "-" {
-            i += 1
+        while let addOp = peek(), addOp == "+" || addOp == "-" {
+            index += 1
             let right = try parseMulDiv()
-            guard let a = Int(left), let b = Int(right) else {
+            guard let lhs = Int(left), let rhs = Int(right) else {
                 throw ExprError("non-integer argument")
             }
-            left = String(op == "+" ? a + b : a - b)
+            left = String(addOp == "+" ? lhs + rhs : lhs - rhs)
         }
         return left
     }
 
     mutating func parseMulDiv() throws -> String {
         var left = try parseMatch()
-        while let op = peek(), op == "*" || op == "/" || op == "%" {
-            i += 1
+        while let mulOp = peek(), mulOp == "*" || mulOp == "/" || mulOp == "%" {
+            index += 1
             let right = try parseMatch()
-            guard let a = Int(left), let b = Int(right) else {
+            guard let lhs = Int(left), let rhs = Int(right) else {
                 throw ExprError("non-integer argument")
             }
-            if (op == "/" || op == "%") && b == 0 {
+            if (mulOp == "/" || mulOp == "%") && rhs == 0 {
                 throw ExprError("division by zero")
             }
-            switch op {
-            case "*": left = String(a * b)
-            case "/": left = String(a / b)
-            default:  left = String(a % b)
+            switch mulOp {
+            case "*": left = String(lhs * rhs)
+            case "/": left = String(lhs / rhs)
+            default:  left = String(lhs % rhs)
             }
         }
         return left
@@ -160,7 +167,7 @@ private struct ExprParser {
     mutating func parseMatch() throws -> String {
         var left = try parsePrimary()
         while peek() == ":" {
-            i += 1
+            index += 1
             let pattern = try parsePrimary()
             let result = matchAnchored(pattern: pattern, in: left)
             left = result
@@ -168,16 +175,20 @@ private struct ExprParser {
         return left
     }
 
+    // POSIX expr primary: dispatch on the leading token name (match /
+    // substr / index / length / `(`) or fall through to a literal.
+    // Splitting per-builtin helpers would scatter the cursor advances.
+    // swiftlint:disable:next cyclomatic_complexity
     mutating func parsePrimary() throws -> String {
         guard let token = peek() else { throw ExprError("syntax error") }
         switch token {
         case "match":
-            i += 1
+            index += 1
             let str = try parsePrimary()
             let pat = try parsePrimary()
             return matchUnanchored(pattern: pat, in: str)
         case "substr":
-            i += 1
+            index += 1
             let str = try parsePrimary()
             let posStr = try parsePrimary()
             let lenStr = try parsePrimary()
@@ -191,25 +202,25 @@ private struct ExprParser {
             let end = min(chars.count, start + len)
             return String(chars[start..<end])
         case "index":
-            i += 1
+            index += 1
             let str = try parsePrimary()
             let chars = try parsePrimary()
-            for (idx, c) in str.enumerated() {
-                if chars.contains(c) { return String(idx + 1) }
+            for (idx, char) in str.enumerated() where chars.contains(char) {
+                return String(idx + 1)
             }
             return "0"
         case "length":
-            i += 1
+            index += 1
             let str = try parsePrimary()
             return String(str.count)
         case "(":
-            i += 1
-            let r = try parseOr()
+            index += 1
+            let result = try parseOr()
             guard peek() == ")" else { throw ExprError("syntax error: missing `)`") }
-            i += 1
-            return r
+            index += 1
+            return result
         default:
-            i += 1
+            index += 1
             return token
         }
     }
@@ -219,25 +230,27 @@ private struct ExprParser {
     /// converted here to ERE via the sed regex helper.
     /// Returns the first capture group if any; otherwise the length of
     /// the matched prefix; `0` if no match.
-    private func matchAnchored(pattern: String, in s: String) -> String {
+    private func matchAnchored(pattern: String, in str: String) -> String {
         let ere = SedRegex.breToEre(pattern)
-        let p = ere.hasPrefix("^") ? ere : "^" + ere
-        guard let re = try? NSRegularExpression(pattern: p) else { return "0" }
-        let nsstr = s as NSString
-        guard let m = re.firstMatch(in: s, range: NSRange(location: 0, length: nsstr.length)) else {
+        let anchored = ere.hasPrefix("^") ? ere : "^" + ere
+        guard let regex = try? NSRegularExpression(pattern: anchored) else { return "0" }
+        let nsstr = str as NSString
+        guard let match = regex.firstMatch(in: str,
+                                           range: NSRange(location: 0, length: nsstr.length))
+        else {
             return "0"
         }
-        if m.numberOfRanges > 1 {
-            let r = m.range(at: 1)
-            if r.location != NSNotFound { return nsstr.substring(with: r) }
+        if match.numberOfRanges > 1 {
+            let groupRange = match.range(at: 1)
+            if groupRange.location != NSNotFound { return nsstr.substring(with: groupRange) }
         }
-        return String(m.range.length)
+        return String(match.range.length)
     }
 
     /// `match STRING REGEX` — like the `:` operator but takes the
     /// pattern as-is (no implicit anchor). Real BSD/GNU expr's `match`
     /// also anchors; we follow that for compatibility.
-    private func matchUnanchored(pattern: String, in s: String) -> String {
-        matchAnchored(pattern: pattern, in: s)
+    private func matchUnanchored(pattern: String, in str: String) -> String {
+        matchAnchored(pattern: pattern, in: str)
     }
 }

@@ -79,9 +79,9 @@ extension Node {
     /// The slice of the original source string covered by this node.
     public func source(from source: String) -> Substring {
         let chars = Array(source)
-        let lo = max(0, range.lowerBound)
-        let hi = min(chars.count, range.upperBound)
-        guard lo < hi else { return "" }
-        return Substring(String(chars[lo..<hi]))
+        let low = max(0, range.lowerBound)
+        let high = min(chars.count, range.upperBound)
+        guard low < high else { return "" }
+        return Substring(String(chars[low..<high]))
     }
 }

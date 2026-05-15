@@ -21,6 +21,9 @@ public struct EchoCommand: Command {
 
     public init() {}
 
+    // Option parse + per-arg escape expansion + joined output assembly;
+    // splitting into helpers would scatter the bundled-short-flag rule.
+    // swiftlint:disable:next cyclomatic_complexity
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
         var newline = true
@@ -31,8 +34,8 @@ public struct EchoCommand: Command {
             // Combined short flags like -ne / -en / -nE.
             if first.hasPrefix("-") && first.count > 1
                 && first.dropFirst().allSatisfy({ "neE".contains($0) }) {
-                for c in first.dropFirst() {
-                    switch c {
+                for char in first.dropFirst() {
+                    switch char {
                     case "n": newline = false
                     case "e": interpret = true
                     case "E": interpret = false
@@ -46,13 +49,13 @@ public struct EchoCommand: Command {
 
         var pieces: [String] = []
         var stopAfter = false
-        for a in args {
+        for arg in args {
             if interpret {
-                let (s, stop) = Self.expandEscapes(a)
-                pieces.append(s)
+                let (text, stop) = Self.expandEscapes(arg)
+                pieces.append(text)
                 if stop { stopAfter = true; break }
             } else {
-                pieces.append(a)
+                pieces.append(arg)
             }
         }
 
@@ -62,52 +65,59 @@ public struct EchoCommand: Command {
         return .success
     }
 
-    /// Process backslash escapes for `-e`. Returns the expanded string
-    /// and whether `\c` was encountered (suppresses the rest of the
-    /// output, including the trailing newline).
-    static func expandEscapes(_ s: String) -> (String, Bool) {
+    // Process backslash escapes for `-e`. Returns the expanded string
+    // and whether `\c` was encountered (suppresses the rest of the
+    // output, including the trailing newline).
+    //
+    // Flat dispatch over the supported escape table; one case per
+    // escape character.
+    // swiftlint:disable:next cyclomatic_complexity
+    static func expandEscapes(_ source: String) -> (String, Bool) {
         var out = ""
         var stop = false
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\\", i + 1 < chars.count {
-                let n = chars[i + 1]
-                switch n {
-                case "n": out += "\n"; i += 2
-                case "t": out += "\t"; i += 2
-                case "r": out += "\r"; i += 2
-                case "b": out += "\u{08}"; i += 2
-                case "f": out += "\u{0C}"; i += 2
-                case "v": out += "\u{0B}"; i += 2
-                case "a": out += "\u{07}"; i += 2
-                case "\\": out += "\\"; i += 2
-                case "c": stop = true; i = chars.count
+        let chars = Array(source)
+        var index = 0
+        while index < chars.count {
+            let char = chars[index]
+            if char == "\\", index + 1 < chars.count {
+                let nextChar = chars[index + 1]
+                switch nextChar {
+                case "n": out += "\n"; index += 2
+                case "t": out += "\t"; index += 2
+                case "r": out += "\r"; index += 2
+                case "b": out += "\u{08}"; index += 2
+                case "f": out += "\u{0C}"; index += 2
+                case "v": out += "\u{0B}"; index += 2
+                case "a": out += "\u{07}"; index += 2
+                case "\\": out += "\\"; index += 2
+                case "c": stop = true; index = chars.count
                 case "0":
-                    i += 2
+                    index += 2
                     var oct = ""
-                    while oct.count < 3, i < chars.count,
-                          let v = chars[i].asciiValue, v >= 0x30, v <= 0x37 {
-                        oct.append(chars[i]); i += 1
+                    while oct.count < 3, index < chars.count,
+                          let asciiValue = chars[index].asciiValue,
+                          asciiValue >= 0x30, asciiValue <= 0x37 {
+                        oct.append(chars[index]); index += 1
                     }
-                    if let n = UInt32(oct, radix: 8), let u = Unicode.Scalar(n) {
-                        out.append(Character(u))
+                    if let num = UInt32(oct, radix: 8),
+                       let scalar = Unicode.Scalar(num) {
+                        out.append(Character(scalar))
                     }
                 case "x":
-                    i += 2
+                    index += 2
                     var hex = ""
-                    while hex.count < 2, i < chars.count, chars[i].isHexDigit {
-                        hex.append(chars[i]); i += 1
+                    while hex.count < 2, index < chars.count, chars[index].isHexDigit {
+                        hex.append(chars[index]); index += 1
                     }
-                    if let n = UInt32(hex, radix: 16), let u = Unicode.Scalar(n) {
-                        out.append(Character(u))
+                    if let num = UInt32(hex, radix: 16),
+                       let scalar = Unicode.Scalar(num) {
+                        out.append(Character(scalar))
                     }
                 default:
-                    out += "\\"; out.append(n); i += 2
+                    out += "\\"; out.append(nextChar); index += 2
                 }
             } else {
-                out.append(c); i += 1
+                out.append(char); index += 1
             }
         }
         return (out, stop)

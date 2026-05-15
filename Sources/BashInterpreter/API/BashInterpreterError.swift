@@ -14,8 +14,9 @@ public enum BashInterpreterError: Error, Equatable, Sendable, CustomStringConver
     /// recognised by the parser but not yet handled by the interpreter.
     case unimplemented(String)
 
-    /// A host OS failure (cd to a missing directory, etc.).
-    case io(String)
+    /// A host OS failure (cd to a missing directory, etc.). `io` is the
+    /// conventional acronym for input/output; public API.
+    case io(String) // swiftlint:disable:this identifier_name
 
     /// A `${…}` parameter expansion failed — `${var:?msg}` on an unset
     /// variable, or a malformed body.
@@ -25,14 +26,14 @@ public enum BashInterpreterError: Error, Equatable, Sendable, CustomStringConver
         switch self {
         case .commandNotFound(let name):
             return "command not found: \(name)"
-        case .invalidArguments(let b, let m):
-            return "\(b): \(m)"
+        case .invalidArguments(let builtin, let message):
+            return "\(builtin): \(message)"
         case .unimplemented(let what):
             return "unimplemented: \(what)"
-        case .io(let m):
-            return m
-        case .parameter(let m):
-            return m
+        case .io(let message):
+            return message
+        case .parameter(let message):
+            return message
         }
     }
 }

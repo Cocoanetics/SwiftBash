@@ -2,41 +2,42 @@ import ArgumentParser
 import BashInterpreter
 import Foundation
 
-/// `rg [OPTIONS] PATTERN [PATH...]` — pragmatic ripgrep subset.
-///
-/// Defaults that differ from `grep`:
-/// - Recursive by default; `PATH` defaults to `.`.
-/// - Skips dotfiles / dot-directories unless `--hidden` is set.
-/// - Pattern is always interpreted as an ERE regex (no substring fallback).
-/// - Filename is always shown in output.
-///
-/// Streams line-by-line so `tail -f log | rg ERROR` works.
-///
-/// ### Output / matching flags
-/// - `-i` / `--ignore-case`
-/// - `-S` / `--smart-case` — case-insensitive only when the pattern has
-///   no uppercase letters
-/// - `-n` / `--line-number` — prefix line numbers
-/// - `-l` / `--files-with-matches` — print only the matching file names
-/// - `-q` / `--quiet` — no output; exit 0 on first match, 1 otherwise
-/// - `-m NUM` / `--max-count NUM` — stop after N matches per file
-///
-/// ### Context
-/// - `-A NUM` / `--after-context`
-/// - `-B NUM` / `--before-context`
-/// - `-C NUM` / `--context`
-///
-/// ### File selection
-/// - `-g GLOB` / `--glob GLOB` — include only matching basenames; prefix
-///   with `!` to exclude (repeatable)
-/// - `--hidden` — also descend into / read hidden files
-/// - `--files` — print the list of candidate files; do not search them.
-///   `PATTERN` becomes optional in this mode.
-///
-/// ### Out of scope
-/// `--type LANG` (and shorthand `--swift`/etc.) — no language→glob
-/// table; pass `-g '*.swift'` instead. `.gitignore` honoring. `-F`
-/// fixed-string mode. `--type-add`.
+// `rg [OPTIONS] PATTERN [PATH...]` — pragmatic ripgrep subset.
+//
+// Defaults that differ from `grep`:
+// - Recursive by default; `PATH` defaults to `.`.
+// - Skips dotfiles / dot-directories unless `--hidden` is set.
+// - Pattern is always interpreted as an ERE regex (no substring fallback).
+// - Filename is always shown in output.
+//
+// Streams line-by-line so `tail -f log | rg ERROR` works.
+//
+// ### Output / matching flags
+// - `-i` / `--ignore-case`
+// - `-S` / `--smart-case` — case-insensitive only when the pattern has
+//   no uppercase letters
+// - `-n` / `--line-number` — prefix line numbers
+// - `-l` / `--files-with-matches` — print only the matching file names
+// - `-q` / `--quiet` — no output; exit 0 on first match, 1 otherwise
+// - `-m NUM` / `--max-count NUM` — stop after N matches per file
+//
+// ### Context
+// - `-A NUM` / `--after-context`
+// - `-B NUM` / `--before-context`
+// - `-C NUM` / `--context`
+//
+// ### File selection
+// - `-g GLOB` / `--glob GLOB` — include only matching basenames; prefix
+//   with `!` to exclude (repeatable)
+// - `--hidden` — also descend into / read hidden files
+// - `--files` — print the list of candidate files; do not search them.
+//   `PATTERN` becomes optional in this mode.
+//
+// ### Out of scope
+// `--type LANG` (and shorthand `--swift`/etc.) — no language→glob
+// table; pass `-g '*.swift'` instead. `.gitignore` honoring. `-F`
+// fixed-string mode. `--type-add`.
+// swiftlint:disable:next type_body_length - rg subset gathered in one struct
 public struct RgCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "rg",
@@ -97,6 +98,7 @@ public struct RgCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next function_body_length
     public mutating func execute() async throws -> ExitStatus {
         let pattern: String?
         let paths: [String]
@@ -104,11 +106,11 @@ public struct RgCommand: ParsableBashCommand {
             pattern = nil
             paths = positionals.isEmpty ? ["."] : positionals
         } else {
-            guard let p = positionals.first else {
+            guard let firstArg = positionals.first else {
                 Shell.bashCurrent.stderr("rg: missing PATTERN\n")
                 return ExitStatus(2)
             }
-            pattern = p
+            pattern = firstArg
             let rest = Array(positionals.dropFirst())
             paths = rest.isEmpty ? ["."] : rest
         }
@@ -157,18 +159,18 @@ public struct RgCommand: ParsableBashCommand {
         for path in paths {
             try Task.checkCancellation()
             let abs = Shell.bashCurrent.resolvePath(path)
-            let r = await searchPath(displayPath: path,
-                                     absolutePath: abs,
-                                     globs: parsedGlobs,
-                                     matcher: matcher,
-                                     opts: opts)
-            if r { anyMatched = true }
+            let matched = await searchPath(displayPath: path,
+                                           absolutePath: abs,
+                                           globs: parsedGlobs,
+                                           matcher: matcher,
+                                           opts: opts)
+            if matched { anyMatched = true }
             if quiet, anyMatched { break }
         }
         return anyMatched ? .success : .failure
     }
 
-    // MARK: --files mode
+    // MARK: - -files mode
 
     private func listOne(displayPath: String,
                          absolutePath: String,
@@ -181,8 +183,8 @@ public struct RgCommand: ParsableBashCommand {
         if meta.kind == .directory {
             await walk(displayPath: displayPath,
                        absolutePath: absolutePath,
-                       globs: globs) { dp, _ in
-                Shell.bashCurrent.stdout(dp + "\n")
+                       globs: globs) { display, _ in
+                Shell.bashCurrent.stdout(display + "\n")
                 return true
             }
         } else {
@@ -209,12 +211,12 @@ public struct RgCommand: ParsableBashCommand {
             var any = false
             await walk(displayPath: displayPath,
                        absolutePath: absolutePath,
-                       globs: globs) { dp, abs in
-                let r = await searchFile(displayPath: dp,
-                                         absolutePath: abs,
-                                         matcher: matcher,
-                                         opts: opts)
-                if r { any = true }
+                       globs: globs) { display, abs in
+                let matched = await searchFile(displayPath: display,
+                                               absolutePath: abs,
+                                               matcher: matcher,
+                                               opts: opts)
+                if matched { any = true }
                 return !(opts.quiet && any)
             }
             return any
@@ -231,7 +233,7 @@ public struct RgCommand: ParsableBashCommand {
     private func walk(displayPath: String,
                       absolutePath: String,
                       globs: [GlobRule],
-                      
+
                       visit: (String, String) async -> Bool) async {
         let entries: [String]
         do {
@@ -253,7 +255,7 @@ public struct RgCommand: ParsableBashCommand {
                 await walk(displayPath: childDisplay,
                            absolutePath: childAbs,
                            globs: globs,
-                           
+
                            visit: visit)
             } else {
                 if !Self.passesGlobs(name: name, rules: globs) { continue }
@@ -305,10 +307,10 @@ public struct RgCommand: ParsableBashCommand {
                    lineNum - opts.before > lastEmitted + 1 {
                     Shell.bashCurrent.stdout("--\n")
                 }
-                for (bn, bl) in beforeBuf.elements where bn > lastEmitted {
-                    emit(file: displayPath, lineNum: bn, line: bl,
+                for (bufNum, bufLine) in beforeBuf.elements where bufNum > lastEmitted {
+                    emit(file: displayPath, lineNum: bufNum, line: bufLine,
                          isMatch: false, opts: opts)
-                    lastEmitted = bn
+                    lastEmitted = bufNum
                 }
                 emit(file: displayPath, lineNum: lineNum, line: line,
                      isMatch: true, opts: opts)
@@ -367,11 +369,9 @@ public struct RgCommand: ParsableBashCommand {
         if rules.isEmpty { return true }
         let hasIncludes = rules.contains(where: { !$0.negated })
         var included = !hasIncludes ? true : false
-        for r in rules {
-            if Self.globMatch(pattern: r.pattern, string: name) {
-                if r.negated { return false }
-                included = true
-            }
+        for rule in rules where Self.globMatch(pattern: rule.pattern, string: name) {
+            if rule.negated { return false }
+            included = true
         }
         return included
     }
@@ -393,8 +393,8 @@ public struct RgCommand: ParsableBashCommand {
         }
 
         func matches(_ line: String) -> Bool {
-            let r = NSRange(line.startIndex..., in: line)
-            return regex.firstMatch(in: line, options: [], range: r) != nil
+            let range = NSRange(line.startIndex..., in: line)
+            return regex.firstMatch(in: line, options: [], range: range) != nil
         }
     }
 
@@ -420,43 +420,45 @@ public struct RgCommand: ParsableBashCommand {
     // Same fnmatch-style matcher used in `GrepCommand` and `FindCommand`.
 
     static func globMatch(pattern: String, string: String) -> Bool {
-        let p = Array(pattern)
-        let s = Array(string)
-        return globMatch(p, 0, s, 0)
+        let patternChars = Array(pattern)
+        let strChars = Array(string)
+        return globMatch(patternChars, 0, strChars, 0)
     }
 
-    private static func globMatch(_ p: [Character], _ pi: Int,
-                                  _ s: [Character], _ si: Int) -> Bool {
-        var pi = pi
-        var si = si
-        while pi < p.count {
-            let c = p[pi]
-            switch c {
+    // swiftlint:disable:next cyclomatic_complexity
+    private static func globMatch(_ patternChars: [Character], _ patternIdx: Int,
+                                  _ strChars: [Character], _ strIdx: Int) -> Bool {
+        var pIdx = patternIdx
+        var sIdx = strIdx
+        while pIdx < patternChars.count {
+            let char = patternChars[pIdx]
+            switch char {
             case "*":
-                while pi < p.count, p[pi] == "*" { pi += 1 }
-                if pi == p.count { return true }
-                var k = si
-                while k <= s.count {
-                    if globMatch(p, pi, s, k) { return true }
-                    k += 1
+                while pIdx < patternChars.count, patternChars[pIdx] == "*" { pIdx += 1 }
+                if pIdx == patternChars.count { return true }
+                var advance = sIdx
+                while advance <= strChars.count {
+                    if globMatch(patternChars, pIdx, strChars, advance) { return true }
+                    advance += 1
                 }
                 return false
             case "?":
-                if si >= s.count { return false }
-                pi += 1
-                si += 1
+                if sIdx >= strChars.count { return false }
+                pIdx += 1
+                sIdx += 1
             case "\\":
-                guard pi + 1 < p.count, si < s.count,
-                      p[pi + 1] == s[si]
+                guard pIdx + 1 < patternChars.count, sIdx < strChars.count,
+                      patternChars[pIdx + 1] == strChars[sIdx]
                 else { return false }
-                pi += 2
-                si += 1
+                pIdx += 2
+                sIdx += 1
             default:
-                if si >= s.count || s[si] != c { return false }
-                pi += 1
-                si += 1
+                if sIdx >= strChars.count || strChars[sIdx] != char { return false }
+                pIdx += 1
+                sIdx += 1
             }
         }
-        return si == s.count
+        return sIdx == strChars.count
     }
+    // swiftlint:disable:next file_length - rg engine + glob/regex matcher in one file
 }

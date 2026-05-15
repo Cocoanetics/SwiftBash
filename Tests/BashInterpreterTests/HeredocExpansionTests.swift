@@ -6,8 +6,8 @@ import Testing
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
         cap.shell.register(name: "capture") { _ in
-            let s = await Shell.bashCurrent.stdin.readAllString()
-            Shell.bashCurrent.stdout(s)
+            let input = await Shell.bashCurrent.stdin.readAllString()
+            Shell.bashCurrent.stdout(input)
             return .success
         }
         return cap
@@ -214,9 +214,9 @@ import Testing
     @Test func heredocFedIntoCommandViaRedirect() async throws {
         let cap = makeShell()
         cap.shell.register(name: "wc-l") { _ in
-            var n = 0
-            for await _ in Shell.bashCurrent.stdin.lines { n += 1 }
-            Shell.bashCurrent.stdout("\(n)\n")
+            var count = 0
+            for await _ in Shell.bashCurrent.stdin.lines { count += 1 }
+            Shell.bashCurrent.stdout("\(count)\n")
             return .success
         }
         cap.shell.environment["NAME"] = "world"

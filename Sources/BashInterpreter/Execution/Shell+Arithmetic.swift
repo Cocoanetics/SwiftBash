@@ -22,10 +22,9 @@ extension Shell {
             get: { [environment, positionalParameters] name in
                 // Digit-only names are positional parameters: `$1`,
                 // `$2`, … The lexer emits these from `$<digits>`.
-                if let n = Int(name), n >= 1, !name.isEmpty,
-                   name.allSatisfy(\.isNumber)
-                {
-                    let idx = n - 1
+                if let number = Int(name), number >= 1, !name.isEmpty,
+                   name.allSatisfy(\.isNumber) {
+                    let idx = number - 1
                     return idx < positionalParameters.count
                         ? positionalParameters[idx]
                         : nil

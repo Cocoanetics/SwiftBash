@@ -8,12 +8,12 @@ import Foundation
 
     @Test func spawnReturnsMonotonicVirtualPids() async {
         let table = ProcessTable(startingAt: 100)
-        let p1 = await table.spawn(command: "a") { .success }
-        let p2 = await table.spawn(command: "b") { .success }
-        let p3 = await table.spawn(command: "c") { .success }
-        #expect(p1 == 100)
-        #expect(p2 == 101)
-        #expect(p3 == 102)
+        let pid1 = await table.spawn(command: "a") { .success }
+        let pid2 = await table.spawn(command: "b") { .success }
+        let pid3 = await table.spawn(command: "c") { .success }
+        #expect(pid1 == 100)
+        #expect(pid2 == 101)
+        #expect(pid3 == 102)
     }
 
     @Test func waitReturnsExitStatus() async {
@@ -87,8 +87,8 @@ import Foundation
             }
         }
         try? await Task.sleep(nanoseconds: 30_000_000)
-        let ok = await table.signal(pid: pid)
-        #expect(ok)
+        let delivered = await table.signal(pid: pid)
+        #expect(delivered)
         let status = await table.wait(pid: pid)
         // 128 + SIGTERM = 143; cancellation maps there.
         #expect(status?.code == 143)
@@ -97,8 +97,8 @@ import Foundation
 
     @Test func signalUnknownPidReturnsFalse() async {
         let table = ProcessTable()
-        let ok = await table.signal(pid: 999_999)
-        #expect(!ok)
+        let delivered = await table.signal(pid: 999_999)
+        #expect(!delivered)
     }
 
     // MARK: list / introspection
@@ -127,8 +127,8 @@ import Foundation
         // Sleep long enough for the observer to land deterministically.
         try? await Task.sleep(nanoseconds: 50_000_000)
         let entry = await table.entry(for: pid)
-        if case .exited(let s) = entry?.state {
-            #expect(s.code == 11)
+        if case .exited(let status) = entry?.state {
+            #expect(status.code == 11)
         } else {
             Issue.record("expected .exited, got \(String(describing: entry?.state))")
         }

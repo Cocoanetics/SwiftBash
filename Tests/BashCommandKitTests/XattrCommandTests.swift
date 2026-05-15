@@ -5,19 +5,20 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct XattrCommandTests {
 
-    private func makeShellWithDir() -> (CapturingShell, String) {
+    private func makeShellWithDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "xattr-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dir,
+                                                 withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
-    private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
+    private func cleanup(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
 
     #if !os(Windows)
     @Test func writeAndList() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
         try await cap.shell.run("xattr -w user.tag hello f")
         try await cap.shell.run("xattr f")
@@ -27,7 +28,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func writeAndPrint() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
         try await cap.shell.run("xattr -w user.color blue f")
         try await cap.shell.run("xattr -p user.color f")
@@ -37,7 +38,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func deleteAttribute() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
         try await cap.shell.run("xattr -w user.a 1 f")
         try await cap.shell.run("xattr -w user.b 2 f")
@@ -49,7 +50,7 @@ import Foundation
     #endif
 
     @Test func clearAll() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
         try await cap.shell.run("xattr -w user.a 1 f")
         try await cap.shell.run("xattr -w user.b 2 f")
@@ -63,7 +64,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func longFormatShowsValues() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
         try await cap.shell.run("xattr -w user.tag hello f")
         try await cap.shell.run("xattr -l f")

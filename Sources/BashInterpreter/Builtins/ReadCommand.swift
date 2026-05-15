@@ -20,37 +20,38 @@ public struct ReadCommand: Command {
     public let name = "read"
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var raw = false
-        var prompt: String? = nil
-        var arrayName: String? = nil
-        var i = 1
+        var prompt: String?
+        var arrayName: String?
+        var idx = 1
 
-        while i < argv.count {
-            let arg = argv[i]
+        while idx < argv.count {
+            let arg = argv[idx]
             if arg == "-r" {
                 raw = true
-                i += 1
+                idx += 1
             } else if arg == "-p" {
-                guard i + 1 < argv.count else {
+                guard idx + 1 < argv.count else {
                     Shell.bashCurrent.stderr("read: -p: missing argument\n")
                     return ExitStatus(2)
                 }
-                prompt = argv[i + 1]
-                i += 2
+                prompt = argv[idx + 1]
+                idx += 2
             } else if arg.hasPrefix("-p") {
                 prompt = String(arg.dropFirst(2))
-                i += 1
+                idx += 1
             } else if arg == "-a" {
-                guard i + 1 < argv.count else {
+                guard idx + 1 < argv.count else {
                     Shell.bashCurrent.stderr("read: -a: missing array name\n")
                     return ExitStatus(2)
                 }
-                arrayName = argv[i + 1]
-                i += 2
+                arrayName = argv[idx + 1]
+                idx += 2
             } else if arg.hasPrefix("-a"), arg.count > 2 {
                 arrayName = String(arg.dropFirst(2))
-                i += 1
+                idx += 1
             } else if arg.hasPrefix("-") && arg != "-" {
                 // Unknown flag; surface and stop option parsing.
                 Shell.bashCurrent.stderr("read: \(arg): invalid option\n")
@@ -76,7 +77,7 @@ public struct ReadCommand: Command {
             return .success
         }
 
-        let names = Array(argv[i...])
+        let names = Array(argv[idx...])
         if names.isEmpty {
             Shell.bashCurrent.environment["REPLY"] = line
             return .success
@@ -88,8 +89,7 @@ public struct ReadCommand: Command {
     /// Split `line` on $IFS and store the fields in `name` as an
     /// indexed array, dense from index 0.
     private func assignToArray(_ line: String,
-                               name: String)
-    {
+                               name: String) {
         let ifsChars: [Character] = {
             if let ifs = Shell.bashCurrent.environment["IFS"] { return Array(ifs) }
             return [" ", "\t", "\n"]
@@ -103,8 +103,8 @@ public struct ReadCommand: Command {
         var fields: [String] = []
         var current = ""
         var prevWasSep = isIfsWhitespace
-        for c in line {
-            if ifsSet.contains(c) {
+        for char in line {
+            if ifsSet.contains(char) {
                 if isIfsWhitespace {
                     if !prevWasSep, !current.isEmpty {
                         fields.append(current); current = ""
@@ -114,7 +114,7 @@ public struct ReadCommand: Command {
                     fields.append(current); current = ""
                 }
             } else {
-                current.append(c); prevWasSep = false
+                current.append(char); prevWasSep = false
             }
         }
         if !current.isEmpty { fields.append(current) }
@@ -134,14 +134,14 @@ public struct ReadCommand: Command {
         var buf = ""
         var line = first
         while true {
-            var i = line.startIndex
-            while i < line.endIndex {
-                let c = line[i]
-                if c == "\\" {
-                    let next = line.index(after: i)
+            var idx = line.startIndex
+            while idx < line.endIndex {
+                let char = line[idx]
+                if char == "\\" {
+                    let next = line.index(after: idx)
                     if next < line.endIndex {
                         buf.append(line[next])
-                        i = line.index(after: next)
+                        idx = line.index(after: next)
                     } else {
                         // Trailing backslash — line continuation. Pull
                         // another line and append (no newline).
@@ -149,14 +149,14 @@ public struct ReadCommand: Command {
                             return buf
                         }
                         line = cont
-                        i = line.startIndex
+                        idx = line.startIndex
                         // Don't break — re-enter the inner loop.
                         // The outer-while will repeat too, but only
                         // once we hit endIndex.
                     }
                 } else {
-                    buf.append(c)
-                    i = line.index(after: i)
+                    buf.append(char)
+                    idx = line.index(after: idx)
                 }
             }
             // Reached endIndex without a continuation? Done.
@@ -168,8 +168,7 @@ public struct ReadCommand: Command {
     /// soaks up the rest, including any embedded IFS chars — bash's
     /// "n-1 splits, last variable gets remainder" rule.
     private func assignSplitFields(_ line: String,
-                                   into names: [String])
-    {
+                                   into names: [String]) {
         let ifsChars: [Character] = {
             if let ifs = Shell.bashCurrent.environment["IFS"] {
                 return Array(ifs)
@@ -181,42 +180,42 @@ public struct ReadCommand: Command {
 
         // Trim leading IFS whitespace (bash does this for the
         // pure-whitespace IFS case).
-        var s = line
+        var work = line
         if isIfsWhitespace {
-            while let first = s.first, ifsChars.contains(first) {
-                s.removeFirst()
+            while let first = work.first, ifsChars.contains(first) {
+                work.removeFirst()
             }
         }
 
         var fields: [String] = []
         var current = ""
-        var i = s.startIndex
+        var idx = work.startIndex
         let ifsSet = Set(ifsChars)
 
         // Stop after producing names.count - 1 split-fields; the last
         // field gets everything remaining.
         let maxSplits = names.count - 1
-        while i < s.endIndex, fields.count < maxSplits {
-            let c = s[i]
-            if ifsSet.contains(c) {
+        while idx < work.endIndex, fields.count < maxSplits {
+            let char = work[idx]
+            if ifsSet.contains(char) {
                 fields.append(current)
                 current = ""
                 if isIfsWhitespace {
                     // Skip a run of whitespace IFS chars.
-                    while i < s.endIndex, ifsSet.contains(s[i]) {
-                        i = s.index(after: i)
+                    while idx < work.endIndex, ifsSet.contains(work[idx]) {
+                        idx = work.index(after: idx)
                     }
                 } else {
-                    i = s.index(after: i)
+                    idx = work.index(after: idx)
                 }
             } else {
-                current.append(c)
-                i = s.index(after: i)
+                current.append(char)
+                idx = work.index(after: idx)
             }
         }
         // The remainder (current accumulator + everything still
         // unconsumed) becomes the last field.
-        var remainder = current + String(s[i...])
+        var remainder = current + String(work[idx...])
         if isIfsWhitespace {
             while let last = remainder.last, ifsSet.contains(last) {
                 remainder.removeLast()
@@ -224,8 +223,8 @@ public struct ReadCommand: Command {
         }
         fields.append(remainder)
 
-        for (j, name) in names.enumerated() {
-            Shell.bashCurrent.environment[name] = j < fields.count ? fields[j] : ""
+        for (fieldIdx, name) in names.enumerated() {
+            Shell.bashCurrent.environment[name] = fieldIdx < fields.count ? fields[fieldIdx] : ""
         }
     }
 }

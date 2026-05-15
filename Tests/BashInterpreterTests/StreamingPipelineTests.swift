@@ -82,18 +82,17 @@ import Foundation
         cap.shell.register(name: "prod") { _ in
             producerStart.setNow()
             // Emit 10 lines with a small delay between each.
-            for n in 1...10 {
-                Shell.bashCurrent.stdout("\(n)\n")
+            for num in 1...10 {
+                Shell.bashCurrent.stdout("\(num)\n")
                 try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
             }
             return .success
         }
 
         cap.shell.register(name: "cons") { _ in
-            for await _ in Shell.bashCurrent.stdin.lines {
-                if consumerStart.value == nil {
-                    consumerStart.setNow()
-                }
+            for await _ in Shell.bashCurrent.stdin.lines
+            where consumerStart.value == nil {
+                consumerStart.setNow()
             }
             return .success
         }
@@ -144,7 +143,7 @@ import Foundation
         cap.shell.environment["X"] = "outer"
         cap.shell.register(name: "stage") { _ in
             Shell.bashCurrent.environment["X"] = "inside"
-            let _ = await Shell.bashCurrent.stdin.readAllData()
+            _ = await Shell.bashCurrent.stdin.readAllData()
             return .success
         }
         try await cap.shell.run("true | stage")
@@ -161,7 +160,7 @@ import Foundation
         // that the pipeline still finishes correctly.
         let cap = CapturingShell()
         cap.shell.register(name: "burst") { _ in
-            for i in 1...100 { Shell.bashCurrent.stdout("\(i)\n") }
+            for num in 1...100 { Shell.bashCurrent.stdout("\(num)\n") }
             return .success
         }
         cap.shell.register(name: "sum") { _ in

@@ -13,6 +13,7 @@ public protocol NodeVisitor {
     mutating func visitCommand(_ node: Node, parts: [Node]) -> Bool
     mutating func visitPipeline(_ node: Node, parts: [Node]) -> Bool
     mutating func visitPipe(_ node: Node, pipe: String)
+    // swiftlint:disable:next identifier_name
     mutating func visitOperator(_ node: Node, op: String)
     mutating func visitWord(_ node: Node, word: String, parts: [Node]) -> Bool
     mutating func visitAssignment(_ node: Node, word: String, parts: [Node]) -> Bool

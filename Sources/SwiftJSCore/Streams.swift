@@ -2,8 +2,6 @@
 
 import Foundation
 
-
-
 extension JSRuntime {
 
     /// Build the `node:stream` module — `Readable`, `Writable`, plus
@@ -25,9 +23,13 @@ extension JSRuntime {
         return mod
     }
 
-    /// Idempotent. Defines `__swiftjs_stream = { Readable, Writable }`
-    /// on `globalThis` and a small `__swiftjs_makeStreamPair()` helper
-    /// that the spawn glue uses to mint a Readable backed by Swift.
+    // Idempotent. Defines `__swiftjs_stream = { Readable, Writable }`
+    // on `globalThis` and a small `__swiftjs_makeStreamPair()` helper
+    // that the spawn glue uses to mint a Readable backed by Swift.
+    //
+    // Body is a single large inline JS source literal defining the
+    // Readable/Writable classes — can't be meaningfully extracted.
+    // swiftlint:disable:next function_body_length
     func installStreamClasses() {
         if let existing = context.objectForKeyedSubscript("__swiftjs_stream"),
            !existing.isUndefined {

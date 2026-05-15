@@ -15,7 +15,9 @@ import Foundation
     private func sed(_ input: String, _ script: String,
                      extra: String = "") async throws -> String {
         let cap = makeShell()
-        let cmd = "printf %s '\(input.replacingOccurrences(of: "'", with: "'\\''"))' | sed \(extra) '\(script.replacingOccurrences(of: "'", with: "'\\''"))'"
+        let safeInput = input.replacingOccurrences(of: "'", with: "'\\''")
+        let safeScript = script.replacingOccurrences(of: "'", with: "'\\''")
+        let cmd = "printf %s '\(safeInput)' | sed \(extra) '\(safeScript)'"
         try await cap.shell.run(cmd)
         return cap.stdout
     }

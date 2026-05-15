@@ -21,39 +21,40 @@ public struct ColumnCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         var table = false
         var fillRows = false
-        var sep: String? = nil
+        var sep: String?
         var width = 80
         var files: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { files.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-t" { table = true; i += 1; continue }
-            if a == "-x" { fillRows = true; i += 1; continue }
-            if a == "-s" {
-                guard i + 1 < rawArgv.count else {
+            if arg == "-t" { table = true; idx += 1; continue }
+            if arg == "-x" { fillRows = true; idx += 1; continue }
+            if arg == "-s" {
+                guard idx + 1 < rawArgv.count else {
                     Shell.bashCurrent.stderr("column: -s requires SEP\n"); return ExitStatus(2)
                 }
-                sep = rawArgv[i + 1]; i += 2; continue
+                sep = rawArgv[idx + 1]; idx += 2; continue
             }
-            if a == "-c" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
+            if arg == "-c" {
+                guard idx + 1 < rawArgv.count, let num = Int(rawArgv[idx + 1]), num > 0 else {
                     Shell.bashCurrent.stderr("column: -c requires WIDTH\n"); return ExitStatus(2)
                 }
-                width = n; i += 2; continue
+                width = num; idx += 2; continue
             }
-            if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                Shell.bashCurrent.stderr("column: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg != "-" && arg.count > 1 {
+                Shell.bashCurrent.stderr("column: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); idx += 1
         }
 
         // Read input.
@@ -61,13 +62,15 @@ public struct ColumnCommand: ParsableBashCommand {
         if files.isEmpty {
             for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
         } else {
-            for f in files {
+            for file in files {
                 do {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
+                    let data = try await Shell.bashCurrent.readDataAtPath(file)
+                    // column input may legitimately contain non-UTF-8 bytes
+                    // swiftlint:disable:next optional_data_string_conversion
                     let text = String(decoding: data, as: UTF8.self)
                     lines.append(contentsOf: SortCommand.splitLines(text))
                 } catch {
-                    Shell.bashCurrent.stderr("column: \(f): \(error)\n")
+                    Shell.bashCurrent.stderr("column: \(file): \(error)\n")
                     return .failure
                 }
             }
@@ -76,26 +79,26 @@ public struct ColumnCommand: ParsableBashCommand {
         if table {
             // Compute per-column widths, then emit aligned rows.
             var rows: [[String]] = lines.map { line in
-                if let s = sep {
-                    return line.components(separatedBy: s)
+                if let sep {
+                    return line.components(separatedBy: sep)
                 }
                 return line.split(omittingEmptySubsequences: true,
                                   whereSeparator: { $0.isWhitespace }).map(String.init)
             }
             let cols = rows.map { $0.count }.max() ?? 0
             var widths = [Int](repeating: 0, count: cols)
-            for r in rows {
-                for (i, v) in r.enumerated() {
-                    widths[i] = max(widths[i], v.count)
+            for row in rows {
+                for (colIdx, value) in row.enumerated() {
+                    widths[colIdx] = max(widths[colIdx], value.count)
                 }
             }
-            for r in 0..<rows.count {
-                while rows[r].count < cols { rows[r].append("") }
+            for rowIdx in 0..<rows.count {
+                while rows[rowIdx].count < cols { rows[rowIdx].append("") }
             }
-            for r in rows {
-                let parts = r.enumerated().map { (i, v) -> String in
-                    if i == cols - 1 { return v }
-                    return v.padding(toLength: widths[i] + 2, withPad: " ", startingAt: 0)
+            for row in rows {
+                let parts = row.enumerated().map { (colIdx, value) -> String in
+                    if colIdx == cols - 1 { return value }
+                    return value.padding(toLength: widths[colIdx] + 2, withPad: " ", startingAt: 0)
                 }
                 Shell.bashCurrent.stdout(parts.joined() + "\n")
             }
@@ -106,12 +109,12 @@ public struct ColumnCommand: ParsableBashCommand {
         let maxLen = (lines.map { $0.count }.max() ?? 0) + 2
         let perRow = max(1, width / max(1, maxLen))
         let rowCount = (lines.count + perRow - 1) / perRow
-        for r in 0..<rowCount {
+        for rowIdx in 0..<rowCount {
             var pieces: [String] = []
-            for c in 0..<perRow {
-                let idx = fillRows ? (r * perRow + c) : (c * rowCount + r)
-                if idx < lines.count {
-                    pieces.append(lines[idx].padding(toLength: maxLen, withPad: " ", startingAt: 0))
+            for colIdx in 0..<perRow {
+                let lineIdx = fillRows ? (rowIdx * perRow + colIdx) : (colIdx * rowCount + rowIdx)
+                if lineIdx < lines.count {
+                    pieces.append(lines[lineIdx].padding(toLength: maxLen, withPad: " ", startingAt: 0))
                 }
             }
             Shell.bashCurrent.stdout(pieces.joined().trimmingCharacters(in: .whitespaces) + "\n")

@@ -1,7 +1,8 @@
 import Foundation
 
 extension Node {
-    /// Walk this subtree, calling the appropriate `visit*` method on `visitor`.
+    // Walk this subtree, calling the appropriate `visit*` method on `visitor`.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func walk<V: NodeVisitor>(_ visitor: inout V) {
         guard visitor.willVisit(self) else { return }
 
@@ -18,8 +19,8 @@ extension Node {
             if descend { parts.forEach { $0.walk(&visitor) } }
         case .pipe(let pipe):
             visitor.visitPipe(self, pipe: pipe)
-        case .operator(let op):
-            visitor.visitOperator(self, op: op)
+        case .operator(let operatorValue):
+            visitor.visitOperator(self, op: operatorValue)
         case .word(let word, let parts):
             descend = visitor.visitWord(self, word: word, parts: parts)
             if descend { parts.forEach { $0.walk(&visitor) } }

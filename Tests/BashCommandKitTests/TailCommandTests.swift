@@ -61,8 +61,8 @@ import Foundation
             atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
-        let p = (dir as NSString).appendingPathComponent("data")
-        try "a\nb\nc\nd\ne\n".write(toFile: p, atomically: true, encoding: .utf8)
+        let path = (dir as NSString).appendingPathComponent("data")
+        try "a\nb\nc\nd\ne\n".write(toFile: path, atomically: true, encoding: .utf8)
         let cap = makeShell()
         cap.shell.environment.workingDirectory = dir
         try await cap.shell.run("tail -n 2 data")

@@ -11,17 +11,17 @@ import Foundation
         return cap
     }
 
-    private func makeShellInDir() -> (CapturingShell, String) {
+    private func makeShellInDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "newutil-\(UUID())"
-        try! FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             atPath: dir, withIntermediateDirectories: true)
         let cap = makeShell()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
 
-    private func cleanup(_ p: String) {
-        try? FileManager.default.removeItem(atPath: p)
+    private func cleanup(_ path: String) {
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     // MARK: mktemp
@@ -44,7 +44,7 @@ import Foundation
     }
 
     @Test func mktempReplacesTrailingXs() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("mktemp tmpXXXXXX")
         let path = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         // The Xs are replaced — none should remain in the leaf.
@@ -55,7 +55,7 @@ import Foundation
     }
 
     @Test func mktempDryRunDoesNotCreate() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("mktemp -u tmpXXXXXX")
         let path = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let meta = try await cap.shell.fileSystem.metadata(path)
@@ -65,7 +65,7 @@ import Foundation
     // MARK: truncate
 
     @Test func truncateExtendsToExactSize() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo abc > f; truncate -s 10 f")
         let data = try await cap.shell.fileSystem.readData(dir + "/f")
         #expect(data.count == 10)
@@ -75,7 +75,7 @@ import Foundation
     }
 
     @Test func truncateShrinksContent() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run(
             "echo 'long content' > f; truncate -s 4 f")
         let data = try await cap.shell.fileSystem.readData(dir + "/f")
@@ -83,7 +83,7 @@ import Foundation
     }
 
     @Test func truncatePlusGrowsRelative() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo ab > f; truncate -s +5 f")
         let data = try await cap.shell.fileSystem.readData(dir + "/f")
         // "ab\n" (3 bytes) + 5 zero bytes
@@ -91,14 +91,14 @@ import Foundation
     }
 
     @Test func truncateAcceptsKMGSuffixes() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("touch f; truncate -s 2K f")
         let data = try await cap.shell.fileSystem.readData(dir + "/f")
         #expect(data.count == 2048)
     }
 
     @Test func truncateNoCreateSkipsMissingFiles() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("truncate -c -s 10 missing")
         let meta = try await cap.shell.fileSystem.metadata(dir + "/missing")
         #expect(meta == nil)
@@ -128,22 +128,22 @@ import Foundation
     // ran the body and hung, so skip outright on Android.
     #if !os(Android)
     @Test func linkCreatesAHardLink() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("echo hi > a; link a b")
         let data = try await cap.shell.fileSystem.readData(dir + "/b")
-        #expect(String(decoding: data, as: UTF8.self) == "hi\n")
+        #expect(String(bytes: data, encoding: .utf8) == "hi\n")
     }
     #endif
 
     @Test func unlinkRemovesAFile() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         try await cap.shell.run("touch victim; unlink victim")
         let meta = try await cap.shell.fileSystem.metadata(dir + "/victim")
         #expect(meta == nil)
     }
 
     @Test func unlinkRejectsDirectories() async throws {
-        let (cap, dir) = makeShellInDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellInDir(); defer { cleanup(dir) }
         let status = try await cap.shell.run("mkdir d; unlink d")
         #expect(status == .failure)
         #expect(cap.stderr.contains("is a directory"))

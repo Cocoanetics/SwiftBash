@@ -34,21 +34,21 @@ public struct TeeCommand: ParsableBashCommand {
         // Open all sinks up front so a single bad path is reported
         // before we start consuming stdin.
         var sinks: [OutputSink] = []
-        for f in files {
+        for file in files {
             do {
                 sinks.append(
-                    try await Shell.bashCurrent.openOutputPath(f, append: append))
+                    try await Shell.bashCurrent.openOutputPath(file, append: append))
             } catch {
-                Shell.bashCurrent.stderr("tee: \(f): \(error)\n")
-                for s in sinks { s.finish() }
+                Shell.bashCurrent.stderr("tee: \(file): \(error)\n")
+                for sink in sinks { sink.finish() }
                 return .failure
             }
         }
-        defer { for s in sinks { s.finish() } }
+        defer { for sink in sinks { sink.finish() } }
 
         for await chunk in Shell.bashCurrent.stdin.bytes {
             Shell.bashCurrent.stdout(chunk)
-            for s in sinks { s.write(chunk) }
+            for sink in sinks { sink.write(chunk) }
         }
         return .success
     }

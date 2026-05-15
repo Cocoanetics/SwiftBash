@@ -21,6 +21,11 @@ public struct GetoptsCommand: Command {
     public let name = "getopts"
     public init() {}
 
+    // POSIX getopts is a state machine with many short-circuit exits
+    // (out-of-args, --, unknown letter, missing arg, glued vs separate
+    // operand, silent mode, etc.). Splitting per-branch would lose the
+    // shared OPTIND/charIdx update points at the end of each path.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func run(_ argv: [String]) async throws -> ExitStatus {
         guard argv.count >= 3 else {
             Shell.bashCurrent.stderr("getopts: usage: getopts optstring name [arg ...]\n")

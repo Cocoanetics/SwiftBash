@@ -26,8 +26,8 @@ struct MountedFileSystemTests {
         let real = RealFileSystem()
         let mounted = MountedFileSystem(
             mounts: [
-                .init(virtual: "/",    host: sandbox.path),
-                .init(virtual: "/tmp", host: tmp.path),
+                .init(virtual: "/", host: sandbox.path),
+                .init(virtual: "/tmp", host: tmp.path)
             ],
             backing: real)
 
@@ -227,9 +227,9 @@ struct MountedFileSystemTests {
 
         let mounted = MountedFileSystem(
             mounts: [
-                .init(virtual: "/",         host: sandbox.path),
+                .init(virtual: "/", host: sandbox.path),
                 .init(virtual: "/examples", host: examples.path,
-                      readOnly: true),
+                      readOnly: true)
             ],
             backing: RealFileSystem())
 
@@ -249,6 +249,6 @@ struct MountedFileSystemTests {
         // way, the file content is unchanged.
         _ = try? await cap.shell.run("echo y > /examples/x.txt")
         let stillX = try Data(contentsOf: examples.appendingPathComponent("x.txt"))
-        #expect(String(decoding: stillX, as: UTF8.self) == "x")
+        #expect(String(bytes: stillX, encoding: .utf8) == "x")
     }
 }

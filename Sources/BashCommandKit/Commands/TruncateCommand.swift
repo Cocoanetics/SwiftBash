@@ -68,12 +68,15 @@ public struct TruncateCommand: ParsableBashCommand {
 
     enum SizeOp { case absolute(Int), plus(Int), minus(Int) }
 
-    static func parseSize(_ s: String) -> SizeOp? {
-        var body = s[...]
-        var op: (Int) -> SizeOp = { .absolute($0) }
+    static func parseSize(_ text: String) -> SizeOp? {
+        var body = text[...]
+        var operation: (Int) -> SizeOp = { .absolute($0) }
         if let first = body.first {
-            if first == "+" { op = { .plus($0) }; body = body.dropFirst() }
-            else if first == "-" { op = { .minus($0) }; body = body.dropFirst() }
+            if first == "+" {
+                operation = { .plus($0) }; body = body.dropFirst()
+            } else if first == "-" {
+                operation = { .minus($0) }; body = body.dropFirst()
+            }
         }
         var multiplier = 1
         if let last = body.last {
@@ -85,15 +88,15 @@ public struct TruncateCommand: ParsableBashCommand {
             }
             if multiplier != 1 { body = body.dropLast() }
         }
-        guard let n = Int(body), n >= 0 else { return nil }
-        return op(n * multiplier)
+        guard let value = Int(body), value >= 0 else { return nil }
+        return operation(value * multiplier)
     }
 
-    static func applySize(_ op: SizeOp, to current: Int) -> Int {
-        switch op {
-        case .absolute(let n): return n
-        case .plus(let n):     return current + n
-        case .minus(let n):    return max(0, current - n)
+    static func applySize(_ operation: SizeOp, to current: Int) -> Int {
+        switch operation {
+        case .absolute(let value): return value
+        case .plus(let delta):     return current + delta
+        case .minus(let delta):    return max(0, current - delta)
         }
     }
 }

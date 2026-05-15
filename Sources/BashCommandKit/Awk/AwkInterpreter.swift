@@ -14,7 +14,7 @@ public final class AwkInterpreter {
         self.program = program
         self.ctx = ctx
         self.rangeStates = Array(repeating: false, count: program.rules.count)
-        for fn in program.functions { ctx.functions[fn.name] = fn }
+        for function in program.functions { ctx.functions[function.name] = function }
     }
 
     public func executeBegin() throws {
@@ -32,11 +32,11 @@ public final class AwkInterpreter {
         ctx.NR += 1
         ctx.FNR += 1
         ctx.shouldNext = false
-        for (i, rule) in program.rules.enumerated() {
+        for (ruleIndex, rule) in program.rules.enumerated() {
             if ctx.shouldExit || ctx.shouldNext || ctx.shouldNextFile { break }
-            if let p = rule.pattern, case .begin = p { continue }
-            if let p = rule.pattern, case .end = p { continue }
-            if try matches(rule, ruleIndex: i) {
+            if let pattern = rule.pattern, case .begin = pattern { continue }
+            if let pattern = rule.pattern, case .end = pattern { continue }
+            if try matches(rule, ruleIndex: ruleIndex) {
                 try AwkStatements.executeBlock(ctx, rule.action)
             }
         }
@@ -59,11 +59,11 @@ public final class AwkInterpreter {
         guard let pattern = rule.pattern else { return true }
         switch pattern {
         case .begin, .end, .beginfile, .endfile: return false
-        case .regex(let p): return AwkExpressions.matchRegex(p, ctx.line)
-        case .expr(let e): return try AwkExpressions.eval(ctx, e).isTruthy
-        case .range(let s, let e):
-            let startMatches = try matchPattern(s)
-            let endMatches = try matchPattern(e)
+        case .regex(let regex): return AwkExpressions.matchRegex(regex, ctx.line)
+        case .expr(let expr): return try AwkExpressions.eval(ctx, expr).isTruthy
+        case .range(let startPat, let endPat):
+            let startMatches = try matchPattern(startPat)
+            let endMatches = try matchPattern(endPat)
             if !rangeStates[ruleIndex] {
                 if startMatches {
                     rangeStates[ruleIndex] = true
@@ -78,10 +78,10 @@ public final class AwkInterpreter {
         }
     }
 
-    private func matchPattern(_ p: AwkPattern) throws -> Bool {
-        switch p {
-        case .regex(let r): return AwkExpressions.matchRegex(r, ctx.line)
-        case .expr(let e): return try AwkExpressions.eval(ctx, e).isTruthy
+    private func matchPattern(_ pattern: AwkPattern) throws -> Bool {
+        switch pattern {
+        case .regex(let regex): return AwkExpressions.matchRegex(regex, ctx.line)
+        case .expr(let expr): return try AwkExpressions.eval(ctx, expr).isTruthy
         default: return false
         }
     }

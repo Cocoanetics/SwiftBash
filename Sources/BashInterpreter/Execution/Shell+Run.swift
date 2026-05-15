@@ -1,3 +1,7 @@
+// swiftlint:disable file_length
+// Execution dispatch — runs commands, lists, pipelines, traps and
+// background jobs. The flow is one block of mutually-dependent state
+// so splitting up the file would scatter the close coupling.
 import Foundation
 import BashSyntax
 
@@ -9,7 +13,7 @@ extension Shell {
     /// prefix assignments. Used by ``executeSimpleCommand`` to route
     /// assignment-words to argv when the command word matches.
     static let assignmentBuiltinNames: Set<String> = [
-        "declare", "typeset", "local", "readonly", "export",
+        "declare", "typeset", "local", "readonly", "export"
     ]
 
     /// Parse a `[key]=value` pair as it appears inside an
@@ -51,8 +55,7 @@ extension Shell {
     }
 
     private func runImpl(_ parts: [Node],
-                         source: String) async throws -> ExitStatus
-    {
+                         source: String) async throws -> ExitStatus {
         let saved = currentSource
         currentSource = source
         defer { currentSource = saved }
@@ -99,6 +102,9 @@ extension Shell {
 
     // MARK: AST dispatch
 
+    // The 11-arm dispatcher's per-case helpers are already extracted;
+    // splitting further would scatter the routing table.
+    // swiftlint:disable:next cyclomatic_complexity
     func execute(_ node: Node) async throws -> ExitStatus {
         switch node.kind {
         case .command(let parts):
@@ -176,9 +182,9 @@ extension Shell {
                 return try await executeWhileLike(parts: parts, invert: true)
             case .forCommand(let parts):
                 return try await executeFor(parts: parts)
-            case .cStyleForCommand(let i, let c, let u, let body):
-                return try await executeCStyleFor(initExpr: i, condExpr: c,
-                                                  updateExpr: u, body: body)
+            case .cStyleForCommand(let initExpr, let condExpr, let updateExpr, let body):
+                return try await executeCStyleFor(initExpr: initExpr, condExpr: condExpr,
+                                                  updateExpr: updateExpr, body: body)
             case .caseCommand(let parts):
                 return try await executeCase(parts: parts)
             default:
@@ -190,19 +196,24 @@ extension Shell {
 
     // MARK: Lists
 
-    /// Execute a `list` node — a sequence of commands separated by `&&`,
-    /// `||`, `;` or `\n`. Honours short-circuit for `&&`/`||`.
+    // Execute a `list` node — a sequence of commands separated by `&&`,
+    // `||`, `;` or `\n`. Honours short-circuit for `&&`/`||`.
+    //
+    // Bash list semantics span short-circuit, background, errexit-guard,
+    // and ERR-trap rules in one loop; extracting helpers would force
+    // them through `inout` plumbing.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     func executeList(parts: [Node]) async throws -> ExitStatus {
         var status = ExitStatus.success
-        var i = 0
+        var index = 0
 
-        while i < parts.count {
-            let node = parts[i]
-            if case .operator(let op) = node.kind {
-                switch op {
+        while index < parts.count {
+            let node = parts[index]
+            if case .operator(let opText) = node.kind {
+                switch opText {
                 case "&&":
                     if !status.isSuccess {
-                        i = skipRhsOfShortCircuit(parts: parts, from: i + 1)
+                        index = skipRhsOfShortCircuit(parts: parts, from: index + 1)
                         // Bash exempts a chain's final non-zero status
                         // from errexit when the failure happened on an
                         // already-guarded sub-command (the LHS of an
@@ -212,7 +223,7 @@ extension Shell {
                     }
                 case "||":
                     if status.isSuccess {
-                        i = skipRhsOfShortCircuit(parts: parts, from: i + 1)
+                        index = skipRhsOfShortCircuit(parts: parts, from: index + 1)
                         continue
                     }
                 case ";", "\n", "&":
@@ -220,26 +231,26 @@ extension Shell {
                 default:
                     break
                 }
-                i += 1
+                index += 1
                 continue
             }
             // `cmd &`: peek the next operator. If it's `&`, spawn the
             // command as a virtual background job in the process table,
             // set `$!` to the new PID, and don't await — the shell
             // moves on immediately with status = 0.
-            if isBackgroundedAt(parts: parts, from: i + 1) {
+            if isBackgroundedAt(parts: parts, from: index + 1) {
                 let pid = await spawnBackground(node: node)
                 environment["!"] = "\(pid)"
                 status = .success
                 lastExitStatus = status
-                i += 1
+                index += 1
                 continue
             }
             // Bash's errexit rule: a failing command does NOT trigger
             // errexit if it's the LHS of `&&`/`||`. Look ahead one
             // operator to detect that and run the command under a
             // guard so its exit doesn't take down the whole script.
-            let isGuardedByChain = isGuardedByLogicalChain(parts: parts, from: i + 1)
+            let isGuardedByChain = isGuardedByLogicalChain(parts: parts, from: index + 1)
             if isGuardedByChain { errexitGuard += 1 }
             do {
                 status = try await execute(node)
@@ -249,7 +260,7 @@ extension Shell {
                 if loopDepth > 0 { throw signal }
                 warnStrayLoopControl(signal)
                 status = .success
-                i += 1
+                index += 1
                 continue
             } catch {
                 if isGuardedByChain { errexitGuard -= 1 }
@@ -262,12 +273,11 @@ extension Shell {
             let suppressed = skipNextErrexitCheck
             skipNextErrexitCheck = false
             if !status.isSuccess, errexitGuard == 0,
-               !suppressed, !isGuardedByChain
-            {
+               !suppressed, !isGuardedByChain {
                 try await fireErrTrap()
                 if errexit { throw ShellExit(status: status) }
             }
-            i += 1
+            index += 1
         }
 
         return status
@@ -278,12 +288,12 @@ extension Shell {
     /// command's failure is "checked" by the chain and shouldn't fire
     /// errexit.
     private func isGuardedByLogicalChain(parts: [Node], from: Int) -> Bool {
-        var j = from
-        while j < parts.count {
-            guard case .operator(let op) = parts[j].kind else { return false }
-            switch op {
+        var probe = from
+        while probe < parts.count {
+            guard case .operator(let opText) = parts[probe].kind else { return false }
+            switch opText {
             case "&&", "||": return true
-            case ";", "\n":  j += 1; continue
+            case ";", "\n":  probe += 1; continue
             default:         return false
             }
         }
@@ -335,10 +345,10 @@ extension Shell {
     /// Falls back to the source slice; gives `?` if there's nothing.
     private func nodeCommandLabel(_ node: Node) -> String {
         let chars = Array(currentSource)
-        let lo = max(0, node.range.lowerBound)
-        let hi = min(chars.count, node.range.upperBound)
-        guard lo < hi else { return "?" }
-        return String(chars[lo..<hi]).trimmingCharacters(in: .whitespaces)
+        let low = max(0, node.range.lowerBound)
+        let high = min(chars.count, node.range.upperBound)
+        guard low < high else { return "?" }
+        return String(chars[low..<high]).trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: Trap firing
@@ -369,9 +379,14 @@ extension Shell {
 
     // MARK: Simple commands
 
-    /// Execute a `command` node — a sequence of assignments, words and
-    /// redirections. Redirections still throw `.unimplemented`; dispatch
-    /// falls through to the registered command registry.
+    // Execute a `command` node — a sequence of assignments, words and
+    // redirections. Redirections still throw `.unimplemented`; dispatch
+    // falls through to the registered command registry.
+    //
+    // Splitting would force assignments / redirections / argv expansion
+    // through `inout` plumbing of `currentCommandRange`, env stacks and
+    // cancellation handling. Each phase already calls into a helper.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
         try await fireDebugTrap()
         // Track which command we're dispatching so error messages can
@@ -434,8 +449,7 @@ extension Shell {
                     let raw = String(part.source(from: currentSource))
                     // Handle merged flags (`-Ar`, `-rA`).
                     if raw.hasPrefix("-"), !raw.hasPrefix("--"),
-                       raw.contains("A")
-                    {
+                       raw.contains("A") {
                         return true
                     }
                 }
@@ -469,16 +483,15 @@ extension Shell {
                         wordFragments.append((part, [.literal(expanded)]))
                         break
                     }
-                    if let eq = expanded.firstIndex(of: "=") {
-                        let lhs = String(expanded[..<eq])
+                    if let eqIdx = expanded.firstIndex(of: "=") {
+                        let lhs = String(expanded[..<eqIdx])
                         let value = String(
-                            expanded[expanded.index(after: eq)...])
+                            expanded[expanded.index(after: eqIdx)...])
                         // Element form: `arr[N]=value` updates the
                         // array in place rather than introducing a
                         // scalar named `arr[N]`.
                         if applyArrayElementAssignmentIfApplicable(
-                            lhs: lhs, value: value)
-                        {
+                            lhs: lhs, value: value) {
                             continue
                         }
                         assignments.append((lhs, value))
@@ -568,12 +581,12 @@ extension Shell {
             // failure.
             let target: String
             switch fsError {
-            case .notFound(let p), .notADirectory(let p),
-                 .isADirectory(let p), .alreadyExists(let p),
-                 .permissionDenied(let p):
-                target = p
-            case .io(let m):
-                target = m
+            case .notFound(let path), .notADirectory(let path),
+                 .isADirectory(let path), .alreadyExists(let path),
+                 .permissionDenied(let path):
+                target = path
+            case .io(let msg):
+                target = msg
             }
             stderr(
                 "\(errorLocationPrefix())\(target): \(fsError.shellMessage())\n")
@@ -660,8 +673,7 @@ extension Shell {
                 rewritten[0] = (argv[0] as NSString).lastPathComponent
                 result = try await command.run(rewritten)
             } else if let scriptResult =
-                try await dispatchAsExternalScriptIfApplicable(argv: argv)
-            {
+                try await dispatchAsExternalScriptIfApplicable(argv: argv) {
                 result = scriptResult
             } else {
                 // Match bash: report to stderr (with `script:line:`
@@ -691,11 +703,11 @@ extension Shell {
     private func applyArrayElementAssignmentIfApplicable(
         lhs: String, value: String
     ) -> Bool {
-        guard let lb = lhs.firstIndex(of: "["), lhs.last == "]" else {
+        guard let lbracket = lhs.firstIndex(of: "["), lhs.last == "]" else {
             return false
         }
-        let arrName = String(lhs[..<lb])
-        let after = lhs.index(after: lb)
+        let arrName = String(lhs[..<lbracket])
+        let after = lhs.index(after: lbracket)
         let last = lhs.index(before: lhs.endIndex)
         let sub = String(lhs[after..<last])
 
@@ -709,9 +721,9 @@ extension Shell {
         // Indexed array element assignment — subscript must be an
         // integer literal (arithmetic-evaluating subscripts are a
         // stretch goal).
-        guard let n = Int(sub), n >= 0 else { return false }
+        guard let idx = Int(sub), idx >= 0 else { return false }
         var array = environment.arrays[arrName] ?? BashArray()
-        array[n] = value
+        array[idx] = value
         environment.arrays[arrName] = array
         environment.variables.removeValue(forKey: arrName)
         return true
@@ -747,14 +759,14 @@ extension Shell {
     private func applyScopedAssignments(_ assignments: [(String, String)]) -> () -> Void {
         guard !assignments.isEmpty else { return {} }
         var priors: [(String, String?)] = []
-        for (k, v) in assignments {
-            priors.append((k, environment[k]))
-            environment[k] = v
+        for (key, value) in assignments {
+            priors.append((key, environment[key]))
+            environment[key] = value
         }
         return { [weak self] in
             guard let self else { return }
-            for (k, prior) in priors {
-                self.environment[k] = prior
+            for (key, prior) in priors {
+                self.environment[key] = prior
             }
         }
     }

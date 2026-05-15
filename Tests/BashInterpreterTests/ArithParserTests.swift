@@ -8,10 +8,10 @@ import Testing
 /// regress silently otherwise.
 @Suite(.timeLimit(.minutes(1))) struct ArithParserTests {
 
-    private func parse(_ s: String,
+    private func parse(_ source: String,
                        sourceLocation: SourceLocation = #_sourceLocation) -> ArithExpr {
         do {
-            return try Arithmetic.parse(s)
+            return try Arithmetic.parse(source)
         } catch {
             Issue.record("parse failed: \(error)", sourceLocation: sourceLocation)
             return .int(0)

@@ -7,7 +7,7 @@ import Foundation
     private func makeShell() -> (Shell, OutputSink) {
         let outBox = StringBox()
         let stdout = OutputSink { data in
-            outBox.append(String(decoding: data, as: UTF8.self))
+            outBox.append(String(bytes: data, encoding: .utf8) ?? "")
         }
         let shell = Shell(stdout: stdout, stderr: .discard)
         return (shell, stdout)
@@ -18,7 +18,7 @@ import Foundation
     @Test func defaultAppendsNewline() async throws {
         let (shell, _) = makeShell()
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run("echo hello world")
         #expect(captured(cap) == "hello world\n")
     }
@@ -26,7 +26,7 @@ import Foundation
     @Test func dashNSuppressesNewline() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run("echo -n hello")
         #expect(captured(cap) == "hello")
     }
@@ -34,7 +34,7 @@ import Foundation
     @Test func dashEInterpretsTabAndNewline() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run(#"echo -e "a\tb\nc""#)
         #expect(captured(cap) == "a\tb\nc\n")
     }
@@ -42,7 +42,7 @@ import Foundation
     @Test func dashEhexEscape() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run(#"echo -e "\x41\x42""#)
         #expect(captured(cap) == "AB\n")
     }
@@ -50,7 +50,7 @@ import Foundation
     @Test func dashEoctalEscape() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run(#"echo -e "\0101\0102""#)
         #expect(captured(cap) == "AB\n")
     }
@@ -58,7 +58,7 @@ import Foundation
     @Test func dashEbackslashC() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run(#"echo -e "abc\cdef""#)
         // \c halts output and suppresses the newline.
         #expect(captured(cap) == "abc")
@@ -67,7 +67,7 @@ import Foundation
     @Test func dashEEdisablesEscapes() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run(#"echo -E "a\tb""#)
         #expect(captured(cap) == "a\\tb\n")
     }
@@ -75,7 +75,7 @@ import Foundation
     @Test func combinedFlags() async throws {
         let shell = Shell(stderr: .discard)
         let cap = StringBox()
-        shell.stdout = OutputSink { d in cap.append(String(decoding: d, as: UTF8.self)) }
+        shell.stdout = OutputSink { data in cap.append(String(bytes: data, encoding: .utf8) ?? "") }
         try await shell.run(#"echo -ne "a\tb""#)
         #expect(captured(cap) == "a\tb")
     }
@@ -84,6 +84,6 @@ import Foundation
 private final class StringBox: @unchecked Sendable {
     private let lock = NSLock()
     private var value = ""
-    func append(_ s: String) { lock.lock(); defer { lock.unlock() }; value += s }
+    func append(_ string: String) { lock.lock(); defer { lock.unlock() }; value += string }
     func read() -> String { lock.lock(); defer { lock.unlock() }; return value }
 }

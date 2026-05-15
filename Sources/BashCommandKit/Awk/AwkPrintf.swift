@@ -9,40 +9,46 @@ enum AwkPrintf {
 
     private static let maxWidth = 10_000
 
+    // POSIX printf has many conversion characters and an escape table;
+    // the long inline switch reads better than fragmenting per-spec.
+    // swiftlint:disable:next cyclomatic_complexity
     static func format(_ fmt: String, values: [AwkValue]) -> String {
         let chars = Array(fmt)
         var out = ""
-        var idx = 0          // sequential value index
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "%" && i + 1 < chars.count {
-                let parsed = parseSpec(chars, start: i + 1, valueIdx: idx, values: values)
+        var valueIdx = 0          // sequential value index
+        var cursor = 0
+        while cursor < chars.count {
+            let char = chars[cursor]
+            if char == "%" && cursor + 1 < chars.count {
+                let parsed = parseSpec(
+                    chars, start: cursor + 1,
+                    valueIdx: valueIdx, values: values)
                 let spec = parsed.spec
-                let valIdx = spec.positional ?? parsed.idxAfter
-                let v = valIdx < values.count ? values[valIdx] : AwkValue.empty
-                out += renderSpec(spec, value: v)
-                idx = parsed.idxAfter
+                let pickIdx = spec.positional ?? parsed.idxAfter
+                let value = pickIdx < values.count ? values[pickIdx] : AwkValue.empty
+                out += renderSpec(spec, value: value)
+                valueIdx = parsed.idxAfter
                 if spec.positional == nil && spec.conv != "%" {
-                    idx += 1
+                    valueIdx += 1
                 }
-                i = parsed.endPos
-            } else if c == "\\" && i + 1 < chars.count {
-                switch chars[i + 1] {
-                case "n": out += "\n"; i += 2
-                case "t": out += "\t"; i += 2
-                case "r": out += "\r"; i += 2
-                case "\\": out += "\\"; i += 2
-                case "/": out += "/"; i += 2
-                case "\"": out += "\""; i += 2
-                case "a": out += "\u{07}"; i += 2
-                case "b": out += "\u{08}"; i += 2
-                case "f": out += "\u{0C}"; i += 2
-                case "v": out += "\u{0B}"; i += 2
-                default: out.append(chars[i + 1]); i += 2
+                cursor = parsed.endPos
+            } else if char == "\\" && cursor + 1 < chars.count {
+                switch chars[cursor + 1] {
+                case "n": out += "\n"; cursor += 2
+                case "t": out += "\t"; cursor += 2
+                case "r": out += "\r"; cursor += 2
+                case "\\": out += "\\"; cursor += 2
+                case "/": out += "/"; cursor += 2
+                case "\"": out += "\""; cursor += 2
+                case "a": out += "\u{07}"; cursor += 2
+                case "b": out += "\u{08}"; cursor += 2
+                case "f": out += "\u{0C}"; cursor += 2
+                case "v": out += "\u{0B}"; cursor += 2
+                default: out.append(chars[cursor + 1]); cursor += 2
                 }
             } else {
-                out.append(c); i += 1
+                out.append(char)
+                cursor += 1
             }
         }
         return out
@@ -50,10 +56,10 @@ enum AwkPrintf {
 
     private struct Spec {
         var flags: String = ""
-        var width: Int? = nil
-        var precision: Int? = nil
+        var width: Int?
+        var precision: Int?
         var conv: Character = "s"
-        var positional: Int? = nil
+        var positional: Int?
     }
 
     private struct ParseResult {
@@ -62,177 +68,218 @@ enum AwkPrintf {
         let idxAfter: Int    // updated value index (for `*` consumption)
     }
 
+    // Five-phase spec parser (position, flags, width, precision,
+    // length+conv). Each phase mutates `cursor` and `spec`; splitting
+    // would force a 5-tuple state struct.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func parseSpec(_ chars: [Character], start: Int,
                                   valueIdx: Int, values: [AwkValue]) -> ParseResult {
         var spec = Spec()
-        var i = start
+        var cursor = start
         var idx = valueIdx
 
         // Positional arg: %n$
-        let posStart = i
-        while i < chars.count, chars[i].isASCII, chars[i].isNumber { i += 1 }
-        if i > posStart && i < chars.count && chars[i] == "$" {
-            spec.positional = (Int(String(chars[posStart..<i])) ?? 1) - 1
-            i += 1
+        let posStart = cursor
+        while cursor < chars.count,
+              chars[cursor].isASCII,
+              chars[cursor].isNumber {
+            cursor += 1
+        }
+        if cursor > posStart && cursor < chars.count && chars[cursor] == "$" {
+            spec.positional = (Int(String(chars[posStart..<cursor])) ?? 1) - 1
+            cursor += 1
         } else {
-            i = posStart
+            cursor = posStart
         }
 
-        while i < chars.count, "-+ #0".contains(chars[i]) {
-            spec.flags.append(chars[i]); i += 1
+        while cursor < chars.count, "-+ #0".contains(chars[cursor]) {
+            spec.flags.append(chars[cursor])
+            cursor += 1
         }
 
-        if i < chars.count && chars[i] == "*" {
-            i += 1
+        if cursor < chars.count && chars[cursor] == "*" {
+            cursor += 1
             if idx < values.count {
-                let w = Int(values[idx].asNumber)
+                let width = Int(values[idx].asNumber)
                 idx += 1
-                if w < 0 { spec.flags.append("-"); spec.width = min(-w, maxWidth) }
-                else { spec.width = min(w, maxWidth) }
+                if width < 0 {
+                    spec.flags.append("-")
+                    spec.width = min(-width, maxWidth)
+                } else {
+                    spec.width = min(width, maxWidth)
+                }
             }
         } else {
-            var w = ""
-            while i < chars.count, chars[i].isASCII, chars[i].isNumber {
-                w.append(chars[i]); i += 1
+            var widthDigits = ""
+            while cursor < chars.count,
+                  chars[cursor].isASCII,
+                  chars[cursor].isNumber {
+                widthDigits.append(chars[cursor])
+                cursor += 1
             }
-            if !w.isEmpty {
-                spec.width = min(Int(w) ?? 0, maxWidth)
+            if !widthDigits.isEmpty {
+                spec.width = min(Int(widthDigits) ?? 0, maxWidth)
             }
         }
 
-        if i < chars.count && chars[i] == "." {
-            i += 1
-            if i < chars.count && chars[i] == "*" {
-                i += 1
+        if cursor < chars.count && chars[cursor] == "." {
+            cursor += 1
+            if cursor < chars.count && chars[cursor] == "*" {
+                cursor += 1
                 if idx < values.count {
                     spec.precision = min(max(0, Int(values[idx].asNumber)), maxWidth)
                     idx += 1
                 }
             } else {
-                var p = ""
-                while i < chars.count, chars[i].isASCII, chars[i].isNumber {
-                    p.append(chars[i]); i += 1
+                var precDigits = ""
+                while cursor < chars.count,
+                      chars[cursor].isASCII,
+                      chars[cursor].isNumber {
+                    precDigits.append(chars[cursor])
+                    cursor += 1
                 }
-                spec.precision = min(Int(p) ?? 0, maxWidth)
+                spec.precision = min(Int(precDigits) ?? 0, maxWidth)
             }
         }
 
         // Skip length modifiers (l/ll/h/hh/z/j) — ignored.
-        while i < chars.count, "lhzj".contains(chars[i]) { i += 1 }
+        while cursor < chars.count, "lhzj".contains(chars[cursor]) { cursor += 1 }
 
-        if i < chars.count {
-            spec.conv = chars[i]
-            i += 1
+        if cursor < chars.count {
+            spec.conv = chars[cursor]
+            cursor += 1
         }
-        return ParseResult(spec: spec, endPos: i, idxAfter: idx)
+        return ParseResult(spec: spec, endPos: cursor, idxAfter: idx)
     }
 
+    // 13-way conversion table; per-case helpers would obscure the
+    // POSIX-printf layout.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func renderSpec(_ spec: Spec, value: AwkValue) -> String {
         switch spec.conv {
         case "%":
             return "%"
         case "s":
-            var s = value.asString
-            if let p = spec.precision { s = String(s.prefix(p)) }
-            return pad(s, width: spec.width, leftAlign: spec.flags.contains("-"))
+            var text = value.asString
+            if let prec = spec.precision { text = String(text.prefix(prec)) }
+            return pad(text, width: spec.width, leftAlign: spec.flags.contains("-"))
         case "c":
-            if case .number(let n) = value, let u = Unicode.Scalar(UInt32(Int(n) & 0xFF)) {
-                return pad(String(Character(u)),
+            if case .number(let number) = value,
+               let scalar = Unicode.Scalar(UInt32(Int(number) & 0xFF)) {
+                return pad(String(Character(scalar)),
                            width: spec.width, leftAlign: spec.flags.contains("-"))
             }
-            let s = value.asString
-            return pad(String(s.first.map { String($0) } ?? ""),
+            let text = value.asString
+            return pad(String(text.first.map { String($0) } ?? ""),
                        width: spec.width, leftAlign: spec.flags.contains("-"))
         case "d", "i":
-            let n = Int64(value.asNumber.rounded(.towardZero))
-            return formatInteger(n, base: 10, upper: false, spec: spec)
+            let number = Int64(value.asNumber.rounded(.towardZero))
+            return formatInteger(number, base: 10, upper: false, spec: spec)
         case "o":
-            let n = Int64(value.asNumber.rounded(.towardZero))
-            return formatInteger(n, base: 8, upper: false, spec: spec)
+            let number = Int64(value.asNumber.rounded(.towardZero))
+            return formatInteger(number, base: 8, upper: false, spec: spec)
         case "x":
-            let n = Int64(value.asNumber.rounded(.towardZero))
-            return formatInteger(n, base: 16, upper: false, spec: spec)
+            let number = Int64(value.asNumber.rounded(.towardZero))
+            return formatInteger(number, base: 16, upper: false, spec: spec)
         case "X":
-            let n = Int64(value.asNumber.rounded(.towardZero))
-            return formatInteger(n, base: 16, upper: true, spec: spec)
+            let number = Int64(value.asNumber.rounded(.towardZero))
+            return formatInteger(number, base: 16, upper: true, spec: spec)
         case "u":
-            let n = UInt64(bitPattern: Int64(value.asNumber.rounded(.towardZero)))
-            return formatInteger(Int64(bitPattern: n), base: 10, upper: false, spec: spec)
+            let unsigned = UInt64(bitPattern: Int64(value.asNumber.rounded(.towardZero)))
+            return formatInteger(Int64(bitPattern: unsigned),
+                                 base: 10, upper: false, spec: spec)
         case "f", "F":
-            let n = value.asNumber
+            let number = value.asNumber
             let prec = spec.precision ?? 6
-            let s = String(format: "%.\(prec)f", n)
-            return padNumeric(s, spec: spec)
+            let formatted = String(format: "%.\(prec)f", number)
+            return padNumeric(formatted, spec: spec)
         case "e", "E":
-            let n = value.asNumber
+            let number = value.asNumber
             let prec = spec.precision ?? 6
-            var s = String(format: "%.\(prec)\(spec.conv)", n)
-            if spec.conv == "E" { s = s.uppercased() }
-            return padNumeric(s, spec: spec)
+            var formatted = String(format: "%.\(prec)\(spec.conv)", number)
+            if spec.conv == "E" { formatted = formatted.uppercased() }
+            return padNumeric(formatted, spec: spec)
         case "g", "G":
-            let n = value.asNumber
+            let number = value.asNumber
             let prec = spec.precision ?? 6
-            let s = String(format: "%.\(prec)\(spec.conv)", n)
-            return padNumeric(s, spec: spec)
+            let formatted = String(format: "%.\(prec)\(spec.conv)", number)
+            return padNumeric(formatted, spec: spec)
         default:
             return "%" + String(spec.conv)
         }
     }
 
-    private static func formatInteger(_ n: Int64, base: Int, upper: Bool, spec: Spec) -> String {
+    // Sign, precision-padding and width-padding are deeply intertwined
+    // for printf's %d/%o/%x; splitting would just chain the branches.
+    // swiftlint:disable:next cyclomatic_complexity
+    private static func formatInteger(_ number: Int64, base: Int,
+                                      upper: Bool, spec: Spec) -> String {
         var digits: String
-        let absVal = n < 0 ? UInt64(bitPattern: Int64(-n)) : UInt64(n)
+        let absVal = number < 0 ? UInt64(bitPattern: Int64(-number)) : UInt64(number)
         switch base {
         case 8: digits = String(absVal, radix: 8)
         case 16: digits = String(absVal, radix: 16, uppercase: upper)
         default: digits = String(absVal, radix: 10)
         }
-        if let p = spec.precision {
-            while digits.count < p { digits = "0" + digits }
+        if let prec = spec.precision {
+            while digits.count < prec { digits = "0" + digits }
         }
         var sign = ""
-        if n < 0 { sign = "-" }
-        else if spec.flags.contains("+") { sign = "+" }
-        else if spec.flags.contains(" ") { sign = " " }
+        if number < 0 {
+            sign = "-"
+        } else if spec.flags.contains("+") {
+            sign = "+"
+        } else if spec.flags.contains(" ") {
+            sign = " "
+        }
         var result = sign + digits
-        if let w = spec.width {
+        if let width = spec.width {
             if spec.flags.contains("-") {
-                while result.count < w { result.append(" ") }
+                while result.count < width { result.append(" ") }
             } else if spec.flags.contains("0") && spec.precision == nil {
-                while sign.count + digits.count < w {
+                while sign.count + digits.count < width {
                     digits = "0" + digits
                 }
                 result = sign + digits
             } else {
-                while result.count < w { result = " " + result }
+                while result.count < width { result = " " + result }
             }
         }
         return result
     }
 
-    private static func padNumeric(_ s: String, spec: Spec) -> String {
-        guard let w = spec.width else { return s }
+    private static func padNumeric(_ text: String, spec: Spec) -> String {
+        guard let width = spec.width else { return text }
         if spec.flags.contains("-") {
-            var r = s; while r.count < w { r.append(" ") }; return r
+            var result = text
+            while result.count < width { result.append(" ") }
+            return result
         }
-        if spec.flags.contains("0") && !s.contains(" ") {
+        if spec.flags.contains("0") && !text.contains(" ") {
             var sign = ""
-            var rest = s
+            var rest = text
             if rest.hasPrefix("-") || rest.hasPrefix("+") {
-                sign = String(rest.first!); rest.removeFirst()
+                if let first = rest.first { sign = String(first) }
+                rest.removeFirst()
             }
-            while sign.count + rest.count < w { rest = "0" + rest }
+            while sign.count + rest.count < width { rest = "0" + rest }
             return sign + rest
         }
-        var r = s; while r.count < w { r = " " + r }; return r
+        var result = text
+        while result.count < width { result = " " + result }
+        return result
     }
 
-    private static func pad(_ s: String, width: Int?, leftAlign: Bool) -> String {
-        guard let w = width else { return s }
-        if s.count >= w { return s }
+    private static func pad(_ text: String, width: Int?, leftAlign: Bool) -> String {
+        guard let width = width else { return text }
+        if text.count >= width { return text }
         if leftAlign {
-            var r = s; while r.count < w { r.append(" ") }; return r
+            var result = text
+            while result.count < width { result.append(" ") }
+            return result
         }
-        var r = s; while r.count < w { r = " " + r }; return r
+        var result = text
+        while result.count < width { result = " " + result }
+        return result
     }
 }

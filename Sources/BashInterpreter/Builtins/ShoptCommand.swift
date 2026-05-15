@@ -18,63 +18,82 @@ public struct ShoptCommand: Command {
         var printMode = false
         var names: [String] = []
 
-        var i = 1
-        while i < argv.count {
-            let a = argv[i]
-            if a == "--" {
-                names.append(contentsOf: argv.dropFirst(i + 1)); break
-            }
-            if a.hasPrefix("-") && a.count > 1 {
-                for c in a.dropFirst() {
-                    switch c {
-                    case "s": mode = .set
-                    case "u": mode = .unset
-                    case "q": mode = .quiet
-                    case "p": printMode = true
-                    case "o": break // we don't differentiate -o options here
-                    default:
-                        Shell.bashCurrent.stderr("shopt: invalid option: -\(c)\n")
-                        return ExitStatus(2)
-                    }
-                }
-                i += 1; continue
-            }
-            names.append(a); i += 1
+        switch parseFlags(argv, mode: &mode, printMode: &printMode, names: &names) {
+        case .success: break
+        case .failure(let status): return status
         }
 
         switch mode {
         case .list:
-            let keys = names.isEmpty
-                ? Array(Shell.bashCurrent.shoptOptions.keys).sorted()
-                : names
-            var anyOff = false
-            for key in keys {
-                let on = Shell.bashCurrent.shoptOptions[key] ?? false
-                if printMode {
-                    Shell.bashCurrent.stdout(
-                        "shopt -\(on ? "s" : "u") \(key)\n")
-                } else {
-                    Shell.bashCurrent.stdout("\(key)\t\(on ? "on" : "off")\n")
-                }
-                if !on { anyOff = true }
-            }
-            return (names.isEmpty || !anyOff) ? .success : .failure
-
+            return runList(names: names, printMode: printMode)
         case .set, .unset:
             let value = (mode == .set)
             for key in names {
                 Shell.bashCurrent.shoptOptions[key] = value
             }
             return .success
-
         case .quiet:
-            for key in names {
-                if !(Shell.bashCurrent.shoptOptions[key] ?? false) {
-                    return .failure
-                }
+            for key in names where !(Shell.bashCurrent.shoptOptions[key] ?? false) {
+                return .failure
             }
             return .success
         }
+    }
+
+    private enum FlagParseResult {
+        case success
+        case failure(ExitStatus)
+    }
+
+    private func parseFlags(_ argv: [String],
+                            mode: inout Mode,
+                            printMode: inout Bool,
+                            names: inout [String]) -> FlagParseResult {
+        var index = 1
+        while index < argv.count {
+            let arg = argv[index]
+            if arg == "--" {
+                names.append(contentsOf: argv.dropFirst(index + 1))
+                return .success
+            }
+            if arg.hasPrefix("-") && arg.count > 1 {
+                for char in arg.dropFirst() {
+                    switch char {
+                    case "s": mode = .set
+                    case "u": mode = .unset
+                    case "q": mode = .quiet
+                    case "p": printMode = true
+                    case "o": break // we don't differentiate -o options here
+                    default:
+                        Shell.bashCurrent.stderr("shopt: invalid option: -\(char)\n")
+                        return .failure(ExitStatus(2))
+                    }
+                }
+                index += 1
+                continue
+            }
+            names.append(arg)
+            index += 1
+        }
+        return .success
+    }
+
+    private func runList(names: [String], printMode: Bool) -> ExitStatus {
+        let keys = names.isEmpty
+            ? Array(Shell.bashCurrent.shoptOptions.keys).sorted()
+            : names
+        var anyOff = false
+        for key in keys {
+            let enabled = Shell.bashCurrent.shoptOptions[key] ?? false
+            if printMode {
+                Shell.bashCurrent.stdout(
+                    "shopt -\(enabled ? "s" : "u") \(key)\n")
+            } else {
+                Shell.bashCurrent.stdout("\(key)\t\(enabled ? "on" : "off")\n")
+            }
+            if !enabled { anyOff = true }
+        }
+        return (names.isEmpty || !anyOff) ? .success : .failure
     }
 
     private enum Mode { case list, set, unset, quiet }

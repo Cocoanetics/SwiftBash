@@ -17,7 +17,9 @@ public indirect enum JqAST: Sendable {
     case comma(JqAST, JqAST)
     case binaryOp(JqBinaryOp, JqAST, JqAST)
     case unaryOp(JqUnaryOp, JqAST)
+    // swiftlint:disable:next identifier_name - `else_` mirrors Swift reserved word
     case cond(cond: JqAST, then: JqAST, elifs: [(JqAST, JqAST)], else_: JqAST?)
+    // swiftlint:disable:next identifier_name - `try_`/`catch_` mirror Swift reserved words
     case try_(body: JqAST, catch_: JqAST?)
     case call(name: String, args: [JqAST])
     case varBind(pattern: JqPattern, alternatives: [JqPattern], value: JqAST, body: JqAST)
@@ -25,9 +27,12 @@ public indirect enum JqAST: Sendable {
     case optional(JqAST)              // expr?
     case stringInterp([JqStringPart])
     case updateOp(JqUpdateOp, path: JqAST, value: JqAST)
+    // swiftlint:disable:next identifier_name - `init_` is the AST label for jq reduce init
     case reduce(expr: JqAST, pattern: JqPattern, init_: JqAST, update: JqAST)
+    // swiftlint:disable:next identifier_name - `init_` is the AST label for jq foreach init
     case foreach(expr: JqAST, pattern: JqPattern, init_: JqAST, update: JqAST, extract: JqAST?)
     case label(String, JqAST)
+    // swiftlint:disable:next identifier_name - `break_` mirrors Swift reserved word
     case break_(String)
     case def(name: String, params: [String], funcBody: JqAST, body: JqAST)
     case format(name: String, interp: [JqStringPart]?)  // @csv, @json, @base64 ...
@@ -54,7 +59,9 @@ public enum JqStringPart: Sendable {
 
 public enum JqBinaryOp: String, Sendable {
     case add = "+", sub = "-", mul = "*", div = "/", mod = "%"
+    // swiftlint:disable:next identifier_name - jq comparison operator names
     case eq = "==", ne = "!=", lt = "<", le = "<=", gt = ">", ge = ">="
+    // swiftlint:disable:next identifier_name - jq logical operator `or`
     case and, or, alt = "//"
 }
 

@@ -32,9 +32,9 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
     public init(virtualRoot: String, hostRoot: URL) {
         // Strip trailing slash if any so prefix comparisons are
         // deterministic.
-        var v = virtualRoot
-        while v.count > 1, v.hasSuffix("/") { v.removeLast() }
-        self.virtualRoot = v
+        var trimmed = virtualRoot
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        self.virtualRoot = trimmed
         self.hostRoot = hostRoot.standardizedFileURL
     }
 
@@ -54,9 +54,9 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
 
     public func metadata(_ path: String) async throws -> FileMetadata? {
         guard let url = hostURL(for: path) else { return nil }
-        let fm = FileManager.default
+        let fileManager = FileManager.default
         var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else {
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else {
             return nil
         }
         return Self.readOnlyMetadata(at: url, isDirectory: isDir.boolValue)
@@ -75,12 +75,12 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
         // Otherwise, list the host directory if `parent` falls
         // inside our virtual root.
         guard let url = hostURL(for: parent) else { return [] }
-        let fm = FileManager.default
+        let fileManager = FileManager.default
         var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDir),
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir),
               isDir.boolValue
         else { return [] }
-        guard let names = try? fm.contentsOfDirectory(atPath: url.path) else {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: url.path) else {
             return []
         }
         var result: [FileEntry] = []
@@ -88,7 +88,7 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
         for name in names {
             let child = url.appendingPathComponent(name)
             var childIsDir: ObjCBool = false
-            guard fm.fileExists(atPath: child.path,
+            guard fileManager.fileExists(atPath: child.path,
                                 isDirectory: &childIsDir) else { continue }
             let meta = Self.readOnlyMetadata(
                 at: child, isDirectory: childIsDir.boolValue)
@@ -122,8 +122,7 @@ public final class HostDirectoryOverlay: OverlayProvider, @unchecked Sendable {
     /// `/examples/swift/hello.swift` directly (the registered
     /// shebang handlers then pick them up).
     private static func readOnlyMetadata(at url: URL,
-                                         isDirectory: Bool) -> FileMetadata
-    {
+                                         isDirectory: Bool) -> FileMetadata {
         let attrs = (try? FileManager.default
             .attributesOfItem(atPath: url.path)) ?? [:]
         let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0

@@ -19,18 +19,18 @@ import Foundation
     // MARK: nullary / single-arg
 
     @Test func emptyTestIsFalse() async throws {
-        let s = try await runReturning("test")
-        #expect(s == .failure)
+        let status = try await runReturning("test")
+        #expect(status == .failure)
     }
 
     @Test func nonEmptyArgIsTrue() async throws {
-        let s = try await runReturning("test foo")
-        #expect(s == .success)
+        let status = try await runReturning("test foo")
+        #expect(status == .success)
     }
 
     @Test func emptyArgIsFalse() async throws {
-        let s = try await runReturning("test \"\"")
-        #expect(s == .failure)
+        let status = try await runReturning("test \"\"")
+        #expect(status == .failure)
     }
 
     // MARK: file ops
@@ -39,8 +39,8 @@ import Foundation
         let cap = makeShell()
         try await cap.shell.fileSystem.writeData(
             Data(), to: "/file", append: false)
-        let s = try await cap.shell.run("[ -e /file ]")
-        #expect(s == .success)
+        let status = try await cap.shell.run("[ -e /file ]")
+        #expect(status == .success)
     }
 
     @Test func dashFFile() async throws {
@@ -71,8 +71,8 @@ import Foundation
     }
 
     @Test func missingFileFails() async throws {
-        let s = try await runReturning("[ -e /no/such ]")
-        #expect(s == .failure)
+        let status = try await runReturning("[ -e /no/such ]")
+        #expect(status == .failure)
     }
 
     // MARK: string ops
@@ -103,8 +103,8 @@ import Foundation
 
     @Test func integerOpRequiresNumber() async throws {
         let cap = makeShell()
-        let s = try await cap.shell.run("[ foo -eq 5 ]")
-        #expect(s == ExitStatus(2))
+        let status = try await cap.shell.run("[ foo -eq 5 ]")
+        #expect(status == ExitStatus(2))
         #expect(cap.stderr.contains("integer expression"))
     }
 
@@ -130,8 +130,8 @@ import Foundation
 
     @Test func leftBracketWithoutCloseFailsLoudly() async throws {
         let cap = makeShell()
-        let s = try await cap.shell.run("[ -f /file")
-        #expect(s == ExitStatus(2))
+        let status = try await cap.shell.run("[ -f /file")
+        #expect(status == ExitStatus(2))
         #expect(cap.stderr.contains("missing"))
     }
 
@@ -173,7 +173,7 @@ import Foundation
     @Test func unsetVarComparesAsEmpty() async throws {
         // Idiomatic safety: `[ -z "$X" ]` when X is unset.
         let cap = makeShell()
-        let s = try await cap.shell.run("[ -z \"$NOPE\" ]")
-        #expect(s == .success)
+        let status = try await cap.shell.run("[ -z \"$NOPE\" ]")
+        #expect(status == .success)
     }
 }

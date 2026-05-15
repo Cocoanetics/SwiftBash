@@ -23,20 +23,20 @@ public enum BashSyntaxError: Error, Equatable, Sendable, CustomStringConvertible
 
     /// Convenience accessor for the human-readable message.
     public var message: String {
-        if case .parsing(let m, _, _) = self { return m }
-        if case .unimplemented(let m) = self { return m }
+        if case .parsing(let msg, _, _) = self { return msg }
+        if case .unimplemented(let msg) = self { return msg }
         return description
     }
 
     /// Convenience accessor for the offending source (parsing errors only).
     public var source: String? {
-        if case .parsing(_, let s, _) = self { return s }
+        if case .parsing(_, let src, _) = self { return src }
         return nil
     }
 
     /// Convenience accessor for the error offset (parsing errors only).
     public var position: Int? {
-        if case .parsing(_, _, let p) = self { return p }
+        if case .parsing(_, _, let pos) = self { return pos }
         return nil
     }
 }

@@ -10,16 +10,16 @@ extension JSRuntime {
     func installTimers() {
         let setTimeoutImpl = block { [weak self] args in
             guard let self, args.count >= 1 else { return 0 }
-            let ms = args.count >= 2 ? args[1].toNumber() : 0
-            return self.scheduleTimer(callback: args[0], delayMs: ms,
+            let delayMs = args.count >= 2 ? args[1].toNumber() : 0
+            return self.scheduleTimer(callback: args[0], delayMs: delayMs,
                                       repeating: false)
         }
         setGlobal("setTimeout", setTimeoutImpl)
 
         let setIntervalImpl = block { [weak self] args in
             guard let self, args.count >= 1 else { return 0 }
-            let ms = args.count >= 2 ? args[1].toNumber() : 0
-            return self.scheduleTimer(callback: args[0], delayMs: ms,
+            let delayMs = args.count >= 2 ? args[1].toNumber() : 0
+            return self.scheduleTimer(callback: args[0], delayMs: delayMs,
                                       repeating: true)
         }
         setGlobal("setInterval", setIntervalImpl)

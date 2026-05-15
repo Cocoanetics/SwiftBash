@@ -31,16 +31,16 @@ public struct TimeCommand: Command {
         return status
     }
 
-    private func formatDuration(_ s: TimeInterval) -> String {
-        let mins = Int(s / 60)
-        let secs = s - Double(mins) * 60
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let mins = Int(seconds / 60)
+        let secs = seconds - Double(mins) * 60
         return String(format: "%dm%.3fs", mins, secs)
     }
 
-    private func shellQuote(_ s: String) -> String {
+    private func shellQuote(_ source: String) -> String {
         let safe = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./-_")
-        if !s.isEmpty && s.allSatisfy({ safe.contains($0) }) { return s }
-        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        if !source.isEmpty && source.allSatisfy({ safe.contains($0) }) { return source }
+        return "'" + source.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
@@ -90,8 +90,8 @@ public struct TimeoutCommand: Command {
         // GNU timeout's signal delivery.
         return try await withThrowingTaskGroup(of: TimeoutResult.self) { group in
             group.addTask {
-                let s = try await Shell.bashCurrent.run(line)
-                return .completed(s)
+                let status = try await Shell.bashCurrent.run(line)
+                return .completed(status)
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -100,7 +100,7 @@ public struct TimeoutCommand: Command {
             for try await result in group {
                 group.cancelAll()
                 switch result {
-                case .completed(let s): return s
+                case .completed(let status): return status
                 case .timedOut:
                     Shell.bashCurrent.stderr("timeout: command timed out\n")
                     return ExitStatus(124)
@@ -112,8 +112,8 @@ public struct TimeoutCommand: Command {
 
     private enum TimeoutResult { case completed(ExitStatus), timedOut }
 
-    private func parseDuration(_ s: String) -> Double? {
-        var rest = s
+    private func parseDuration(_ source: String) -> Double? {
+        var rest = source
         var mult = 1.0
         if let last = rest.last {
             switch last {
@@ -124,13 +124,13 @@ public struct TimeoutCommand: Command {
             default: break
             }
         }
-        guard let n = Double(rest), n >= 0 else { return nil }
-        return n * mult
+        guard let value = Double(rest), value >= 0 else { return nil }
+        return value * mult
     }
 
-    private func shellQuote(_ s: String) -> String {
+    private func shellQuote(_ source: String) -> String {
         let safe = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./-_")
-        if !s.isEmpty && s.allSatisfy({ safe.contains($0) }) { return s }
-        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        if !source.isEmpty && source.allSatisfy({ safe.contains($0) }) { return source }
+        return "'" + source.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

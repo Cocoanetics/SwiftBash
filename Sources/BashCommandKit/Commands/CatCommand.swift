@@ -30,6 +30,7 @@ public struct CatCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length - argv tokenisation + per-line rendering
     public mutating func execute() async throws -> ExitStatus {
         var number = false
         var numberNonblank = false
@@ -39,39 +40,39 @@ public struct CatCommand: ParsableBashCommand {
         var showNonprinting = false
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { files.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-" { files.append("-"); i += 1; continue }
-            switch a {
-            case "-n", "--number": number = true; i += 1; continue
-            case "-b", "--number-nonblank": numberNonblank = true; i += 1; continue
-            case "-s", "--squeeze-blank": squeezeBlank = true; i += 1; continue
-            case "-E", "--show-ends": showEnds = true; i += 1; continue
-            case "-T", "--show-tabs": showTabs = true; i += 1; continue
-            case "-v", "--show-nonprinting": showNonprinting = true; i += 1; continue
+            if arg == "-" { files.append("-"); idx += 1; continue }
+            switch arg {
+            case "-n", "--number": number = true; idx += 1; continue
+            case "-b", "--number-nonblank": numberNonblank = true; idx += 1; continue
+            case "-s", "--squeeze-blank": squeezeBlank = true; idx += 1; continue
+            case "-E", "--show-ends": showEnds = true; idx += 1; continue
+            case "-T", "--show-tabs": showTabs = true; idx += 1; continue
+            case "-v", "--show-nonprinting": showNonprinting = true; idx += 1; continue
             case "-A", "--show-all":
                 showNonprinting = true; showEnds = true; showTabs = true
-                i += 1; continue
-            case "-e": showNonprinting = true; showEnds = true; i += 1; continue
-            case "-t": showNonprinting = true; showTabs = true; i += 1; continue
+                idx += 1; continue
+            case "-e": showNonprinting = true; showEnds = true; idx += 1; continue
+            case "-t": showNonprinting = true; showTabs = true; idx += 1; continue
             case "-u":
                 // POSIX "unbuffered output" — we always flush per write.
-                i += 1; continue
+                idx += 1; continue
             default: break
             }
-            if a.hasPrefix("--") {
-                Shell.bashCurrent.stderr("cat: unknown option: \(a)\n")
+            if arg.hasPrefix("--") {
+                Shell.bashCurrent.stderr("cat: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            if a.hasPrefix("-") && a.count > 1 {
-                for c in a.dropFirst() {
-                    switch c {
+            if arg.hasPrefix("-") && arg.count > 1 {
+                for char in arg.dropFirst() {
+                    switch char {
                     case "n": number = true
                     case "b": numberNonblank = true
                     case "s": squeezeBlank = true
@@ -83,13 +84,13 @@ public struct CatCommand: ParsableBashCommand {
                     case "t": showNonprinting = true; showTabs = true
                     case "u": break
                     default:
-                        Shell.bashCurrent.stderr("cat: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("cat: unknown option: -\(char)\n")
                         return ExitStatus(2)
                     }
                 }
-                i += 1; continue
+                idx += 1; continue
             }
-            files.append(a); i += 1
+            files.append(arg); idx += 1
         }
 
         let needsTransform = number || numberNonblank || squeezeBlank
@@ -109,8 +110,11 @@ public struct CatCommand: ParsableBashCommand {
         for path in useFiles {
             do {
                 let source: InputSource
-                if path == "-" { source = Shell.bashCurrent.stdin }
-                else { source = try await Shell.bashCurrent.openInputPath(path) }
+                if path == "-" {
+                    source = Shell.bashCurrent.stdin
+                } else {
+                    source = try await Shell.bashCurrent.openInputPath(path)
+                }
                 for await line in source.lines {
                     let isBlank = line.isEmpty
                     if squeezeBlank && isBlank && prevWasBlank { continue }
@@ -174,25 +178,25 @@ public struct CatCommand: ParsableBashCommand {
     /// - 0x00–0x1F (except `\t` and `\n`) → `^X`
     /// - 0x7F → `^?`
     /// - 0x80+ → `M-` followed by recursive escape
-    static func escapeNonprinting(_ s: String) -> String {
+    static func escapeNonprinting(_ str: String) -> String {
         var out = ""
-        for scalar in s.unicodeScalars {
-            let v = scalar.value
-            if v == 0x09 || v == 0x0A {
+        for scalar in str.unicodeScalars {
+            let value = scalar.value
+            if value == 0x09 || value == 0x0A {
                 out.unicodeScalars.append(scalar)
-            } else if v < 0x20 {
+            } else if value < 0x20 {
                 out.append("^")
-                out.unicodeScalars.append(Unicode.Scalar(v + 0x40)!)
-            } else if v == 0x7F {
+                out.unicodeScalars.append(Unicode.Scalar(value + 0x40)!)
+            } else if value == 0x7F {
                 out += "^?"
-            } else if v < 0x7F {
+            } else if value < 0x7F {
                 out.unicodeScalars.append(scalar)
-            } else if v < 0xA0 {
+            } else if value < 0xA0 {
                 out += "M-^"
-                out.unicodeScalars.append(Unicode.Scalar(v - 0x80 + 0x40)!)
+                out.unicodeScalars.append(Unicode.Scalar(value - 0x80 + 0x40)!)
             } else {
                 out += "M-"
-                out.unicodeScalars.append(Unicode.Scalar(v - 0x80)!)
+                out.unicodeScalars.append(Unicode.Scalar(value - 0x80)!)
             }
         }
         return out

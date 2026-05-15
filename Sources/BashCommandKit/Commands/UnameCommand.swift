@@ -43,11 +43,11 @@ public struct UnameCommand: ParsableBashCommand {
         let any = all || kernel || node || release || version || machine
         let useKernel = !any || kernel || all
         var parts: [String] = []
-        if useKernel       { parts.append(host.kernelName) }
-        if all || node     { parts.append(host.nodeName) }
-        if all || release  { parts.append(host.kernelRelease) }
-        if all || version  { parts.append(host.kernelVersion) }
-        if all || machine  { parts.append(host.machine) }
+        if useKernel { parts.append(host.kernelName) }
+        if all || node { parts.append(host.nodeName) }
+        if all || release { parts.append(host.kernelRelease) }
+        if all || version { parts.append(host.kernelVersion) }
+        if all || machine { parts.append(host.machine) }
         Shell.bashCurrent.stdout(parts.joined(separator: " ") + "\n")
         return .success
     }

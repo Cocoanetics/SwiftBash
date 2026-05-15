@@ -6,9 +6,9 @@ import Testing
 /// Used by tests that exercise `cd` bookkeeping — the assertion is
 /// about shell behaviour, not the path string.
 #if os(Android)
-fileprivate let unixTmpDir = "/data/local/tmp"
+private let unixTmpDir = "/data/local/tmp"
 #else
-fileprivate let unixTmpDir = "/tmp"
+private let unixTmpDir = "/tmp"
 #endif
 
 @Suite(.timeLimit(.minutes(1))) struct BuiltinsTests {

@@ -5,33 +5,33 @@ import Foundation
 enum AwkFields {
 
     /// Split a line into fields per current FS. Empty input → no fields.
-    static func split(_ line: String, fs: String) -> [String] {
+    static func split(_ line: String, fs fieldSep: String) -> [String] {
         if line.isEmpty { return [] }
-        if fs == " " {
+        if fieldSep == " " {
             // Default: any run of whitespace; trim leading/trailing.
             return line.split(omittingEmptySubsequences: true,
                               whereSeparator: { $0.isWhitespace })
                 .map { String($0) }
         }
-        if fs.count == 1 && !"\\.*+?^${}()|[]".contains(fs) {
-            return line.components(separatedBy: fs)
+        if fieldSep.count == 1 && !"\\.*+?^${}()|[]".contains(fieldSep) {
+            return line.components(separatedBy: fieldSep)
         }
         // FS may be a regex.
-        if let regex = try? NSRegularExpression(pattern: fs) {
+        if let regex = try? NSRegularExpression(pattern: fieldSep) {
             let nsstr = line as NSString
             var parts: [String] = []
             var lastEnd = 0
             regex.enumerateMatches(in: line,
-                                   range: NSRange(location: 0, length: nsstr.length)) { m, _, _ in
-                guard let m else { return }
+                                   range: NSRange(location: 0, length: nsstr.length)) { match, _, _ in
+                guard let match else { return }
                 parts.append(nsstr.substring(with: NSRange(location: lastEnd,
-                                                          length: m.range.location - lastEnd)))
-                lastEnd = m.range.location + m.range.length
+                                                          length: match.range.location - lastEnd)))
+                lastEnd = match.range.location + match.range.length
             }
             parts.append(nsstr.substring(from: lastEnd))
             return parts
         }
-        return line.components(separatedBy: fs)
+        return line.components(separatedBy: fieldSep)
     }
 
     /// Set $0 and re-derive fields + NF.

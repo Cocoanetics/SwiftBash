@@ -17,31 +17,32 @@ public struct PgrepCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity
     public mutating func execute() async throws -> ExitStatus {
         var listLong = false
-        var pattern: String? = nil
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "-l" { listLong = true; i += 1; continue }
-            if a == "-f" {
+        var pattern: String?
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "-l" { listLong = true; index += 1; continue }
+            if arg == "-f" {
                 // -f matches the full command — that's already what
                 // we store in the entry, so this is a no-op for us.
-                i += 1; continue
+                index += 1; continue
             }
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                for c in a.dropFirst() {
-                    switch c {
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
+                for char in arg.dropFirst() {
+                    switch char {
                     case "l": listLong = true
                     case "f": break
                     default:
-                        Shell.bashCurrent.stderr("pgrep: unknown option: -\(c)\n")
+                        Shell.bashCurrent.stderr("pgrep: unknown option: -\(char)\n")
                         return ExitStatus(2)
                     }
                 }
-                i += 1; continue
+                index += 1; continue
             }
-            pattern = a; i += 1
+            pattern = arg; index += 1
         }
         guard let pat = pattern else {
             Shell.bashCurrent.stderr("pgrep: missing pattern\n")
@@ -52,16 +53,16 @@ public struct PgrepCommand: ParsableBashCommand {
             return ExitStatus(2)
         }
         let entries = await Shell.bashCurrent.processTable.list()
-        let matches = entries.filter { e in
-            let ns = e.command as NSString
-            return regex.firstMatch(in: e.command,
-                                    range: NSRange(location: 0, length: ns.length)) != nil
+        let matches = entries.filter { entry in
+            let nsString = entry.command as NSString
+            return regex.firstMatch(in: entry.command,
+                                    range: NSRange(location: 0, length: nsString.length)) != nil
         }
-        for e in matches {
+        for entry in matches {
             if listLong {
-                Shell.bashCurrent.stdout("\(e.pid) \(e.command)\n")
+                Shell.bashCurrent.stdout("\(entry.pid) \(entry.command)\n")
             } else {
-                Shell.bashCurrent.stdout("\(e.pid)\n")
+                Shell.bashCurrent.stdout("\(entry.pid)\n")
             }
         }
         return matches.isEmpty ? ExitStatus(1) : .success

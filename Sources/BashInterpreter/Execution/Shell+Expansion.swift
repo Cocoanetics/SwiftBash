@@ -3,42 +3,43 @@ import BashSyntax
 
 extension Shell {
 
-    /// Produce the runtime string value of a `.word` / `.assignment` node.
-    ///
-    /// Walks the raw characters of the word's range in `currentSource`,
-    /// stripping quotes and splicing in resolved values for each
-    /// substitution sub-node (`$VAR`, `${…}`, `$(…)`, `` `…` ``, `~`).
-    /// Sub-nodes are matched by their absolute source range — the AST
-    /// already tells us exactly where each substitution occurs.
+    // Produce the runtime string value of a `.word` / `.assignment` node.
+    //
+    // Walks the raw characters of the word's range in `currentSource`,
+    // stripping quotes and splicing in resolved values for each
+    // substitution sub-node (`$VAR`, `${…}`, `$(…)`, `` `…` ``, `~`).
+    // Sub-nodes are matched by their absolute source range — the AST
+    // already tells us exactly where each substitution occurs.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length - quote/escape state machine
     func expand(word node: Node) async throws -> String {
         let parts: [Node]
         switch node.kind {
-        case .word(_, let p), .assignment(_, let p):
-            parts = p
+        case .word(_, let inner), .assignment(_, let inner):
+            parts = inner
         default:
             return ""
         }
 
         let chars = Array(currentSource)
-        let lo = max(0, node.range.lowerBound)
-        let hi = min(chars.count, node.range.upperBound)
-        guard lo < hi else { return "" }
+        let low = max(0, node.range.lowerBound)
+        let high = min(chars.count, node.range.upperBound)
+        guard low < high else { return "" }
 
         var queue = parts.sorted { $0.range.lowerBound < $1.range.lowerBound }
         var result = ""
-        var i = lo
+        var idx = low
         var inDouble = false
 
-        while i < hi {
-            if let head = queue.first, i == head.range.lowerBound {
+        while idx < high {
+            if let head = queue.first, idx == head.range.lowerBound {
                 result.append(try await resolve(part: head))
-                i = min(hi, head.range.upperBound)
+                idx = min(high, head.range.upperBound)
                 queue.removeFirst()
                 continue
             }
-            let c = chars[i]
+            let char = chars[idx]
 
-            if c == "'", !inDouble {
+            if char == "'", !inDouble {
                 // `$'…'` ANSI-C quoting: the prior char (and the
                 // last char already pushed to `result`) is the
                 // marker. Run the body through bash's C-style
@@ -48,59 +49,59 @@ extension Shell {
                 // `Shell+Expansion+Argv.swift` for the command-arg
                 // path; this branch covers assignment values and
                 // anything else routed through `expand(word:)`.
-                let isAnsiC = (i > lo && chars[i - 1] == "$"
+                let isAnsiC = (idx > low && chars[idx - 1] == "$"
                                && !result.isEmpty
                                && result.last == "$")
                 if isAnsiC {
                     result.removeLast()        // consume the `$`
-                    i += 1                     // consume the opening `'`
+                    idx += 1                   // consume the opening `'`
                     var body = ""
-                    while i < hi, chars[i] != "'" {
-                        if chars[i] == "\\", i + 1 < hi {
+                    while idx < high, chars[idx] != "'" {
+                        if chars[idx] == "\\", idx + 1 < high {
                             // Preserve the escape pair so the decoder
                             // sees `\'`, `\\` etc. intact.
-                            body.append(chars[i])
-                            body.append(chars[i + 1])
-                            i += 2
+                            body.append(chars[idx])
+                            body.append(chars[idx + 1])
+                            idx += 2
                             continue
                         }
-                        body.append(chars[i])
-                        i += 1
+                        body.append(chars[idx])
+                        idx += 1
                     }
                     result += Self.decodeAnsiCEscapes(body)
                 } else {
-                    i += 1
-                    while i < hi, chars[i] != "'" {
-                        result.append(chars[i])
-                        i += 1
+                    idx += 1
+                    while idx < high, chars[idx] != "'" {
+                        result.append(chars[idx])
+                        idx += 1
                     }
                 }
-                if i < hi { i += 1 }
+                if idx < high { idx += 1 }
                 continue
             }
-            if c == "\"" {
+            if char == "\"" {
                 inDouble.toggle()
-                i += 1
+                idx += 1
                 continue
             }
-            if c == "\\" {
-                i += 1
-                if i < hi {
+            if char == "\\" {
+                idx += 1
+                if idx < high {
                     // POSIX: `\<newline>` is a line continuation — both
                     // characters are removed. Without this skip the
                     // newline would be re-emitted as a literal byte.
-                    if chars[i] == "\n" {
-                        i += 1
+                    if chars[idx] == "\n" {
+                        idx += 1
                         continue
                     }
-                    result.append(chars[i])
-                    i += 1
+                    result.append(chars[idx])
+                    idx += 1
                 }
                 continue
             }
 
-            result.append(c)
-            i += 1
+            result.append(char)
+            idx += 1
         }
         return result
     }
@@ -138,13 +139,11 @@ extension Shell {
     ///   (`<(tail -f log)`) won't work; bounded outputs (`diff <(a) <(b)`)
     ///   work fine.
     private func resolveProcessSubstitution(part: Node,
-                                            command: Node) async throws -> String
-    {
-        let direction: ProcessSub.Kind
+                                            command: Node) async throws -> String {
+        let direction: ProcessSubKind
         let chars = Array(currentSource)
         if part.range.lowerBound < chars.count,
-           chars[part.range.lowerBound] == ">"
-        {
+           chars[part.range.lowerBound] == ">" {
             direction = .output
         } else {
             direction = .input
@@ -208,8 +207,8 @@ extension Shell {
         default: break
         }
         // `$1`, `$2`, … `${10}`, `${42}`
-        if let n = Int(body), n >= 1 {
-            let idx = n - 1
+        if let num = Int(body), num >= 1 {
+            let idx = num - 1
             return idx < positionalParameters.count
                 ? positionalParameters[idx]
                 : ""

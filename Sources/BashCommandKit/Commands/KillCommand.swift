@@ -29,36 +29,36 @@ public struct KillCommand: ParsableBashCommand {
     public mutating func execute() async throws -> ExitStatus {
         var signal: Int32 = SIGTERM
         var pids: [Int32] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "-l" || a == "--list" {
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "-l" || arg == "--list" {
                 listSignals()
                 return .success
             }
-            if a == "-s" {
-                guard i + 1 < rawArgv.count, let sig = parseSignal(rawArgv[i + 1]) else {
+            if arg == "-s" {
+                guard index + 1 < rawArgv.count, let sig = parseSignal(rawArgv[index + 1]) else {
                     Shell.bashCurrent.stderr("kill: invalid signal\n"); return ExitStatus(2)
                 }
-                signal = sig; i += 2; continue
+                signal = sig; index += 2; continue
             }
-            if a.hasPrefix("-") && a != "--" && a.count > 1 {
-                let sigPart = String(a.dropFirst())
+            if arg.hasPrefix("-") && arg != "--" && arg.count > 1 {
+                let sigPart = String(arg.dropFirst())
                 if let sig = parseSignal(sigPart) {
                     signal = sig
                 } else {
-                    Shell.bashCurrent.stderr("kill: invalid signal: \(a)\n")
+                    Shell.bashCurrent.stderr("kill: invalid signal: \(arg)\n")
                     return ExitStatus(2)
                 }
-                i += 1; continue
+                index += 1; continue
             }
-            if let pid = Int32(a) {
+            if let pid = Int32(arg) {
                 pids.append(pid)
             } else {
-                Shell.bashCurrent.stderr("kill: invalid PID: \(a)\n")
+                Shell.bashCurrent.stderr("kill: invalid PID: \(arg)\n")
                 return ExitStatus(2)
             }
-            i += 1
+            index += 1
         }
         guard !pids.isEmpty else {
             Shell.bashCurrent.stderr("kill: usage: kill [-SIG] PID...\n")
@@ -67,8 +67,8 @@ public struct KillCommand: ParsableBashCommand {
         var hadError = false
         let table = Shell.bashCurrent.processTable
         for pid in pids {
-            let ok = await table.signal(pid: pid, signo: signal)
-            if !ok {
+            let delivered = await table.signal(pid: pid, signo: signal)
+            if !delivered {
                 Shell.bashCurrent.stderr(
                     "kill: (\(pid)) - No such process\n")
                 hadError = true
@@ -86,7 +86,7 @@ public struct KillCommand: ParsableBashCommand {
             ("ALRM", SIGALRM), ("TERM", SIGTERM), ("URG", SIGURG),
             ("STOP", SIGSTOP), ("TSTP", SIGTSTP), ("CONT", SIGCONT),
             ("CHLD", SIGCHLD), ("TTIN", SIGTTIN), ("TTOU", SIGTTOU),
-            ("USR1", SIGUSR1), ("USR2", SIGUSR2),
+            ("USR1", SIGUSR1), ("USR2", SIGUSR2)
         ]
         Shell.bashCurrent.stdout(
             signals.map { "\($0.1)) \($0.0)" }.joined(separator: " ") + "\n")

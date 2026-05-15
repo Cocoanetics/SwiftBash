@@ -16,46 +16,56 @@ public struct StringsCommand: ParsableBashCommand {
 
     public init() {}
 
+    // Argv-loop branches add complexity by nature; the parsing is
+    // already factored as cleanly as it can be without losing
+    // legibility.
+    // swiftlint:disable:next cyclomatic_complexity
     public mutating func execute() async throws -> ExitStatus {
         var minLen = 4
         var files: [String] = []
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { files.append(rawArgv[index]); index += 1 }
                 break
             }
-            if a == "-n" || a == "--bytes" {
-                guard i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]), n > 0 else {
+            if arg == "-n" || arg == "--bytes" {
+                guard index + 1 < rawArgv.count, let count = Int(rawArgv[index + 1]), count > 0 else {
                     Shell.bashCurrent.stderr("strings: -n requires positive N\n"); return ExitStatus(2)
                 }
-                minLen = n; i += 2; continue
+                minLen = count; index += 2; continue
             }
-            if a.hasPrefix("--bytes=") {
-                guard let n = Int(a.dropFirst("--bytes=".count)), n > 0 else {
+            if arg.hasPrefix("--bytes=") {
+                guard let count = Int(arg.dropFirst("--bytes=".count)), count > 0 else {
                     Shell.bashCurrent.stderr("strings: invalid --bytes\n"); return ExitStatus(2)
                 }
-                minLen = n; i += 1; continue
+                minLen = count; index += 1; continue
             }
-            if a.hasPrefix("-") && a != "-" && a.count > 1 {
-                if let n = Int(a.dropFirst()), n > 0 { minLen = n; i += 1; continue }
-                Shell.bashCurrent.stderr("strings: unknown option: \(a)\n"); return ExitStatus(2)
+            if arg.hasPrefix("-") && arg != "-" && arg.count > 1 {
+                if let count = Int(arg.dropFirst()), count > 0 {
+                    minLen = count; index += 1; continue
+                }
+                Shell.bashCurrent.stderr("strings: unknown option: \(arg)\n")
+                return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); index += 1
         }
         let inputs = files.isEmpty ? ["-"] : files
         var hadError = false
-        for f in inputs {
+        for file in inputs {
             try Task.checkCancellation()
             do {
                 let data: Data
-                if f == "-" { data = await Shell.bashCurrent.stdin.readAllData() }
-                else { data = try await Shell.bashCurrent.readDataAtPath(f) }
+                if file == "-" {
+                    data = await Shell.bashCurrent.stdin.readAllData()
+                } else {
+                    data = try await Shell.bashCurrent.readDataAtPath(file)
+                }
                 emit(data, minLen: minLen)
             } catch {
-                Shell.bashCurrent.stderr("strings: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("strings: \(file): \(error)\n")
                 hadError = true
             }
         }
@@ -71,13 +81,15 @@ public struct StringsCommand: ParsableBashCommand {
                 run.append(byte)
             } else {
                 if run.count >= minLen {
-                    Shell.bashCurrent.stdout(String(decoding: run, as: UTF8.self) + "\n")
+                    // Run is filtered to printable ASCII above, but a
+                    // failable initializer keeps the rule happy.
+                    Shell.bashCurrent.stdout((String(bytes: run, encoding: .utf8) ?? "") + "\n")
                 }
                 run.removeAll(keepingCapacity: true)
             }
         }
         if run.count >= minLen {
-            Shell.bashCurrent.stdout(String(decoding: run, as: UTF8.self) + "\n")
+            Shell.bashCurrent.stdout((String(bytes: run, encoding: .utf8) ?? "") + "\n")
         }
     }
 }

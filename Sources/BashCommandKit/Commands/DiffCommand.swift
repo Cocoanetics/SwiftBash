@@ -30,40 +30,40 @@ public struct DiffCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
-        var unifiedContext: Int? = nil
+        var unifiedContext: Int?
         var files: [String] = []
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                while idx < rawArgv.count { files.append(rawArgv[idx]); idx += 1 }
                 break
             }
-            if a == "-u" || a == "--unified" {
+            if arg == "-u" || arg == "--unified" {
                 // Optional numeric arg.
-                if i + 1 < rawArgv.count, let n = Int(rawArgv[i + 1]) {
-                    unifiedContext = n
-                    i += 2; continue
+                if idx + 1 < rawArgv.count, let num = Int(rawArgv[idx + 1]) {
+                    unifiedContext = num
+                    idx += 2; continue
                 }
-                unifiedContext = 3; i += 1; continue
+                unifiedContext = 3; idx += 1; continue
             }
             // `-uN` combined.
-            if a.hasPrefix("-u"), let n = Int(a.dropFirst(2)) {
-                unifiedContext = n; i += 1; continue
+            if arg.hasPrefix("-u"), let num = Int(arg.dropFirst(2)) {
+                unifiedContext = num; idx += 1; continue
             }
-            if a.hasPrefix("--unified="),
-               let n = Int(a.dropFirst("--unified=".count))
-            {
-                unifiedContext = n; i += 1; continue
+            if arg.hasPrefix("--unified="),
+               let num = Int(arg.dropFirst("--unified=".count)) {
+                unifiedContext = num; idx += 1; continue
             }
-            if a.hasPrefix("-"), a.count > 1, a != "-" {
-                Shell.bashCurrent.stderr("diff: unknown option: \(a)\n")
+            if arg.hasPrefix("-"), arg.count > 1, arg != "-" {
+                Shell.bashCurrent.stderr("diff: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            files.append(a); i += 1
+            files.append(arg); idx += 1
         }
 
         guard files.count == 2 else {
@@ -111,8 +111,10 @@ public struct DiffCommand: ParsableBashCommand {
         }
         do {
             let data = try await Shell.bashCurrent.readDataAtPath(path)
-            return SortCommand.splitLines(
-                String(decoding: data, as: UTF8.self))
+            // diff input may legitimately contain non-UTF-8 byte sequences
+            // swiftlint:disable:next optional_data_string_conversion
+            let text = String(decoding: data, as: UTF8.self)
+            return SortCommand.splitLines(text)
         } catch {
             throw DiffError(message: "\(path): \(error)")
         }
@@ -150,20 +152,20 @@ public struct DiffCommand: ParsableBashCommand {
         }
 
         var out: [MergedLine] = []
-        var oi = 0
-        var ni = 0
-        while oi < old.count || ni < new.count {
-            if let r = removes[oi] {
-                out.append(.removed(oldNum: oi + 1, text: r))
-                oi += 1
-            } else if let i = inserts[ni] {
-                out.append(.added(newNum: ni + 1, text: i))
-                ni += 1
+        var oldIdx = 0
+        var newIdx = 0
+        while oldIdx < old.count || newIdx < new.count {
+            if let removed = removes[oldIdx] {
+                out.append(.removed(oldNum: oldIdx + 1, text: removed))
+                oldIdx += 1
+            } else if let inserted = inserts[newIdx] {
+                out.append(.added(newNum: newIdx + 1, text: inserted))
+                newIdx += 1
             } else {
                 out.append(.context(
-                    oldNum: oi + 1, newNum: ni + 1, text: old[oi]))
-                oi += 1
-                ni += 1
+                    oldNum: oldIdx + 1, newNum: newIdx + 1, text: old[oldIdx]))
+                oldIdx += 1
+                newIdx += 1
             }
         }
         return out
@@ -171,26 +173,23 @@ public struct DiffCommand: ParsableBashCommand {
 
     // MARK: Normal renderer
 
-    /// Group consecutive removals/additions into BSD/GNU "normal" diff
-    /// hunks: `1d0`, `2c2`, `0a1` and so on.
+    // Group consecutive removals/additions into BSD/GNU "normal" diff
+    // hunks: `1d0`, `2c2`, `0a1` and so on.
+    // swiftlint:disable:next cyclomatic_complexity
     static func renderNormal(merged: [MergedLine]) -> String {
-        struct Hunk {
-            var removed: [(line: Int, text: String)] = []
-            var added:   [(line: Int, text: String)] = []
-        }
-        var hunks: [Hunk] = []
-        var current = Hunk()
+        var hunks: [DiffHunk] = []
+        var current = DiffHunk()
         for line in merged {
             switch line {
             case .context:
                 if !current.removed.isEmpty || !current.added.isEmpty {
                     hunks.append(current)
-                    current = Hunk()
+                    current = DiffHunk()
                 }
-            case .removed(let n, let t):
-                current.removed.append((n, t))
-            case .added(let n, let t):
-                current.added.append((n, t))
+            case .removed(let lineNum, let text):
+                current.removed.append((lineNum, text))
+            case .added(let lineNum, let text):
+                current.added.append((lineNum, text))
             }
         }
         if !current.removed.isEmpty || !current.added.isEmpty {
@@ -198,23 +197,33 @@ public struct DiffCommand: ParsableBashCommand {
         }
 
         var out = ""
-        for h in hunks {
-            let oldRange = h.removed.isEmpty
-                ? "\(max(0, h.added.first!.line - 1))"
-                : range(lines: h.removed.map(\.line))
-            let newRange = h.added.isEmpty
-                ? "\(max(0, h.removed.first!.line - 1))"
-                : range(lines: h.added.map(\.line))
-            let op: Character
-            if h.removed.isEmpty { op = "a" }
-            else if h.added.isEmpty { op = "d" }
-            else { op = "c" }
-            out += "\(oldRange)\(op)\(newRange)\n"
-            for (_, t) in h.removed { out += "< \(t)\n" }
-            if !h.removed.isEmpty, !h.added.isEmpty { out += "---\n" }
-            for (_, t) in h.added { out += "> \(t)\n" }
+        for hunk in hunks {
+            let oldRange = hunk.removed.isEmpty
+                ? "\(max(0, hunk.added.first!.line - 1))"
+                : range(lines: hunk.removed.map(\.line))
+            let newRange = hunk.added.isEmpty
+                ? "\(max(0, hunk.removed.first!.line - 1))"
+                : range(lines: hunk.added.map(\.line))
+            let action: Character
+            if hunk.removed.isEmpty {
+                action = "a"
+            } else if hunk.added.isEmpty {
+                action = "d"
+            } else {
+                action = "c"
+            }
+            out += "\(oldRange)\(action)\(newRange)\n"
+            for (_, text) in hunk.removed { out += "< \(text)\n" }
+            if !hunk.removed.isEmpty, !hunk.added.isEmpty { out += "---\n" }
+            for (_, text) in hunk.added { out += "> \(text)\n" }
         }
         return out
+    }
+
+    /// Hunk used by ``renderNormal``; one entry per `<add/del/change>` block.
+    private struct DiffHunk {
+        var removed: [(line: Int, text: String)] = []
+        var added: [(line: Int, text: String)] = []
     }
 
     private static func range(lines: [Int]) -> String {
@@ -231,8 +240,8 @@ public struct DiffCommand: ParsableBashCommand {
                               oldName: String,
                               newName: String) -> String {
         // Indices of non-context lines.
-        let changeIdxs = merged.enumerated().compactMap { i, line -> Int? in
-            line.isContext ? nil : i
+        let changeIdxs = merged.enumerated().compactMap { idx, line -> Int? in
+            line.isContext ? nil : idx
         }
         guard !changeIdxs.isEmpty else { return "" }
 
@@ -257,10 +266,11 @@ public struct DiffCommand: ParsableBashCommand {
         return output
     }
 
-    /// Render one hunk: a `@@ -ostart,olen +nstart,nlen @@` header
-    /// followed by ` `/`-`/`+` prefixed lines. Length-zero ranges
-    /// (pure additions or pure deletions) drop the comma form per
-    /// the unified-format spec.
+    // Render one hunk: a `@@ -ostart,olen +nstart,nlen @@` header
+    // followed by ` `/`-`/`+` prefixed lines. Length-zero ranges
+    // (pure additions or pure deletions) drop the comma form per
+    // the unified-format spec.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func renderHunk(_ lines: ArraySlice<MergedLine>) -> String {
         var oldStart = 0
         var newStart = 0
@@ -268,16 +278,16 @@ public struct DiffCommand: ParsableBashCommand {
         var newLen = 0
         for line in lines {
             switch line {
-            case .context(let o, let n, _):
-                if oldStart == 0 { oldStart = o }
-                if newStart == 0 { newStart = n }
+            case .context(let oldNum, let newNum, _):
+                if oldStart == 0 { oldStart = oldNum }
+                if newStart == 0 { newStart = newNum }
                 oldLen += 1
                 newLen += 1
-            case .removed(let o, _):
-                if oldStart == 0 { oldStart = o }
+            case .removed(let oldNum, _):
+                if oldStart == 0 { oldStart = oldNum }
                 oldLen += 1
-            case .added(let n, _):
-                if newStart == 0 { newStart = n }
+            case .added(let newNum, _):
+                if newStart == 0 { newStart = newNum }
                 newLen += 1
             }
         }

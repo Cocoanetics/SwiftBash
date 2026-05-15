@@ -1,3 +1,6 @@
+// swiftlint:disable file_length
+// Conditional `[[ ]]` evaluator — splitting the grammar walker and
+// operator dispatcher would scatter their shared state.
 import Foundation
 import BashSyntax
 
@@ -19,16 +22,16 @@ extension Shell {
         // Drop separator markers the parser inserts for newlines/`;`
         // inside `[[ … ]]`. Bash treats those as whitespace.
         let cleaned = parts.filter { node in
-            if case .operator(let op) = node.kind, op == ";" {
+            if case .operator(let opText) = node.kind, opText == ";" {
                 return false
             }
             return true
         }
-        var ev = ConditionalEvaluator(parts: cleaned)
-        let value = try await ev.parseOr()
-        if !ev.isAtEnd {
+        var evaluator = ConditionalEvaluator(parts: cleaned)
+        let value = try await evaluator.parseOr()
+        if !evaluator.isAtEnd {
             throw BashInterpreterError.parameter(
-                "[[: unexpected token at position \(ev.position)")
+                "[[: unexpected token at position \(evaluator.position)")
         }
         return value ? .success : .failure
     }
@@ -36,10 +39,10 @@ extension Shell {
 
 // MARK: Recursive-descent evaluator
 
-/// Mirrors the test expression grammar, but with `&&` / `||` instead
-/// of `-a` / `-o` and with operands kept as ``Node``s so we can
-/// distinguish quoted vs. unquoted right-hand sides for pattern
-/// matching.
+// Mirrors the test expression grammar, but with `&&` / `||` instead
+// of `-a` / `-o` and with operands kept as ``Node``s so we can
+// distinguish quoted vs. unquoted right-hand sides for pattern matching.
+// swiftlint:disable:next type_body_length
 private struct ConditionalEvaluator {
     let parts: [Node]
     var pos = 0
@@ -54,29 +57,29 @@ private struct ConditionalEvaluator {
     }
     private mutating func advance() -> Node? {
         guard pos < parts.count else { return nil }
-        let n = parts[pos]
+        let node = parts[pos]
         pos += 1
-        return n
+        return node
     }
 
     private func operatorAt(_ offset: Int) -> String? {
-        let i = pos + offset
-        guard i < parts.count else { return nil }
-        if case .operator(let op) = parts[i].kind { return op }
+        let idx = pos + offset
+        guard idx < parts.count else { return nil }
+        if case .operator(let opText) = parts[idx].kind { return opText }
         return nil
     }
 
     private func reservedAt(_ offset: Int) -> String? {
-        let i = pos + offset
-        guard i < parts.count else { return nil }
-        if case .reservedWord(let w) = parts[i].kind { return w }
+        let idx = pos + offset
+        guard idx < parts.count else { return nil }
+        if case .reservedWord(let word) = parts[idx].kind { return word }
         return nil
     }
 
     private func wordValueAt(_ offset: Int) -> String? {
-        let i = pos + offset
-        guard i < parts.count else { return nil }
-        if case .word(let w, _) = parts[i].kind { return w }
+        let idx = pos + offset
+        guard idx < parts.count else { return nil }
+        if case .word(let word, _) = parts[idx].kind { return word }
         return nil
     }
 
@@ -96,8 +99,7 @@ private struct ConditionalEvaluator {
     }
 
     private mutating func parseAnd(skip: Bool)
-        async throws -> Bool
-    {
+        async throws -> Bool {
         var left = try await parseNot(skip: skip)
         while operatorAt(0) == "&&" {
             _ = advance()
@@ -108,8 +110,7 @@ private struct ConditionalEvaluator {
     }
 
     private mutating func parseNot(skip: Bool)
-        async throws -> Bool
-    {
+        async throws -> Bool {
         if isBang(parts[safe: pos]) {
             _ = advance()
             return !(try await parseNot(skip: skip))
@@ -128,8 +129,7 @@ private struct ConditionalEvaluator {
     }
 
     private mutating func parsePrimary(skip: Bool)
-        async throws -> Bool
-    {
+        async throws -> Bool {
         if reservedAt(0) == "(" {
             _ = advance()
             let inner = try await parseOr(skip: skip)
@@ -152,21 +152,19 @@ private struct ConditionalEvaluator {
         }
         if pos + 2 < parts.count,
            let opStr = operatorAtIndex(pos + 1),
-           opStr == "<" || opStr == ">"
-        {
+           opStr == "<" || opStr == ">" {
             let lhs = parts[pos]
             let rhs = parts[pos + 2]
             pos += 3
             if skip { return false }
-            let l = try await Shell.bashCurrent.expand(word: lhs)
-            let r = try await Shell.bashCurrent.expand(word: rhs)
-            return opStr == "<" ? (l < r) : (l > r)
+            let lhsValue = try await Shell.bashCurrent.expand(word: lhs)
+            let rhsValue = try await Shell.bashCurrent.expand(word: rhs)
+            return opStr == "<" ? (lhsValue < rhsValue) : (lhsValue > rhsValue)
         }
 
         if pos + 1 < parts.count,
            let opStr = wordValueAt(0),
-           Self.unaryOps.contains(opStr)
-        {
+           Self.unaryOps.contains(opStr) {
             _ = advance()
             let argNode = advance()!
             if skip { return false }
@@ -182,14 +180,14 @@ private struct ConditionalEvaluator {
         return !value.isEmpty
     }
 
-    private func operatorAtIndex(_ i: Int) -> String? {
-        guard i < parts.count else { return nil }
-        if case .operator(let op) = parts[i].kind { return op }
+    private func operatorAtIndex(_ idx: Int) -> String? {
+        guard idx < parts.count else { return nil }
+        if case .operator(let opText) = parts[idx].kind { return opText }
         return nil
     }
 
     private func isBinaryOpNode(_ node: Node) -> Bool {
-        if case .word(let w, _) = node.kind, Self.binaryOps.contains(w) {
+        if case .word(let word, _) = node.kind, Self.binaryOps.contains(word) {
             return true
         }
         return false
@@ -211,21 +209,21 @@ private struct ConditionalEvaluator {
 
     // MARK: Operator dispatch
 
-    private func evalUnary(op: String, arg: Node) async throws -> Bool
-    {
+    // swiftlint:disable:next cyclomatic_complexity
+    private func evalUnary(op opText: String, arg: Node) async throws -> Bool {
         let value = try await Shell.bashCurrent.expand(word: arg)
-        switch op {
+        switch opText {
         case "-z": return value.isEmpty
         case "-n": return !value.isEmpty
         case "-e", "-f", "-d", "-s", "-r", "-w", "-x":
             let path = Shell.bashCurrent.resolvePath(value)
-            let m = try? await Shell.bashCurrent.fileSystem.metadata(path)
-            switch op {
-            case "-e": return m != nil
-            case "-f": return m?.kind == .file
-            case "-d": return m?.kind == .directory
-            case "-s": return (m?.size ?? 0) > 0
-            case "-r", "-w", "-x": return m != nil
+            let meta = try? await Shell.bashCurrent.fileSystem.metadata(path)
+            switch opText {
+            case "-e": return meta != nil
+            case "-f": return meta?.kind == .file
+            case "-d": return meta?.kind == .directory
+            case "-s": return (meta?.size ?? 0) > 0
+            case "-r", "-w", "-x": return meta != nil
             default: return false
             }
         case "-L", "-h",
@@ -233,13 +231,13 @@ private struct ConditionalEvaluator {
             return false
         default:
             throw BashInterpreterError.parameter(
-                "[[: unknown unary operator: `\(op)'")
+                "[[: unknown unary operator: `\(opText)'")
         }
     }
 
-    private func evalBinary(lhs: Node, op: Node, rhs: Node) async throws -> Bool
-    {
-        guard case .word(let opStr, _) = op.kind else {
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    private func evalBinary(lhs: Node, op opNode: Node, rhs: Node) async throws -> Bool {
+        guard case .word(let opStr, _) = opNode.kind else {
             throw BashInterpreterError.parameter("[[: bad binary operator")
         }
         let lValue = try await Shell.bashCurrent.expand(word: lhs)
@@ -263,42 +261,42 @@ private struct ConditionalEvaluator {
             }
         case "-eq", "-ne", "-lt", "-le", "-gt", "-ge":
             let rValue = try await Shell.bashCurrent.expand(word: rhs)
-            guard let l = Int64(lValue.trimmingCharacters(in: .whitespaces)),
-                  let r = Int64(rValue.trimmingCharacters(in: .whitespaces))
+            guard let lhsInt = Int64(lValue.trimmingCharacters(in: .whitespaces)),
+                  let rhsInt = Int64(rValue.trimmingCharacters(in: .whitespaces))
             else {
                 throw BashInterpreterError.parameter(
                     "[[: integer expected: `\(lValue)' \(opStr) `\(rValue)'")
             }
             switch opStr {
-            case "-eq": return l == r
-            case "-ne": return l != r
-            case "-lt": return l < r
-            case "-le": return l <= r
-            case "-gt": return l > r
-            case "-ge": return l >= r
+            case "-eq": return lhsInt == rhsInt
+            case "-ne": return lhsInt != rhsInt
+            case "-lt": return lhsInt < rhsInt
+            case "-le": return lhsInt <= rhsInt
+            case "-gt": return lhsInt > rhsInt
+            case "-ge": return lhsInt >= rhsInt
             default: return false
             }
         case "-nt", "-ot", "-ef":
             let rValue = try await Shell.bashCurrent.expand(word: rhs)
-            let lp = Shell.bashCurrent.resolvePath(lValue)
-            let rp = Shell.bashCurrent.resolvePath(rValue)
-            let lm = try? await Shell.bashCurrent.fileSystem.metadata(lp)
-            let rm = try? await Shell.bashCurrent.fileSystem.metadata(rp)
+            let lhsPath = Shell.bashCurrent.resolvePath(lValue)
+            let rhsPath = Shell.bashCurrent.resolvePath(rValue)
+            let lhsMeta = try? await Shell.bashCurrent.fileSystem.metadata(lhsPath)
+            let rhsMeta = try? await Shell.bashCurrent.fileSystem.metadata(rhsPath)
             switch opStr {
             case "-nt":
-                guard let l = lm else { return false }
-                guard let r = rm else { return true }
-                return l.modifiedAt > r.modifiedAt
+                guard let lhsMeta else { return false }
+                guard let rhsMeta else { return true }
+                return lhsMeta.modifiedAt > rhsMeta.modifiedAt
             case "-ot":
-                guard let r = rm else { return false }
-                guard let l = lm else { return true }
-                return l.modifiedAt < r.modifiedAt
+                guard let rhsMeta else { return false }
+                guard let lhsMeta else { return true }
+                return lhsMeta.modifiedAt < rhsMeta.modifiedAt
             case "-ef":
-                let lc = try? await Shell.bashCurrent.fileSystem.canonicalize(
-                    lp, allowMissing: false)
-                let rc = try? await Shell.bashCurrent.fileSystem.canonicalize(
-                    rp, allowMissing: false)
-                return lc != nil && lc == rc
+                let lhsCanonical = try? await Shell.bashCurrent.fileSystem.canonicalize(
+                    lhsPath, allowMissing: false)
+                let rhsCanonical = try? await Shell.bashCurrent.fileSystem.canonicalize(
+                    rhsPath, allowMissing: false)
+                return lhsCanonical != nil && lhsCanonical == rhsCanonical
             default: return false
             }
         default:
@@ -314,11 +312,11 @@ private struct ConditionalEvaluator {
     /// source range, so we inspect that.
     private func rhsIsLiteral(_ node: Node) -> Bool {
         let chars = Array(Shell.bashCurrent.currentSource)
-        let lo = max(0, node.range.lowerBound)
-        let hi = min(chars.count, node.range.upperBound)
-        for i in lo..<hi {
-            let c = chars[i]
-            if c == "'" || c == "\"" || c == "\\" { return true }
+        let low = max(0, node.range.lowerBound)
+        let high = min(chars.count, node.range.upperBound)
+        for idx in low..<high {
+            let char = chars[idx]
+            if char == "'" || char == "\"" || char == "\\" { return true }
         }
         return false
     }
@@ -328,12 +326,11 @@ private struct ConditionalEvaluator {
     /// unquoted spans treated as glob metacharacters. So `"h"*` is the
     /// literal `h` followed by any chars; `'a*b'` is the literal three
     /// characters; an entirely unquoted `*.txt` is a normal glob.
-    private func matchAsGlob(lhs: String, rhs: Node) async throws -> Bool
-    {
+    private func matchAsGlob(lhs: String, rhs: Node) async throws -> Bool {
         let pattern = try await buildGlobPattern(rhs: rhs)
         let opts = GlobOptions(
             extglob: Shell.bashCurrent.shoptOptions["extglob"] == true,
-            nocase:  Shell.bashCurrent.shoptOptions["nocasematch"] == true)
+            nocase: Shell.bashCurrent.shoptOptions["nocasematch"] == true)
         return GlobMatcher.match(pattern: pattern, string: lhs, options: opts)
     }
 
@@ -346,66 +343,66 @@ private struct ConditionalEvaluator {
     /// literal in `[[ ]]` patterns.
     private func buildGlobPattern(rhs: Node) async throws -> String {
         let chars = Array(Shell.bashCurrent.currentSource)
-        let lo = max(0, rhs.range.lowerBound)
-        let hi = min(chars.count, rhs.range.upperBound)
-        guard lo < hi else { return "" }
+        let low = max(0, rhs.range.lowerBound)
+        let high = min(chars.count, rhs.range.upperBound)
+        guard low < high else { return "" }
 
         // Sort substitution sub-nodes by source position so we can
         // splice them in as we walk.
         let parts: [Node]
-        if case .word(_, let p) = rhs.kind { parts = p } else { parts = [] }
+        if case .word(_, let inner) = rhs.kind { parts = inner } else { parts = [] }
         var queue = parts.sorted { $0.range.lowerBound < $1.range.lowerBound }
 
         var out = ""
         var inDouble = false
-        var i = lo
-        while i < hi {
-            if let head = queue.first, i == head.range.lowerBound {
+        var cursor = low
+        while cursor < high {
+            if let head = queue.first, cursor == head.range.lowerBound {
                 let value = try await Shell.bashCurrent.resolve(part: head)
                 out.append(escapedForGlob(value))
-                i = min(hi, head.range.upperBound)
+                cursor = min(high, head.range.upperBound)
                 queue.removeFirst()
                 continue
             }
-            let c = chars[i]
-            if c == "'", !inDouble {
-                i += 1
-                while i < hi, chars[i] != "'" {
-                    out.append(escapedForGlob(String(chars[i])))
-                    i += 1
+            let char = chars[cursor]
+            if char == "'", !inDouble {
+                cursor += 1
+                while cursor < high, chars[cursor] != "'" {
+                    out.append(escapedForGlob(String(chars[cursor])))
+                    cursor += 1
                 }
-                if i < hi { i += 1 }
+                if cursor < high { cursor += 1 }
                 continue
             }
-            if c == "\"" {
+            if char == "\"" {
                 inDouble.toggle()
-                i += 1
+                cursor += 1
                 continue
             }
-            if c == "\\", i + 1 < hi {
-                out.append(escapedForGlob(String(chars[i + 1])))
-                i += 2
+            if char == "\\", cursor + 1 < high {
+                out.append(escapedForGlob(String(chars[cursor + 1])))
+                cursor += 2
                 continue
             }
             if inDouble {
-                out.append(escapedForGlob(String(c)))
+                out.append(escapedForGlob(String(char)))
             } else {
-                out.append(c)
+                out.append(char)
             }
-            i += 1
+            cursor += 1
         }
         return out
     }
 
-    private func escapedForGlob(_ s: String) -> String {
+    private func escapedForGlob(_ text: String) -> String {
         var out = ""
-        for ch in s {
-            switch ch {
+        for char in text {
+            switch char {
             case "*", "?", "[", "]", "\\", "(", ")", "|":
                 out.append("\\")
-                out.append(ch)
+                out.append(char)
             default:
-                out.append(ch)
+                out.append(char)
             }
         }
         return out

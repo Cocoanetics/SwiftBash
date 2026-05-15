@@ -33,8 +33,7 @@ public struct PwdCommand: Command {
         let logical = Shell.bashCurrent.environment.workingDirectory
         if physical {
             if let canon = try? await Shell.bashCurrent.fileSystem
-                .canonicalize(logical, allowMissing: true)
-            {
+                .canonicalize(logical, allowMissing: true) {
                 Shell.bashCurrent.stdout(canon + "\n")
                 return .success
             }

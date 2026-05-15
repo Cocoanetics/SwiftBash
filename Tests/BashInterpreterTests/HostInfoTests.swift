@@ -36,11 +36,11 @@ import WinSDK
     @Test func syntheticLeaksNoHostStrings() {
         // Sanity: every field in `.synthetic` is a known anonymous
         // value — nothing pulled from ProcessInfo at construction.
-        let s = HostInfo.synthetic
+        let info = HostInfo.synthetic
         let allFields = [
-            s.userName, s.fullUserName, s.hostName, s.groupName,
-            s.kernelName, s.kernelRelease, s.kernelVersion,
-            s.machine, s.nodeName,
+            info.userName, info.fullUserName, info.hostName, info.groupName,
+            info.kernelName, info.kernelRelease, info.kernelVersion,
+            info.machine, info.nodeName
         ]
         let real = ProcessInfo.processInfo
         for field in allFields {

@@ -30,21 +30,22 @@ public struct DateCommand: ParsableBashCommand {
 
     public init() {}
 
+    // swiftlint:disable:next function_body_length - argv parsing plus libc broken-down-time emission
     public mutating func execute() async throws -> ExitStatus {
         var format = "%a %b %e %H:%M:%S %Z %Y"
         var utc = false
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                if i < rawArgv.count, rawArgv[i].hasPrefix("+") {
-                    format = String(rawArgv[i].dropFirst())
+        var idx = 0
+        while idx < rawArgv.count {
+            let arg = rawArgv[idx]
+            if arg == "--" {
+                idx += 1
+                if idx < rawArgv.count, rawArgv[idx].hasPrefix("+") {
+                    format = String(rawArgv[idx].dropFirst())
                 }
                 break
             }
-            if a == "-h" || a == "--help" {
+            if arg == "-h" || arg == "--help" {
                 Shell.bashCurrent.stdout("""
                     USAGE: date [-u] [-f FMT | --format FMT] [+FORMAT]
 
@@ -59,24 +60,24 @@ public struct DateCommand: ParsableBashCommand {
                     """)
                 return .success
             }
-            if a == "-u" || a == "--utc" || a == "--universal" {
-                utc = true; i += 1; continue
+            if arg == "-u" || arg == "--utc" || arg == "--universal" {
+                utc = true; idx += 1; continue
             }
-            if a == "-f" || a == "--format" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("date: option requires an argument: \(a)\n")
+            if arg == "-f" || arg == "--format" {
+                guard idx + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("date: option requires an argument: \(arg)\n")
                     return ExitStatus(2)
                 }
-                format = rawArgv[i + 1]
-                i += 2; continue
+                format = rawArgv[idx + 1]
+                idx += 2; continue
             }
-            if a.hasPrefix("+") {
-                format = String(a.dropFirst())
-                i += 1; continue
+            if arg.hasPrefix("+") {
+                format = String(arg.dropFirst())
+                idx += 1; continue
             }
             // Unknown option / extra positional. Real `date` accepts
             // `-r SECONDS` and `-d STRING` but those are out of scope.
-            Shell.bashCurrent.stderr("date: unknown argument: \(a)\n")
+            Shell.bashCurrent.stderr("date: unknown argument: \(arg)\n")
             return ExitStatus(2)
         }
 
@@ -106,6 +107,7 @@ public struct DateCommand: ParsableBashCommand {
         // decode as UTF-8 (the deprecated `String(cString: array)`
         // variant scans for NUL itself).
         let bytes = (0..<written).map { UInt8(bitPattern: buffer[$0]) }
+        // swiftlint:disable:next optional_data_string_conversion - strftime output may include locale bytes
         Shell.bashCurrent.stdout(String(decoding: bytes, as: UTF8.self) + "\n")
         return .success
     }
@@ -119,31 +121,31 @@ public struct DateCommand: ParsableBashCommand {
     static func preprocessFormat(_ format: String,
                                  epoch: time_t,
                                  utc: Bool) -> String {
-        let tz: String
+        let timeZone: String
         if utc {
-            tz = "UTC"
+            timeZone = "UTC"
         } else {
-            tz = TimeZone.current.abbreviation() ?? ""
+            timeZone = TimeZone.current.abbreviation() ?? ""
         }
         var out = ""
         out.reserveCapacity(format.count)
-        var i = format.startIndex
-        while i < format.endIndex {
-            let c = format[i]
-            if c != "%" {
-                out.append(c)
-                i = format.index(after: i)
+        var idx = format.startIndex
+        while idx < format.endIndex {
+            let char = format[idx]
+            if char != "%" {
+                out.append(char)
+                idx = format.index(after: idx)
                 continue
             }
-            let next = format.index(after: i)
+            let next = format.index(after: idx)
             guard next < format.endIndex else {
                 // Trailing lone `%` — leave for strftime to handle.
-                out.append(c)
-                i = next
+                out.append(char)
+                idx = next
                 continue
             }
-            let nc = format[next]
-            switch nc {
+            let nextChar = format[next]
+            switch nextChar {
             case "%":
                 out.append("%%")
             case "s":
@@ -151,12 +153,12 @@ public struct DateCommand: ParsableBashCommand {
             case "Z":
                 // Escape any `%` in the abbreviation so strftime treats
                 // it literally.
-                out.append(tz.replacingOccurrences(of: "%", with: "%%"))
+                out.append(timeZone.replacingOccurrences(of: "%", with: "%%"))
             default:
-                out.append(c)
-                out.append(nc)
+                out.append(char)
+                out.append(nextChar)
             }
-            i = format.index(after: next)
+            idx = format.index(after: next)
         }
         return out
     }

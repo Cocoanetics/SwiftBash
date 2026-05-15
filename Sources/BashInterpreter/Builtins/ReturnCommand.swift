@@ -14,11 +14,11 @@ public struct ReturnCommand: Command {
         }
         let status: ExitStatus
         if let raw = argv.dropFirst().first {
-            guard let n = Int32(raw) else {
+            guard let num = Int32(raw) else {
                 Shell.bashCurrent.stderr("return: \(raw): numeric argument required\n")
                 return ExitStatus(2)
             }
-            status = ExitStatus(n)
+            status = ExitStatus(num)
         } else {
             status = Shell.bashCurrent.lastExitStatus
         }

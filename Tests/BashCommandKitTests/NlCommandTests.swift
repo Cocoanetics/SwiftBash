@@ -91,9 +91,9 @@ import Foundation
             atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
-        let p = (dir as NSString).appendingPathComponent("data")
+        let path = (dir as NSString).appendingPathComponent("data")
         try "one\ntwo\nthree\n".write(
-            toFile: p, atomically: true, encoding: .utf8)
+            toFile: path, atomically: true, encoding: .utf8)
         let cap = makeShell()
         cap.shell.environment.workingDirectory = dir
         try await cap.shell.run("nl -w 1 data")

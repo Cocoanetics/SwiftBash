@@ -45,6 +45,10 @@ public struct LessCommand: ParsableBashCommand {
 
     public init() {}
 
+    // `less` execution dispatches across env-var parsing, multi-file
+    // joining, $LINES heuristics, and interactive vs non-interactive
+    // mode; one branch per case keeps the flow explicit.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public mutating func execute() async throws -> ExitStatus {
         let shell = Shell.bashCurrent
 
@@ -52,7 +56,7 @@ public struct LessCommand: ParsableBashCommand {
         // user-supplied argv overrides.
         let envArgv = parseLessEnv(shell.environment["LESS"])
         var opts = LessOptions()
-        var parseErr: String? = nil
+        var parseErr: String?
         if !opts.consume(envArgv, source: "LESS") {
             parseErr = "less: bad option in LESS env var\n"
         }
@@ -164,9 +168,9 @@ public struct LessCommand: ParsableBashCommand {
         return value
             .split(whereSeparator: { $0.isWhitespace })
             .map { tok -> String in
-                let s = String(tok)
-                if s.hasPrefix("-") || s.hasPrefix("+") { return s }
-                return "-" + s
+                let text = String(tok)
+                if text.hasPrefix("-") || text.hasPrefix("+") { return text }
+                return "-" + text
             }
     }
 
@@ -193,40 +197,43 @@ struct LessOptions {
     var quitIfOneScreen: Bool = false
     var startAtEnd: Bool = false
     /// `+N` — 1-based starting line. `nil` means "start at top".
-    var startAtLine: Int? = nil
+    var startAtLine: Int?
     var showHelp: Bool = false
     var files: [String] = []
-    var usageError: String? = nil
+    var usageError: String?
 
-    /// Consume one batch of argv (either from `$LESS` or from the
-    /// command line). Returns `false` on a parse error and stashes a
-    /// message in ``usageError``.
+    // Consume one batch of argv (either from `$LESS` or from the
+    // command line). Returns `false` on a parse error and stashes a
+    // message in ``usageError``. less consumes a full POSIX option
+    // table (short, combined, `+G`, `+N`, long forms, double-dash);
+    // per-case-branch dispatch keeps the option matrix readable.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     mutating func consume(_ argv: [String], source: String) -> Bool {
-        var i = 0
+        var idx = 0
         var sawDoubleDash = false
-        while i < argv.count {
-            let a = argv[i]
+        while idx < argv.count {
+            let arg = argv[idx]
             if sawDoubleDash {
-                files.append(a); i += 1; continue
+                files.append(arg); idx += 1; continue
             }
-            if a == "--" {
-                sawDoubleDash = true; i += 1; continue
+            if arg == "--" {
+                sawDoubleDash = true; idx += 1; continue
             }
-            if a == "-" { files.append("-"); i += 1; continue }
+            if arg == "-" { files.append("-"); idx += 1; continue }
             // `+G` and `+N` — less's "start at" shorthand.
-            if a.hasPrefix("+"), a.count > 1 {
-                let rest = String(a.dropFirst())
+            if arg.hasPrefix("+"), arg.count > 1 {
+                let rest = String(arg.dropFirst())
                 if rest == "G" {
-                    startAtEnd = true; i += 1; continue
+                    startAtEnd = true; idx += 1; continue
                 }
-                if let n = Int(rest), n >= 1 {
-                    startAtLine = n; i += 1; continue
+                if let value = Int(rest), value >= 1 {
+                    startAtLine = value; idx += 1; continue
                 }
-                usageError = "unrecognized option: \(a)"
+                usageError = "unrecognized option: \(arg)"
                 return false
             }
-            if a.hasPrefix("--") {
-                switch a {
+            if arg.hasPrefix("--") {
+                switch arg {
                 case "--LINE-NUMBERS":      lineNumbers = true
                 case "--ignore-case":       ignoreCase = true
                 case "--chop-long-lines":   chopLongLines = true
@@ -237,14 +244,14 @@ struct LessOptions {
                     break // accept; we have no termcap init to skip
                 case "--help":              showHelp = true
                 default:
-                    usageError = "unrecognized option: \(a)"
+                    usageError = "unrecognized option: \(arg)"
                     return false
                 }
-                i += 1; continue
+                idx += 1; continue
             }
-            if a.hasPrefix("-"), a.count > 1 {
-                for c in a.dropFirst() {
-                    switch c {
+            if arg.hasPrefix("-"), arg.count > 1 {
+                for flagChar in arg.dropFirst() {
+                    switch flagChar {
                     case "N": lineNumbers = true
                     case "i": ignoreCase = true
                     case "S": chopLongLines = true
@@ -253,14 +260,14 @@ struct LessOptions {
                     case "X": break       // no-init; no-op
                     case "?": showHelp = true
                     default:
-                        usageError = "unrecognized option: -\(c)"
+                        usageError = "unrecognized option: -\(flagChar)"
                         return false
                     }
                 }
-                i += 1; continue
+                idx += 1; continue
             }
-            files.append(a)
-            i += 1
+            files.append(arg)
+            idx += 1
         }
         _ = source // reserved for future "in $LESS" diagnostics
         return true

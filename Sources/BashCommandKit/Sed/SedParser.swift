@@ -1,20 +1,28 @@
+// swiftlint:disable file_length
 import Foundation
 
-/// Single-pass scanner-style parser that walks the script source
-/// directly. Sed's grammar is context-sensitive so a separate
-/// tokenizer would just defer the work; we read commands top-down,
-/// each command type knowing how to consume the rest of its own
-/// syntax. The parser produces a flat command list — groups (`{...}`)
-/// and labels share the surrounding scope, exactly like real sed.
+// Single-pass scanner-style parser that walks the script source
+// directly. Sed's grammar is context-sensitive so a separate
+// tokenizer would just defer the work; we read commands top-down,
+// each command type knowing how to consume the rest of its own
+// syntax. The parser produces a flat command list — groups (`{...}`)
+// and labels share the surrounding scope, exactly like real sed.
+// swiftlint:disable:next type_body_length
 public enum SedParser {
+
+    /// Result of parsing one or more `-e` script fragments.
+    public struct ParseResult {
+        public let commands: [SedCommandNode]
+        public let silentMode: Bool
+        public let extendedMode: Bool
+    }
 
     /// Parse one or more `-e` script fragments into a unified command
     /// list. Fragments are joined with newlines (so `{` in one and `}`
     /// in another work). A `#n`/`#r` shebang-style comment in the very
     /// first fragment toggles silent / extended modes.
     public static func parse(scripts: [String], extendedRegex: Bool = false)
-        throws -> (commands: [SedCommandNode], silentMode: Bool, extendedMode: Bool)
-    {
+        throws -> ParseResult {
         // Combine -e fragments. If a fragment ends with a single
         // backslash, keep it as continuation (lexer handles a/i/c).
         var combined = scripts.joined(separator: "\n")
@@ -43,10 +51,11 @@ public enum SedParser {
             }
         }
 
-        var p = Parser(source: combined, extendedRegex: extendedRegex || ereFromComment)
-        let commands = try p.parseScript()
+        var parser = Parser(source: combined, extendedRegex: extendedRegex || ereFromComment)
+        let commands = try parser.parseScript()
         try validateLabels(commands)
-        return (commands, silent, ereFromComment)
+        return ParseResult(
+            commands: commands, silentMode: silent, extendedMode: ereFromComment)
     }
 
     // MARK: - Validation
@@ -59,21 +68,25 @@ public enum SedParser {
         }
     }
 
-    private static func collect(_ commands: [SedCommandNode], into out: inout Set<String>) {
-        for c in commands {
-            switch c {
-            case .label(let n): out.insert(n)
+    private static func collect(_ commands: [SedCommandNode],
+                                into out: inout Set<String>) {
+        for command in commands {
+            switch command {
+            case .label(let name): out.insert(name)
             case .group(_, let inner): collect(inner, into: &out)
             default: break
             }
         }
     }
 
-    private static func findUndefined(_ commands: [SedCommandNode], defined: Set<String>) -> String? {
-        for c in commands {
-            switch c {
-            case .branch(_, let l), .branchOnSubst(_, let l), .branchOnNoSubst(_, let l):
-                if let label = l, !label.isEmpty, !defined.contains(label) { return label }
+    private static func findUndefined(_ commands: [SedCommandNode],
+                                      defined: Set<String>) -> String? {
+        for command in commands {
+            switch command {
+            case .branch(_, let label),
+                 .branchOnSubst(_, let label),
+                 .branchOnNoSubst(_, let label):
+                if let label, !label.isEmpty, !defined.contains(label) { return label }
             case .group(_, let inner):
                 if let bad = findUndefined(inner, defined: defined) { return bad }
             default: break
@@ -84,6 +97,7 @@ public enum SedParser {
 
     // MARK: - Recursive-descent parser
 
+    // swiftlint:disable:next type_body_length
     fileprivate struct Parser {
         let chars: [Character]
         var pos = 0
@@ -109,18 +123,20 @@ public enum SedParser {
 
         var atEnd: Bool { pos >= chars.count }
         func peek(_ offset: Int = 0) -> Character? {
-            let i = pos + offset
-            return i < chars.count ? chars[i] : nil
+            let idx = pos + offset
+            return idx < chars.count ? chars[idx] : nil
         }
         @discardableResult mutating func advance() -> Character {
-            let c = chars[pos]; pos += 1; return c
+            let char = chars[pos]
+            pos += 1
+            return char
         }
         mutating func skipBlankSeparators() {
             while !atEnd {
-                let c = chars[pos]
-                if c == " " || c == "\t" || c == "\n" || c == "\r" || c == ";" {
+                let char = chars[pos]
+                if char == " " || char == "\t" || char == "\n" || char == "\r" || char == ";" {
                     pos += 1
-                } else if c == "#" {
+                } else if char == "#" {
                     // Comment to end of line
                     while !atEnd && chars[pos] != "\n" { pos += 1 }
                 } else {
@@ -144,8 +160,8 @@ public enum SedParser {
                     skipHorizontalSpace()
                     if !atEnd, chars[pos] == "+" && (peek(1).map { $0.isASCII && $0.isNumber } == true) {
                         pos += 1
-                        let n = readNumber()
-                        range.end = .relative(offset: n)
+                        let offset = readNumber()
+                        range.end = .relative(offset: offset)
                     } else {
                         guard let end = try parseAddress() else {
                             throw SedScriptError("expected context address")
@@ -171,83 +187,102 @@ public enum SedParser {
 
         mutating func parseAddress() throws -> SedAddress? {
             guard !atEnd else { return nil }
-            let c = chars[pos]
-            if c.isASCII, c.isNumber {
-                let n = readNumber()
+            let char = chars[pos]
+            if char.isASCII, char.isNumber {
+                let lineNum = readNumber()
                 if !atEnd, chars[pos] == "~" {
                     pos += 1
                     let step = readNumber()
-                    return .step(first: n, step: step)
+                    return .step(first: lineNum, step: step)
                 }
-                return .line(n)
+                return .line(lineNum)
             }
-            if c == "$" { pos += 1; return .last }
-            if c == "/" || c == "\\" {
+            if char == "$" { pos += 1; return .last }
+            if char == "/" || char == "\\" {
                 // \cREGEXc — alternate delimiter
                 let delim: Character
-                if c == "\\" {
+                if char == "\\" {
                     pos += 1
                     if atEnd { throw SedScriptError("expected pattern delimiter") }
                     delim = chars[pos]; pos += 1
                 } else {
-                    delim = "/"; pos += 1
+                    delim = "/"
+                    pos += 1
                 }
-                let pat = try readDelimited(until: delim, allowBracket: true)
-                return .regex(pat)
+                let pattern = try readDelimited(until: delim, allowBracket: true)
+                return .regex(pattern)
             }
             return nil
         }
 
         mutating func readNumber() -> Int {
-            var n = 0
-            while !atEnd, let v = chars[pos].asciiValue, v >= 0x30, v <= 0x39 {
-                n = n * 10 + Int(v - 0x30); pos += 1
+            var number = 0
+            while !atEnd, let digit = chars[pos].asciiValue, digit >= 0x30, digit <= 0x39 {
+                number = number * 10 + Int(digit - 0x30)
+                pos += 1
             }
-            return n
+            return number
         }
 
         /// Read until an unescaped `terminator` (consuming it). If
         /// `allowBracket`, `[..]` regions are passed through verbatim
         /// (the terminator inside brackets is literal).
-        mutating func readDelimited(until terminator: Character, allowBracket: Bool) throws -> String {
+        mutating func readDelimited(until terminator: Character,
+                                    allowBracket: Bool) throws -> String {
             var out = ""
             var inBracket = false
             while !atEnd {
-                let c = chars[pos]
-                if c == terminator && !inBracket {
+                let char = chars[pos]
+                if char == terminator && !inBracket {
                     pos += 1
                     return out
                 }
-                if c == "\n" { break }
-                if c == "\\", pos + 1 < chars.count {
+                if char == "\n" { break }
+                if char == "\\", pos + 1 < chars.count {
                     let next = chars[pos + 1]
                     // Unescape the terminator (drop backslash); keep
                     // other escapes for the regex layer.
                     if next == terminator && !inBracket {
                         out.append(terminator); pos += 2; continue
                     }
-                    out.append(c); out.append(next); pos += 2; continue
+                    out.append(char); out.append(next); pos += 2; continue
                 }
                 if allowBracket {
-                    if c == "[" && !inBracket {
-                        inBracket = true; out.append(c); pos += 1
-                        if !atEnd, chars[pos] == "^" { out.append(chars[pos]); pos += 1 }
-                        if !atEnd, chars[pos] == "]" { out.append(chars[pos]); pos += 1 }
+                    if char == "[" && !inBracket {
+                        inBracket = true
+                        out.append(char)
+                        pos += 1
+                        if !atEnd, chars[pos] == "^" {
+                            out.append(chars[pos])
+                            pos += 1
+                        }
+                        if !atEnd, chars[pos] == "]" {
+                            out.append(chars[pos])
+                            pos += 1
+                        }
                         continue
                     }
-                    if c == "]" && inBracket {
-                        inBracket = false; out.append(c); pos += 1; continue
+                    if char == "]" && inBracket {
+                        inBracket = false
+                        out.append(char)
+                        pos += 1
+                        continue
                     }
                 }
-                out.append(c); pos += 1
+                out.append(char)
+                pos += 1
             }
             throw SedScriptError("unterminated `\(terminator)`")
         }
 
+        // Dispatcher for all 20+ sed commands; each case is a one-liner
+        // delegating to the right `parseFoo`, so splitting would just
+        // scatter the table.
+        // swiftlint:disable:next cyclomatic_complexity function_body_length
         mutating func parseCommandBody(range: SedAddressRange) throws -> SedCommandNode? {
             guard !atEnd else { return nil }
-            let c = chars[pos]
-            switch c {
+            let char = chars[pos]
+            switch char {
             case "{":
                 pos += 1
                 var inner: [SedCommandNode] = []
@@ -269,7 +304,7 @@ public enum SedParser {
                 pos += 1
                 return try parseTransliterate(range: range)
             case "a", "i":
-                let cmd = c
+                let cmd = char
                 pos += 1
                 let text = readTextLines()
                 return cmd == "a" ? .append(range, text: text) : .insert(range, text: text)
@@ -315,8 +350,8 @@ public enum SedParser {
             case "v":
                 pos += 1
                 skipHorizontalSpace()
-                let v = readUntilLineEnd()
-                return .version(range, minVersion: v.isEmpty ? nil : v)
+                let version = readUntilLineEnd()
+                return .version(range, minVersion: version.isEmpty ? nil : version)
             case "p":
                 pos += 1; return .print(range)
             case "P":
@@ -352,10 +387,13 @@ public enum SedParser {
             case "F":
                 pos += 1; return .printFilename(range)
             default:
-                throw SedScriptError("unknown command: '\(c)'")
+                throw SedScriptError("unknown command: '\(char)'")
             }
         }
 
+        // Inline s/// flag-handling loop covers 9 distinct flags; per-flag
+        // helpers would obscure their short-circuit / break behaviour.
+        // swiftlint:disable:next cyclomatic_complexity
         mutating func parseSubstitute(range: SedAddressRange) throws -> SedCommandNode {
             guard !atEnd else { throw SedScriptError("expected delimiter after 's'") }
             let delim = chars[pos]
@@ -367,33 +405,33 @@ public enum SedParser {
             var global = false
             var ignoreCase = false
             var printOnMatch = false
-            var nth: Int? = nil
-            var writeFile: String? = nil
+            var nth: Int?
+            var writeFile: String?
             while !atEnd {
-                let f = chars[pos]
-                if f == ";" || f == "\n" || f == "}" { break }
-                if f == " " || f == "\t" { pos += 1; continue }
-                if f == "g" { global = true; pos += 1; continue }
-                if f == "i" || f == "I" { ignoreCase = true; pos += 1; continue }
-                if f == "p" { printOnMatch = true; pos += 1; continue }
-                if f.isASCII, f.isNumber {
+                let flag = chars[pos]
+                if flag == ";" || flag == "\n" || flag == "}" { break }
+                if flag == " " || flag == "\t" { pos += 1; continue }
+                if flag == "g" { global = true; pos += 1; continue }
+                if flag == "i" || flag == "I" { ignoreCase = true; pos += 1; continue }
+                if flag == "p" { printOnMatch = true; pos += 1; continue }
+                if flag.isASCII, flag.isNumber {
                     nth = readNumber(); continue
                 }
-                if f == "w" {
+                if flag == "w" {
                     pos += 1
                     skipHorizontalSpace()
                     writeFile = readUntilLineEnd()
                     break
                 }
-                if f == "e" {
+                if flag == "e" {
                     // Sandbox: silently ignore
                     pos += 1; continue
                 }
-                if f == "M" || f == "m" {
+                if flag == "M" || flag == "m" {
                     // multiline mode — accept but no-op for now
                     pos += 1; continue
                 }
-                throw SedScriptError("unknown s flag: \(f)")
+                throw SedScriptError("unknown s flag: \(flag)")
             }
             return .substitute(addr: range, pattern: pattern, replacement: replacement,
                                global: global, ignoreCase: ignoreCase, printOnMatch: printOnMatch,
@@ -408,12 +446,12 @@ public enum SedParser {
         mutating func readSubstituteReplacement(until terminator: Character) throws -> String {
             var out = ""
             while !atEnd {
-                let c = chars[pos]
-                if c == terminator { pos += 1; return out }
-                if c == "\n" {
+                let char = chars[pos]
+                if char == terminator { pos += 1; return out }
+                if char == "\n" {
                     throw SedScriptError("unterminated `s' command")
                 }
-                if c == "\\" && pos + 1 < chars.count {
+                if char == "\\" && pos + 1 < chars.count {
                     pos += 1
                     let next = chars[pos]
                     if next == "\\" {
@@ -434,14 +472,15 @@ public enum SedParser {
                     }
                     continue
                 }
-                out.append(c); pos += 1
+                out.append(char); pos += 1
             }
             throw SedScriptError("unterminated `s' command")
         }
 
         mutating func parseTransliterate(range: SedAddressRange) throws -> SedCommandNode {
             guard !atEnd else { throw SedScriptError("expected delimiter after 'y'") }
-            let delim = chars[pos]; pos += 1
+            let delim = chars[pos]
+            pos += 1
             let source = try readTransliterateOperand(until: delim)
             let dest = try readTransliterateOperand(until: delim)
             if source.count != dest.count {
@@ -450,8 +489,8 @@ public enum SedParser {
             // Allow only separators after y
             skipHorizontalSpace()
             if !atEnd {
-                let n = chars[pos]
-                if n != ";" && n != "\n" && n != "}" {
+                let next = chars[pos]
+                if next != ";" && next != "\n" && next != "}" {
                     throw SedScriptError("extra text at the end of a transform command")
                 }
             }
@@ -461,32 +500,37 @@ public enum SedParser {
         mutating func readTransliterateOperand(until terminator: Character) throws -> String {
             var out = ""
             while !atEnd {
-                let c = chars[pos]
-                if c == terminator { pos += 1; return out }
-                if c == "\n" { throw SedScriptError("unterminated y command") }
-                if c == "\\" && pos + 1 < chars.count {
+                let char = chars[pos]
+                if char == terminator { pos += 1; return out }
+                if char == "\n" { throw SedScriptError("unterminated y command") }
+                if char == "\\" && pos + 1 < chars.count {
                     pos += 1
-                    let n = chars[pos]
-                    switch n {
+                    let next = chars[pos]
+                    switch next {
                     case "n": out += "\n"
                     case "t": out += "\t"
                     case "r": out += "\r"
                     case "\\": out += "\\"
                     default:
-                        if n == terminator { out.append(terminator) }
-                        else { out.append(n) }
+                        if next == terminator {
+                            out.append(terminator)
+                        } else {
+                            out.append(next)
+                        }
                     }
                     pos += 1
                 } else {
-                    out.append(c); pos += 1
+                    out.append(char)
+                    pos += 1
                 }
             }
             throw SedScriptError("unterminated y command")
         }
 
-        /// Read a/i/c text. Supports `a\` followed by newline + text
-        /// (line continuation via trailing `\`), the GNU "a text" one-
-        /// liner, and `\n` / `\t` / `\r` escapes inside the text.
+        // Read a/i/c text. Supports `a\` followed by newline + text
+        // (line continuation via trailing `\`), the GNU "a text" one-
+        // liner, and `\n` / `\t` / `\r` escapes inside the text.
+        // swiftlint:disable:next cyclomatic_complexity
         mutating func readTextLines() -> String {
             // Optional `\` after the command (only consume if followed by
             // newline / space).
@@ -508,8 +552,8 @@ public enum SedParser {
 
             var text = ""
             while !atEnd {
-                let c = chars[pos]
-                if c == "\n" {
+                let char = chars[pos]
+                if char == "\n" {
                     if text.hasSuffix("\\") {
                         text.removeLast()
                         text += "\n"
@@ -518,7 +562,7 @@ public enum SedParser {
                     }
                     break
                 }
-                if c == "\\" && pos + 1 < chars.count {
+                if char == "\\" && pos + 1 < chars.count {
                     let next = chars[pos + 1]
                     switch next {
                     case "n": text += "\n"; pos += 2; continue
@@ -527,20 +571,24 @@ public enum SedParser {
                     default: break
                     }
                 }
-                text.append(c); pos += 1
+                text.append(char); pos += 1
             }
             return text
         }
 
         mutating func readLabel() -> String? {
             skipHorizontalSpace()
-            var s = ""
+            var name = ""
             while !atEnd {
-                let c = chars[pos]
-                if c == " " || c == "\t" || c == "\n" || c == ";" || c == "}" || c == "{" { break }
-                s.append(c); pos += 1
+                let char = chars[pos]
+                if char == " " || char == "\t" || char == "\n"
+                    || char == ";" || char == "}" || char == "{" {
+                    break
+                }
+                name.append(char)
+                pos += 1
             }
-            return s.isEmpty ? nil : s
+            return name.isEmpty ? nil : name
         }
 
         mutating func readFilename() -> String {
@@ -549,11 +597,12 @@ public enum SedParser {
         }
 
         mutating func readUntilLineEnd() -> String {
-            var s = ""
+            var line = ""
             while !atEnd, chars[pos] != "\n", chars[pos] != ";" {
-                s.append(chars[pos]); pos += 1
+                line.append(chars[pos])
+                pos += 1
             }
-            return s
+            return line
         }
     }
 }

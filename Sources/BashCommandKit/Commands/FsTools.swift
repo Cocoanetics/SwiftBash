@@ -6,10 +6,10 @@ import Foundation
 /// actual filesystem ops now live on the ``FileSystem`` protocol.
 enum FsTools {
 
-    static func iso8601(_ d: Date) -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.string(from: d)
+    static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     static func typeWord(_ kind: FileMetadata.Kind) -> String {
@@ -30,10 +30,10 @@ enum FsTools {
         case .file: kindCh = "-"
         }
         let triplet: (UInt16) -> String = { bits in
-            let r = (bits & 0b100) != 0 ? "r" : "-"
-            let w = (bits & 0b010) != 0 ? "w" : "-"
-            let x = (bits & 0b001) != 0 ? "x" : "-"
-            return r + w + x
+            let read = (bits & 0b100) != 0 ? "r" : "-"
+            let write = (bits & 0b010) != 0 ? "w" : "-"
+            let execute = (bits & 0b001) != 0 ? "x" : "-"
+            return read + write + execute
         }
         let owner = triplet((mode >> 6) & 0o7)
         let group = triplet((mode >> 3) & 0o7)

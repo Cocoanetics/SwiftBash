@@ -100,7 +100,7 @@ extension JSRuntime {
         cachedStdin = stdin
 
         let startStdin = block { [weak self] args in
-            if let s = args.first { self?.beginStdinRead(into: s) }
+            if let stream = args.first { self?.beginStdinRead(into: stream) }
             return nil
         }
         setGlobal("__swiftjs_startStdin", startStdin)
@@ -120,14 +120,14 @@ extension JSRuntime {
         pendingTimers[sentinelID] = sentinel
         sentinel.resume()
 
-        let fh = FileHandle.standardInput
+        let fileHandle = FileHandle.standardInput
         // Idempotent teardown shared by the EOF path and the JS-side
         // `destroy()` hook. Without this, a `for await` loop that
         // breaks early on `process.stdin` would leave the sentinel
         // alive and `drainPendingWorkIfNeeded()` would hang waiting
         // for stdin EOF that never comes.
         let teardown: @Sendable () -> Void = { [weak self] in
-            fh.readabilityHandler = nil
+            fileHandle.readabilityHandler = nil
             DispatchQueue.main.async { [weak self] in
                 guard let self,
                       let timer = self.pendingTimers.removeValue(forKey: sentinelID)
@@ -136,7 +136,7 @@ extension JSRuntime {
             }
         }
 
-        fh.readabilityHandler = { handle in
+        fileHandle.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty {
                 teardown()
@@ -182,6 +182,7 @@ extension JSRuntime {
 
     // MARK: - AbortController / AbortSignal
 
+    // swiftlint:disable:next function_body_length - body is mostly an inline JS source string
     private func installAbortController() {
         // Pure-JS implementation. fetch() picks up the signal via
         // init.signal — the Swift bridge inspects it after the
@@ -272,6 +273,7 @@ extension JSRuntime {
 
     // MARK: - console
 
+    // swiftlint:disable:next function_body_length - mostly verbose closure plumbing for console.* members
     private func installConsole() {
         let console = JSValue(newObjectIn: context)!
 
@@ -304,7 +306,10 @@ extension JSRuntime {
           const counters = new Map();
           let groupDepth = 0;
           const indent = () => "  ".repeat(groupDepth);
-          const wrap = (level, fn) => (...args) => fn(indent() + (typeof args[0] === "string" ? args[0] : JSON.stringify(args[0])), ...args.slice(1));
+          const wrap = (level, fn) => (...args) => fn(
+            indent()
+            + (typeof args[0] === "string" ? args[0] : JSON.stringify(args[0])),
+            ...args.slice(1));
           // Override log/info/error/warn to honour group indent.
           const baseLog = c.log;
           const baseErr = c.error;
@@ -354,513 +359,18 @@ extension JSRuntime {
         if value.isNull { return "null" }
         if value.isBoolean || value.isNumber { return value.toString() ?? "" }
         let json = context.objectForKeyedSubscript("JSON")
-        if let s = json?.invokeMethod("stringify", withArguments: [value]),
-           !s.isUndefined, !s.isNull,
-           let str = s.toString(), str != "undefined" {
+        if let result = json?.invokeMethod("stringify", withArguments: [value]),
+           !result.isUndefined, !result.isNull,
+           let str = result.toString(), str != "undefined" {
             return str
         }
         return value.toString() ?? "[object]"
     }
 
-    // MARK: - process
-
-    private func installProcess() {
-        let process = JSValue(newObjectIn: context)!
-
-        // process.argv: a regular JS Array snapshotted from the
-        // provider. Matches Node — it's a real array, supports
-        // for-of/spread/slice, and mutations are local to the
-        // reference (don't propagate back to the provider).
-        // Embedders that need to update it mid-run can call
-        // ``JSRuntime.refreshArgv()`` to re-sync from the provider.
-        process.setObject(argvProvider.argv(), forKeyedSubscript: "argv")
-
-        // process.env is a JS Proxy that routes every read/write
-        // through the EnvProvider. Setting `process.env.X = "y"`
-        // calls envProvider.set(...), which for OSEnvProvider also
-        // propagates to setenv() so child processes see the change.
-        //
-        // Identity redirect: when an embedder has bound a non-default
-        // Shell (i.e. there's confinement in play), reads and writes
-        // route through `Shell.current.environment.variables` instead
-        // — so a sandboxed JS script sees the bound shell's env, not
-        // the host's. Under `Shell.processDefault` (standalone CLI)
-        // we keep the legacy `OSEnvProvider`-via-`setenv` behaviour
-        // so child processes spawned by the host still see writes.
-        let envGet = block { [weak self] args in
-            guard let key = args.first?.toString() else { return nil }
-            if Shell.current !== Shell.processDefault {
-                return Shell.current.environment.variables[key]
-            }
-            return self?.envProvider.get(key)
-        }
-        let envSet = block { [weak self] args in
-            guard args.count >= 2,
-                  let key = args[0].toString()
-            else { return false }
-            let value = args[1]
-            if Shell.current !== Shell.processDefault {
-                if value.isNull || value.isUndefined {
-                    Shell.current.environment.variables.removeValue(forKey: key)
-                } else {
-                    Shell.current.environment.variables[key] = value.toString() ?? ""
-                }
-                return true
-            }
-            if value.isNull || value.isUndefined {
-                self?.envProvider.set(key, nil)
-            } else {
-                self?.envProvider.set(key, value.toString())
-            }
-            return true
-        }
-        let envHas = block { [weak self] args in
-            guard let key = args.first?.toString() else { return false }
-            if Shell.current !== Shell.processDefault {
-                return Shell.current.environment.variables[key] != nil
-            }
-            return self?.envProvider.get(key) != nil
-        }
-        let envKeys = block { [weak self] _ in
-            if Shell.current !== Shell.processDefault {
-                return Array(Shell.current.environment.variables.keys)
-            }
-            return self?.envProvider.allKeys ?? []
-        }
-        let envDel = block { [weak self] args in
-            guard let key = args.first?.toString() else { return false }
-            if Shell.current !== Shell.processDefault {
-                Shell.current.environment.variables.removeValue(forKey: key)
-                return true
-            }
-            self?.envProvider.set(key, nil)
-            return true
-        }
-        setGlobal("__swiftjs_envGet", envGet)
-        setGlobal("__swiftjs_envSet", envSet)
-        setGlobal("__swiftjs_envHas", envHas)
-        setGlobal("__swiftjs_envKeys", envKeys)
-        setGlobal("__swiftjs_envDel", envDel)
-
-        let envProxy = context.evaluateScript(#"""
-        new Proxy({}, {
-          get(_, key)            { return globalThis.__swiftjs_envGet(String(key)); },
-          set(_, key, value)     { return globalThis.__swiftjs_envSet(String(key), value); },
-          has(_, key)            { return globalThis.__swiftjs_envHas(String(key)); },
-          deleteProperty(_, key) { return globalThis.__swiftjs_envDel(String(key)); },
-          ownKeys()              { return globalThis.__swiftjs_envKeys(); },
-          getOwnPropertyDescriptor(t, key) {
-            const v = globalThis.__swiftjs_envGet(String(key));
-            return v === undefined ? undefined
-              : { enumerable: true, configurable: true, writable: true, value: v };
-          },
-        });
-        """#)!
-        process.setObject(envProxy, forKeyedSubscript: "env")
-
-        #if os(macOS)
-        process.setObject("darwin", forKeyedSubscript: "platform")
-        #elseif os(iOS)
-        process.setObject("ios", forKeyedSubscript: "platform")
-        #elseif os(Linux)
-        process.setObject("linux", forKeyedSubscript: "platform")
-        #elseif os(Android)
-        process.setObject("android", forKeyedSubscript: "platform")
-        #else
-        process.setObject("unknown", forKeyedSubscript: "platform")
-        #endif
-
-        #if arch(arm64)
-        process.setObject("arm64", forKeyedSubscript: "arch")
-        #elseif arch(x86_64)
-        process.setObject("x64", forKeyedSubscript: "arch")
-        #else
-        process.setObject("unknown", forKeyedSubscript: "arch")
-        #endif
-
-        process.setObject("v22.0.0-swiftjs", forKeyedSubscript: "version")
-
-        // process.pid / process.ppid: under a bound Shell, return
-        // ``Shell.virtualPID`` (synthetic — defaults to 1) so a
-        // sandboxed script never sees the embedder's real PID. Under
-        // ``Shell.processDefault`` we keep `getpid()` / `getppid()`
-        // so the standalone `swift-js` CLI behaves unchanged.
-        // Defined as Proxy-backed accessors via JS Object.defineProperty
-        // because the value has to be re-read at access time — pid is a
-        // task-local quantity, baking it in at init would freeze the
-        // standalone-mode value into a Shell-bound run.
-        let pidGetter = block { _ in
-            if Shell.current === Shell.processDefault {
-                return Int(getpid())
-            }
-            return Int(Shell.current.virtualPID)
-        }
-        let ppidGetter = block { _ in
-            if Shell.current === Shell.processDefault {
-                return Int(getppid())
-            }
-            // No virtualPPID concept in ShellKit yet; mirror SwiftScript
-            // and return the same virtualPID (parent of `1` is `1`
-            // under embedded init-style semantics).
-            return Int(Shell.current.virtualPID)
-        }
-        // Bind getters on the local `process` JSValue directly —
-        // `globalThis.process` isn't set until the bottom of this
-        // method, so a getter that reads from globalThis would fire
-        // too early.
-        let installPidProps = context.evaluateScript(#"""
-        (function (process, getPid, getPpid) {
-          Object.defineProperty(process, "pid",  { get: getPid,  enumerable: true, configurable: true });
-          Object.defineProperty(process, "ppid", { get: getPpid, enumerable: true, configurable: true });
-        })
-        """#)!
-        installPidProps.call(withArguments: [process, pidGetter, ppidGetter])
-
-        let exit = block { [weak self] args in
-            guard let self else { return nil }
-            let code = args.first?.toInt32() ?? 0
-            self.didExit = true
-            self.exitCode = code
-            // Cancel pending timers so the runloop drains immediately.
-            for (_, timer) in self.pendingTimers { timer.cancel() }
-            self.pendingTimers.removeAll()
-            let ex = JSValue(object: ["__swiftjs_exit": true, "code": code],
-                             in: self.context)
-            self.context.exception = ex
-            return nil
-        }
-        process.setObject(exit, forKeyedSubscript: "exit")
-
-        let cwd = block { _ in
-            if Shell.current === Shell.processDefault {
-                return FileManager.default.currentDirectoryPath
-            }
-            return Shell.current.environment.workingDirectory
-        }
-        process.setObject(cwd, forKeyedSubscript: "cwd")
-
-        let chdir = block { [weak self] args in
-            guard let path = args.first?.toString() else { return nil }
-            // Resolve relative `path` against the current shell-CWD
-            // first — Node accepts `process.chdir("./sub")` and
-            // expects it to compose with the prior cwd. Storing the
-            // raw relative string here would leave the bound CWD
-            // unusable for subsequent `fs.*` ops.
-            let resolved = resolveAgainstShellCWD(path)
-            // Sandbox gate: chdir into a denied region is a write —
-            // it would let a script position subsequent relative-path
-            // ops anywhere. Surface as a Node-style EACCES.
-            do {
-                try self?.awaitSync { try await authorizePath(resolved, for: .write) }
-            } catch {
-                _ = self?.throwSandboxDenial(error, syscall: "chdir", path: path)
-                return nil
-            }
-            if Shell.current === Shell.processDefault {
-                _ = FileManager.default.changeCurrentDirectoryPath(resolved)
-            }
-            Shell.current.environment.workingDirectory = resolved
-            return nil
-        }
-        process.setObject(chdir, forKeyedSubscript: "chdir")
-
-        let hrtime = block { _ in
-            let now = DispatchTime.now().uptimeNanoseconds
-            return [Int(now / 1_000_000_000), Int(now % 1_000_000_000)]
-        }
-        process.setObject(hrtime, forKeyedSubscript: "hrtime")
-
-        // process.stdout.write(string) / .stderr.write(string)
-        // — print without an automatic trailing newline.
-        let stdoutWrite = block { [weak self] args in
-            guard let v = args.first else { return false }
-            self?.stdout(JSRuntime.stringFromWritable(v))
-            return true
-        }
-        let stderrWrite = block { [weak self] args in
-            guard let v = args.first else { return false }
-            self?.stderr(JSRuntime.stringFromWritable(v))
-            return true
-        }
-        let stdoutObj = JSValue(newObjectIn: context)!
-        stdoutObj.setObject(stdoutWrite, forKeyedSubscript: "write")
-        stdoutObj.setObject(true, forKeyedSubscript: "isTTY")
-        process.setObject(stdoutObj, forKeyedSubscript: "stdout")
-        let stderrObj = JSValue(newObjectIn: context)!
-        stderrObj.setObject(stderrWrite, forKeyedSubscript: "write")
-        stderrObj.setObject(true, forKeyedSubscript: "isTTY")
-        process.setObject(stderrObj, forKeyedSubscript: "stderr")
-
-        // process.on('event', fn) — only `exit` is honoured.
-        let on = block { [weak self] args in
-            guard let self, args.count >= 2,
-                  let event = args[0].toString()
-            else { return nil }
-            let fn = args[1]
-            if event == "exit" { self.exitListeners.append(fn) }
-            // Return process for chaining (Node convention).
-            return self.context.objectForKeyedSubscript("process")
-        }
-        process.setObject(on, forKeyedSubscript: "on")
-
-        // process.exitCode — getter/setter via Object.defineProperty.
-        // Stored on a hidden field; the CLI reads `runtime.exitCode`
-        // directly.
-        let exitCodeGet = block { [weak self] _ in
-            self?.exitCode ?? 0
-        }
-        let exitCodeSet = block { [weak self] args in
-            self?.exitCode = args.first?.toInt32() ?? 0
-            return nil
-        }
-        setGlobal("__swiftjs_exitCodeGet", exitCodeGet)
-        setGlobal("__swiftjs_exitCodeSet", exitCodeSet)
-
-        setGlobal("process", process)
-
-        // Define exitCode as an accessor on process so reads/writes
-        // round-trip through the runtime's `exitCode` field.
-        // Capture the bridges by closure (not name lookup) so we can
-        // safely scrub the globals afterwards.
-        context.evaluateScript(#"""
-        (() => {
-          const G = globalThis.__swiftjs_exitCodeGet;
-          const S = globalThis.__swiftjs_exitCodeSet;
-          Object.defineProperty(process, "exitCode", {
-            get() { return G(); },
-            set(v) { S(v); },
-            enumerable: true,
-          });
-          delete globalThis.__swiftjs_exitCodeGet;
-          delete globalThis.__swiftjs_exitCodeSet;
-        })();
-        """#)
-
-        // Stdin is wired last so the `Object.defineProperty(process,
-        // …)` call inside it has `process` already bound on
-        // `globalThis`. (The stream classes it depends on are
-        // installed lazily on first read.)
-        installProcessStdin(on: process)
-    }
-
-    // MARK: - Buffer + encoding bridges
-    //
-    // JSC ships no TextEncoder/TextDecoder/Buffer/atob/btoa. We bridge
-    // the byte-level conversions from Swift, then build Buffer, the
-    // Text* classes, and atob/btoa as small JS shims on top.
-
-    func installBufferAndEncodingBridges() {
-        // Swift bridges, exposed under `__swiftjs_native` so we can hide
-        // them from user code (the JS shim deletes it after building
-        // its API).
-        let native = JSValue(newObjectIn: context)!
-
-        let utf8Encode = block { args in
-            guard let s = args.first?.toString() else { return [UInt8]() }
-            return Array(s.utf8)
-        }
-        native.setObject(utf8Encode, forKeyedSubscript: "utf8Encode")
-
-        let utf8Decode = block { args in
-            guard let value = args.first else { return "" }
-            // Accept either a Uint8Array or a plain Array of bytes.
-            let bytes = Self.bytes(from: value)
-            return String(decoding: bytes, as: UTF8.self)
-        }
-        native.setObject(utf8Decode, forKeyedSubscript: "utf8Decode")
-
-        let toBase64 = block { args in
-            guard let value = args.first else { return "" }
-            return Data(Self.bytes(from: value)).base64EncodedString()
-        }
-        native.setObject(toBase64, forKeyedSubscript: "toBase64")
-
-        let fromBase64 = block { args in
-            guard let s = args.first?.toString() else { return [UInt8]() }
-            return Array(Data(base64Encoded: s) ?? Data())
-        }
-        native.setObject(fromBase64, forKeyedSubscript: "fromBase64")
-
-        let toHex = block { args in
-            guard let value = args.first else { return "" }
-            return Self.bytes(from: value).map { String(format: "%02x", $0) }.joined()
-        }
-        native.setObject(toHex, forKeyedSubscript: "toHex")
-
-        let fromHex = block { args in
-            guard let s = args.first?.toString() else { return [UInt8]() }
-            return stride(from: 0, to: s.count, by: 2).compactMap { i -> UInt8? in
-                let start = s.index(s.startIndex, offsetBy: i)
-                let end = s.index(start, offsetBy: 2, limitedBy: s.endIndex) ?? s.endIndex
-                return UInt8(s[start..<end], radix: 16)
-            }
-        }
-        native.setObject(fromHex, forKeyedSubscript: "fromHex")
-
-        setGlobal("__swiftjs_native", native)
-
-        // The shim. Builds Buffer (extends Uint8Array), TextEncoder,
-        // TextDecoder, atob, btoa, queueMicrotask. Then deletes the
-        // bridge namespace.
-        let shim = #"""
-        (() => {
-          const N = globalThis.__swiftjs_native;
-
-          class Buffer extends Uint8Array {
-            static from(value, encoding) {
-              if (typeof value === "string") {
-                if (encoding === "base64") return new Buffer(N.fromBase64(value));
-                if (encoding === "hex") return new Buffer(N.fromHex(value));
-                return new Buffer(N.utf8Encode(value));
-              }
-              if (value instanceof Uint8Array) return new Buffer(value);
-              if (Array.isArray(value)) return new Buffer(value);
-              if (value && typeof value === "object" && value.type === "Buffer" && Array.isArray(value.data)) {
-                return new Buffer(value.data);
-              }
-              throw new TypeError("Buffer.from: unsupported argument");
-            }
-            static alloc(size, fill = 0) {
-              const b = new Buffer(size);
-              if (fill !== 0) b.fill(fill);
-              return b;
-            }
-            static byteLength(s, encoding = "utf-8") {
-              if (typeof s !== "string") return s.byteLength ?? s.length;
-              if (encoding === "ascii" || encoding === "latin1") return s.length;
-              return N.utf8Encode(s).length;
-            }
-            static isBuffer(b) { return b instanceof Buffer; }
-            static concat(list, totalLength) {
-              if (totalLength == null) {
-                totalLength = list.reduce((n, b) => n + b.length, 0);
-              }
-              const out = new Buffer(totalLength);
-              let off = 0;
-              for (const b of list) {
-                out.set(b.subarray(0, Math.min(b.length, totalLength - off)), off);
-                off += b.length;
-                if (off >= totalLength) break;
-              }
-              return out;
-            }
-            toString(encoding = "utf-8", start = 0, end = this.length) {
-              const slice = this.subarray(start, end);
-              const e = encoding.toLowerCase();
-              if (e === "base64") return N.toBase64(slice);
-              if (e === "hex") return N.toHex(slice);
-              if (e === "utf-8" || e === "utf8") return N.utf8Decode(slice);
-              if (e === "ascii" || e === "latin1") {
-                let s = "";
-                for (let i = 0; i < slice.length; i++) s += String.fromCharCode(slice[i] & 0x7f);
-                return s;
-              }
-              return N.utf8Decode(slice);
-            }
-          }
-          globalThis.Buffer = Buffer;
-
-          class TextEncoder {
-            get encoding() { return "utf-8"; }
-            encode(str = "") { return new Uint8Array(N.utf8Encode(str)); }
-          }
-          class TextDecoder {
-            constructor(label = "utf-8") { this.encoding = label; }
-            decode(bytes) {
-              if (!bytes) return "";
-              if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
-              return N.utf8Decode(bytes);
-            }
-          }
-          globalThis.TextEncoder = TextEncoder;
-          globalThis.TextDecoder = TextDecoder;
-
-          globalThis.atob = (s) => N.utf8Decode(N.fromBase64(s));
-          globalThis.btoa = (s) => N.toBase64(N.utf8Encode(s));
-
-          // JSC drains microtasks at the end of evaluateScript, so a
-          // resolved-promise chain works fine for queueMicrotask.
-          globalThis.queueMicrotask = (fn) => Promise.resolve().then(fn);
-
-          delete globalThis.__swiftjs_native;
-        })();
-        """#
-        context.evaluateScript(shim)
-    }
-
-    /// Pull bytes out of a JSValue. Accepts Uint8Array, plain Array
-    /// of numbers, or anything else with a `length` and indexable
-    /// elements. We can't `as` a JSValue to `[UInt8]` directly.
-    /// Convert a `string|Buffer|Uint8Array` argument to a string for
-    /// `process.stdout.write` / `stderr.write`.
-    static func stringFromWritable(_ v: JSValue) -> String {
-        if v.isString { return v.toString() ?? "" }
-        if let arr = v.toArray() as? [NSNumber] {
-            return String(decoding: arr.map { $0.uint8Value }, as: UTF8.self)
-        }
-        return v.toString() ?? ""
-    }
-
-    private static func bytes(from value: JSValue) -> [UInt8] {
-        let array = value.toArray() ?? []
-        return array.compactMap { ($0 as? NSNumber)?.uint8Value }
-    }
-
-    // MARK: - URL polyfill (minimal — Foundation backs it)
-
-    private func installWebGlobals() {
-        // Bridge URL parsing to URLComponents so we don't have to
-        // reimplement the WHATWG URL state machine. Good enough for
-        // most shell scripts; not 100% spec compliant.
-        let parseURL = block { args in
-            guard let href = args.first?.toString() else { return nil }
-            var resolvedHref = href
-            if args.count >= 2 {
-                let base = args[1]
-                if base.isString, let baseStr = base.toString() {
-                    if let baseURL = URL(string: baseStr),
-                       let resolved = URL(string: href, relativeTo: baseURL) {
-                        resolvedHref = resolved.absoluteString
-                    }
-                }
-            }
-            guard let url = URL(string: resolvedHref),
-                  let comps = URLComponents(url: url, resolvingAgainstBaseURL: true)
-            else {
-                return nil
-            }
-            let ctx = JSContext.current()!
-            let obj = JSValue(newObjectIn: ctx)!
-            obj.setObject(url.absoluteString, forKeyedSubscript: "href")
-            obj.setObject((comps.scheme ?? "") + ":", forKeyedSubscript: "protocol")
-            obj.setObject(comps.host ?? "", forKeyedSubscript: "hostname")
-            obj.setObject(comps.port.map(String.init) ?? "", forKeyedSubscript: "port")
-            let host = (comps.host ?? "") + (comps.port.map { ":\($0)" } ?? "")
-            obj.setObject(host, forKeyedSubscript: "host")
-            obj.setObject(comps.path, forKeyedSubscript: "pathname")
-            obj.setObject(comps.query.map { "?\($0)" } ?? "", forKeyedSubscript: "search")
-            obj.setObject(comps.fragment.map { "#\($0)" } ?? "", forKeyedSubscript: "hash")
-            obj.setObject((comps.scheme ?? "") + "://" + host, forKeyedSubscript: "origin")
-            return obj
-        }
-        setGlobal("__swiftjs_parseURL", parseURL)
-
-        let urlShim = #"""
-        (() => {
-          const parse = globalThis.__swiftjs_parseURL;
-          class URL {
-            constructor(href, base) {
-              const fields = parse(String(href), base != null ? String(base) : undefined);
-              if (!fields) throw new TypeError("Invalid URL: " + href);
-              Object.assign(this, fields);
-            }
-            toString() { return this.href; }
-          }
-          globalThis.URL = URL;
-          delete globalThis.__swiftjs_parseURL;
-        })();
-        """#
-        context.evaluateScript(urlShim)
-    }
+    // `installProcess` lives in `Globals+Process.swift`.
+    // `installBufferAndEncodingBridges`, `installWebGlobals`,
+    // `stringFromWritable`, and `bytes(from:)` live in
+    // `Globals+BufferEncoding.swift`.
 }
+
 #endif  // !os(Windows)

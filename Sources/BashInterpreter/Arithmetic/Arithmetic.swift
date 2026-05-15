@@ -64,10 +64,11 @@ public enum Arithmetic {
         let getIndexed: ((String, Int64) -> String?)?
         let setIndexed: ((String, Int64, Int64) -> Void)?
 
-        func eval(_ e: ArithExpr, depth: Int) throws -> Int64 {
-            switch e {
-            case .int(let n):
-                return n
+        // swiftlint:disable:next cyclomatic_complexity function_body_length
+        func eval(_ expr: ArithExpr, depth: Int) throws -> Int64 {
+            switch expr {
+            case .int(let num):
+                return num
 
             case .variable(let name):
                 return try resolveVariable(name, depth: depth)
@@ -76,69 +77,69 @@ public enum Arithmetic {
                 let idx = try eval(indexExpr, depth: depth)
                 return try resolveIndexed(name: name, index: idx, depth: depth)
 
-            case .unary(let op, let operand):
-                let v = try eval(operand, depth: depth)
-                switch op {
-                case .plus:       return v
-                case .minus:      return 0 &- v
-                case .logicalNot: return v == 0 ? 1 : 0
-                case .bitwiseNot: return ~v
+            case .unary(let unaryOp, let operand):
+                let value = try eval(operand, depth: depth)
+                switch unaryOp {
+                case .plus:       return value
+                case .minus:      return 0 &- value
+                case .logicalNot: return value == 0 ? 1 : 0
+                case .bitwiseNot: return ~value
                 }
 
-            case .prefix(let op, let name):
+            case .prefix(let incOp, let name):
                 let old = try resolveVariable(name, depth: depth)
-                let new = (op == .inc) ? old &+ 1 : old &- 1
+                let new = (incOp == .inc) ? old &+ 1 : old &- 1
                 set(name, new)
                 return new
 
-            case .postfix(let op, let name):
+            case .postfix(let incOp, let name):
                 let old = try resolveVariable(name, depth: depth)
-                let new = (op == .inc) ? old &+ 1 : old &- 1
+                let new = (incOp == .inc) ? old &+ 1 : old &- 1
                 set(name, new)
                 return old
 
-            case .prefixIndexed(let op, let name, let indexExpr):
+            case .prefixIndexed(let incOp, let name, let indexExpr):
                 let idx = try eval(indexExpr, depth: depth)
                 let old = try resolveIndexed(name: name, index: idx, depth: depth)
-                let new = (op == .inc) ? old &+ 1 : old &- 1
+                let new = (incOp == .inc) ? old &+ 1 : old &- 1
                 guard let setIndexed = setIndexed else {
                     throw ArithError.invalidAssignmentTarget
                 }
                 setIndexed(name, idx, new)
                 return new
 
-            case .postfixIndexed(let op, let name, let indexExpr):
+            case .postfixIndexed(let incOp, let name, let indexExpr):
                 let idx = try eval(indexExpr, depth: depth)
                 let old = try resolveIndexed(name: name, index: idx, depth: depth)
-                let new = (op == .inc) ? old &+ 1 : old &- 1
+                let new = (incOp == .inc) ? old &+ 1 : old &- 1
                 guard let setIndexed = setIndexed else {
                     throw ArithError.invalidAssignmentTarget
                 }
                 setIndexed(name, idx, new)
                 return old
 
-            case .binary(let op, let lhs, let rhs):
-                return try applyBinary(op, lhs: lhs, rhs: rhs, depth: depth)
+            case .binary(let binOp, let lhs, let rhs):
+                return try applyBinary(binOp, lhs: lhs, rhs: rhs, depth: depth)
 
             case .ternary(let cond, let thenExpr, let elseExpr):
-                let c = try eval(cond, depth: depth)
-                return try eval(c != 0 ? thenExpr : elseExpr, depth: depth)
+                let condVal = try eval(cond, depth: depth)
+                return try eval(condVal != 0 ? thenExpr : elseExpr, depth: depth)
 
-            case .assign(let name, let op, let rhs):
-                let rv = try eval(rhs, depth: depth)
+            case .assign(let name, let assignOp, let rhs):
+                let rhsVal = try eval(rhs, depth: depth)
                 let newValue: Int64
-                if let binOp = op.pairedBinary {
+                if let binOp = assignOp.pairedBinary {
                     let current = try resolveVariable(name, depth: depth)
                     newValue = try applyBinary(binOp,
                                                leftValue: current,
-                                               rightValue: rv)
+                                               rightValue: rhsVal)
                 } else {
-                    newValue = rv
+                    newValue = rhsVal
                 }
                 set(name, newValue)
                 return newValue
 
-            case .assignIndex(let name, let indexExpr, let op, let rhs):
+            case .assignIndex(let name, let indexExpr, let assignOp, let rhs):
                 guard let setIndexed = setIndexed else {
                     throw ArithError.invalidAssignmentTarget
                 }
@@ -146,24 +147,24 @@ public enum Arithmetic {
                 // left-to-right rule. Important when the rhs has side
                 // effects: `arr[i++] = ++j` reads i once for the slot.
                 let idx = try eval(indexExpr, depth: depth)
-                let rv = try eval(rhs, depth: depth)
+                let rhsVal = try eval(rhs, depth: depth)
                 let newValue: Int64
-                if let binOp = op.pairedBinary {
+                if let binOp = assignOp.pairedBinary {
                     let current = try resolveIndexed(
                         name: name, index: idx, depth: depth)
                     newValue = try applyBinary(binOp,
                                                leftValue: current,
-                                               rightValue: rv)
+                                               rightValue: rhsVal)
                 } else {
-                    newValue = rv
+                    newValue = rhsVal
                 }
                 setIndexed(name, idx, newValue)
                 return newValue
 
             case .sequence(let parts):
                 var last: Int64 = 0
-                for p in parts {
-                    last = try eval(p, depth: depth)
+                for part in parts {
+                    last = try eval(part, depth: depth)
                 }
                 return last
             }
@@ -171,59 +172,60 @@ public enum Arithmetic {
 
         // MARK: Binary ops
 
-        func applyBinary(_ op: ArithExpr.BinaryOp,
-                                  lhs: ArithExpr, rhs: ArithExpr,
-                                  depth: Int) throws -> Int64 {
+        func applyBinary(_ binOp: ArithExpr.BinaryOp,
+                         lhs: ArithExpr, rhs: ArithExpr,
+                         depth: Int) throws -> Int64 {
             // Short-circuit logical ops without evaluating the RHS when the
             // result is already determined.
-            if op == .logicalAnd {
-                let l = try eval(lhs, depth: depth)
-                if l == 0 { return 0 }
-                let r = try eval(rhs, depth: depth)
-                return r != 0 ? 1 : 0
+            if binOp == .logicalAnd {
+                let lhsVal = try eval(lhs, depth: depth)
+                if lhsVal == 0 { return 0 }
+                let rhsVal = try eval(rhs, depth: depth)
+                return rhsVal != 0 ? 1 : 0
             }
-            if op == .logicalOr {
-                let l = try eval(lhs, depth: depth)
-                if l != 0 { return 1 }
-                let r = try eval(rhs, depth: depth)
-                return r != 0 ? 1 : 0
+            if binOp == .logicalOr {
+                let lhsVal = try eval(lhs, depth: depth)
+                if lhsVal != 0 { return 1 }
+                let rhsVal = try eval(rhs, depth: depth)
+                return rhsVal != 0 ? 1 : 0
             }
 
-            let l = try eval(lhs, depth: depth)
-            let r = try eval(rhs, depth: depth)
-            return try applyBinary(op, leftValue: l, rightValue: r)
+            let lhsVal = try eval(lhs, depth: depth)
+            let rhsVal = try eval(rhs, depth: depth)
+            return try applyBinary(binOp, leftValue: lhsVal, rightValue: rhsVal)
         }
 
-        func applyBinary(_ op: ArithExpr.BinaryOp,
-                         leftValue l: Int64, rightValue r: Int64) throws -> Int64 {
-            switch op {
-            case .add:        return l &+ r
-            case .sub:        return l &- r
-            case .mul:        return l &* r
+        // swiftlint:disable:next cyclomatic_complexity
+        func applyBinary(_ binOp: ArithExpr.BinaryOp,
+                         leftValue lhs: Int64, rightValue rhs: Int64) throws -> Int64 {
+            switch binOp {
+            case .add:        return lhs &+ rhs
+            case .sub:        return lhs &- rhs
+            case .mul:        return lhs &* rhs
             case .div:
-                if r == 0 { throw ArithError.divisionByZero }
-                return l / r
+                if rhs == 0 { throw ArithError.divisionByZero }
+                return lhs / rhs
             case .mod:
-                if r == 0 { throw ArithError.moduloByZero }
-                return l % r
+                if rhs == 0 { throw ArithError.moduloByZero }
+                return lhs % rhs
             case .pow:
-                if r < 0 { throw ArithError.negativeExponent(r) }
-                return integerPower(base: l, exponent: r)
+                if rhs < 0 { throw ArithError.negativeExponent(rhs) }
+                return integerPower(base: lhs, exponent: rhs)
             case .shl:
-                return l &<< (r & 63)
+                return lhs &<< (rhs & 63)
             case .shr:
-                return l &>> (r & 63)
-            case .bitAnd:     return l & r
-            case .bitOr:      return l | r
-            case .bitXor:     return l ^ r
-            case .lt:         return l <  r ? 1 : 0
-            case .gt:         return l >  r ? 1 : 0
-            case .le:         return l <= r ? 1 : 0
-            case .ge:         return l >= r ? 1 : 0
-            case .eq:         return l == r ? 1 : 0
-            case .neq:        return l != r ? 1 : 0
-            case .logicalAnd: return (l != 0 && r != 0) ? 1 : 0
-            case .logicalOr:  return (l != 0 || r != 0) ? 1 : 0
+                return lhs &>> (rhs & 63)
+            case .bitAnd:     return lhs & rhs
+            case .bitOr:      return lhs | rhs
+            case .bitXor:     return lhs ^ rhs
+            case .lt:         return lhs <  rhs ? 1 : 0
+            case .gt:         return lhs >  rhs ? 1 : 0
+            case .le:         return lhs <= rhs ? 1 : 0
+            case .ge:         return lhs >= rhs ? 1 : 0
+            case .eq:         return lhs == rhs ? 1 : 0
+            case .neq:        return lhs != rhs ? 1 : 0
+            case .logicalAnd: return (lhs != 0 && rhs != 0) ? 1 : 0
+            case .logicalOr:  return (lhs != 0 || rhs != 0) ? 1 : 0
             }
         }
 
@@ -236,8 +238,7 @@ public enum Arithmetic {
         /// unset name we still get 0). Non-numeric string contents go
         /// through the same recursive-evaluation path as scalars.
         func resolveIndexed(name: String, index: Int64,
-                            depth: Int) throws -> Int64
-        {
+                            depth: Int) throws -> Int64 {
             guard depth < Arithmetic.maxRecursionDepth else {
                 throw ArithError.recursionLimit
             }
@@ -251,7 +252,7 @@ public enum Arithmetic {
             }
             guard let value = raw, !value.isEmpty else { return 0 }
             let trimmed = value.trimmingCharacters(in: .whitespaces)
-            if let n = parseIntLiteral(trimmed) { return n }
+            if let num = parseIntLiteral(trimmed) { return num }
             let subExpr = try ArithParser().parse(trimmed)
             return try eval(subExpr, depth: depth + 1)
         }
@@ -269,8 +270,8 @@ public enum Arithmetic {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
 
             // Direct integer literal in a common base.
-            if let n = parseIntLiteral(trimmed) {
-                return n
+            if let num = parseIntLiteral(trimmed) {
+                return num
             }
 
             // Otherwise treat the raw string as an arithmetic expression.
@@ -278,57 +279,59 @@ public enum Arithmetic {
             return try eval(subExpr, depth: depth + 1)
         }
 
-        /// Fast path: `"123"`, `"-5"`, `"0x1F"`, `"0777"`, `"2#1010"`.
-        private func parseIntLiteral(_ s: String) -> Int64? {
-            var chars = Substring(s)
+        // Fast path: `"123"`, `"-5"`, `"0x1F"`, `"0777"`, `"2#1010"`.
+        // swiftlint:disable:next cyclomatic_complexity
+        private func parseIntLiteral(_ str: String) -> Int64? {
+            var chars = Substring(str)
             var sign: Int64 = 1
-            if chars.first == "-" { sign = -1; chars = chars.dropFirst() }
-            else if chars.first == "+" { chars = chars.dropFirst() }
+            if chars.first == "-" {
+                sign = -1; chars = chars.dropFirst()
+            } else if chars.first == "+" {
+                chars = chars.dropFirst()
+            }
             if chars.isEmpty { return nil }
 
             // Hex
             if chars.hasPrefix("0x") || chars.hasPrefix("0X") {
                 let digits = chars.dropFirst(2)
                 guard !digits.isEmpty,
-                      let n = UInt64(digits, radix: 16) else { return nil }
-                return Int64(bitPattern: n) * sign
+                      let num = UInt64(digits, radix: 16) else { return nil }
+                return Int64(bitPattern: num) * sign
             }
             // Base#N
             if let hash = chars.firstIndex(of: "#"),
                let base = Int(chars[..<hash]),
-               (2...64) ~= base
-            {
+               (2...64) ~= base {
                 let digits = chars[chars.index(after: hash)...]
                 var value: Int64 = 0
-                for c in digits {
-                    guard let v = ArithLexer.Lexer.baseDigitValue(c, base: base)
+                for char in digits {
+                    guard let digitVal = ArithLexer.Lexer.baseDigitValue(char, base: base)
                     else { return nil }
-                    value = value &* Int64(base) &+ Int64(v)
+                    value = value &* Int64(base) &+ Int64(digitVal)
                 }
                 return value * sign
             }
             // Octal
             if chars.count > 1, chars.first == "0",
-               chars.allSatisfy({ "01234567".contains($0) })
-            {
-                guard let n = Int64(chars, radix: 8) else { return nil }
-                return n * sign
+               chars.allSatisfy({ "01234567".contains($0) }) {
+                guard let num = Int64(chars, radix: 8) else { return nil }
+                return num * sign
             }
             // Decimal
-            guard let n = Int64(chars) else { return nil }
-            return n * sign
+            guard let num = Int64(chars) else { return nil }
+            return num * sign
         }
     }
 
     /// Integer power with wrap-on-overflow semantics.
     static func integerPower(base: Int64, exponent: Int64) -> Int64 {
         var result: Int64 = 1
-        var b = base
-        var e = exponent
-        while e > 0 {
-            if (e & 1) == 1 { result = result &* b }
-            e >>= 1
-            if e > 0 { b = b &* b }
+        var baseVal = base
+        var expVal = exponent
+        while expVal > 0 {
+            if (expVal & 1) == 1 { result = result &* baseVal }
+            expVal >>= 1
+            if expVal > 0 { baseVal = baseVal &* baseVal }
         }
         return result
     }

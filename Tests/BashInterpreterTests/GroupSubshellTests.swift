@@ -46,10 +46,10 @@ import Testing
 
     @Test func subshellExitStatusPropagates() async throws {
         let cap = CapturingShell()
-        let s1 = try await cap.shell.run("(true)")
-        #expect(s1 == .success)
-        let s2 = try await cap.shell.run("(false)")
-        #expect(s2 == .failure)
+        let trueStatus = try await cap.shell.run("(true)")
+        #expect(trueStatus == .success)
+        let falseStatus = try await cap.shell.run("(false)")
+        #expect(falseStatus == .failure)
         #expect(cap.shell.lastExitStatus == .failure)
     }
 

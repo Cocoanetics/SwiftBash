@@ -17,9 +17,11 @@ final class CapturingShell: @unchecked Sendable {
         private let lock = NSLock()
         private var value = ""
         func append(_ data: Data) {
-            let s = String(decoding: data, as: UTF8.self)
+            // Test capture: stdout bytes may be arbitrary; tolerate non-UTF-8.
+            // swiftlint:disable:next optional_data_string_conversion
+            let text = String(decoding: data, as: UTF8.self)
             lock.lock(); defer { lock.unlock() }
-            value.append(s)
+            value.append(text)
         }
         func read() -> String {
             lock.lock(); defer { lock.unlock() }

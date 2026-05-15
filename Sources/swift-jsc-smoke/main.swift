@@ -90,8 +90,8 @@ func evaluate(_ source: String) -> Double {
     }
 
     stage("JSValueToNumber")
-    let n = JSValueToNumber(ctx, result, nil)
-    stage("JSValueToNumber returned: \(n)")
+    let number = JSValueToNumber(ctx, result, nil)
+    stage("JSValueToNumber returned: \(number)")
 
     // Tear everything down deliberately — context first, then group.
     // Used to be skipped because `JSGlobalContextRelease` hangs on
@@ -103,7 +103,7 @@ func evaluate(_ source: String) -> Double {
     stage("JSContextGroupRelease (drops group ref → ~VM)")
     JSContextGroupRelease(group)
     stage("teardown complete")
-    return n
+    return number
 }
 
 let result = evaluate("1 + 2")

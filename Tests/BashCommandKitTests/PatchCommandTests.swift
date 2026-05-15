@@ -5,19 +5,19 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct PatchCommandTests {
 
-    private func makeShellWithDir() -> (CapturingShell, String) {
+    private func makeShellWithDir() throws -> (CapturingShell, String) {
         let dir = NSTemporaryDirectory() + "patch-\(UUID())"
-        try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
         cap.shell.environment.workingDirectory = dir
         return (cap, dir)
     }
-    private func cleanup(_ p: String) { try? FileManager.default.removeItem(atPath: p) }
+    private func cleanup(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
 
     #if !os(Windows)
     @Test func basicPatch() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "alpha\nbeta\ngamma\n".write(toFile: dir + "/f.txt",
                                          atomically: true, encoding: .utf8)
         let patch = """
@@ -38,7 +38,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func appendingHunk() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "one\ntwo\n".write(toFile: dir + "/f.txt",
                                 atomically: true, encoding: .utf8)
         let patch = """
@@ -58,7 +58,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func reversePatch() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "one\nNEW\ntwo\n".write(toFile: dir + "/f.txt",
                                     atomically: true, encoding: .utf8)
         let patch = """
@@ -77,7 +77,7 @@ import Foundation
     #endif
 
     @Test func dryRunDoesNotWrite() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "x\n".write(toFile: dir + "/f.txt", atomically: true, encoding: .utf8)
         let patch = """
         --- a/f.txt
@@ -94,7 +94,7 @@ import Foundation
 
     #if !os(Windows)
     @Test func patchFromStdin() async throws {
-        let (cap, dir) = makeShellWithDir(); defer { cleanup(dir) }
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
         try "a\nb\nc\n".write(toFile: dir + "/f.txt",
                               atomically: true, encoding: .utf8)
         let patch = """

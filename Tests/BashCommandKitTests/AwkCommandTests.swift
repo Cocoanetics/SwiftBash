@@ -14,7 +14,9 @@ import Foundation
     private func awk(_ input: String, _ program: String,
                      extra: String = "") async throws -> String {
         let cap = makeShell()
-        let cmd = "printf %s '\(input.replacingOccurrences(of: "'", with: "'\\''"))' | awk \(extra) '\(program.replacingOccurrences(of: "'", with: "'\\''"))'"
+        let safeInput = input.replacingOccurrences(of: "'", with: "'\\''")
+        let safeProgram = program.replacingOccurrences(of: "'", with: "'\\''")
+        let cmd = "printf %s '\(safeInput)' | awk \(extra) '\(safeProgram)'"
         try await cap.shell.run(cmd)
         return cap.stdout
     }

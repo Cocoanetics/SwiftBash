@@ -2,7 +2,7 @@ import Foundation
 
 extension Character {
     var isASCIIDigit: Bool {
-        guard let a = asciiValue else { return false }
-        return a >= 0x30 && a <= 0x39
+        guard let ascii = asciiValue else { return false }
+        return ascii >= 0x30 && ascii <= 0x39
     }
 }

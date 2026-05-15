@@ -18,26 +18,30 @@ public struct PkillCommand: ParsableBashCommand {
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
-        var sig: Int32 = SIGTERM
-        var pattern: String? = nil
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "-f" { i += 1; continue }    // -f is a no-op here
-            if a == "-s" {
-                guard i + 1 < rawArgv.count, let s = parseSignal(rawArgv[i + 1]) else {
-                    Shell.bashCurrent.stderr("pkill: invalid signal\n"); return ExitStatus(2)
+        var signalNum: Int32 = SIGTERM
+        var pattern: String?
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "-f" { index += 1; continue }    // -f is a no-op here
+            if arg == "-s" {
+                guard index + 1 < rawArgv.count,
+                      let parsed = parseSignal(rawArgv[index + 1]) else {
+                    Shell.bashCurrent.stderr("pkill: invalid signal\n")
+                    return ExitStatus(2)
                 }
-                sig = s; i += 2; continue
+                signalNum = parsed; index += 2; continue
             }
-            if a.hasPrefix("-") && a.count > 1 && a != "-" {
-                let body = String(a.dropFirst())
-                if body == "f" { i += 1; continue }
-                if let s = parseSignal(body) { sig = s; i += 1; continue }
-                Shell.bashCurrent.stderr("pkill: unknown option: \(a)\n")
+            if arg.hasPrefix("-") && arg.count > 1 && arg != "-" {
+                let body = String(arg.dropFirst())
+                if body == "f" { index += 1; continue }
+                if let parsed = parseSignal(body) {
+                    signalNum = parsed; index += 1; continue
+                }
+                Shell.bashCurrent.stderr("pkill: unknown option: \(arg)\n")
                 return ExitStatus(2)
             }
-            pattern = a; i += 1
+            pattern = arg; index += 1
         }
         guard let pat = pattern else {
             Shell.bashCurrent.stderr("pkill: missing pattern\n")
@@ -49,13 +53,13 @@ public struct PkillCommand: ParsableBashCommand {
         }
         let table = Shell.bashCurrent.processTable
         let entries = await table.list()
-        let matches = entries.filter { e in
-            let ns = e.command as NSString
-            return regex.firstMatch(in: e.command,
-                                    range: NSRange(location: 0, length: ns.length)) != nil
+        let matches = entries.filter { entry in
+            let nsCmd = entry.command as NSString
+            return regex.firstMatch(in: entry.command,
+                                    range: NSRange(location: 0, length: nsCmd.length)) != nil
         }
-        for e in matches {
-            _ = await table.signal(pid: e.pid, signo: sig)
+        for entry in matches {
+            _ = await table.signal(pid: entry.pid, signo: signalNum)
         }
         return matches.isEmpty ? ExitStatus(1) : .success
     }

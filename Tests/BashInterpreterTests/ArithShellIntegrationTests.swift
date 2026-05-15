@@ -73,10 +73,10 @@ import Testing
     @Test func arithCommandWithComparison() async throws {
         let cap = CapturingShell()
         cap.shell.environment["n"] = "10"
-        let a = try await cap.shell.run("(( n > 5 ))")
-        #expect(a == .success)
-        let b = try await cap.shell.run("(( n < 5 ))")
-        #expect(b == .failure)
+        let firstStatus = try await cap.shell.run("(( n > 5 ))")
+        #expect(firstStatus == .success)
+        let secondStatus = try await cap.shell.run("(( n < 5 ))")
+        #expect(secondStatus == .failure)
     }
 
     @Test func arithCommandInAndChain() async throws {

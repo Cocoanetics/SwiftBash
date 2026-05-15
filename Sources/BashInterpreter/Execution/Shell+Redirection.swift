@@ -54,12 +54,14 @@ extension Shell {
         }
     }
 
+    // Flat dispatch over redirect operators (`>`, `>>`, `<`, `<<`,
+    // `<<-`, `<<<`, `>&`, `<&`); one case per operator.
+    // swiftlint:disable:next cyclomatic_complexity
     private func applyOne(input: Int?,
                           type: String,
                           output: Node,
                           heredoc: Node?,
-                          openedSinks: inout [OutputSink]) async throws
-    {
+                          openedSinks: inout [OutputSink]) async throws {
         switch type {
         case ">":
             let target = try await expand(word: output)
@@ -89,8 +91,8 @@ extension Shell {
             // expanded the same way the inside of a double-quoted
             // string is — `$VAR`, `${…}`, `$(…)`, `$((…))`, and
             // backtick command subs all fire.
-            guard let hd = heredoc,
-                  case .heredoc(let body) = hd.kind
+            guard let heredocNode = heredoc,
+                  case .heredoc(let body) = heredocNode.kind
             else {
                 throw BashInterpreterError.unimplemented(
                     "heredoc without body")
@@ -137,8 +139,8 @@ extension Shell {
         }
     }
 
-    private func bind(outputSink sink: OutputSink, toFd fd: Int) {
-        switch fd {
+    private func bind(outputSink sink: OutputSink, toFd descriptor: Int) {
+        switch descriptor {
         case 1: stdout = sink
         case 2: stderr = sink
         default:
@@ -148,8 +150,8 @@ extension Shell {
         }
     }
 
-    private func currentOutputSink(forFd fd: Int) -> OutputSink {
-        switch fd {
+    private func currentOutputSink(forFd descriptor: Int) -> OutputSink {
+        switch descriptor {
         case 1: return stdout
         case 2: return stderr
         default: return stdout
@@ -162,11 +164,11 @@ extension Shell {
     /// them in the source range.
     private func delimiterIsQuoted(_ word: Node) -> Bool {
         let chars = Array(currentSource)
-        let lo = max(0, word.range.lowerBound)
-        let hi = min(chars.count, word.range.upperBound)
-        for i in lo..<hi {
-            let c = chars[i]
-            if c == "'" || c == "\"" || c == "\\" { return true }
+        let low = max(0, word.range.lowerBound)
+        let high = min(chars.count, word.range.upperBound)
+        for index in low..<high {
+            let char = chars[index]
+            if char == "'" || char == "\"" || char == "\\" { return true }
         }
         return false
     }

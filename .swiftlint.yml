@@ -1,0 +1,9 @@
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - Sources/CJavaScriptCore
+  - Sources/CXattr
+  - "**/.build"
+  - Vendor

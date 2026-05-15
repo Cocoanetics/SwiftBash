@@ -31,103 +31,34 @@ public struct CutCommand: ParsableBashCommand {
 
     enum Mode { case fields, chars, bytes }
 
-    public mutating func execute() async throws -> ExitStatus {
-        var listStr: String? = nil
+    /// Decoded argv with all `cut` options resolved.
+    private struct ParsedOptions {
+        var listStr: String?
         var mode: Mode = .fields
         var delim: String = "\t"
-        var outputDelim: String? = nil
+        var outputDelim: String?
         var onlyDelimited = false
         var complement = false
         var files: [String] = []
+    }
 
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { files.append(rawArgv[i]); i += 1 }
-                break
-            }
-            if a == "-" { files.append("-"); i += 1; continue }
-            if a == "-f" || a == "--fields" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("cut: -f requires LIST\n"); return ExitStatus(2)
-                }
-                listStr = rawArgv[i + 1]; mode = .fields; i += 2; continue
-            }
-            if a.hasPrefix("--fields=") {
-                listStr = String(a.dropFirst("--fields=".count)); mode = .fields
-                i += 1; continue
-            }
-            if a == "-c" || a == "--characters" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("cut: -c requires LIST\n"); return ExitStatus(2)
-                }
-                listStr = rawArgv[i + 1]; mode = .chars; i += 2; continue
-            }
-            if a.hasPrefix("--characters=") {
-                listStr = String(a.dropFirst("--characters=".count)); mode = .chars
-                i += 1; continue
-            }
-            if a == "-b" || a == "--bytes" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("cut: -b requires LIST\n"); return ExitStatus(2)
-                }
-                listStr = rawArgv[i + 1]; mode = .bytes; i += 2; continue
-            }
-            if a.hasPrefix("--bytes=") {
-                listStr = String(a.dropFirst("--bytes=".count)); mode = .bytes
-                i += 1; continue
-            }
-            if a == "-d" || a == "--delimiter" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("cut: -d requires DELIM\n"); return ExitStatus(2)
-                }
-                delim = rawArgv[i + 1]; i += 2; continue
-            }
-            if a.hasPrefix("--delimiter=") {
-                delim = String(a.dropFirst("--delimiter=".count)); i += 1; continue
-            }
-            if a.hasPrefix("--output-delimiter=") {
-                outputDelim = String(a.dropFirst("--output-delimiter=".count))
-                i += 1; continue
-            }
-            if a == "--output-delimiter" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("cut: --output-delimiter requires STR\n")
-                    return ExitStatus(2)
-                }
-                outputDelim = rawArgv[i + 1]; i += 2; continue
-            }
-            if a == "-s" || a == "--only-delimited" {
-                onlyDelimited = true; i += 1; continue
-            }
-            if a == "--complement" { complement = true; i += 1; continue }
-            // Short form like -f1, -c1-3 etc. (concise GNU form).
-            if a.hasPrefix("-") && a.count > 2,
-               let kind = a.dropFirst().first,
-               "fcb".contains(kind) {
-                listStr = String(a.dropFirst(2))
-                switch kind {
-                case "f": mode = .fields
-                case "c": mode = .chars
-                case "b": mode = .bytes
-                default: break
-                }
-                i += 1; continue
-            }
-            if a.hasPrefix("-d") && a.count > 2 {
-                delim = String(a.dropFirst(2)); i += 1; continue
-            }
-            if a.hasPrefix("-") && a.count > 1 {
-                Shell.bashCurrent.stderr("cut: unknown option: \(a)\n")
-                return ExitStatus(2)
-            }
-            files.append(a); i += 1
-        }
+    /// Bundle of per-line settings used by ``emit(_:options:)``.
+    private struct EmitOptions {
+        let mode: Mode
+        let spec: FieldSpec
+        let delim: Character
+        let outDelim: String
+        let onlyDelimited: Bool
+        let complement: Bool
+    }
 
-        guard let raw = listStr else {
-            Shell.bashCurrent.stderr("cut: you must specify a list of bytes, characters, or fields\n")
+    public mutating func execute() async throws -> ExitStatus {
+        var options = ParsedOptions()
+        if let earlyStatus = parseArgs(into: &options) { return earlyStatus }
+
+        guard let raw = options.listStr else {
+            Shell.bashCurrent.stderr(
+                "cut: you must specify a list of bytes, characters, or fields\n")
             return ExitStatus(2)
         }
         let spec: FieldSpec
@@ -137,111 +68,285 @@ public struct CutCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("cut: \(err.message)\n")
             return ExitStatus(2)
         }
-        guard delim.count == 1 || mode != .fields else {
+        guard options.delim.count == 1 || options.mode != .fields else {
             Shell.bashCurrent.stderr("cut: -d requires a single character\n")
             return ExitStatus(2)
         }
-        let delimChar = delim.first ?? "\t"
-        let outDelim = outputDelim ?? String(delimChar)
+        let delimChar = options.delim.first ?? "\t"
+        let emitOptions = EmitOptions(
+            mode: options.mode, spec: spec, delim: delimChar,
+            outDelim: options.outputDelim ?? String(delimChar),
+            onlyDelimited: options.onlyDelimited,
+            complement: options.complement)
+        return try await runFiles(options.files, emitOptions: emitOptions)
+    }
 
+    private func runFiles(_ files: [String],
+                          emitOptions: EmitOptions) async throws -> ExitStatus {
         let useFiles = files.isEmpty ? ["-"] : files
         var hadError = false
-        for f in useFiles {
+        for file in useFiles {
             do {
-                if f == "-" {
-                    for await line in Shell.bashCurrent.stdin.lines {
-                        try emit(line, mode: mode, spec: spec,
-                                 delim: delimChar, outDelim: outDelim,
-                                 onlyDelimited: onlyDelimited,
-                                 complement: complement)
-                    }
-                } else {
-                    let data = try await Shell.bashCurrent.readDataAtPath(f)
-                    let text = String(decoding: data, as: UTF8.self)
-                    for line in SortCommand.splitLines(text) {
-                        try emit(line, mode: mode, spec: spec,
-                                 delim: delimChar, outDelim: outDelim,
-                                 onlyDelimited: onlyDelimited,
-                                 complement: complement)
-                    }
-                }
+                try await processFile(file, emitOptions: emitOptions)
             } catch {
-                Shell.bashCurrent.stderr("cut: \(f): \(error)\n")
+                Shell.bashCurrent.stderr("cut: \(file): \(error)\n")
                 hadError = true
             }
         }
         return hadError ? .failure : .success
     }
 
-    private func emit(_ line: String, mode: Mode, spec: FieldSpec,
-                      delim: Character, outDelim: String,
-                      onlyDelimited: Bool, complement: Bool) throws {
-        switch mode {
-        case .fields:
-            if !line.contains(delim) {
-                if onlyDelimited { return }
-                Shell.bashCurrent.stdout(line + "\n"); return
+    private func processFile(_ file: String,
+                             emitOptions: EmitOptions) async throws {
+        if file == "-" {
+            for await line in Shell.bashCurrent.stdin.lines {
+                try emit(line, options: emitOptions)
             }
-            let parts = line.split(separator: delim,
+        } else {
+            let data = try await Shell.bashCurrent.readDataAtPath(file)
+            // cut runs through arbitrary input, including potentially
+            // non-UTF-8 binary; lossy decode keeps the pipeline alive.
+            // swiftlint:disable:next optional_data_string_conversion
+            let text = String(decoding: data, as: UTF8.self)
+            for line in SortCommand.splitLines(text) {
+                try emit(line, options: emitOptions)
+            }
+        }
+    }
+
+    // Combined argv decoder — the long if/else chain stays
+    // readable inline; splitting per-flag would duplicate the
+    // `continue`/`return ExitStatus(2)` control flow.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    private mutating func parseArgs(into options: inout ParsedOptions) -> ExitStatus? {
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count {
+                    options.files.append(rawArgv[index])
+                    index += 1
+                }
+                break
+            }
+            if arg == "-" {
+                options.files.append("-")
+                index += 1
+                continue
+            }
+            if let status = handleListFlag(arg, index: &index, options: &options) {
+                if case .handled = status { continue }
+                return ExitStatus(2)
+            }
+            if let status = handleDelimFlag(arg, index: &index, options: &options) {
+                if case .handled = status { continue }
+                return ExitStatus(2)
+            }
+            if arg == "-s" || arg == "--only-delimited" {
+                options.onlyDelimited = true
+                index += 1
+                continue
+            }
+            if arg == "--complement" {
+                options.complement = true
+                index += 1
+                continue
+            }
+            // Concise GNU short form: -f1, -c1-3, -b1-5.
+            if arg.hasPrefix("-") && arg.count > 2,
+               let kind = arg.dropFirst().first,
+               "fcb".contains(kind) {
+                options.listStr = String(arg.dropFirst(2))
+                switch kind {
+                case "f": options.mode = .fields
+                case "c": options.mode = .chars
+                case "b": options.mode = .bytes
+                default: break
+                }
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-d") && arg.count > 2 {
+                options.delim = String(arg.dropFirst(2))
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-") && arg.count > 1 {
+                Shell.bashCurrent.stderr("cut: unknown option: \(arg)\n")
+                return ExitStatus(2)
+            }
+            options.files.append(arg)
+            index += 1
+        }
+        return nil
+    }
+
+    private enum FlagResult {
+        case handled
+        case error
+    }
+
+    private struct ListFlagMapping {
+        let short: String
+        let long: String
+        let mode: Mode
+        let prefix: String
+    }
+
+    private func handleListFlag(_ arg: String,
+                                index: inout Int,
+                                options: inout ParsedOptions) -> FlagResult? {
+        let mappings: [ListFlagMapping] = [
+            ListFlagMapping(short: "-f", long: "--fields",
+                            mode: .fields, prefix: "--fields="),
+            ListFlagMapping(short: "-c", long: "--characters",
+                            mode: .chars, prefix: "--characters="),
+            ListFlagMapping(short: "-b", long: "--bytes",
+                            mode: .bytes, prefix: "--bytes=")
+        ]
+        for mapping in mappings {
+            if arg == mapping.short || arg == mapping.long {
+                guard index + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr(
+                        "cut: \(mapping.short) requires LIST\n")
+                    return .error
+                }
+                options.listStr = rawArgv[index + 1]
+                options.mode = mapping.mode
+                index += 2
+                return .handled
+            }
+            if arg.hasPrefix(mapping.prefix) {
+                options.listStr = String(arg.dropFirst(mapping.prefix.count))
+                options.mode = mapping.mode
+                index += 1
+                return .handled
+            }
+        }
+        return nil
+    }
+
+    private func handleDelimFlag(_ arg: String,
+                                 index: inout Int,
+                                 options: inout ParsedOptions) -> FlagResult? {
+        if arg == "-d" || arg == "--delimiter" {
+            guard index + 1 < rawArgv.count else {
+                Shell.bashCurrent.stderr("cut: -d requires DELIM\n")
+                return .error
+            }
+            options.delim = rawArgv[index + 1]
+            index += 2
+            return .handled
+        }
+        if arg.hasPrefix("--delimiter=") {
+            options.delim = String(arg.dropFirst("--delimiter=".count))
+            index += 1
+            return .handled
+        }
+        if arg.hasPrefix("--output-delimiter=") {
+            options.outputDelim = String(arg.dropFirst("--output-delimiter=".count))
+            index += 1
+            return .handled
+        }
+        if arg == "--output-delimiter" {
+            guard index + 1 < rawArgv.count else {
+                Shell.bashCurrent.stderr("cut: --output-delimiter requires STR\n")
+                return .error
+            }
+            options.outputDelim = rawArgv[index + 1]
+            index += 2
+            return .handled
+        }
+        return nil
+    }
+
+    private func emit(_ line: String, options: EmitOptions) throws {
+        switch options.mode {
+        case .fields:
+            if !line.contains(options.delim) {
+                if options.onlyDelimited { return }
+                Shell.bashCurrent.stdout(line + "\n")
+                return
+            }
+            let parts = line.split(separator: options.delim,
                                    omittingEmptySubsequences: false)
                 .map(String.init)
-            let picks = spec.picks(from: parts.count, complement: complement)
-            Shell.bashCurrent.stdout(picks.map { parts[$0] }.joined(separator: outDelim) + "\n")
+            let picks = options.spec.picks(
+                from: parts.count, complement: options.complement)
+            Shell.bashCurrent.stdout(
+                picks.map { parts[$0] }.joined(separator: options.outDelim) + "\n")
         case .chars:
             let chars = Array(line)
-            let picks = spec.picks(from: chars.count, complement: complement)
+            let picks = options.spec.picks(
+                from: chars.count, complement: options.complement)
             Shell.bashCurrent.stdout(String(picks.map { chars[$0] }) + "\n")
         case .bytes:
             let bytes = Array(line.utf8)
-            let picks = spec.picks(from: bytes.count, complement: complement)
+            let picks = options.spec.picks(
+                from: bytes.count, complement: options.complement)
             let sliced = picks.map { bytes[$0] }
+            // Slicing raw UTF-8 bytes can leave partial code units;
+            // a lossy decode produces the same output GNU cut does.
+            // swiftlint:disable:next optional_data_string_conversion
             Shell.bashCurrent.stdout(String(decoding: sliced, as: UTF8.self) + "\n")
         }
     }
 
-    // MARK: Field/char/byte spec
+}
 
-    struct FieldSpec {
-        struct ParseError: Error { let message: String }
-        var ranges: [(lo: Int, hi: Int)]
+// MARK: Field/char/byte spec
 
-        static func parse(_ raw: String) throws -> FieldSpec {
-            var out: [(Int, Int)] = []
-            for piece in raw.split(separator: ",") {
-                let s = String(piece)
-                if let dash = s.firstIndex(of: "-") {
-                    let loStr = String(s[..<dash])
-                    let hiStr = String(s[s.index(after: dash)...])
-                    let lo = loStr.isEmpty ? 1 : (Int(loStr) ?? 0)
-                    let hi = hiStr.isEmpty ? Int.max : (Int(hiStr) ?? 0)
-                    guard lo >= 1, hi >= lo else {
-                        throw ParseError(message: "invalid range `\(s)`")
-                    }
-                    out.append((lo, hi))
-                } else {
-                    guard let n = Int(s), n >= 1 else {
-                        throw ParseError(message: "invalid field `\(s)`")
-                    }
-                    out.append((n, n))
+/// 1-based slice spec parsed from `cut -f`, `-c`, `-b`.
+///
+/// Lives at file scope so `FieldSpec.Range` and `FieldSpec.ParseError`
+/// don't end up nested two levels deep inside `CutCommand`.
+struct FieldSpec {
+    struct ParseError: Error { let message: String }
+
+    struct Range {
+        let low: Int
+        let high: Int
+    }
+
+    var ranges: [Range]
+
+    static func parse(_ raw: String) throws -> FieldSpec {
+        var out: [Range] = []
+        for piece in raw.split(separator: ",") {
+            let segment = String(piece)
+            if let dash = segment.firstIndex(of: "-") {
+                let loStr = String(segment[..<dash])
+                let hiStr = String(segment[segment.index(after: dash)...])
+                let low = loStr.isEmpty ? 1 : (Int(loStr) ?? 0)
+                let high = hiStr.isEmpty ? Int.max : (Int(hiStr) ?? 0)
+                guard low >= 1, high >= low else {
+                    throw ParseError(message: "invalid range `\(segment)`")
                 }
+                out.append(Range(low: low, high: high))
+            } else {
+                guard let number = Int(segment), number >= 1 else {
+                    throw ParseError(message: "invalid field `\(segment)`")
+                }
+                out.append(Range(low: number, high: number))
             }
-            guard !out.isEmpty else { throw ParseError(message: "empty list") }
-            return FieldSpec(ranges: out)
         }
+        guard !out.isEmpty else { throw ParseError(message: "empty list") }
+        return FieldSpec(ranges: out)
+    }
 
-        func picks(from count: Int, complement: Bool = false) -> [Int] {
-            var keep = Array(repeating: false, count: count)
-            for r in ranges {
-                let lo = r.lo
-                let hi = min(r.hi, count)
-                if lo > hi { continue }
-                for i in lo...hi { keep[i - 1] = true }
-            }
-            var out: [Int] = []
-            for i in 0..<count {
-                if keep[i] != complement { out.append(i) }
-            }
-            return out
+    func picks(from count: Int, complement: Bool = false) -> [Int] {
+        var keep = Array(repeating: false, count: count)
+        for range in ranges {
+            let low = range.low
+            let high = min(range.high, count)
+            if low > high { continue }
+            for idx in low...high { keep[idx - 1] = true }
         }
+        var out: [Int] = []
+        for idx in 0..<count where keep[idx] != complement {
+            out.append(idx)
+        }
+        return out
     }
 }

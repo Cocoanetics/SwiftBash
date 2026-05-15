@@ -25,60 +25,29 @@ public struct SeqCommand: ParsableBashCommand {
 
     public init() {}
 
+    // Two-step: parse argv (one switch), then parse the 1/2/3 numeric
+    // operands (another switch), then drive the sequence loop. Each
+    // step is independent and short; splitting them out further would
+    // just shuttle six values across helper boundaries.
+    // swiftlint:disable:next cyclomatic_complexity
     public mutating func execute() async throws -> ExitStatus {
-        var separator = "\n"
-        var equalWidth = false
-        var positional: [String] = []
-
-        var i = 0
-        while i < rawArgv.count {
-            let a = rawArgv[i]
-            if a == "--" {
-                i += 1
-                while i < rawArgv.count { positional.append(rawArgv[i]); i += 1 }
-                break
-            }
-            if a == "-s" || a == "--separator" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("seq: option requires an argument: \(a)\n")
-                    return ExitStatus(2)
-                }
-                separator = rawArgv[i + 1]
-                i += 2; continue
-            }
-            // `-sCHAR(s)` combined.
-            if a.hasPrefix("-s"), a.count > 2,
-               !isNumericArg(a)
-            {
-                separator = String(a.dropFirst(2))
-                i += 1; continue
-            }
-            if a == "-w" || a == "--equal-width" {
-                equalWidth = true; i += 1; continue
-            }
-            if a == "-f" || a == "--format" {
-                guard i + 1 < rawArgv.count else {
-                    Shell.bashCurrent.stderr("seq: option requires an argument: \(a)\n")
-                    return ExitStatus(2)
-                }
-                // We support the simplest case: pass-through the format
-                // and use it via String(format:). Bash's seq accepts
-                // anything printf accepts.
-                _ = rawArgv[i + 1] // currently unused — emit unformatted
-                i += 2; continue
-            }
-            // `-NUM` and bare numbers are positional.
-            positional.append(a); i += 1
+        var parsedArgs: ParsedArgs
+        switch parseArgs() {
+        case .success(let args): parsedArgs = args
+        case .failure(let code): return code
         }
+        let separator = parsedArgs.separator
+        let equalWidth = parsedArgs.equalWidth
+        let positional = parsedArgs.positional
 
         var parsed: [Double] = []
         parsed.reserveCapacity(positional.count)
         for raw in positional {
-            guard let n = Double(raw) else {
+            guard let num = Double(raw) else {
                 Shell.bashCurrent.stderr("seq: invalid number: \(raw)\n")
                 return .failure
             }
-            parsed.append(n)
+            parsed.append(num)
         }
 
         let first: Double, step: Double, last: Double
@@ -97,15 +66,15 @@ public struct SeqCommand: ParsableBashCommand {
         }
 
         var values: [String] = []
-        var v = first
+        var current = first
         let ascending = step > 0
-        while (ascending && v <= last + 1e-9) || (!ascending && v >= last - 1e-9) {
+        while (ascending && current <= last + 1e-9) || (!ascending && current >= last - 1e-9) {
             // Pure-CPU loop on a user-controlled count; honour
             // cancellation every iteration so `seq 1 1000000000` &
             // `kill $!` actually stops.
             try Task.checkCancellation()
-            values.append(format(v))
-            v += step
+            values.append(format(current))
+            current += step
         }
         if equalWidth, let width = values.map({ widthIgnoringSign($0) }).max() {
             values = values.map { padLeftZeros($0, toWidth: width) }
@@ -114,29 +83,87 @@ public struct SeqCommand: ParsableBashCommand {
         return .success
     }
 
-    private func format(_ n: Double) -> String {
-        if n == n.rounded(), abs(n) < 1e15 {
-            return String(Int64(n))
-        }
-        return String(n)
+    private struct ParsedArgs {
+        var separator: String
+        var equalWidth: Bool
+        var positional: [String]
     }
 
-    private func isNumericArg(_ a: String) -> Bool {
+    private enum ArgResult {
+        case success(ParsedArgs)
+        case failure(ExitStatus)
+    }
+
+    private func parseArgs() -> ArgResult {
+        var separator = "\n"
+        var equalWidth = false
+        var positional: [String] = []
+
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                while index < rawArgv.count { positional.append(rawArgv[index]); index += 1 }
+                break
+            }
+            if arg == "-s" || arg == "--separator" {
+                guard index + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("seq: option requires an argument: \(arg)\n")
+                    return .failure(ExitStatus(2))
+                }
+                separator = rawArgv[index + 1]
+                index += 2; continue
+            }
+            // `-sCHAR(s)` combined.
+            if arg.hasPrefix("-s"), arg.count > 2,
+               !isNumericArg(arg) {
+                separator = String(arg.dropFirst(2))
+                index += 1; continue
+            }
+            if arg == "-w" || arg == "--equal-width" {
+                equalWidth = true; index += 1; continue
+            }
+            if arg == "-f" || arg == "--format" {
+                guard index + 1 < rawArgv.count else {
+                    Shell.bashCurrent.stderr("seq: option requires an argument: \(arg)\n")
+                    return .failure(ExitStatus(2))
+                }
+                // We support the simplest case: pass-through the format
+                // and use it via String(format:). Bash's seq accepts
+                // anything printf accepts.
+                _ = rawArgv[index + 1] // currently unused — emit unformatted
+                index += 2; continue
+            }
+            // `-NUM` and bare numbers are positional.
+            positional.append(arg); index += 1
+        }
+        return .success(ParsedArgs(separator: separator, equalWidth: equalWidth, positional: positional))
+    }
+
+    private func format(_ num: Double) -> String {
+        if num == num.rounded(), abs(num) < 1e15 {
+            return String(Int64(num))
+        }
+        return String(num)
+    }
+
+    private func isNumericArg(_ arg: String) -> Bool {
         // True for `-3`, `-3.5`, `+1`, `2` — used to disambiguate
         // `-3` (a negative LAST) from `-3...something` (an option).
-        let body = a.hasPrefix("-") || a.hasPrefix("+")
-            ? String(a.dropFirst()) : a
+        let body = arg.hasPrefix("-") || arg.hasPrefix("+")
+            ? String(arg.dropFirst()) : arg
         return Double(body) != nil
     }
 
-    private func widthIgnoringSign(_ s: String) -> Int {
-        s.first == "-" ? s.count - 1 : s.count
+    private func widthIgnoringSign(_ str: String) -> Int {
+        str.first == "-" ? str.count - 1 : str.count
     }
 
-    private func padLeftZeros(_ s: String, toWidth w: Int) -> String {
-        let body = s.first == "-" ? String(s.dropFirst()) : s
-        let pad = max(0, w - body.count)
+    private func padLeftZeros(_ str: String, toWidth width: Int) -> String {
+        let body = str.first == "-" ? String(str.dropFirst()) : str
+        let pad = max(0, width - body.count)
         let zeros = String(repeating: "0", count: pad)
-        return (s.first == "-" ? "-" : "") + zeros + body
+        return (str.first == "-" ? "-" : "") + zeros + body
     }
 }

@@ -9,9 +9,9 @@ import Testing
         init(_ initial: [String: String] = [:]) { self.vars = initial }
     }
 
-    private func eval(_ s: String, store: Store = Store()) throws -> Int64 {
+    private func eval(_ str: String, store: Store = Store()) throws -> Int64 {
         try Arithmetic.evaluate(
-            s,
+            str,
             get: { store.vars[$0] },
             set: { store.vars[$0] = String($1) }
         )
