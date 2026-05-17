@@ -90,10 +90,12 @@ public struct FindCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let rest = Array(argv.dropFirst())
-        // GNU/BSD `find` bypasses the predicate parser for `--help`
-        // and `--version` — they print and exit 0 even when wedged
-        // between start paths and an expression.
-        for arg in rest {
+        // GNU/BSD `find` recognises `--help` and `--version` in option
+        // position only — after start paths and before the expression.
+        // Don't scan the full argv, or arguments to predicates (e.g.
+        // `find . -name --help`, `find . -exec echo --version \;`)
+        // would be hijacked.
+        scan: for arg in rest {
             switch arg {
             case "--help":
                 Shell.bashCurrent.stdout(Self.helpText)
@@ -102,7 +104,7 @@ public struct FindCommand: Command {
                 Shell.bashCurrent.stdout("find (swift-bash built-in)\n")
                 return .success
             default:
-                continue
+                if Self.isExpressionToken(arg) { break scan }
             }
         }
 
