@@ -240,6 +240,30 @@ import Foundation
         #expect(req?.url.absoluteString.contains("q=hello") == true)
     }
 
+    // MARK: Combined short-flag bundles
+
+    @Test func combinedShortFlagsAcceptedAndDoNotMangleArguments() async throws {
+        let mock = MockNet()
+        let cap = try makeShell(
+            config: NetworkConfig(
+                allowedURLPrefixes: [AllowedURLEntry(
+                    "https://api.example.com")],
+                allowedMethods: [.GET, .POST],
+                denyPrivateRanges: false),
+            mock: mock)
+        // `-sS` and `-sSL` are flag bundles; `-sS` after `-d` is a body value.
+        try await cap.shell.run("curl -sS https://api.example.com/a")
+        try await cap.shell.run("curl -sSL https://api.example.com/b")
+        try await cap.shell.run("curl -d -sS https://api.example.com/c")
+        #expect(cap.shell.lastExitStatus.code == 0)
+        #expect(!cap.stderr.contains("unknown option"))
+        #expect(mock.requests.count == 3)
+        // swiftlint:disable:next optional_data_string_conversion
+        let body = String(decoding: mock.requests[2].body ?? Data(),
+                          as: UTF8.self)
+        #expect(body == "-sS")
+    }
+
     // MARK: Header transform
 
     @Test func transformInjectsCredentialAtFetchBoundary() async throws {
