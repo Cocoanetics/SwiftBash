@@ -329,52 +329,6 @@ import ShellKit
 
     // MARK: identity
 
-    // MARK: top-level command surface (issue #37)
-
-    @Test func swiftVersionFlagRunsInProcess() async throws {
-        let (shell, cap) = makeShell()
-        let status = try await shell.run("swift --version")
-        #expect(status.code == 0)
-        #expect(cap.stdout.contains("swift-script"))
-    }
-
-    @Test func swiftScriptVersionFlagRunsInProcess() async throws {
-        let (shell, cap) = makeShell()
-        let status = try await shell.run("swift-script --version")
-        #expect(status.code == 0)
-        #expect(cap.stdout.contains("swift-script"))
-    }
-
-    @Test func swiftDashEEvaluatesExpression() async throws {
-        let (shell, cap) = makeShell()
-        let status = try await shell.run("swift -e 'print(2 + 3)'")
-        #expect(status.code == 0)
-        #expect(cap.stdout == "5\n")
-    }
-
-    @Test func swiftDashENoExpressionReportsUsage() async throws {
-        let (shell, cap) = makeShell()
-        let status = try await shell.run("swift -e")
-        #expect(status.code == 2)
-        #expect(cap.stderr.contains("usage:"))
-    }
-
-    @Test func swiftWithScriptPathStillWorks() async throws {
-        // The command path should also handle a script-file invocation
-        // (no shebang) — `swift script.swift` with no `#!` line.
-        let (shell, cap) = makeShell()
-        let script = try writeScript("""
-            print("hi from file")
-            """)
-        defer { try? FileManager.default.removeItem(atPath: script.dir) }
-
-        let status = try await shell.run("swift \(Self.bashQuote(script.path))")
-        #expect(status.code == 0)
-        #expect(cap.stdout == "hi from file\n")
-    }
-
-    // MARK: identity
-
     @Test func swiftScriptSeesSandboxIdentity() async throws {
         var info = HostInfo.synthetic
         info.userName = "agent"

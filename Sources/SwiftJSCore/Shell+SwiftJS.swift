@@ -84,66 +84,93 @@ private func runSwiftJSCommand(
 ) async -> ExitStatus {
     let shell = Shell.bashCurrent
     let invokedAs = (interpreter as NSString).lastPathComponent.lowercased()
-    let isNodeAlias = invokedAs == "node" || invokedAs == "nodejs"
-    let isBunAlias  = invokedAs == "bun"
-
-    // argv[0] is the command name; user args start at argv[1].
     let userArgs = Array(argv.dropFirst())
 
     guard let first = userArgs.first else {
-        let usage: String
-        if isNodeAlias || isBunAlias {
-            usage = "usage: \(invokedAs) <script.js> [args...]\n"
-                  + "       \(invokedAs) -e <expr>\n"
-                  + "       \(invokedAs) --version\n"
-        } else {
-            usage = "usage: \(invokedAs) <script.js> [args...]\n"
-                  + "       \(invokedAs) -e|-p <expr>\n"
-                  + "       \(invokedAs) --version\n"
-        }
-        shell.stderr(usage)
+        shell.stderr(swiftJSUsage(invokedAs: invokedAs))
         return ExitStatus(2)
     }
 
     if first == "--version" || first == "-v" {
-        let version = isNodeAlias ? "v22.0.0-swiftjs"
-                    : isBunAlias  ? "1.3.0-swiftjs"
-                                  : "swift-js 0.2"
-        shell.stdout("\(version)\n")
+        shell.stdout("\(swiftJSVersion(invokedAs: invokedAs))\n")
         return .success
     }
 
     if first == "-e" || first == "-p" || first == "--print" {
-        guard userArgs.count >= 2 else {
-            shell.stderr("\(invokedAs): \(first) requires an expression\n")
-            return ExitStatus(2)
-        }
-        let expr = userArgs[1]
-        let extra = Array(userArgs.dropFirst(2))
-        // Argv for inline eval: [interpreter, "[eval]", ...extra].
-        // Mirrors node's behaviour where argv[1] is the script slot
-        // even when there is no script file. Use StaticArgvProvider
-        // because there's no script path to anchor a ShellArgvProvider.
-        let runtime = JSRuntime(
-            argv: [interpreter, "[eval]"] + extra,
-            envProvider: ShellEnvProvider(shell),
-            childShell: .inProcess,
-            stdout: { shell.stdout($0) },
-            stderr: { shell.stderr($0) })
-        let result = runtime.run(expr, name: "[eval]")
-        let shouldPrint = (first == "-p" || first == "--print")
-        if shouldPrint, runtime.exitCode == 0,
-           let result, !result.isUndefined, !result.isNull {
-            shell.stdout((result.toString() ?? "") + "\n")
-        }
-        runtime.fireExitListeners()
-        return ExitStatus(runtime.exitCode)
+        return runSwiftJSEval(
+            interpreter: interpreter, invokedAs: invokedAs,
+            flag: first, userArgs: userArgs, shell: shell)
     }
 
-    // Anything else is treated as a script path. Read through the
-    // shell's file system so virtualised mounts work — same reason
-    // the shebang path doesn't use `runtime.runFile`.
-    let scriptPath = first
+    return await runSwiftJSScript(
+        interpreter: interpreter, invokedAs: invokedAs,
+        userArgs: userArgs, shell: shell)
+}
+
+private func swiftJSUsage(invokedAs: String) -> String {
+    let isAlias = invokedAs == "node" || invokedAs == "nodejs"
+                  || invokedAs == "bun"
+    if isAlias {
+        return "usage: \(invokedAs) <script.js> [args...]\n"
+             + "       \(invokedAs) -e <expr>\n"
+             + "       \(invokedAs) --version\n"
+    }
+    return "usage: \(invokedAs) <script.js> [args...]\n"
+         + "       \(invokedAs) -e|-p <expr>\n"
+         + "       \(invokedAs) --version\n"
+}
+
+private func swiftJSVersion(invokedAs: String) -> String {
+    switch invokedAs {
+    case "node", "nodejs": return "v22.0.0-swiftjs"
+    case "bun":            return "1.3.0-swiftjs"
+    default:               return "swift-js 0.2"
+    }
+}
+
+private func runSwiftJSEval(
+    interpreter: String,
+    invokedAs: String,
+    flag: String,
+    userArgs: [String],
+    shell: Shell
+) -> ExitStatus {
+    guard userArgs.count >= 2 else {
+        shell.stderr("\(invokedAs): \(flag) requires an expression\n")
+        return ExitStatus(2)
+    }
+    let expr = userArgs[1]
+    let extra = Array(userArgs.dropFirst(2))
+    // Argv for inline eval: [interpreter, "[eval]", ...extra].
+    // Mirrors node's behaviour where argv[1] is the script slot
+    // even when there is no script file. Use StaticArgvProvider
+    // because there's no script path to anchor a ShellArgvProvider.
+    let runtime = JSRuntime(
+        argv: [interpreter, "[eval]"] + extra,
+        envProvider: ShellEnvProvider(shell),
+        childShell: .inProcess,
+        stdout: { shell.stdout($0) },
+        stderr: { shell.stderr($0) })
+    let result = runtime.run(expr, name: "[eval]")
+    let shouldPrint = (flag == "-p" || flag == "--print")
+    if shouldPrint, runtime.exitCode == 0,
+       let result, !result.isUndefined, !result.isNull {
+        shell.stdout((result.toString() ?? "") + "\n")
+    }
+    runtime.fireExitListeners()
+    return ExitStatus(runtime.exitCode)
+}
+
+private func runSwiftJSScript(
+    interpreter: String,
+    invokedAs: String,
+    userArgs: [String],
+    shell: Shell
+) async -> ExitStatus {
+    // Anything that isn't a flag is treated as a script path. Read
+    // through the shell's file system so virtualised mounts work —
+    // same reason the shebang path doesn't use `runtime.runFile`.
+    let scriptPath = userArgs[0]
     let scriptArgs = Array(userArgs.dropFirst())
     let resolved: String
     do {

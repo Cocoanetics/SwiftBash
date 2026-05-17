@@ -58,17 +58,8 @@ private func runSwiftScriptCommand(
     let shell = Shell.bashCurrent
     let userArgs = Array(argv.dropFirst())
 
-    func usage() {
-        shell.stderr("""
-            usage: \(invokedAs) <file.swift> [args...]
-                   \(invokedAs) -e <expression>
-                   \(invokedAs) --version
-
-            """)
-    }
-
     guard let first = userArgs.first else {
-        usage()
+        shell.stderr(swiftScriptUsage(invokedAs: invokedAs))
         return ExitStatus(2)
     }
 
@@ -80,48 +71,83 @@ private func runSwiftScriptCommand(
     }
 
     if first == "-h" || first == "--help" {
-        usage()
+        shell.stderr(swiftScriptUsage(invokedAs: invokedAs))
         return ExitStatus(2)
     }
 
-    let interpreter = Interpreter()
-
     if first == "-e" {
-        guard userArgs.count >= 2 else {
-            usage()
-            return ExitStatus(2)
-        }
-        let source = userArgs[1]
-        let extra = Array(userArgs.dropFirst(2))
-        interpreter.scriptArguments = ["<expression>"] + extra
-        do {
-            let result = try await interpreter.eval(
-                source, fileName: "<expression>")
-            if case .void = result {
-                // nothing to print
-            } else {
-                shell.stdout(result.description + "\n")
-            }
-            return .success
-        } catch let parseError as ParseError {
-            interpreter.error(parseError.formatted)
-            if !parseError.formatted.hasSuffix("\n") {
-                interpreter.error("\n")
-            }
-            return ExitStatus(1)
-        } catch let scriptExit as ScriptExit {
-            return scriptExit.status
-        } catch is CancellationError {
-            return ExitStatus(143)
-        } catch {
-            interpreter.error(interpreter.renderRuntimeError(error))
-            return ExitStatus(1)
-        }
+        return await runSwiftScriptEval(
+            invokedAs: invokedAs, userArgs: userArgs, shell: shell)
     }
 
-    // Script file path — read through shell.fileSystem so virtualised
-    // mounts work.
-    let scriptPath = first
+    return await runSwiftScriptFile(
+        invokedAs: invokedAs, userArgs: userArgs, shell: shell)
+}
+
+private func swiftScriptUsage(invokedAs: String) -> String {
+    """
+    usage: \(invokedAs) <file.swift> [args...]
+           \(invokedAs) -e <expression>
+           \(invokedAs) --version
+
+    """
+}
+
+private func renderSwiftScriptError(
+    _ error: Error,
+    interpreter: Interpreter
+) -> ExitStatus {
+    switch error {
+    case let parseError as ParseError:
+        interpreter.error(parseError.formatted)
+        if !parseError.formatted.hasSuffix("\n") {
+            interpreter.error("\n")
+        }
+        return ExitStatus(1)
+    case is CancellationError:
+        return ExitStatus(143)
+    default:
+        interpreter.error(interpreter.renderRuntimeError(error))
+        return ExitStatus(1)
+    }
+}
+
+private func runSwiftScriptEval(
+    invokedAs: String,
+    userArgs: [String],
+    shell: Shell
+) async -> ExitStatus {
+    guard userArgs.count >= 2 else {
+        shell.stderr(swiftScriptUsage(invokedAs: invokedAs))
+        return ExitStatus(2)
+    }
+    let source = userArgs[1]
+    let extra = Array(userArgs.dropFirst(2))
+    let interpreter = Interpreter()
+    interpreter.scriptArguments = ["<expression>"] + extra
+    do {
+        let result = try await interpreter.eval(
+            source, fileName: "<expression>")
+        if case .void = result {
+            // nothing to print
+        } else {
+            shell.stdout(result.description + "\n")
+        }
+        return .success
+    } catch let scriptExit as ScriptExit {
+        return scriptExit.status
+    } catch {
+        return renderSwiftScriptError(error, interpreter: interpreter)
+    }
+}
+
+private func runSwiftScriptFile(
+    invokedAs: String,
+    userArgs: [String],
+    shell: Shell
+) async -> ExitStatus {
+    // Read through shell.fileSystem so virtualised mounts work.
+    let scriptPath = userArgs[0]
     let scriptArgs = Array(userArgs.dropFirst())
     let resolved: String
     do {
@@ -145,19 +171,11 @@ private func runSwiftScriptCommand(
     if source.hasPrefix("#!") {
         source = "//" + source.dropFirst(2)
     }
+    let interpreter = Interpreter()
     interpreter.scriptArguments = [resolved] + scriptArgs
     do {
         return try await interpreter.evalScript(source, fileName: resolved)
-    } catch let parseError as ParseError {
-        interpreter.error(parseError.formatted)
-        if !parseError.formatted.hasSuffix("\n") {
-            interpreter.error("\n")
-        }
-        return ExitStatus(1)
-    } catch is CancellationError {
-        return ExitStatus(143)
     } catch {
-        interpreter.error(interpreter.renderRuntimeError(error))
-        return ExitStatus(1)
+        return renderSwiftScriptError(error, interpreter: interpreter)
     }
 }
