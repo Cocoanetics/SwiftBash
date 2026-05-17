@@ -112,6 +112,30 @@ import Testing
         #expect(cap.shell.lastExitStatus.isSuccess)
     }
 
+    @Test func ignoredModifierMissingArgIsUsageError() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("compgen -F")
+        // -F still requires a value; bare `compgen -F` is status 2.
+        #expect(cap.shell.lastExitStatus.code == 2)
+        #expect(cap.stderr.contains("option requires an argument"))
+    }
+
+    @Test func bareCompgenSucceeds() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("compgen")
+        // No generator → no-op success, not a "no matches" failure.
+        #expect(cap.stdout == "")
+        #expect(cap.shell.lastExitStatus.isSuccess)
+    }
+
+    @Test func wordListHonorsQuoting() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"compgen -W "alpha 'foo bar' beta""#)
+        // The middle token has an internal space — should survive as
+        // one candidate, not split into two.
+        #expect(cap.stdout == "alpha\nfoo bar\nbeta\n")
+    }
+
     // MARK: completion sources
 
     @Test func completionSourcesListCommandsAll() async throws {

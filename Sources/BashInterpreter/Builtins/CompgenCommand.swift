@@ -65,7 +65,15 @@ public struct CompgenCommand: Command {
             candidates = candidates.map { $0 + suffix }
         }
 
-        guard !candidates.isEmpty else { return ExitStatus(1) }
+        if candidates.isEmpty {
+            // Real bash returns 1 only when an action / wordlist was
+            // specified and produced no matches. A bare `compgen` (no
+            // generating options) is a no-op that succeeds — scripts
+            // sometimes use it as a probe, so don't fail them.
+            let hadGenerator = !options.actions.isEmpty
+                || options.wordList != nil
+            return hadGenerator ? ExitStatus(1) : .success
+        }
         for candidate in candidates {
             shell.stdout("\(candidate)\n")
         }
@@ -159,7 +167,15 @@ extension CompgenCommand {
             case "-o", "-F", "-C", "-G":
                 // Accepted-and-ignored: -o is compopt fluff, -F/-C/-G
                 // need the `complete` registry that hasn't landed yet.
+                // Still bash-strict about argument presence — these
+                // flags require a value, and dotfile completion code
+                // distinguishes usage-error status 2 from "no matches".
                 index += 1
+                guard index < argv.count else {
+                    Shell.bashCurrent.stderr(
+                        "compgen: \(arg): option requires an argument\n")
+                    return .failure(ExitStatus(2))
+                }
             default:
                 Shell.bashCurrent.stderr("compgen: \(arg): invalid option\n")
                 return .failure(ExitStatus(2))
@@ -275,9 +291,64 @@ extension CompgenCommand {
 
 extension CompgenCommand {
 
-    fileprivate func splitWordList(_ raw: String) -> [String] {
-        raw.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" })
-            .map(String.init)
+    /// Tokenize a `-W` word list the way bash does: whitespace-
+    /// separated, with single quotes preserving literal contents,
+    /// double quotes preserving contents (minus escape processing),
+    /// and `\` escaping the next character outside quotes. Outer
+    /// quotes have already been stripped by the shell parser before
+    /// argv hits us, so what we receive here is the inner list — the
+    /// quoting we still see is intentional.
+    fileprivate func splitWordList(_ raw: String) -> [String] { // swiftlint:disable:this cyclomatic_complexity
+        var tokens: [String] = []
+        var current = ""
+        var inSingle = false
+        var inDouble = false
+        var hasToken = false
+
+        var iter = raw.makeIterator()
+        while let char = iter.next() {
+            if inSingle {
+                if char == "'" { inSingle = false } else { current.append(char) }
+                continue
+            }
+            if inDouble {
+                if char == "\"" {
+                    inDouble = false
+                } else if char == "\\" {
+                    if let next = iter.next() {
+                        // In bash, only $`"\\ and newline are special
+                        // after backslash inside double quotes; keep
+                        // it simple — pass the next char through.
+                        current.append(next)
+                    }
+                } else {
+                    current.append(char)
+                }
+                continue
+            }
+            switch char {
+            case " ", "\t", "\n":
+                if hasToken {
+                    tokens.append(current)
+                    current = ""
+                    hasToken = false
+                }
+            case "'":
+                inSingle = true
+                hasToken = true
+            case "\"":
+                inDouble = true
+                hasToken = true
+            case "\\":
+                if let next = iter.next() { current.append(next) }
+                hasToken = true
+            default:
+                current.append(char)
+                hasToken = true
+            }
+        }
+        if hasToken { tokens.append(current) }
+        return tokens
     }
 
     /// Minimal fnmatch for `-X` patterns — supports `*` and `?`,
