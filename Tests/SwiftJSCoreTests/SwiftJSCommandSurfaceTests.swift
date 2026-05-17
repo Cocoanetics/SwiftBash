@@ -1,16 +1,22 @@
 #if canImport(JavaScriptCore)
-import XCTest
-@testable import SwiftJSCore
-import BashInterpreter
-import BashCommandKit
+import Testing
 import Foundation
+import ShellKit
+@testable import SwiftJSCore
+@testable import BashInterpreter
+import BashCommandKit
 
 /// Issue #37: in-process `node` / `bun` / `swift-js` must accept the
 /// same argv shape as the standalone CLI — `--version`, `-e <expr>`,
 /// `-p <expr>`, and `<script.js>`. Before the fix these only worked
 /// via the script-interpreter (shebang) path, so a bare
 /// `node --version` invocation failed.
-final class SwiftJSCommandSurfaceTests: XCTestCase {
+///
+/// Uses Swift Testing rather than XCTest because mixing JSC + XCTest
+/// + bash pipeline dispatch crashes swift-corelibs-xctest's signal
+/// handler on Linux during teardown; the Swift Testing path is
+/// unaffected.
+@Suite(.timeLimit(.minutes(1))) struct SwiftJSCommandSurfaceTests {
 
     private final class StringBox: @unchecked Sendable {
         private let lock = NSLock()
@@ -42,69 +48,72 @@ final class SwiftJSCommandSurfaceTests: XCTestCase {
         }
     }
 
-    private func makeShell() -> (Shell, Capture) {
+    private func makeShell() -> (BashInterpreter.Shell, Capture) {
         let cap = Capture()
-        let shell = Shell(
+        let shell = BashInterpreter.Shell(
             stdout: cap.stdoutSink,
             stderr: cap.stderrSink,
             environment: Environment(),
-            commands: Shell.defaultCommands())
+            commands: BashInterpreter.Shell.defaultCommands())
         shell.registerSwiftJS()
         return (shell, cap)
     }
 
-    func testNodeVersionFlag() async throws {
+    private static func bashQuote(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    @Test func nodeVersionFlag() async throws {
         let (shell, cap) = makeShell()
         let status = try await shell.run("node --version")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertTrue(cap.stdout.contains("v22"),
-                      "unexpected version output: \(cap.stdout)")
+        #expect(status.code == 0)
+        #expect(cap.stdout.contains("v22"))
     }
 
-    func testBunVersionFlag() async throws {
+    @Test func bunVersionFlag() async throws {
         let (shell, cap) = makeShell()
         let status = try await shell.run("bun --version")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertFalse(cap.stdout.isEmpty)
+        #expect(status.code == 0)
+        #expect(!cap.stdout.isEmpty)
     }
 
-    func testSwiftJsVersionFlag() async throws {
+    @Test func swiftJsVersionFlag() async throws {
         let (shell, cap) = makeShell()
         let status = try await shell.run("swift-js --version")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertTrue(cap.stdout.contains("swift-js"))
+        #expect(status.code == 0)
+        #expect(cap.stdout.contains("swift-js"))
     }
 
-    func testNodeDashE() async throws {
+    @Test func nodeDashE() async throws {
         let (shell, cap) = makeShell()
         let status = try await shell.run("node -e 'console.log(2 + 3)'")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertEqual(cap.stdout, "5\n")
+        #expect(status.code == 0)
+        #expect(cap.stdout == "5\n")
     }
 
-    func testNodeDashPPrintsExpression() async throws {
+    @Test func nodeDashPPrintsExpression() async throws {
         let (shell, cap) = makeShell()
         // `-p` evaluates and prints the resulting expression value.
         let status = try await shell.run("node -p '40 + 2'")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertEqual(cap.stdout, "42\n")
+        #expect(status.code == 0)
+        #expect(cap.stdout == "42\n")
     }
 
-    func testBunDashE() async throws {
+    @Test func bunDashE() async throws {
         let (shell, cap) = makeShell()
         let status = try await shell.run("bun -e 'console.log(\"hi\")'")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertEqual(cap.stdout, "hi\n")
+        #expect(status.code == 0)
+        #expect(cap.stdout == "hi\n")
     }
 
-    func testNodeDashEWithoutExpressionReportsError() async throws {
+    @Test func nodeDashEWithoutExpressionReportsError() async throws {
         let (shell, cap) = makeShell()
         let status = try await shell.run("node -e")
-        XCTAssertEqual(status.code, 2)
-        XCTAssertTrue(cap.stderr.contains("requires an expression"))
+        #expect(status.code == 2)
+        #expect(cap.stderr.contains("requires an expression"))
     }
 
-    func testNodeResolvesRelativePathAgainstShellCwd() async throws {
+    @Test func nodeResolvesRelativePathAgainstShellCwd() async throws {
         // Regression for codex P1 review: `node foo.js` after an
         // in-shell `cd` must resolve against the shell's working
         // directory, not the host process cwd.
@@ -118,16 +127,13 @@ final class SwiftJSCommandSurfaceTests: XCTestCase {
             .write(toFile: path, atomically: true, encoding: .utf8)
 
         let (shell, cap) = makeShell()
-        let quoted = "'" + dir.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let status = try await shell.run("cd \(quoted) && node rel.js")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertEqual(cap.stdout, "from cwd\n")
+        let status = try await shell.run(
+            "cd \(Self.bashQuote(dir)) && node rel.js")
+        #expect(status.code == 0)
+        #expect(cap.stdout == "from cwd\n")
     }
 
-    func testNodeWithScriptPath() async throws {
-        // The Command path also handles `node script.js` for files
-        // without a shebang — covers the case where `node` is invoked
-        // explicitly rather than via `./script.js`.
+    @Test func nodeWithScriptPath() async throws {
         let dir = NSTemporaryDirectory()
             + "swift-js-cmd-\(UUID().uuidString)"
         try FileManager.default.createDirectory(
@@ -138,10 +144,9 @@ final class SwiftJSCommandSurfaceTests: XCTestCase {
             .write(toFile: path, atomically: true, encoding: .utf8)
 
         let (shell, cap) = makeShell()
-        let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let status = try await shell.run("node \(quoted)")
-        XCTAssertEqual(status.code, 0)
-        XCTAssertEqual(cap.stdout, "hello from file\n")
+        let status = try await shell.run("node \(Self.bashQuote(path))")
+        #expect(status.code == 0)
+        #expect(cap.stdout == "hello from file\n")
     }
 }
 #endif
