@@ -242,31 +242,26 @@ import Foundation
 
     // MARK: Combined short-flag bundles
 
-    @Test func combinedShortFlagsAcceptedLikeSeparateTokens() async throws {
+    @Test func combinedShortFlagsAcceptedAndDoNotMangleArguments() async throws {
         let mock = MockNet()
         let cap = try makeShell(
             config: NetworkConfig(
                 allowedURLPrefixes: [AllowedURLEntry(
                     "https://api.example.com")],
+                allowedMethods: [.GET, .POST],
                 denyPrivateRanges: false),
             mock: mock)
-        try await cap.shell.run("curl -sS https://api.example.com/v1")
+        // `-sS` and `-sSL` are flag bundles; `-sS` after `-d` is a body value.
+        try await cap.shell.run("curl -sS https://api.example.com/a")
+        try await cap.shell.run("curl -sSL https://api.example.com/b")
+        try await cap.shell.run("curl -d -sS https://api.example.com/c")
         #expect(cap.shell.lastExitStatus.code == 0)
-        #expect(mock.requests.count == 1)
         #expect(!cap.stderr.contains("unknown option"))
-    }
-
-    @Test func combinedShortFlagsThreeFlagsBundled() async throws {
-        let mock = MockNet()
-        let cap = try makeShell(
-            config: NetworkConfig(
-                allowedURLPrefixes: [AllowedURLEntry(
-                    "https://api.example.com")],
-                denyPrivateRanges: false),
-            mock: mock)
-        try await cap.shell.run("curl -sSL https://api.example.com/v1")
-        #expect(cap.shell.lastExitStatus.code == 0)
-        #expect(mock.requests.count == 1)
+        #expect(mock.requests.count == 3)
+        // swiftlint:disable:next optional_data_string_conversion
+        let body = String(decoding: mock.requests[2].body ?? Data(),
+                          as: UTF8.self)
+        #expect(body == "-sS")
     }
 
     // MARK: Header transform

@@ -237,33 +237,19 @@ private struct ParsedOptions {
 extension CurlCommand {
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
-    fileprivate static func parse(_ rawArgv: [String]) throws -> ParsedOptions {
+    fileprivate static func parse(_ argv: [String]) throws -> ParsedOptions {
         var opts = ParsedOptions()
         var sawURL = false
         var pendingFormFields: [(String, String)] = []
         var pendingMultipart: [MultipartPart] = []
 
-        // Expand combined short-flag bundles like `-sS` into `-s -S`. Real
-        // curl accepts both forms; without this pre-pass our exact-match
-        // per-token check rejected `-sS` as an unknown option.
-        let booleanShortFlags: Set<Character> = [
-            "s", "S", "G", "O", "i", "I", "v", "f", "L", "k"
-        ]
-        let argv: [String] = rawArgv.flatMap { (token: String) -> [String] in
-            guard token.hasPrefix("-"),
-                  !token.hasPrefix("--"),
-                  token.count > 2
-            else { return [token] }
-            let chars = Array(token.dropFirst())
-            if chars.allSatisfy({ booleanShortFlags.contains($0) }) {
-                return chars.map { "-\($0)" }
-            }
-            return [token]
-        }
-
+        // Real curl accepts combined boolean short-flag bundles like `-sS`.
+        // Done in-loop (not as a pre-pass) so option arguments such as the
+        // body in `curl -d -sS …` are not mistaken for flag bundles.
         var idx = 0
         while idx < argv.count {
             let arg = argv[idx]
+            if expandBundle(arg, into: &opts) { idx += 1; continue }
             if arg == "--" {
                 idx += 1
                 while idx < argv.count {
@@ -381,6 +367,25 @@ extension CurlCommand {
         }
         if !sawURL { throw CurlParseError.missingURL }
         return opts
+    }
+
+    fileprivate static func expandBundle(_ arg: String,
+                                         into opts: inout ParsedOptions) -> Bool {
+        // `L` and `k` are accepted-and-ignored, hence the optional value.
+        let flags: [Character: WritableKeyPath<ParsedOptions, Bool>?] = [
+            "s": \.silent, "S": \.showError, "G": \.getMode, "O": \.remoteName,
+            "i": \.includeHeaders, "I": \.headRequest, "v": \.verbose,
+            "f": \.failOnError, "L": nil, "k": nil
+        ]
+        guard arg.hasPrefix("-"), !arg.hasPrefix("--"), arg.count > 2 else {
+            return false
+        }
+        let chars = Array(arg.dropFirst())
+        guard chars.allSatisfy({ flags[$0] != nil }) else { return false }
+        for char in chars {
+            if let keyPath = flags[char] ?? nil { opts[keyPath: keyPath] = true }
+        }
+        return true
     }
 
     fileprivate static func requireArg(_ argv: [String], _ idx: Int,
