@@ -207,6 +207,22 @@ import Foundation
         #expect(cap.stderr.contains("-bogus"))
     }
 
+    @Test func helpFlagPrintsUsageAndExitsZero() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("find --help")
+        #expect(status == .success)
+        #expect(cap.stdout.contains("USAGE: find"))
+        #expect(cap.stderr == "")
+    }
+
+    @Test func versionFlagPrintsBannerAndExitsZero() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("find --version")
+        #expect(status == .success)
+        #expect(cap.stdout.contains("find"))
+        #expect(cap.stderr == "")
+    }
+
     @Test func missingValueForNameFails() async throws {
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("find . -name")

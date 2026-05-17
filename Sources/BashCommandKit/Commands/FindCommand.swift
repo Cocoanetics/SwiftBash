@@ -56,10 +56,59 @@ public struct FindCommand: Command {
     public let name = "find"
     public init() {}
 
+    static let helpText = """
+        USAGE: find [PATH...] [EXPRESSION]
+
+        Recursively walk PATH (default `.`) and apply EXPRESSION to every
+        entry. With no expression, every entry is printed.
+
+        PREDICATES:
+          -name PATTERN, -iname PATTERN
+          -path PATTERN, -wholename PATTERN
+          -regex PATTERN, -iregex PATTERN
+          -type [f|d|l]            -empty
+          -newer FILE              -mtime [+-]N    -mmin [+-]N
+          -size [+-]N[ckMG]        -perm [-/]MODE
+
+        ACTIONS:
+          -print (default)         -print0
+          -prune                   -delete
+          -exec CMD ... ;          -exec CMD ... {} +
+
+        OPERATORS:
+          -not / !                 -a / -and        -o / -or
+          ( EXPR )
+
+        GLOBAL OPTIONS:
+          -maxdepth N              -mindepth N      -depth
+          -L, -H, -P               (symlink-following; accepted as no-ops)
+
+          --help                   Show this help and exit.
+          --version                Print version and exit.
+
+        """
+
     public func run(_ argv: [String]) async throws -> ExitStatus {
+        let rest = Array(argv.dropFirst())
+        // GNU/BSD `find` bypasses the predicate parser for `--help`
+        // and `--version` — they print and exit 0 even when wedged
+        // between start paths and an expression.
+        for arg in rest {
+            switch arg {
+            case "--help":
+                Shell.bashCurrent.stdout(Self.helpText)
+                return .success
+            case "--version":
+                Shell.bashCurrent.stdout("find (swift-bash built-in)\n")
+                return .success
+            default:
+                continue
+            }
+        }
+
         let parsed: Parsed
         do {
-            parsed = try Self.parse(argv: Array(argv.dropFirst()))
+            parsed = try Self.parse(argv: rest)
         } catch let err as ParseError {
             Shell.bashCurrent.stderr("find: \(err.message)\n")
             return .failure
