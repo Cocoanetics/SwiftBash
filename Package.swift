@@ -196,6 +196,16 @@ let package = Package(
                          condition: .when(platforms: swiftPortsPlatforms)),
                 .product(name: "Lz4Command", package: "SwiftPorts",
                          condition: .when(platforms: swiftPortsPlatforms)),
+                // RipgrepKit / FdKit — pure-Swift ports of ripgrep
+                // and fd. Their `RgCommand` / `FdCommand` library
+                // products expose ParsableCommand types we register as
+                // builtins; supersedes BashCommandKit's local
+                // `RgCommand` (which lacked .gitignore, -F, parent
+                // walk, etc.).
+                .product(name: "RgCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
+                .product(name: "FdCommand", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
             ],
             path: "Sources/BashCommandKit"
         ),

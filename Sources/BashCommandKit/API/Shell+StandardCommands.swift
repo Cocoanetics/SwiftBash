@@ -56,7 +56,12 @@ extension Shell {
         register(SortCommand.self)
         register(UniqCommand.self)
         register(SedCommand.self)
-        register(RgCommand.self)
+        // `rg` is now sourced from SwiftPorts' RipgrepKit, registered
+        // in `registerSwiftPortsCommands()` — that one honours
+        // `.gitignore`, supports `-F`, and walks parent dirs, none of
+        // which this local `RgCommand` (in BashCommandKit/Commands/)
+        // does. Type still ships for source-compat; the builtin
+        // registration moved.
         register(TrCommand.self)
         register(CutCommand.self)
         register(Base64Command.self)

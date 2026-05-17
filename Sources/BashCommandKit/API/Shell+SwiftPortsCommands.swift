@@ -13,12 +13,14 @@ import BashInterpreter
 #if !os(Android)
 
 import Bzip2Command
+import FdCommand
 import GhCommand
 import GitCommand
 import GlabCommand
 import GzipCommand
 import JqCommand
 import Lz4Command
+import RgCommand
 import TarCommand
 import UnzipCommand
 import XzCommand
@@ -77,6 +79,23 @@ extension Shell {
         register(GhCommand.self)
         register(GlabCommand.self)
         register(GitCommand.self)
+
+        // rg / fd — pure-Swift ports of BurntSushi's ripgrep and
+        // sharkdp's fd. Supersede `BashCommandKit/Commands/RgCommand`
+        // (whose `register(RgCommand.self)` call was dropped from
+        // `registerStandardCommands()` for that reason). The new rg
+        // honours `.gitignore` / `.ignore` / `.rgignore`, walks parent
+        // dirs, supports `-F` fixed-string matching and
+        // `--no-require-git`; fd reuses RipgrepKit's walker so its
+        // gitignore semantics line up.
+        //
+        // RipgrepKit's command type is named `Rg` (not `RgCommand`) so
+        // it doesn't collide with BashCommandKit's local
+        // `Commands/RgCommand.swift` type — that local type still
+        // ships for source compat. Use the explicit module-level type
+        // here to make sure the SwiftPorts one is what gets registered.
+        register(Rg.self)
+        register(FdCommand.self)
 
         // Archive family.
         register(TarCommand.self)
