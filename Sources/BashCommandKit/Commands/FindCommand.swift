@@ -56,6 +56,26 @@ public struct FindCommand: Command {
     public let name = "find"
     public init() {}
 
+    // GNU/BSD `find` recognises `--help` and `--version` in option
+    // position only — after start paths and before the expression.
+    // Scanning the full argv would hijack predicate/action arguments
+    // like `find . -name --help` or `find . -exec echo --version \;`.
+    private static func infoFlagExit(_ rest: [String]) -> ExitStatus? {
+        for arg in rest {
+            switch arg {
+            case "--help":
+                Shell.bashCurrent.stdout(helpText)
+                return .success
+            case "--version":
+                Shell.bashCurrent.stdout("find (swift-bash built-in)\n")
+                return .success
+            default:
+                if isExpressionToken(arg) { return nil }
+            }
+        }
+        return nil
+    }
+
     static let helpText = """
         USAGE: find [PATH...] [EXPRESSION]
 
@@ -90,23 +110,7 @@ public struct FindCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let rest = Array(argv.dropFirst())
-        // GNU/BSD `find` recognises `--help` and `--version` in option
-        // position only — after start paths and before the expression.
-        // Don't scan the full argv, or arguments to predicates (e.g.
-        // `find . -name --help`, `find . -exec echo --version \;`)
-        // would be hijacked.
-        scan: for arg in rest {
-            switch arg {
-            case "--help":
-                Shell.bashCurrent.stdout(Self.helpText)
-                return .success
-            case "--version":
-                Shell.bashCurrent.stdout("find (swift-bash built-in)\n")
-                return .success
-            default:
-                if Self.isExpressionToken(arg) { break scan }
-            }
-        }
+        if let info = Self.infoFlagExit(rest) { return info }
 
         let parsed: Parsed
         do {
