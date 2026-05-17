@@ -60,6 +60,7 @@ public struct TimeoutCommand: Command {
     public let name = "timeout"
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity - argv prefix loop + version short-circuit
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
         // `timeout --version` only — once we're past the wrapper's
