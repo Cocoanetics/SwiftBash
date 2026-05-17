@@ -149,10 +149,14 @@ private func runSwiftScriptFile(
     // Read through shell.fileSystem so virtualised mounts work.
     let scriptPath = userArgs[0]
     let scriptArgs = Array(userArgs.dropFirst())
+    // Resolve relative paths against the shell's cwd (not the host
+    // process cwd) so `swift foo.swift` works after an in-shell `cd`
+    // and honours virtualised filesystem roots.
+    let absolute = shell.resolvePath(scriptPath)
     let resolved: String
     do {
         resolved = try await shell.fileSystem.canonicalize(
-            scriptPath, allowMissing: false)
+            absolute, allowMissing: false)
     } catch {
         shell.stderr("\(invokedAs): \(scriptPath): No such file or directory\n")
         return ExitStatus(127)

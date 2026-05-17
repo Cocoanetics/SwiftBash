@@ -104,6 +104,26 @@ final class SwiftJSCommandSurfaceTests: XCTestCase {
         XCTAssertTrue(cap.stderr.contains("requires an expression"))
     }
 
+    func testNodeResolvesRelativePathAgainstShellCwd() async throws {
+        // Regression for codex P1 review: `node foo.js` after an
+        // in-shell `cd` must resolve against the shell's working
+        // directory, not the host process cwd.
+        let dir = NSTemporaryDirectory()
+            + "swift-js-relcwd-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/rel.js"
+        try "console.log('from cwd')\n"
+            .write(toFile: path, atomically: true, encoding: .utf8)
+
+        let (shell, cap) = makeShell()
+        let quoted = "'" + dir.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let status = try await shell.run("cd \(quoted) && node rel.js")
+        XCTAssertEqual(status.code, 0)
+        XCTAssertEqual(cap.stdout, "from cwd\n")
+    }
+
     func testNodeWithScriptPath() async throws {
         // The Command path also handles `node script.js` for files
         // without a shebang — covers the case where `node` is invoked

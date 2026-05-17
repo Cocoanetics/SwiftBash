@@ -172,10 +172,14 @@ private func runSwiftJSScript(
     // same reason the shebang path doesn't use `runtime.runFile`.
     let scriptPath = userArgs[0]
     let scriptArgs = Array(userArgs.dropFirst())
+    // Resolve relative paths against the shell's cwd (not the host
+    // process cwd) so `node foo.js` works after an in-shell `cd` and
+    // honours virtualised filesystem roots.
+    let absolute = shell.resolvePath(scriptPath)
     let resolved: String
     do {
         resolved = try await shell.fileSystem.canonicalize(
-            scriptPath, allowMissing: false)
+            absolute, allowMissing: false)
     } catch {
         shell.stderr("\(invokedAs): \(scriptPath): No such file or directory\n")
         return ExitStatus(127)

@@ -54,6 +54,26 @@ import ShellKit
         #expect(cap.stderr.contains("usage:"))
     }
 
+    @Test func swiftResolvesRelativePathAgainstShellCwd() async throws {
+        // Regression for codex P1 review: `swift script.swift` after an
+        // in-shell `cd` must resolve against the shell's working
+        // directory, not the host process cwd.
+        let (shell, cap) = makeShell()
+        let dir = NSTemporaryDirectory()
+            + "swift-script-relcwd-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/rel.swift"
+        try "print(\"from cwd\")\n"
+            .write(toFile: path, atomically: true, encoding: .utf8)
+
+        let status = try await shell.run(
+            "cd \(Self.bashQuote(dir)) && swift rel.swift")
+        #expect(status.code == 0)
+        #expect(cap.stdout == "from cwd\n")
+    }
+
     @Test func swiftWithScriptPathStillWorks() async throws {
         // The command path should also handle a script-file invocation
         // (no shebang) — `swift script.swift` with no `#!` line.
