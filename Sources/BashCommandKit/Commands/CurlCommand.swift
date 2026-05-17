@@ -237,11 +237,29 @@ private struct ParsedOptions {
 extension CurlCommand {
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
-    fileprivate static func parse(_ argv: [String]) throws -> ParsedOptions {
+    fileprivate static func parse(_ rawArgv: [String]) throws -> ParsedOptions {
         var opts = ParsedOptions()
         var sawURL = false
         var pendingFormFields: [(String, String)] = []
         var pendingMultipart: [MultipartPart] = []
+
+        // Expand combined short-flag bundles like `-sS` into `-s -S`. Real
+        // curl accepts both forms; without this pre-pass our exact-match
+        // per-token check rejected `-sS` as an unknown option.
+        let booleanShortFlags: Set<Character> = [
+            "s", "S", "G", "O", "i", "I", "v", "f", "L", "k"
+        ]
+        let argv: [String] = rawArgv.flatMap { (token: String) -> [String] in
+            guard token.hasPrefix("-"),
+                  !token.hasPrefix("--"),
+                  token.count > 2
+            else { return [token] }
+            let chars = Array(token.dropFirst())
+            if chars.allSatisfy({ booleanShortFlags.contains($0) }) {
+                return chars.map { "-\($0)" }
+            }
+            return [token]
+        }
 
         var idx = 0
         while idx < argv.count {

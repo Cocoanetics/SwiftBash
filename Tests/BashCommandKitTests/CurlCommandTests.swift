@@ -240,6 +240,35 @@ import Foundation
         #expect(req?.url.absoluteString.contains("q=hello") == true)
     }
 
+    // MARK: Combined short-flag bundles
+
+    @Test func combinedShortFlagsAcceptedLikeSeparateTokens() async throws {
+        let mock = MockNet()
+        let cap = try makeShell(
+            config: NetworkConfig(
+                allowedURLPrefixes: [AllowedURLEntry(
+                    "https://api.example.com")],
+                denyPrivateRanges: false),
+            mock: mock)
+        try await cap.shell.run("curl -sS https://api.example.com/v1")
+        #expect(cap.shell.lastExitStatus.code == 0)
+        #expect(mock.requests.count == 1)
+        #expect(!cap.stderr.contains("unknown option"))
+    }
+
+    @Test func combinedShortFlagsThreeFlagsBundled() async throws {
+        let mock = MockNet()
+        let cap = try makeShell(
+            config: NetworkConfig(
+                allowedURLPrefixes: [AllowedURLEntry(
+                    "https://api.example.com")],
+                denyPrivateRanges: false),
+            mock: mock)
+        try await cap.shell.run("curl -sSL https://api.example.com/v1")
+        #expect(cap.shell.lastExitStatus.code == 0)
+        #expect(mock.requests.count == 1)
+    }
+
     // MARK: Header transform
 
     @Test func transformInjectsCredentialAtFetchBoundary() async throws {
