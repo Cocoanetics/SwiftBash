@@ -57,6 +57,10 @@ public struct FindCommand: Command {
     public init() {}
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
+        if argv.dropFirst().contains("--version") {
+            Shell.bashCurrent.stdout("find (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+            return .success
+        }
         let parsed: Parsed
         do {
             parsed = try Self.parse(argv: Array(argv.dropFirst()))

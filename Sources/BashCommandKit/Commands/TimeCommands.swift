@@ -12,6 +12,10 @@ public struct TimeCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
+        if args.contains("--version") {
+            Shell.bashCurrent.stdout("time (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+            return .success
+        }
         guard !args.isEmpty else {
             Shell.bashCurrent.stderr("time: usage: time COMMAND [ARG...]\n")
             return ExitStatus(2)
@@ -55,6 +59,10 @@ public struct TimeoutCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
+        if args.contains("--version") {
+            Shell.bashCurrent.stdout("timeout (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+            return .success
+        }
         // Skip the GNU --foreground / --preserve-status / -k flags
         // we don't honour.
         while let first = args.first {
