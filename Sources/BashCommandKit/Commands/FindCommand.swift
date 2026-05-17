@@ -57,7 +57,12 @@ public struct FindCommand: Command {
     public init() {}
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
-        if argv.dropFirst().contains("--version") {
+        // Only intercept when `--version` is `find`'s own leading
+        // argument. A laxer `contains` would swallow tokens that
+        // legitimately appear inside an expression (e.g.
+        // `find . -name --version` uses `--version` as `-name`'s
+        // operand).
+        if argv.dropFirst().first == "--version" {
             Shell.bashCurrent.stdout("find (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
             return .success
         }

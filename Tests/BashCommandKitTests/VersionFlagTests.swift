@@ -35,6 +35,30 @@ import Testing
         #expect(cap.stderr.isEmpty)
     }
 
+    /// `--version` in a child-command's argv must pass through —
+    /// `time` / `timeout` are wrappers, and consuming `--version` at
+    /// the wrapper level would skip the wrapped command entirely.
+    @Test func timeoutForwardsVersionToWrappedCommand() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("timeout 5 cat --version")
+        // cat's banner, not timeout's.
+        #expect(cap.stdout.contains("cat (SwiftBash)"))
+        #expect(!cap.stdout.contains("timeout (SwiftBash)"))
+    }
+
+    /// `find` expressions can contain literal `--version` tokens
+    /// (e.g. `-name --version`). The version guard must not swallow
+    /// them.
+    @Test func findExpressionWithVersionTokenIsNotIntercepted() async throws {
+        let cap = makeShell()
+        // Pointed at an empty path so the walker has no matches —
+        // we only care that `find` runs the expression instead of
+        // printing the version banner.
+        try await cap.shell.run("find /nonexistent-path-zzz -name --version; echo done=$?")
+        #expect(!cap.stdout.contains("find (SwiftBash)"))
+        #expect(cap.stdout.contains("done="))
+    }
+
     /// Spot-check a handful of bridge-routed builtins from the parsers
     /// the issue explicitly called out — they should pick up the
     /// banner from `ParsableCommandBridge` without per-command work.
