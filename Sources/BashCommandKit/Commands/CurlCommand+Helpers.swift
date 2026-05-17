@@ -213,7 +213,7 @@ allow-list rejects every URL with `Network access denied`.
   -A AGENT          User-Agent
   -e URL            Referer
   -w FORMAT         Print FORMAT after the response
-  --max-time SEC    Override the configured timeout
+  -m, --max-time SEC  Override the configured timeout
 
 Exit codes follow curl's CURLE_* convention (7 = denied, 22 = HTTP
 error with -f, 28 = timeout, 47 = too many redirects, 56 = response
