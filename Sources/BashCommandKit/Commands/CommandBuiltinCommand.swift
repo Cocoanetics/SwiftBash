@@ -45,8 +45,12 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
         let resolver = PathResolver(shell)
         var missing = false
         for name in names {
-            if shell.shellBuiltins[name] != nil {
-                // Built-in: print just the name (bash convention).
+            // Function or built-in: print just the name (bash
+            // convention). Functions win over built-ins in real bash
+            // dispatch, but for `command -v`'s single-line output the
+            // emitted text is the same either way.
+            if shell.isFunction(named: name)
+                || shell.shellBuiltins[name] != nil {
                 shell.stdout("\(name)\n")
                 continue
             }
@@ -62,8 +66,9 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
     }
 
     private func runHead(in shell: Shell) async throws -> ExitStatus {
-        // Without -v: re-dispatch the head as a command, bypassing
-        // functions/aliases. Reach for built-ins first, then PATH.
+        // Without -v: bash's `command` bypasses *functions and
+        // aliases* but still runs built-ins and PATH hits. Honor that
+        // here — functions are skipped, built-ins run, then PATH.
         let head = names[0]
         if let builtin = shell.shellBuiltins[head] {
             return try await builtin.run(names)

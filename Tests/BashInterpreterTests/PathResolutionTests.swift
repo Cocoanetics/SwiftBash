@@ -166,6 +166,18 @@ import Testing
         let listing = cap.shell.completionSources.listCommands(kind: .all)
         #expect(listing.contains("foo"))
     }
+
+    @Test func compgenResolvesRelativePathEntriesAgainstCwd() async throws {
+        // `PATH=.` should match an install under the shell's working
+        // directory after lexical resolution — completion must apply
+        // the same resolve-against-CWD rule the dispatcher does.
+        let cap = makeShell()
+        cap.shell.environment.workingDirectory = "/work"
+        cap.shell.install(Foo(marker: "local"), at: "/work/foo")
+        cap.shell.environment["PATH"] = "."
+        let listing = cap.shell.completionSources.listCommands(kind: .all)
+        #expect(listing.contains("foo"))
+    }
 }
 
 // MARK: - Helpers

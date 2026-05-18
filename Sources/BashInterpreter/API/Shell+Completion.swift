@@ -92,7 +92,11 @@ public struct CompletionSources {
     /// Basenames of installed commands whose install directory is in
     /// the current `$PATH`. Drives `compgen -c` honest about PATH —
     /// an install at `/opt/skill/bin` disappears from listings once
-    /// `/opt/skill/bin` leaves `$PATH`.
+    /// `/opt/skill/bin` leaves `$PATH`. Relative entries (`.`,
+    /// `./bin`) are resolved against the shell's working directory
+    /// before comparison, matching the same lookup rule ``PathResolver``
+    /// uses so completion never reports a name dispatch can't reach
+    /// (or vice versa).
     private func pathReachableBasenames() -> Set<String> {
         let pathDirs = Set(currentPathDirectories())
         guard !pathDirs.isEmpty else { return [] }
@@ -116,7 +120,15 @@ public struct CompletionSources {
         let raw = shell.environment["PATH"] ?? ""
         if raw.isEmpty { return [] }
         return raw.split(separator: ":", omittingEmptySubsequences: false)
-            .map { $0.isEmpty ? "." : String($0) }
+            .map { entry -> String in
+                let dir = entry.isEmpty ? "." : String(entry)
+                // Resolve relative PATH entries against the shell's
+                // working directory so `PATH=.` / `PATH=./bin` match
+                // the absolute paths recorded by `install(_:at:)`.
+                return Shell.isAbsolutePath(dir)
+                    ? dir
+                    : shell.resolvePath(dir)
+            }
     }
 
     /// Convenience for ``listCommands(kind:)`` with `.function`. Kept

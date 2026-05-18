@@ -171,6 +171,16 @@ extension Shell {
         return removed
     }
 
+    // MARK: - Introspection
+
+    /// `true` when `name` resolves to a user-defined shell function
+    /// (the body installed by `name() { … }` / `function name { … }`).
+    /// Used by `type`, `command -v`, and the dispatcher to honor the
+    /// "function wins over built-in wins over PATH" precedence.
+    public func isFunction(named name: String) -> Bool {
+        commands[name] is FunctionCommand
+    }
+
     // MARK: - Internal helpers
 
     private func installFileBacked(_ command: Command, at path: String) {

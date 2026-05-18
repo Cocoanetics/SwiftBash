@@ -265,6 +265,21 @@ import Foundation
         #expect(cap.stdout == "")
     }
 
+    @Test func typeReportsFunctionForDefinedFunction() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("greet() { echo hi; }; type greet")
+        #expect(cap.stdout == "greet is a function\n")
+    }
+
+    @Test func commandDashVRecognizesFunction() async throws {
+        // Real bash's `command -v` succeeds for shell functions and
+        // prints just the name. The dotfile idiom
+        // `command -v foo >/dev/null && foo` relies on this.
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("greet() { :; }; command -v greet")
+        #expect(cap.stdout == "greet\n")
+    }
+
     // MARK: printenv
 
     @Test func printenvAllVariablesSorted() async throws {
