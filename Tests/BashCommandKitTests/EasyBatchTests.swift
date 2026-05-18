@@ -186,18 +186,16 @@ import Foundation
         #expect(cap.stdout == "/bin/echo\n")
     }
 
-    @Test func whichIgnoresShellBuiltinBucket() async throws {
-        // Real `/usr/bin/which` doesn't know about shell built-ins;
-        // a pure built-in like `cd` is reported via whatever file lives
-        // at the matching `$PATH` entry — `/usr/bin/cd` ships on macOS,
-        // so `which cd` finds it through the host filesystem overlay.
-        // Embedders sandboxing the FS (InMemoryFileSystem) see no
-        // match and would get a non-zero exit; the assertion here is
-        // narrower: `which` doesn't synthesize a "shell built-in
-        // command" line the way SwiftBash used to.
+    @Test func whichReportsShellBuiltinForPureBuiltin() async throws {
+        // Pure shell built-ins (`cd`, `export`, …) have no file
+        // shadow in `$PATH`. `which cd` reports the SwiftBash
+        // convention `cd: shell built-in command`. Sandbox the FS
+        // first so the host's `/usr/bin/cd` doesn't surface as a
+        // file match.
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        cap.shell.fileSystem = InMemoryFileSystem()
         try await cap.shell.run("which cd")
-        #expect(!cap.stdout.contains("shell built-in"))
+        #expect(cap.stdout == "cd: shell built-in command\n")
     }
 
     @Test func whichExitsNonZeroForUnknown() async throws {

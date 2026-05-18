@@ -2,12 +2,17 @@ import ArgumentParser
 import BashInterpreter
 
 /// `which NAME...` — for each NAME, print where the shell would
-/// resolve it in `$PATH`.
+/// resolve it.
 ///
-/// Output matches `/usr/bin/which`: only file-backed commands surface
-/// (shell built-ins are ignored — `which cd` prints nothing). With
-/// `-a`, prints every matching path in PATH order so callers can see
-/// shadowing.
+/// Output:
+/// - File-backed match in `$PATH` → the absolute path.
+/// - Pure shell built-in (no file at any `$PATH` entry) →
+///   `<name>: shell built-in command`.
+/// - Unknown name → nothing printed, contributes a non-zero exit.
+///
+/// With `-a`, every PATH hit is printed in order so callers can see
+/// shadowing. A pure built-in's "shell built-in command" line is
+/// printed alongside the (empty) PATH hits.
 ///
 /// Exit status: 0 if every NAME resolved, 1 otherwise.
 public struct WhichCommand: ParsableBashCommand {
@@ -30,23 +35,29 @@ public struct WhichCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("which: missing operand\n")
             return .failure
         }
-        let resolver = PathResolver(Shell.bashCurrent)
+        let shell = Shell.bashCurrent
+        let resolver = PathResolver(shell)
         var missing = false
         for name in names {
             let matches = await resolver.allMatches(forName: name)
-            // Shell built-ins are deliberately ignored — real
-            // `/usr/bin/which` doesn't know about bash internals.
-            // Functions live in the bash registry too; same rule.
             if matches.isEmpty {
+                if shell.shellBuiltins[name] != nil {
+                    // Pure shell built-in: no file shadow anywhere
+                    // in $PATH. Emit the SwiftBash convention so
+                    // scripts probing `which` can tell built-ins
+                    // from "not found."
+                    shell.stdout("\(name): shell built-in command\n")
+                    continue
+                }
                 missing = true
                 continue
             }
             if all {
                 for match in matches {
-                    Shell.bashCurrent.stdout(pathFor(match) + "\n")
+                    shell.stdout(pathFor(match) + "\n")
                 }
             } else if let first = matches.first {
-                Shell.bashCurrent.stdout(pathFor(first) + "\n")
+                shell.stdout(pathFor(first) + "\n")
             }
         }
         return missing ? .failure : .success
