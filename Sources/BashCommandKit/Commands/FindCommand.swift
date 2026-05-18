@@ -180,6 +180,7 @@ public struct FindCommand: Command {
         let node = NodeInfo(displayPath: displayPath,
                             absolutePath: absolutePath,
                             startingPath: startingPath,
+                            depth: depth,
                             meta: meta)
 
         // Pre-order: evaluate this node first, then descend.
@@ -466,6 +467,7 @@ public struct FindCommand: Command {
         let displayPath: String
         let absolutePath: String
         let startingPath: String
+        let depth: Int
         let meta: FileMetadata
     }
 
@@ -1046,7 +1048,7 @@ public struct FindCommand: Command {
         case "U": return String(node.meta.uid)
         case "G": return String(node.meta.gid)
         case "n": return String(node.meta.linkCount)
-        case "d": return "0"  // depth — not threaded into NodeInfo
+        case "d": return String(node.depth)
         default: return nil
         }
     }

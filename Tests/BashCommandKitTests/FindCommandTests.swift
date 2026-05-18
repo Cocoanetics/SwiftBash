@@ -336,6 +336,24 @@ import Foundation
         #expect(cap.stdout == "./a")
     }
 
+    @Test func printfDepthMatchesWalker() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("mkdir -p a/b/c")
+        try await cap.shell.run("touch a/x a/b/y a/b/c/z")
+        try await cap.shell.run("find . -printf '%d %p\\n'")
+        // Pre-order traversal: each line carries its walker depth.
+        #expect(cap.stdout == """
+            0 .
+            1 ./a
+            2 ./a/b
+            3 ./a/b/c
+            4 ./a/b/c/z
+            3 ./a/b/y
+            2 ./a/x
+
+            """)
+    }
+
     // MARK: - prune
 
     @Test func pruneSkipsDirectoryDescent() async throws {
