@@ -56,19 +56,65 @@ public struct FindCommand: Command {
     public let name = "find"
     public init() {}
 
-    public func run(_ argv: [String]) async throws -> ExitStatus {
-        // Only intercept when `--version` is `find`'s own leading
-        // argument. A laxer `contains` would swallow tokens that
-        // legitimately appear inside an expression (e.g.
-        // `find . -name --version` uses `--version` as `-name`'s
-        // operand).
-        if argv.dropFirst().first == "--version" {
-            Shell.bashCurrent.stdout("find (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
-            return .success
+    // GNU/BSD `find` recognises `--help` and `--version` in option
+    // position only — after start paths and before the expression.
+    // Scanning the full argv would hijack predicate/action arguments
+    // like `find . -name --help` or `find . -exec echo --version \;`.
+    private static func infoFlagExit(_ rest: [String]) -> ExitStatus? {
+        for arg in rest {
+            switch arg {
+            case "--help":
+                Shell.bashCurrent.stdout(helpText)
+                return .success
+            case "--version":
+                Shell.bashCurrent.stdout("find (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+                return .success
+            default:
+                if isExpressionToken(arg) { return nil }
+            }
         }
+        return nil
+    }
+
+    static let helpText = """
+        USAGE: find [PATH...] [EXPRESSION]
+
+        Recursively walk PATH (default `.`) and apply EXPRESSION to every
+        entry. With no expression, every entry is printed.
+
+        PREDICATES:
+          -name PATTERN, -iname PATTERN
+          -path PATTERN, -wholename PATTERN
+          -regex PATTERN, -iregex PATTERN
+          -type [f|d|l]            -empty
+          -newer FILE              -mtime [+-]N    -mmin [+-]N
+          -size [+-]N[ckMG]        -perm [-/]MODE
+
+        ACTIONS:
+          -print (default)         -print0
+          -prune                   -delete
+          -exec CMD ... ;          -exec CMD ... {} +
+
+        OPERATORS:
+          -not / !                 -a / -and        -o / -or
+          ( EXPR )
+
+        GLOBAL OPTIONS:
+          -maxdepth N              -mindepth N      -depth
+          -L, -H, -P               (symlink-following; accepted as no-ops)
+
+          --help                   Show this help and exit.
+          --version                Print version and exit.
+
+        """
+
+    public func run(_ argv: [String]) async throws -> ExitStatus {
+        let rest = Array(argv.dropFirst())
+        if let info = Self.infoFlagExit(rest) { return info }
+
         let parsed: Parsed
         do {
-            parsed = try Self.parse(argv: Array(argv.dropFirst()))
+            parsed = try Self.parse(argv: rest)
         } catch let err as ParseError {
             Shell.bashCurrent.stderr("find: \(err.message)\n")
             return .failure

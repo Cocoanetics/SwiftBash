@@ -430,6 +430,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             PrintfCommand(),
             TrapCommand(),
             GetoptsCommand(),
+            CompgenCommand(),
             BashCommand(name: "bash"),
             BashCommand(name: "sh"),
             BashCommand(name: "dash")
