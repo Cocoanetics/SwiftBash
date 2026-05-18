@@ -961,14 +961,20 @@ public struct FindCommand: Command {
         return PermResult(mode: mode, match: match)
     }
 
-    // MARK: -printf formatting
+    // MARK: - printf format interpreter
     //
-    // GNU find-compatible format string interpreter. Supports the
-    // mainstream directives users actually reach for; rarer ones
-    // (`%a` access-time variants, `%c` ctime, `%A@`, `%C@`, format
-    // flags like `%-20p`) are not yet implemented and pass through
-    // as the original two characters so a typo still gets debugged.
+    // GNU find-compatible format string interpreter for `-printf`.
+    // Supports the mainstream directives users actually reach for;
+    // rarer ones (`%a` access-time variants, `%c` ctime, `%A@`, `%C@`,
+    // format flags like `%-20p`) are not yet implemented and pass
+    // through as the original two characters so a typo still gets
+    // debugged.
 
+    // Single-pass tokenizer over the format string. The `\X` escape
+    // and `%X` / `%TX` directive switches each contribute several
+    // cyclomatic branches; splitting them out for the linter's sake
+    // would just rename the dispatch table.
+    // swiftlint:disable:next cyclomatic_complexity
     static func formatPrintf(_ format: String, node nodeAny: Any) -> String {
         // `nodeAny` is `NodeInfo` — accepted as `Any` so this helper
         // can stay static without exposing the private NodeInfo type.
@@ -1021,6 +1027,9 @@ public struct FindCommand: Command {
         return out
     }
 
+    // Dispatch table — one branch per directive. Same shape as the
+    // other find-side switches we already exempt.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func printfField(_ directive: Character, node: NodeInfo) -> String? {
         switch directive {
         case "%": return "%"
