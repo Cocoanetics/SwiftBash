@@ -160,6 +160,14 @@ import Foundation
         #expect(cap.stdout == "a\tb\tc\nd\te\tf\n")
     }
 
+    @Test func pasteSerialDashConsumesAllStdin() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        // Serial mode walks files in command-line order: the first
+        // `-` drains stdin, the second sees EOF.
+        try await cap.shell.run("printf 'a\\nb\\nc\\n' | paste -s - -")
+        #expect(cap.stdout == "a\tb\tc\n\n")
+    }
+
     // MARK: comm
 
     @Test func commProducesThreeColumns() async throws {
