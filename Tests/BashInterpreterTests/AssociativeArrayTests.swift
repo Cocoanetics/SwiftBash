@@ -59,7 +59,7 @@ import Testing
         // Dict ordering isn't stable, so we just check the SET of
         // keys via a custom collector command.
         let cap = makeShell()
-        cap.shell.register(name: "collect") { argv in
+        cap.shell.installShellBuiltin(name: "collect") { argv in
             let keys = Set(argv.dropFirst())
             let sorted = keys.sorted()
             Shell.bashCurrent.stdout(sorted.joined(separator: ",") + "\n")
@@ -77,7 +77,7 @@ import Testing
 
     @Test func keysCountMatchesInsertions() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "argc") { argv in
+        cap.shell.installShellBuiltin(name: "argc") { argv in
             Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
@@ -95,7 +95,7 @@ import Testing
 
     @Test func valuesCountMatchesInsertions() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "argc") { argv in
+        cap.shell.installShellBuiltin(name: "argc") { argv in
             Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
@@ -150,7 +150,7 @@ import Testing
 
     @Test func valuesFedThroughCommand() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "join") { argv in
+        cap.shell.installShellBuiltin(name: "join") { argv in
             Shell.bashCurrent.stdout(argv.dropFirst().sorted().joined(separator: ",") + "\n")
             return .success
         }

@@ -4,22 +4,26 @@ import BashInterpreter
 /// `type NAME...` — for each NAME, describe how the shell would
 /// resolve it. Output mirrors bash's own `type`:
 ///
-/// - File-shadowed registered commands (`cat`, `ls`, `grep`, …)
-///   report `<name> is /bin/<name>` (or `/usr/bin/<name>`).
-/// - Pure shell built-ins (`cd`, `export`, `eval`, …) report
-///   `<name> is a shell builtin`.
+/// - Pure shell built-ins report `<name> is a shell builtin`.
+/// - File-shadowed registered / external commands report
+///   `<name> is /path/to/<name>`.
+/// - With `-a`, every match is listed in dispatch order: built-in
+///   first (if any), then every `$PATH` hit.
 /// - Unknown names print `type: <name>: not found` to stderr and
 ///   the command exits non-zero.
 ///
-/// Real bash also distinguishes functions, aliases, and keywords;
-/// SwiftBash doesn't have separable function / alias categories
-/// yet, so registry membership maps directly to one of the two
-/// categories above based on whether the name has a binary shadow.
+/// Real bash also distinguishes functions and aliases; this
+/// implementation surfaces functions as built-ins (they live in the
+/// same registry slot for now).
 public struct TypeCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "type",
         abstract: "Describe how the shell would resolve a name."
     )
+
+    @Flag(name: .customShort("a"),
+          help: "List every match (built-in + every PATH hit) in dispatch order.")
+    public var all: Bool = false
 
     @Argument(help: "Names to look up.")
     public var names: [String] = []
@@ -31,17 +35,28 @@ public struct TypeCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("type: missing operand\n")
             return .failure
         }
+        let shell = Shell.bashCurrent
+        let resolver = PathResolver(shell)
         var missing = false
         for name in names {
-            guard Shell.bashCurrent.commands[name] != nil else {
-                Shell.bashCurrent.stderr("type: \(name): not found\n")
+            let builtinHit = shell.shellBuiltins[name] != nil
+            let pathHits = await resolver.allMatches(forName: name)
+            if !builtinHit && pathHits.isEmpty {
+                shell.stderr("type: \(name): not found\n")
                 missing = true
                 continue
             }
-            if let path = BinCatalog.knownPaths[name] {
-                Shell.bashCurrent.stdout("\(name) is \(path)\n")
-            } else {
-                Shell.bashCurrent.stdout("\(name) is a shell builtin\n")
+            if builtinHit {
+                shell.stdout("\(name) is a shell builtin\n")
+                if !all { continue }
+            }
+            for hit in pathHits {
+                switch hit {
+                case .registered(_, let path), .externalScript(let path):
+                    shell.stdout("\(name) is \(path)\n")
+                case .notFound: break
+                }
+                if !all { break }
             }
         }
         return missing ? .failure : .success

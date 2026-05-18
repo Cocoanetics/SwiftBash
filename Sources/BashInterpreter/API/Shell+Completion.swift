@@ -66,23 +66,57 @@ public struct CompletionSources {
     }
 
     /// Names of commands currently registered on the shell. Sorted
-    /// alphabetically.
+    /// alphabetically. For `.all`, file-backed commands surface only
+    /// when their install directory is currently in `$PATH` — that
+    /// matches what a real bash session shows via `compgen -c` and
+    /// keeps PATH semantics honest (an install at `/opt/skill/bin`
+    /// disappears from listing when `/opt/skill/bin` is removed from
+    /// `$PATH`).
     public func listCommands(kind: CommandKind = .all) -> [String] {
-        let entries = shell.commands
         switch kind {
         case .all:
-            return entries.keys.sorted()
+            var names = Set(shell.shellBuiltins.keys)
+            names.formUnion(functionNames())
+            names.formUnion(pathReachableBasenames())
+            return names.sorted()
         case .builtin:
-            return entries
-                .filter { !($0.value is FunctionCommand) }
-                .keys
-                .sorted()
+            var names = Set(shell.shellBuiltins.keys)
+            names.formUnion(pathReachableBasenames())
+            names.subtract(functionNames())
+            return names.sorted()
         case .function:
-            return entries
-                .filter { $0.value is FunctionCommand }
-                .keys
-                .sorted()
+            return functionNames().sorted()
         }
+    }
+
+    /// Basenames of installed commands whose install directory is in
+    /// the current `$PATH`. Drives `compgen -c` honest about PATH —
+    /// an install at `/opt/skill/bin` disappears from listings once
+    /// `/opt/skill/bin` leaves `$PATH`.
+    private func pathReachableBasenames() -> Set<String> {
+        let pathDirs = Set(currentPathDirectories())
+        guard !pathDirs.isEmpty else { return [] }
+        var names: Set<String> = []
+        for (basename, paths) in shell.pathsByBasename
+            where paths.contains(where: {
+                pathDirs.contains((($0 as NSString).deletingLastPathComponent))
+            }) {
+            names.insert(basename)
+        }
+        return names
+    }
+
+    private func functionNames() -> Set<String> {
+        Set(shell.commands.compactMap {
+            $0.value is FunctionCommand ? $0.key : nil
+        })
+    }
+
+    private func currentPathDirectories() -> [String] {
+        let raw = shell.environment["PATH"] ?? ""
+        if raw.isEmpty { return [] }
+        return raw.split(separator: ":", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? "." : String($0) }
     }
 
     /// Convenience for ``listCommands(kind:)`` with `.function`. Kept

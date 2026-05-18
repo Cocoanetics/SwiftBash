@@ -52,13 +52,19 @@ public final class BinCatalogOverlay: OverlayProvider, @unchecked Sendable {
         return result
     }()
 
-    /// Names registered on the running shell that map to a catalog
-    /// entry under `directory`. The intersection of "what the shell
-    /// can run" and "what would live here on a real macOS install".
+    /// Names whose canonical catalog path lies under `directory`
+    /// AND which the running shell has actually installed at that
+    /// path. Drives the synthetic file listing the overlay vends.
     private func registeredCatalogNames(in directory: String) -> [String] {
-        let registered = Set(Shell.bashCurrent.commands.keys)
-        return BinCatalog.names(in: directory)
-            .filter { registered.contains($0) }
+        let shell = Shell.bashCurrent
+        var names: [String] = []
+        for (name, canonical) in BinCatalog.knownPaths
+            where (canonical as NSString).deletingLastPathComponent == directory {
+            if shell.commandsByPath[canonical] != nil {
+                names.append(name)
+            }
+        }
+        return names
     }
 
     private func isLeafDir(_ path: String) -> Bool {
@@ -74,8 +80,7 @@ public final class BinCatalogOverlay: OverlayProvider, @unchecked Sendable {
             (path as NSString).lastPathComponent]
         else { return false }
         return canonical == path
-            && Shell.bashCurrent.commands[
-                (path as NSString).lastPathComponent] != nil
+            && Shell.bashCurrent.commandsByPath[path] != nil
     }
 
     // MARK: OverlayProvider

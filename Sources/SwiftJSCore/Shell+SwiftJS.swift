@@ -66,7 +66,7 @@ extension Shell {
             // Top-level command path: `node --version`, `node -e ...`,
             // `node script.js`. Same surface as the standalone
             // `swift-js` binary.
-            register(name: name) { argv in
+            install(name: name) { argv in
                 await runSwiftJSCommand(interpreter: interpreterName,
                                         argv: argv)
             }

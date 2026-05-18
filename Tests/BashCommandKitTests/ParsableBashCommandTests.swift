@@ -82,35 +82,35 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func defaultArgumentsRunExecute() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("greet")
         #expect(cap.stdout == "hello world\n")
     }
 
     @Test func positionalArgumentIsPassedThrough() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("greet oliver")
         #expect(cap.stdout == "hello oliver\n")
     }
 
     @Test func longFlag() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("greet --loud oliver")
         #expect(cap.stdout == "HELLO OLIVER\n")
     }
 
     @Test func shortFlag() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("greet -l oliver")
         #expect(cap.stdout == "HELLO OLIVER\n")
     }
 
     @Test func typedOption() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("greet --count 3 oliver")
         #expect(cap.stdout == "hello oliver\nhello oliver\nhello oliver\n")
     }
@@ -119,13 +119,13 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func commandNameFromConfiguration() {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         #expect(cap.shell.commands["greet"] != nil)
     }
 
     @Test func fallbackNameFromSwiftType() async throws {
         let cap = CapturingShell()
-        cap.shell.register(Nameless.self)
+        cap.shell.installShellBuiltin(Nameless.self)
         #expect(cap.shell.commands["nameless"] != nil)
         try await cap.shell.run("nameless hi")
         #expect(cap.stdout == "hi\n")
@@ -135,7 +135,7 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func helpFlagPrintsUsageAndExitsSuccess() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         let status = try await cap.shell.run("greet --help")
         #expect(status == .success)
         // The exact message formatting is ArgumentParser's concern; just
@@ -149,7 +149,7 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func unknownOptionExitsNonZeroAndWritesStderr() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         let status = try await cap.shell.run("greet --nope")
         #expect(!status.isSuccess, "exit should be non-zero")
         #expect(cap.stderr.contains("--nope") || cap.stderr.contains("Usage"),
@@ -159,7 +159,7 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func missingRequiredArgumentFailsGracefully() async throws {
         let cap = CapturingShell()
-        cap.shell.register(RequireNameCommand.self)
+        cap.shell.installShellBuiltin(RequireNameCommand.self)
         let status = try await cap.shell.run("require")
         #expect(!status.isSuccess)
         #expect(cap.stderr.contains("name") || cap.stderr.contains("missing"),
@@ -168,7 +168,7 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func badOptionValueFailsGracefully() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         let status = try await cap.shell.run("greet --count notanumber oliver")
         #expect(!status.isSuccess)
     }
@@ -183,7 +183,7 @@ private struct DenyingCommand: ParsableBashCommand {
     /// in stderr.
     @Test func sandboxDenialDoesNotLeakHostPath() async throws {
         let cap = CapturingShell()
-        cap.shell.register(DenyingCommand.self)
+        cap.shell.installShellBuiltin(DenyingCommand.self)
         let status = try await cap.shell.run("deny")
         #expect(!status.isSuccess)
         #expect(cap.stderr.contains("file URL is outside sandbox root"),
@@ -198,7 +198,7 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func arrayArgumentCollectsAll() async throws {
         let cap = CapturingShell()
-        cap.shell.register(SumCommand.self)
+        cap.shell.installShellBuiltin(SumCommand.self)
         try await cap.shell.run("sum 1 2 3 4 10")
         #expect(cap.stdout == "20\n")
     }
@@ -207,14 +207,14 @@ private struct DenyingCommand: ParsableBashCommand {
 
     @Test func registeredParsableCommandInAndChain() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("greet alice && greet bob")
         #expect(cap.stdout == "hello alice\nhello bob\n")
     }
 
     @Test func registeredParsableCommandInForLoop() async throws {
         let cap = CapturingShell()
-        cap.shell.register(GreetCommand.self)
+        cap.shell.installShellBuiltin(GreetCommand.self)
         try await cap.shell.run("for who in alice bob charlie; do greet $who; done")
         #expect(cap.stdout == "hello alice\nhello bob\nhello charlie\n")
     }
@@ -230,7 +230,7 @@ private struct DenyingCommand: ParsableBashCommand {
             }
         }
         let cap = CapturingShell()
-        cap.shell.register(SetVar.self)
+        cap.shell.installShellBuiltin(SetVar.self)
         try await cap.shell.run("setvar GREETING howdy")
         #expect(cap.shell.environment["GREETING"] == "howdy")
     }

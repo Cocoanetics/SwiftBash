@@ -69,28 +69,34 @@ public struct BashProcessLauncher: ProcessLauncher {
         // and resolution misses cleanly.
         let parent = Shell.bashCurrent
 
+        // Resolve via the same ``PathResolver`` the dispatcher uses
+        // so subprocess bridges (SwiftScript / SwiftJSCore) see the
+        // same `$PATH` semantics, the same shell-built-in bucket,
+        // and the same shadowing rules as bare bash dispatch.
+        let resolution: PathResolver.Resolution
         let resolvedName: String
         switch executable.storage {
         case .name(let name):
-            resolvedName = name
-        case .path(let pathStr):
-            // Path-based resolution is restricted to the canonical
-            // bin paths registered with `BinCatalog` (`/bin/echo`,
-            // `/usr/bin/jq`, `/usr/local/bin/rg`, …). Anything else
-            // — `/tmp/echo`, a relative path, an absolute path
-            // shadowing a builtin — falls through to "unresolved"
-            // because dispatching it to the registered command would
-            // change exact-path subprocess semantics.
-            let basename = (pathStr as NSString).lastPathComponent
-            guard let canonical = BinCatalog.knownPaths[basename],
-                  canonical == pathStr
-            else {
-                throw ProcessLaunchUnresolved(executable: executable)
+            // Built-ins are reachable by name even when no `$PATH`
+            // entry would surface them — match the dispatcher's
+            // "shellBuiltins win over PATH for bare names" rule.
+            if let builtin = parent.shellBuiltins[name] {
+                resolution = .registered(builtin, path: name)
+                resolvedName = name
+            } else {
+                resolution = await PathResolver(parent).resolve(name)
+                resolvedName = name
             }
-            resolvedName = basename
+        case .path(let pathStr):
+            resolution = await PathResolver(parent).resolve(pathStr)
+            resolvedName = (pathStr as NSString).lastPathComponent
         }
 
-        guard let command = parent.commands[resolvedName] else {
+        let command: Command
+        switch resolution {
+        case .registered(let cmd, _):
+            command = cmd
+        case .externalScript, .notFound:
             throw ProcessLaunchUnresolved(executable: executable)
         }
 

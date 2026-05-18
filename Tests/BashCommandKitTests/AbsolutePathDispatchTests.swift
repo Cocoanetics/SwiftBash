@@ -4,32 +4,26 @@ import Foundation
 
 @Suite(.timeLimit(.minutes(1))) struct AbsolutePathDispatchTests {
 
-    /// `commandForCatalogPath` returns the registered command for the
-    /// canonical absolute path of a registered builtin — the path the
-    /// `BinCatalogOverlay` synthesises under `/bin` / `/usr/bin`.
+    /// `commandsByPath` is keyed by the canonical absolute path of
+    /// an installed command — the path the `BinCatalogOverlay`
+    /// synthesises under `/bin` / `/usr/bin`. A registered command
+    /// must surface there.
     @Test func resolvesBashAtCanonicalBinPath() async throws {
         let shell = Shell()
-        let cmd = shell.commandForCatalogPath("/bin/bash")
-        #expect(cmd != nil)
-        #expect(cmd?.name == "bash")
+        #expect(shell.commandsByPath["/bin/bash"] != nil)
+        #expect(shell.commandsByPath["/bin/bash"]?.name == "bash")
     }
 
     @Test func resolvesTrueAtCanonicalBinPath() async throws {
         let shell = Shell()
-        let cmd = shell.commandForCatalogPath("/usr/bin/true")
-        #expect(cmd != nil)
+        #expect(shell.commandsByPath["/usr/bin/true"] != nil)
     }
 
     @Test func rejectsNonCanonicalAbsolutePath() async throws {
         let shell = Shell()
         // `bash` lives at `/bin/bash`, not `/usr/bin/bash`. The
         // wrong path must NOT shadow the registered command.
-        #expect(shell.commandForCatalogPath("/usr/bin/bash") == nil)
-    }
-
-    @Test func rejectsBareName() async throws {
-        let shell = Shell()
-        #expect(shell.commandForCatalogPath("bash") == nil)
+        #expect(shell.commandsByPath["/usr/bin/bash"] == nil)
     }
 
     @Test func bashVersionViaAbsolutePathRuns() async throws {

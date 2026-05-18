@@ -656,33 +656,70 @@ extension Shell {
 
         let result: ExitStatus
         do {
-            if let command = commands[argv[0]] {
-                result = try await command.run(argv)
-            } else if let command = commandForCatalogPath(argv[0]) {
-                // Absolute-path invocation of a registered command
-                // — `/bin/bash --version`, `/usr/bin/env`, etc.
-                // BinCatalogOverlay vends these as files but the
-                // dispatcher only keys the registry by basename, so
-                // without this branch the path resolution falls
-                // through to the external-script try (which fails
-                // because the synthetic stub has no shebang) and
-                // surfaces as `command not found`. Rewrite argv[0]
-                // to the basename so the command sees the canonical
-                // invocation.
-                var rewritten = argv
-                rewritten[0] = (argv[0] as NSString).lastPathComponent
-                result = try await command.run(rewritten)
-            } else if let scriptResult =
-                try await dispatchAsExternalScriptIfApplicable(argv: argv) {
-                result = scriptResult
+            // POSIX dispatch order:
+            // 1. User-defined function (stored in `commands` by the
+            //    function-definition path).
+            // 2. Shell built-in (no path, only matches bare name).
+            // 3. `PathResolver` — walks $PATH for file-backed
+            //    commands and FS executables; for path-shaped tokens
+            //    (`./foo`, `/abs/foo`) it skips built-ins entirely
+            //    and goes straight to file lookup.
+            //
+            // The previous basename-keyed `commands[argv[0]]` route
+            // is gone — it ignored $PATH and made shadowing
+            // impossible.
+            if !looksLikePath(argv[0]),
+               let function = commands[argv[0]] as? FunctionCommand {
+                result = try await function.run(argv)
+            } else if !looksLikePath(argv[0]),
+                      let builtin = shellBuiltins[argv[0]] {
+                result = try await builtin.run(argv)
             } else {
-                // Match bash: report to stderr (with `script:line:`
-                // prefix), return 127, do not abort the script.
-                stderr("\(errorLocationPrefix())\(argv[0]): command not found\n")
-                restoreScope()
-                restoreRedirects()
-                await drainProcessSubs(from: procSubFrame)
-                return ExitStatus(127)
+                let resolution = await PathResolver(self).resolve(argv[0])
+                switch resolution {
+                case .registered(let command, let path):
+                    // Rewrite argv[0] to the basename so the command
+                    // sees its canonical invocation regardless of
+                    // whether the user typed `ls`, `/bin/ls`, or
+                    // `./ls`. The resolved path is recorded as
+                    // `_` for scripts that introspect.
+                    var rewritten = argv
+                    rewritten[0] = (path as NSString).lastPathComponent
+                    result = try await command.run(rewritten)
+                case .externalScript:
+                    // Hand off to the external-script flow. It needs
+                    // the original argv so its diagnostics use the
+                    // user's literal token.
+                    if let scriptResult =
+                        try await dispatchAsExternalScriptIfApplicable(argv: argv) {
+                        result = scriptResult
+                    } else {
+                        stderr(
+                            "\(errorLocationPrefix())\(argv[0]): command not found\n")
+                        restoreScope()
+                        restoreRedirects()
+                        await drainProcessSubs(from: procSubFrame)
+                        return ExitStatus(127)
+                    }
+                case .notFound:
+                    // Path-shaped tokens still go through the
+                    // external-script flow — bash distinguishes
+                    // "No such file or directory" (path) from
+                    // "command not found" (bare name), and that
+                    // path's diagnostic logic lives there.
+                    if looksLikePath(argv[0]),
+                       let scriptResult =
+                        try await dispatchAsExternalScriptIfApplicable(argv: argv) {
+                        result = scriptResult
+                    } else {
+                        stderr(
+                            "\(errorLocationPrefix())\(argv[0]): command not found\n")
+                        restoreScope()
+                        restoreRedirects()
+                        await drainProcessSubs(from: procSubFrame)
+                        return ExitStatus(127)
+                    }
+                }
             }
         } catch {
             restoreScope()

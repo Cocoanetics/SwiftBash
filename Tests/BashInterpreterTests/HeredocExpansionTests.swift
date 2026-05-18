@@ -5,7 +5,7 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(name: "capture") { _ in
+        cap.shell.installShellBuiltin(name: "capture") { _ in
             let input = await Shell.bashCurrent.stdin.readAllString()
             Shell.bashCurrent.stdout(input)
             return .success
@@ -213,7 +213,7 @@ import Testing
 
     @Test func heredocFedIntoCommandViaRedirect() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "wc-l") { _ in
+        cap.shell.installShellBuiltin(name: "wc-l") { _ in
             var count = 0
             for await _ in Shell.bashCurrent.stdin.lines { count += 1 }
             Shell.bashCurrent.stdout("\(count)\n")

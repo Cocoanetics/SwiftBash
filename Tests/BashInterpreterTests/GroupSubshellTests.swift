@@ -65,7 +65,7 @@ import Testing
         cap.shell.fileSystem = InMemoryFileSystem()
         try await cap.shell.fileSystem.createDirectory("/work", intermediates: true)
         cap.shell.environment.workingDirectory = "/work"
-        cap.shell.register(name: "greet") { _ in
+        cap.shell.installShellBuiltin(name: "greet") { _ in
             Shell.bashCurrent.stdout("hi from registered cmd\n")
             return .success
         }

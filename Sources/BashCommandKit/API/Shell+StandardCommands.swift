@@ -31,62 +31,70 @@ extension Shell {
     // for no gain.
     // swiftlint:disable:next function_body_length
     public func registerStandardCommands() {
-        register(DateCommand.self)
-        register(BasenameCommand.self)
-        register(DirnameCommand.self)
-        register(RealpathCommand.self)
-        register(SeqCommand.self)
-        register(SleepCommand.self)
-        register(EnvCommand.self)
-        register(WhoamiCommand.self)
-        register(HostnameCommand.self)
-        register(CatCommand.self)
-        register(WcCommand.self)
-        register(HeadCommand.self)
-        register(TailCommand.self)
-        register(NlCommand.self)
-        register(GrepCommand.self)
-        register(LsCommand.self)
-        register(MkdirCommand.self)
-        register(RmCommand.self)
-        register(MvCommand.self)
-        register(CpCommand.self)
-        register(TouchCommand.self)
-        register(FindCommand())
-        register(SortCommand.self)
-        register(UniqCommand.self)
-        register(SedCommand.self)
+        install(DateCommand.self)
+        install(BasenameCommand.self)
+        install(DirnameCommand.self)
+        install(RealpathCommand.self)
+        install(SeqCommand.self)
+        install(SleepCommand.self)
+        install(EnvCommand.self)
+        install(WhoamiCommand.self)
+        install(HostnameCommand.self)
+        install(CatCommand.self)
+        install(WcCommand.self)
+        install(HeadCommand.self)
+        install(TailCommand.self)
+        install(NlCommand.self)
+        // `grep` itself isn't in `BinCatalog.knownPaths` (only egrep
+        // / fgrep are), but real macOS ships it at `/usr/bin/grep`.
+        // Use the explicit-path overload to match.
+        install(GrepCommand.self, at: "/usr/bin/grep")
+        install(LsCommand.self)
+        install(MkdirCommand.self)
+        install(RmCommand.self)
+        install(MvCommand.self)
+        install(CpCommand.self)
+        install(TouchCommand.self)
+        install(FindCommand())
+        install(SortCommand.self)
+        install(UniqCommand.self)
+        install(SedCommand.self)
         // `rg` is now sourced from SwiftPorts' RipgrepKit, registered
         // in `registerSwiftPortsCommands()` — that one honours
         // `.gitignore`, supports `-F`, and walks parent dirs, none of
         // which this local `RgCommand` (in BashCommandKit/Commands/)
         // does. Type still ships for source-compat; the builtin
         // registration moved.
-        register(TrCommand.self)
-        register(CutCommand.self)
-        register(Base64Command.self)
-        register(Md5Command.self)
-        register(XxdCommand.self)
+        install(TrCommand.self)
+        install(CutCommand.self)
+        install(Base64Command.self)
+        install(Md5Command.self)
+        install(XxdCommand.self)
 
         // Easy-batch additions
-        register(ClearCommand.self)
-        register(TacCommand.self)
-        register(RevCommand.self)
-        register(RmdirCommand.self)
-        register(TeeCommand.self)
-        register(PasteCommand.self)
-        register(CommCommand.self)
-        register(WhichCommand.self)
-        register(TypeCommand.self)
-        register(CommandBuiltinCommand.self)
-        register(PrintenvCommand.self)
-        register(OdCommand.self)
-        register(Md5sumCommand.self)
-        register(Sha1sumCommand.self)
-        register(Sha256sumCommand.self)
-        register(ShasumCommand.self)
-        register(CurlCommand.self)
-        register(DiffCommand.self)
+        install(ClearCommand.self)
+        install(TacCommand.self)
+        install(RevCommand.self)
+        install(RmdirCommand.self)
+        install(TeeCommand.self)
+        install(PasteCommand.self)
+        install(CommCommand.self)
+        install(WhichCommand.self)
+        // `type` and `command` are real bash built-ins (no file at
+        // `/usr/bin/type` or `/usr/bin/command` on macOS). Install
+        // them in the shell-built-in bucket so they win over PATH
+        // for bare invocations and are correctly absent from
+        // `which type` output.
+        installShellBuiltin(TypeCommand.self)
+        installShellBuiltin(CommandBuiltinCommand.self)
+        install(PrintenvCommand.self)
+        install(OdCommand.self)
+        install(Md5sumCommand.self)
+        install(Sha1sumCommand.self)
+        install(Sha256sumCommand.self)
+        install(ShasumCommand.self)
+        install(CurlCommand.self)
+        install(DiffCommand.self)
         // GzipCommand / GunzipCommand removed — SwiftPorts'
         // [Gzip](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/GzipKit/GzipCommand/GzipCommand.swift)
         // / [Gunzip](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/GzipKit/GzipCommand/GzipCommand.swift)
@@ -96,54 +104,54 @@ extension Shell {
         // SwiftPorts'
         // [Jq](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/JqKit/JqCommand/JqCommand.swift)
         // is the source-of-truth jq builtin now.
-        register(AwkCommand.self)
-        register(ExprCommand.self)
-        register(XargsCommand.self)
-        register(SplitCommand.self)
-        register(JoinCommand.self)
-        register(ExpandCommand.self)
-        register(UnexpandCommand.self)
-        register(FoldCommand.self)
-        register(StatCommand.self)
-        register(ReadlinkCommand.self)
-        register(LnCommand.self)
-        register(ChmodCommand.self)
-        register(TreeCommand.self)
-        register(StringsCommand.self)
-        register(ColumnCommand.self)
-        register(YqCommand.self)
-        register(DuCommand.self)
-        register(TimeCommand())
-        register(TimeoutCommand())
+        install(AwkCommand.self)
+        install(ExprCommand.self)
+        install(XargsCommand.self)
+        install(SplitCommand.self)
+        install(JoinCommand.self)
+        install(ExpandCommand.self)
+        install(UnexpandCommand.self)
+        install(FoldCommand.self)
+        install(StatCommand.self)
+        install(ReadlinkCommand.self)
+        install(LnCommand.self)
+        install(ChmodCommand.self)
+        install(TreeCommand.self)
+        install(StringsCommand.self)
+        install(ColumnCommand.self)
+        install(YqCommand.self)
+        install(DuCommand.self)
+        install(TimeCommand())
+        install(TimeoutCommand())
         // TarCommand removed — SwiftPorts'
         // [TarCommand](https://github.com/Cocoanetics/SwiftPorts/blob/main/Sources/TarKit/TarCommand/TarCommand.swift)
         // is registered via ``registerSwiftPortsCommands()`` instead.
-        register(UnameCommand.self)
-        register(IdCommand.self)
-        register(DfCommand.self)
-        register(CmpCommand.self)
-        register(BcCommand.self)
-        register(XattrCommand.self)
-        register(PatchCommand.self)
-        register(PsCommand.self)
-        register(KillCommand.self)
-        register(PgrepCommand.self)
-        register(PkillCommand.self)
+        install(UnameCommand.self)
+        install(IdCommand.self)
+        install(DfCommand.self)
+        install(CmpCommand.self)
+        install(BcCommand.self)
+        install(XattrCommand.self)
+        install(PatchCommand.self)
+        install(PsCommand.self)
+        install(KillCommand.self)
+        install(PgrepCommand.self)
+        install(PkillCommand.self)
 
         // Small POSIX utilities — easy wins on the FileSystem layer.
-        register(MktempCommand.self)
-        register(TruncateCommand.self)
-        register(GroupsCommand.self)
-        register(LinkCommand.self)
-        register(UnlinkCommand.self)
-        register(YesCommand.self)
+        install(MktempCommand.self)
+        install(TruncateCommand.self)
+        install(GroupsCommand.self)
+        install(LinkCommand.self)
+        install(UnlinkCommand.self)
+        install(YesCommand.self)
 
         // Pagers. They request a host-side scrollable view via
         // ``Shell/interactivePresenter`` when one is installed and
         // stdout is interactive; otherwise they cat content through,
         // matching real `less(1)` / `more(1)` on a non-TTY.
-        register(LessCommand.self)
-        register(MoreCommand.self)
+        install(LessCommand.self)
+        install(MoreCommand.self)
 
         // The SwiftPorts CLI family — gh / glab / git / jq / tar /
         // zip / unzip / the gzip+bzip2+xz+zstd+lz4 compression
@@ -169,7 +177,7 @@ extension Shell {
         // *running* shell rather than capturing the registering shell —
         // works correctly inside subshells too, and avoids reference
         // cycles on closure capture.
-        register(name: "egrep") { argv in
+        install(name: "egrep") { argv in
             guard let grep = Shell.bashCurrent.commands["grep"] else {
                 Shell.bashCurrent.stderr("egrep: grep not registered\n")
                 return .failure
@@ -177,7 +185,7 @@ extension Shell {
             return try await grep.run(["grep", "-E"]
                 + Array(argv.dropFirst()))
         }
-        register(name: "fgrep") { argv in
+        install(name: "fgrep") { argv in
             // We don't have grep -F yet; substring is grep's default
             // matching mode anyway, so this is effectively a name alias.
             // When -F lands later, prepend it here.

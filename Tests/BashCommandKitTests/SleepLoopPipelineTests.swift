@@ -65,10 +65,10 @@ import Foundation
     /// of times.
     @Test func untilPollsStatusCommandUntilCompleted() async throws {
         let cap = CapturingShell()
-        cap.shell.register(SleepCommand.self)
+        cap.shell.install(SleepCommand.self)
 
         let counter = CallCounter()
-        cap.shell.register(name: "status") { _ in
+        cap.shell.installShellBuiltin(name: "status") { _ in
             let calls = counter.increment()
             Shell.bashCurrent.stdout(calls >= 3 ? "completed\n" : "running\n")
             return .success
@@ -92,7 +92,7 @@ import Foundation
         // Record the wall-clock time at which each line reaches the
         // consumer.
         let arrivals: LineArrivalRecorder = LineArrivalRecorder()
-        cap.shell.register(name: "record") { _ in
+        cap.shell.installShellBuiltin(name: "record") { _ in
             for await line in Shell.bashCurrent.stdin.lines {
                 arrivals.record(line)
             }

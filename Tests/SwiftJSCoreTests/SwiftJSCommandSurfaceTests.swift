@@ -53,8 +53,7 @@ import BashCommandKit
         let shell = BashInterpreter.Shell(
             stdout: cap.stdoutSink,
             stderr: cap.stderrSink,
-            environment: Environment(),
-            commands: BashInterpreter.Shell.defaultCommands())
+            environment: Environment())
         shell.registerSwiftJS()
         return (shell, cap)
     }

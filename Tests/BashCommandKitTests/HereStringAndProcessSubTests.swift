@@ -52,7 +52,7 @@ import Foundation
 
     @Test func twoInputSubstitutionsBothWork() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "twocat") { argv in
+        cap.shell.installShellBuiltin(name: "twocat") { argv in
             for path in argv.dropFirst() {
                 let data = try await Shell.bashCurrent.fileSystem.readData(
                     Shell.bashCurrent.resolvePath(path))
@@ -67,7 +67,7 @@ import Foundation
     @Test func inputSubstitutionCleansUp() async throws {
         // After the command finishes, the temp file is removed.
         let cap = makeShell()
-        cap.shell.register(name: "echopath") { argv in
+        cap.shell.installShellBuiltin(name: "echopath") { argv in
             Shell.bashCurrent.stdout(argv.dropFirst().joined(separator: " ") + "\n")
             return .success
         }
@@ -123,7 +123,7 @@ import Foundation
     @Test func diffStylePattern() async throws {
         let cap = makeShell()
         // Synthetic diff that just concatenates two captured streams.
-        cap.shell.register(name: "join") { argv in
+        cap.shell.installShellBuiltin(name: "join") { argv in
             for path in argv.dropFirst() {
                 let data = try await Shell.bashCurrent.fileSystem.readData(
                     Shell.bashCurrent.resolvePath(path))

@@ -23,7 +23,7 @@ import Foundation
     private func registerInfiniteProducer(on shell: Shell,
                                           name: String,
                                           chunk: String) {
-        shell.register(name: name) { _ in
+        shell.installShellBuiltin(name: name) { _ in
             while !Task.isCancelled {
                 Shell.bashCurrent.stdout(chunk)
                 // Yield so the consumer gets a chance to run and
@@ -41,7 +41,7 @@ import Foundation
         registerInfiniteProducer(on: cap.shell, name: "yes", chunk: "y\n")
 
         // A simple stream-aware `head -n 3` implementation.
-        cap.shell.register(name: "take3") { _ in
+        cap.shell.installShellBuiltin(name: "take3") { _ in
             var emitted = 0
             for await line in Shell.bashCurrent.stdin.lines {
                 Shell.bashCurrent.stdout(line + "\n")
@@ -79,7 +79,7 @@ import Foundation
         let producerStart = AtomicDate()
         let consumerStart = AtomicDate()
 
-        cap.shell.register(name: "prod") { _ in
+        cap.shell.installShellBuiltin(name: "prod") { _ in
             producerStart.setNow()
             // Emit 10 lines with a small delay between each.
             for num in 1...10 {
@@ -89,7 +89,7 @@ import Foundation
             return .success
         }
 
-        cap.shell.register(name: "cons") { _ in
+        cap.shell.installShellBuiltin(name: "cons") { _ in
             for await _ in Shell.bashCurrent.stdin.lines
             where consumerStart.value == nil {
                 consumerStart.setNow()
@@ -120,12 +120,12 @@ import Foundation
         // naive String-based pipe.
         let payload = Data([0x00, 0xFF, 0x7F, 0x80, 0x00, 0x01, 0xFE])
 
-        cap.shell.register(name: "emit") { _ in
+        cap.shell.installShellBuiltin(name: "emit") { _ in
             Shell.bashCurrent.stdout(payload)
             return .success
         }
         let received = AtomicData()
-        cap.shell.register(name: "collect") { _ in
+        cap.shell.installShellBuiltin(name: "collect") { _ in
             received.value = await Shell.bashCurrent.stdin.readAllData()
             return .success
         }
@@ -141,7 +141,7 @@ import Foundation
         // propagate back to the outer shell (matching bash).
         let cap = CapturingShell()
         cap.shell.environment["X"] = "outer"
-        cap.shell.register(name: "stage") { _ in
+        cap.shell.installShellBuiltin(name: "stage") { _ in
             Shell.bashCurrent.environment["X"] = "inside"
             _ = await Shell.bashCurrent.stdin.readAllData()
             return .success
@@ -159,11 +159,11 @@ import Foundation
         // (AsyncStream default buffering policy is unbounded) but shows
         // that the pipeline still finishes correctly.
         let cap = CapturingShell()
-        cap.shell.register(name: "burst") { _ in
+        cap.shell.installShellBuiltin(name: "burst") { _ in
             for num in 1...100 { Shell.bashCurrent.stdout("\(num)\n") }
             return .success
         }
-        cap.shell.register(name: "sum") { _ in
+        cap.shell.installShellBuiltin(name: "sum") { _ in
             var total = 0
             for await line in Shell.bashCurrent.stdin.lines {
                 total += Int(line) ?? 0

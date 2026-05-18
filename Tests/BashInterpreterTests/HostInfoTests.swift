@@ -89,8 +89,8 @@ import WinSDK
 
     private func makeSandboxedShell() -> Shell {
         let shell = Shell(
-            environment: .synthetic(workingDirectory: "/batch"),
-            fileSystem: InMemoryFileSystem())
+            fileSystem: InMemoryFileSystem(),
+            environment: .synthetic(workingDirectory: "/batch"))
         shell.hostInfo = .synthetic
         // Register the standard commands without triggering import-cycle
         // — we only need the identity ones for this audit.

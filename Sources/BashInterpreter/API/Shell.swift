@@ -93,6 +93,31 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// Propagates through ``copy()``.
     public var verbose: Bool = false
 
+    // MARK: - Command registry (file-backed and built-in)
+
+    /// File-backed commands keyed by their canonical install path.
+    /// The authoritative store for ``install(_:)`` /
+    /// ``install(_:at:)`` — the dispatcher consults this through
+    /// ``PathResolver`` after walking `$PATH`. A single basename can
+    /// have multiple entries (e.g. `/bin/foo` and
+    /// `/usr/local/bin/foo`); `$PATH` order picks the winner.
+    public internal(set) var commandsByPath: [String: Command] = [:]
+
+    /// Reverse index from basename to every install path that lands
+    /// at that basename, in install order. ``PathResolver`` walks
+    /// `$PATH` and tests whether any of these paths matches. Always
+    /// kept in sync with ``commandsByPath`` by the install/uninstall
+    /// methods.
+    public internal(set) var pathsByBasename: [String: [String]] = [:]
+
+    /// Pure shell built-ins — `cd`, `export`, `eval`, `set`, … —
+    /// installed via ``installShellBuiltin(_:)``. These have no file
+    /// on disk and are NOT PATH-searchable: the dispatcher consults
+    /// this map before walking `$PATH`, and absolute / relative path
+    /// invocations skip it entirely (so `/bin/echo` runs the file
+    /// form, never the built-in).
+    public internal(set) var shellBuiltins: [String: Command] = [:]
+
     /// `shopt`-controlled options. Most map directly to glob/expansion
     /// behaviour; unknown options accept assignments but are otherwise
     /// no-ops, matching bash's permissive defaults.
@@ -295,8 +320,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         // ShellKit installs by default.
         super.init(
             stdin: stdin,
-            stdout: stdout,
-            stderr: stderr,
+            stdout: stdout ?? .forwarding(to: FileHandle.standardOutput),
+            stderr: stderr ?? .forwarding(to: FileHandle.standardError),
             environment: environment,
             positionalParameters: positionalParameters,
             scriptName: scriptName,
@@ -308,52 +333,80 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             virtualPID: virtualPID,
             commands: commands,
             processLauncher: processLauncher ?? BashProcessLauncher())
+        // Bare construction with no caller-supplied commands → install
+        // SwiftBash's default built-in surface (`cd`, `export`, `eval`,
+        // the hybrid `echo` / `printf` / `pwd` pair, etc.) AND apply
+        // the runtime env defaults (`PATH=/usr/local/bin:/usr/bin:/bin`,
+        // `HOME`, `BASH`, `BASH_VERSION`, …). `Shell.copy()` calls
+        // `init(commands: <parent>.commands, …)` with a non-empty dict
+        // so subshells inherit cleanly without re-installing defaults
+        // on top of their parent's snapshot.
+        if commands.isEmpty {
+            self.environment.variables["BASH"] = SwiftBashVersion.bashPath
+            self.environment.variables["BASH_VERSION"] = SwiftBashVersion.bashVersion
+            self.environment.arrays["BASH_VERSINFO"] = BashArray(
+                dense: SwiftBashVersion.bashVersionInfo)
+            for (key, value) in Self.runtimeEnvDefaults()
+                where self.environment.variables[key] == nil {
+                self.environment.variables[key] = value
+            }
+            if self.environment.variables["PWD"] == nil {
+                self.environment.variables["PWD"] = self.environment.workingDirectory
+            }
+            installDefaultBuiltins()
+        }
     }
 
-    /// Convenience initializer matching SwiftBash's pre-migration
-    /// signature so existing call sites compile unchanged.
-    public convenience init(environment: Environment = Environment(),
-                            stdout: OutputSink? = nil,
-                            stderr: OutputSink? = nil,
-                            commands: [String: Command] = Shell.defaultCommands(),
-                            fileSystem: FileSystem = RealFileSystem()) {
-        // `stdin:` is passed explicitly to disambiguate this call from
-        // the convenience init (which doesn't have a `stdin:` parameter)
-        // — without it the overload set is ambiguous between the two.
+    /// Convenience initializer with ``environment`` as the first
+    /// labelled argument — matches the historical call shape
+    /// `Shell(environment:, stdout:, stderr:)` used throughout the
+    /// existing test suite. Swift requires labelled args to follow
+    /// declaration order, so the designated initializer (with
+    /// ``stdin`` first) doesn't accept calls that put ``environment``
+    /// before ``stdout``/``stderr``.
+    public convenience init(
+        environment: Environment,
+        stdout: OutputSink? = nil,
+        stderr: OutputSink? = nil
+    ) {
         self.init(
             stdin: .empty,
-            stdout: stdout ?? .forwarding(to: FileHandle.standardOutput),
-            stderr: stderr ?? .forwarding(to: FileHandle.standardError),
-            environment: environment,
-            commands: commands)
+            stdout: stdout,
+            stderr: stderr,
+            environment: environment)
+    }
+
+    /// Convenience initializer for callers that need to swap in a
+    /// custom ``FileSystem`` at construction time. Defers to the
+    /// designated initializer (which installs the default built-ins
+    /// and the runtime env defaults when `commands` is empty), then
+    /// assigns the supplied filesystem.
+    public convenience init(
+        fileSystem: FileSystem,
+        stdout: OutputSink? = nil,
+        stderr: OutputSink? = nil,
+        environment: Environment = Environment()
+    ) {
+        self.init(
+            stdin: .empty,
+            stdout: stdout,
+            stderr: stderr,
+            environment: environment)
         self.fileSystem = fileSystem
-        // Advertise the running interpreter to scripts that probe bash
-        // version. These describe SwiftBash itself, not anything the
-        // caller's environment should be able to override.
-        self.environment.variables["BASH"] = SwiftBashVersion.bashPath
-        self.environment.variables["BASH_VERSION"] = SwiftBashVersion.bashVersion
-        self.environment.arrays["BASH_VERSINFO"] = BashArray(
-            dense: SwiftBashVersion.bashVersionInfo)
-        // Sensible "I am a real bash session" defaults for the
-        // variables a bash shell normally sets at startup but that a
-        // parent process *doesn't* pass down. Caller-supplied values
-        // win.
-        for (key, value) in Self.runtimeEnvDefaults()
-            where self.environment.variables[key] == nil {
-            self.environment.variables[key] = value
-        }
-        if self.environment.variables["PWD"] == nil {
-            self.environment.variables["PWD"] = self.environment.workingDirectory
-        }
     }
 
     /// Default values for environment variables a real bash shell sets
-    /// at startup. Applied in the convenience init when the supplied
-    /// environment doesn't already provide a value — caller's choice
-    /// always wins.
+    /// at startup. Applied in the designated init when `commands` is
+    /// empty (the "fresh shell" path) and the supplied environment
+    /// doesn't already carry a value — caller's choice always wins.
     private static func runtimeEnvDefaults() -> [(String, String)] {
         return [
-            ("PATH", "/usr/bin:/bin"),
+            // `/usr/local/bin` shadows `/usr/bin` and `/bin` — matches
+            // macOS convention so a user-installed skill at
+            // `/usr/local/bin/foo` overrides a bundled `/bin/foo` by
+            // default. Embedders that want a different shape set
+            // `environment.variables["PATH"]` before running.
+            ("PATH", "/usr/local/bin:/usr/bin:/bin"),
             ("HOME", "/home/\(HostInfo.synthetic.userName)"),
             ("USER", HostInfo.synthetic.userName),
             ("LOGNAME", HostInfo.synthetic.userName),
@@ -397,13 +450,23 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
     // MARK: - Default registry
 
-    public static func defaultCommands() -> [String: Command] {
-        let all: [Command] = [
-            EchoCommand(),
-            TrueCommand(),
-            FalseCommand(),
+    /// Install SwiftBash's built-in command surface on this shell.
+    /// Pure shell built-ins (`cd`, `export`, `eval`, …) go through
+    /// ``installShellBuiltin(_:)``; hybrid commands (`echo`, `printf`,
+    /// `pwd`, `test`, `[`, `true`, `false`, `wait`) install BOTH as a
+    /// shell built-in (wins for bare invocation) AND as a file at
+    /// their `BinCatalog` path (reachable via absolute path and
+    /// surfaced by `which`); pure file-backed commands (`bash`, `sh`,
+    /// `dash`) only install at their catalog path.
+    ///
+    /// Called automatically from the designated initializer when the
+    /// caller-supplied `commands` dict is empty; tests / embedders
+    /// that want a clean slate can clear the install storage after
+    /// construction or pass a non-empty `commands` dict to opt out.
+    public func installDefaultBuiltins() {
+        // Pure shell built-ins: no file on disk, not PATH-searchable.
+        let pureBuiltins: [Command] = [
             ColonCommand(),
-            PwdCommand(),
             CdCommand(),
             ExportCommand(),
             UnsetCommand(),
@@ -411,15 +474,12 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             EvalCommand(),
             LetCommand(),
             ShoptCommand(),
-            WaitCommand(),
             MapfileCommand(name: "mapfile"),
             MapfileCommand(name: "readarray"),
             BreakCommand(),
             ContinueCommand(),
             SetCommand(),
             ShiftCommand(),
-            TestCommand(name: "test"),
-            TestCommand(name: "["),
             ReturnCommand(),
             LocalCommand(),
             SourceCommand(name: "source"),
@@ -427,17 +487,39 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
             DeclareCommand(name: "declare"),
             DeclareCommand(name: "typeset"),
             ReadCommand(),
-            PrintfCommand(),
             TrapCommand(),
             GetoptsCommand(),
-            CompgenCommand(),
-            BashCommand(name: "bash"),
-            BashCommand(name: "sh"),
-            BashCommand(name: "dash")
+            CompgenCommand()
         ]
-        var dict: [String: Command] = [:]
-        for builtin in all { dict[builtin.name] = builtin }
-        return dict
+        for builtin in pureBuiltins {
+            installShellBuiltin(builtin)
+        }
+
+        // Hybrid commands: a built-in wins for the bare name, and a
+        // file form at the catalog path is reachable via absolute
+        // invocation and via `which`. Both forms share the same Swift
+        // implementation — real bash's file form is a separate binary,
+        // but inside a virtualised shell the behaviour overlaps
+        // closely enough that a single instance covers both.
+        let hybrids: [Command] = [
+            EchoCommand(),
+            TrueCommand(),
+            FalseCommand(),
+            PwdCommand(),
+            WaitCommand(),
+            TestCommand(name: "test"),
+            TestCommand(name: "["),
+            PrintfCommand()
+        ]
+        for hybrid in hybrids {
+            installShellBuiltin(hybrid)
+            install(hybrid)
+        }
+
+        // File-only commands at their catalog paths.
+        install(BashCommand(name: "bash"))
+        install(BashCommand(name: "sh"))
+        install(BashCommand(name: "dash"))
     }
 
     // MARK: - Subshell factory
@@ -470,6 +552,13 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         // copy() exactly — anything not listed here resets to its
         // initializer default in the new subshell instance.
         bash.fileSystem = fileSystem
+        // Install paths and shell built-ins propagate exactly so a
+        // subshell sees the same command surface as its parent (incl.
+        // PATH-aware shadowing). ShellKit's `super.copy()` already
+        // carried `commands` forward as the basename mirror.
+        bash.commandsByPath = commandsByPath
+        bash.pathsByBasename = pathsByBasename
+        bash.shellBuiltins = shellBuiltins
         bash.errexit = errexit
         bash.pipefail = pipefail
         bash.nounset = nounset

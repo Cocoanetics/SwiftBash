@@ -45,7 +45,7 @@ import Foundation
         // end up with all output in the file (streaming, not clobbered
         // after each write).
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "emit") { _ in
+        cap.shell.installShellBuiltin(name: "emit") { _ in
             Shell.bashCurrent.stdout("a\n")
             Shell.bashCurrent.stdout("b\n")
             Shell.bashCurrent.stdout("c\n")
@@ -77,7 +77,7 @@ import Foundation
 
     @Test func stderrRedirectToFile() async throws {
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "warn") { _ in
+        cap.shell.installShellBuiltin(name: "warn") { _ in
             Shell.bashCurrent.stdout("out\n")
             Shell.bashCurrent.stderr("err\n")
             return .success
@@ -94,7 +94,7 @@ import Foundation
 
     @Test func stderrToStdoutSameFile() async throws {
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "noisy") { _ in
+        cap.shell.installShellBuiltin(name: "noisy") { _ in
             Shell.bashCurrent.stdout("out\n")
             Shell.bashCurrent.stderr("err\n")
             return .success
@@ -112,7 +112,7 @@ import Foundation
         // `2>&1 > out.txt` dups stderr to stdout BEFORE redirecting
         // stdout → so stderr still points at the caller's stdout.
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "noisy") { _ in
+        cap.shell.installShellBuiltin(name: "noisy") { _ in
             Shell.bashCurrent.stdout("out\n")
             Shell.bashCurrent.stderr("err\n")
             return .success
@@ -126,7 +126,7 @@ import Foundation
 
     @Test func stdoutToStderr() async throws {
         let (cap, _) = try makeShell()
-        cap.shell.register(name: "mixed") { _ in
+        cap.shell.installShellBuiltin(name: "mixed") { _ in
             Shell.bashCurrent.stdout("out\n")
             return .success
         }
@@ -141,7 +141,7 @@ import Foundation
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try "line1\nline2\n".write(
             toFile: "\(dir)/in.txt", atomically: true, encoding: .utf8)
-        cap.shell.register(name: "count") { _ in
+        cap.shell.installShellBuiltin(name: "count") { _ in
             var count = 0
             for await _ in Shell.bashCurrent.stdin.lines { count += 1 }
             Shell.bashCurrent.stdout("\(count)\n")
@@ -167,7 +167,7 @@ import Foundation
 
     @Test func heredocBecomesStdin() async throws {
         let (cap, _) = try makeShell()
-        cap.shell.register(name: "capture") { _ in
+        cap.shell.installShellBuiltin(name: "capture") { _ in
             let stdinStr = await Shell.bashCurrent.stdin.readAllString()
             Shell.bashCurrent.stdout("[\(stdinStr)]")
             return .success
@@ -184,7 +184,7 @@ import Foundation
     @Test func unquotedHeredocExpandsVariables() async throws {
         let (cap, _) = try makeShell()
         cap.shell.environment["NAME"] = "oliver"
-        cap.shell.register(name: "capture") { _ in
+        cap.shell.installShellBuiltin(name: "capture") { _ in
             let stdinStr = await Shell.bashCurrent.stdin.readAllString()
             Shell.bashCurrent.stdout(stdinStr)
             return .success
@@ -201,7 +201,7 @@ import Foundation
     @Test func quotedHeredocStaysLiteral() async throws {
         let (cap, _) = try makeShell()
         cap.shell.environment["NAME"] = "oliver"
-        cap.shell.register(name: "capture") { _ in
+        cap.shell.installShellBuiltin(name: "capture") { _ in
             let stdinStr = await Shell.bashCurrent.stdin.readAllString()
             Shell.bashCurrent.stdout(stdinStr)
             return .success
@@ -219,11 +219,11 @@ import Foundation
 
     @Test func redirectInsidePipeline() async throws {
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
-        cap.shell.register(name: "emit") { _ in
+        cap.shell.installShellBuiltin(name: "emit") { _ in
             Shell.bashCurrent.stdout("one\ntwo\nthree\n")
             return .success
         }
-        cap.shell.register(name: "upper") { _ in
+        cap.shell.installShellBuiltin(name: "upper") { _ in
             let stdinStr = await Shell.bashCurrent.stdin.readAllString()
             Shell.bashCurrent.stdout(stdinStr.uppercased())
             return .success

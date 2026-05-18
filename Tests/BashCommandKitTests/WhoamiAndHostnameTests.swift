@@ -9,7 +9,7 @@ import Foundation
 
     @Test func whoamiSyntheticByDefault() async throws {
         let cap = CapturingShell()
-        cap.shell.register(WhoamiCommand.self)
+        cap.shell.install(WhoamiCommand.self)
         try await cap.shell.run("whoami")
         let name = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         // Default `Shell.hostInfo` is `.synthetic`; the real host's
@@ -20,7 +20,7 @@ import Foundation
 
     @Test func whoamiCustomHostInfo() async throws {
         let cap = CapturingShell()
-        cap.shell.register(WhoamiCommand.self)
+        cap.shell.install(WhoamiCommand.self)
         cap.shell.hostInfo.userName = "alice"
         try await cap.shell.run("whoami")
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,7 +29,7 @@ import Foundation
 
     @Test func whoamiUsableInCommandSubstitution() async throws {
         let cap = CapturingShell()
-        cap.shell.register(WhoamiCommand.self)
+        cap.shell.install(WhoamiCommand.self)
         try await cap.shell.run(#"U=$(whoami); echo "hello $U""#)
         #expect(cap.stdout == "hello user\n")
     }
@@ -38,7 +38,7 @@ import Foundation
 
     @Test func hostnameSyntheticByDefault() async throws {
         let cap = CapturingShell()
-        cap.shell.register(HostnameCommand.self)
+        cap.shell.install(HostnameCommand.self)
         try await cap.shell.run("hostname")
         let host = cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(host == HostInfo.synthetic.hostName)
@@ -47,7 +47,7 @@ import Foundation
 
     @Test func hostnameCustomHostInfo() async throws {
         let cap = CapturingShell()
-        cap.shell.register(HostnameCommand.self)
+        cap.shell.install(HostnameCommand.self)
         cap.shell.hostInfo.hostName = "myhost"
         try await cap.shell.run("hostname")
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -70,7 +70,7 @@ import Foundation
 
     @Test func realHostInfoFlowsToWhoami() async throws {
         let cap = CapturingShell()
-        cap.shell.register(WhoamiCommand.self)
+        cap.shell.install(WhoamiCommand.self)
         cap.shell.hostInfo = .real()
         try await cap.shell.run("whoami")
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

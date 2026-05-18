@@ -32,7 +32,7 @@ private final class DataBox: @unchecked Sendable {
 
     @Test func runCapturingSplitsStderr() async throws {
         let shell = Shell(stdout: .discard, stderr: .discard)
-        shell.register(name: "noisy") { _ in
+        shell.installShellBuiltin(name: "noisy") { _ in
             shell.stdout("out\n")
             shell.stderr("err\n")
             return .success
@@ -91,7 +91,7 @@ private final class DataBox: @unchecked Sendable {
         shell.stdout = outSink
         shell.stderr = .discard
 
-        shell.register(name: "tee") { _ in
+        shell.installShellBuiltin(name: "tee") { _ in
             for await chunk in shell.stdin.bytes {
                 shell.stdout(chunk)
             }

@@ -7,7 +7,7 @@ import Foundation
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(RealpathCommand.self)
+        cap.shell.install(RealpathCommand.self)
         return cap
     }
 

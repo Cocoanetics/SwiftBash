@@ -6,31 +6,34 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(EnvCommand.self)
+        cap.shell.install(EnvCommand.self)
         return cap
     }
 
     @Test func emptyEnvPrintsNothing() async throws {
         let cap = makeShell()
-        cap.shell.environment.variables = [:]
+        // Preserve PATH so `env` resolves; reset everything else.
+        cap.shell.environment.variables = ["PATH": "/usr/bin:/bin"]
         try await cap.shell.run("env")
-        #expect(cap.stdout == "")
+        #expect(cap.stdout == "PATH=/usr/bin:/bin\n")
     }
 
     @Test func printsAllSortedByName() async throws {
         let cap = makeShell()
         cap.shell.environment.variables = [
+            "PATH": "/usr/bin:/bin",
             "ZEBRA": "z", "ALPHA": "a", "BRAVO": "b"
         ]
         try await cap.shell.run("env")
-        #expect(cap.stdout == "ALPHA=a\nBRAVO=b\nZEBRA=z\n")
+        #expect(cap.stdout
+            == "ALPHA=a\nBRAVO=b\nPATH=/usr/bin:/bin\nZEBRA=z\n")
     }
 
     @Test func reflectsExportedVariables() async throws {
         let cap = makeShell()
-        cap.shell.environment.variables = [:]
+        cap.shell.environment.variables = ["PATH": "/usr/bin:/bin"]
         try await cap.shell.run("export FOO=bar")
         try await cap.shell.run("env")
-        #expect(cap.stdout == "FOO=bar\n")
+        #expect(cap.stdout == "FOO=bar\nPATH=/usr/bin:/bin\n")
     }
 }

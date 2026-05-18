@@ -14,7 +14,7 @@ import Testing
     /// on exact split counts and contents.
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(name: "args") { argv in
+        cap.shell.installShellBuiltin(name: "args") { argv in
             for (index, arg) in argv.dropFirst().enumerated() {
                 Shell.bashCurrent.stdout("[\(index + 1)]\(arg)\n")
             }
