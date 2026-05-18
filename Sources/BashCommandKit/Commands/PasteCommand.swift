@@ -91,17 +91,28 @@ public struct PasteCommand: ParsableBashCommand {
     }
 
     private func readInputs(files: [String]) async -> InputResult {
+        // GNU/BSD `paste` with multiple `-` operands reads stdin once
+        // and round-robins its lines across the dash slots: with N
+        // dashes, slot k gets stdin lines k, k+N, k+2N, ...
+        let dashCount = files.filter { $0 == "-" }.count
+        var stdinLines: [String] = []
+        if dashCount > 0 {
+            for await line in Shell.bashCurrent.stdin.lines {
+                stdinLines.append(line)
+            }
+        }
+        var dashSeen = 0
         var inputs: [[String]] = []
-        var stdinUsed = false
         for file in files {
             if file == "-" {
-                guard !stdinUsed else {
-                    Shell.bashCurrent.stderr("paste: stdin can only be used once\n")
-                    return .failure(.failure)
-                }
-                stdinUsed = true
+                let slot = dashSeen
+                dashSeen += 1
                 var lines: [String] = []
-                for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
+                var idx = slot
+                while idx < stdinLines.count {
+                    lines.append(stdinLines[idx])
+                    idx += dashCount
+                }
                 inputs.append(lines)
             } else {
                 do {
