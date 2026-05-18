@@ -156,14 +156,20 @@ struct ExecCommand: AsyncParsableCommand {
         // `fileSystem` overlay above; ShellKit-aware bridges
         // (the registered SwiftPorts CLIs and the SwiftScript
         // interpreter) consult `Shell.sandbox` instead.
-        // Bind the same physical root so both confinements stay
-        // in lock-step and a `--sandbox` invocation actually
-        // confines a Swift script the same way it confines a
-        // bash one. Migration target (#10): retire the legacy
-        // `fileSystem` overlay and have bash consult the URL
+        //
+        // Root the URL gate at the *virtual* workspace path, not the
+        // host directory: SwiftPorts CLIs (fd, rg, jq, …) and the
+        // SwiftScript interpreter all see paths from
+        // `Shell.currentDirectory` / `Shell.resolve(_:)`, which return
+        // the bash-side virtual cwd (`workspace`). Anchoring the gate
+        // at the host path put it in a different namespace from those
+        // callers — `fd file .` always tripped "file URL is outside
+        // sandbox root" because `/batch/.` (virtual) wasn't under
+        // `/Users/.../host-root`. Migration target (#10): retire the
+        // legacy `fileSystem` overlay and have bash consult the URL
         // gate too.
         let urlSandbox = ShellKit.Sandbox.rooted(
-            at: URL(fileURLWithPath: sandboxRoot),
+            at: URL(fileURLWithPath: workspace),
             allowedHosts: [])
         return ShellSetup(
             environment: env,

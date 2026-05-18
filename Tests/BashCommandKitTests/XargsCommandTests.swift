@@ -30,6 +30,24 @@ import Foundation
         #expect(cap.stdout == "a b\nc d\n")
     }
 
+    @Test func dashNAttached() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("printf 'a b c\\n' | xargs -n1 echo")
+        #expect(cap.stdout == "a\nb\nc\n")
+    }
+
+    @Test func dashDAttached() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("printf 'a:b:c\\n' | xargs -d: echo")
+        #expect(cap.stdout == "a b c\n")
+    }
+
+    @Test func dashIAttached() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("printf 'a\\nb\\n' | xargs -IX echo got X done")
+        #expect(cap.stdout == "got a done\ngot b done\n")
+    }
+
     @Test func dashI() async throws {
         let cap = makeShell()
         try await cap.shell.run("printf 'a\\nb\\n' | xargs -I X echo got X done")

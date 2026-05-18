@@ -42,7 +42,7 @@ public struct PasteCommand: ParsableBashCommand {
 
         // Read every input fully up front. paste needs random access
         // across files for its row-by-row interleaving.
-        switch await readInputs(files: files) {
+        switch await readInputs(files: files, serial: serial) {
         case .failure(let exit): return exit
         case .success(let inputs):
             emitOutput(inputs: inputs, delimChars: delimChars, serial: serial)
@@ -90,18 +90,37 @@ public struct PasteCommand: ParsableBashCommand {
         return nil
     }
 
-    private func readInputs(files: [String]) async -> InputResult {
+    private func readInputs(files: [String], serial: Bool) async -> InputResult {
+        // GNU/BSD `paste`:
+        // * Default mode with multiple `-` operands reads stdin once
+        //   and round-robins its lines across the dash slots — with N
+        //   dashes, slot k gets stdin lines k, k+N, k+2N, ...
+        // * Serial mode (`-s`) is processed file-by-file in argv
+        //   order, so the first `-` drains stdin entirely and any
+        //   subsequent `-` sees an empty stream.
+        let dashCount = files.filter { $0 == "-" }.count
+        var stdinLines: [String] = []
+        if dashCount > 0 {
+            for await line in Shell.bashCurrent.stdin.lines {
+                stdinLines.append(line)
+            }
+        }
+        var dashSeen = 0
         var inputs: [[String]] = []
-        var stdinUsed = false
         for file in files {
             if file == "-" {
-                guard !stdinUsed else {
-                    Shell.bashCurrent.stderr("paste: stdin can only be used once\n")
-                    return .failure(.failure)
-                }
-                stdinUsed = true
+                let slot = dashSeen
+                dashSeen += 1
                 var lines: [String] = []
-                for await line in Shell.bashCurrent.stdin.lines { lines.append(line) }
+                if serial {
+                    if slot == 0 { lines = stdinLines }
+                } else {
+                    var idx = slot
+                    while idx < stdinLines.count {
+                        lines.append(stdinLines[idx])
+                        idx += dashCount
+                    }
+                }
                 inputs.append(lines)
             } else {
                 do {

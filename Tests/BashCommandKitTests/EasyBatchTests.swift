@@ -146,6 +146,28 @@ import Foundation
         #expect(cap.stdout == "a,b,c\n1,2,3\n")
     }
 
+    @Test func pasteDoubleDashSplitsStdinAcrossColumns() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'a\\nb\\nc\\nd\\ne\\n' | paste - -")
+        // GNU paste: with two `-`s, stdin lines fan out round-robin
+        // → row 0: "a\tb", row 1: "c\td", row 2: "e\t" (slot empty).
+        #expect(cap.stdout == "a\tb\nc\td\ne\t\n")
+    }
+
+    @Test func pasteTripleDashSplitsStdinAcrossThreeColumns() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'a\\nb\\nc\\nd\\ne\\nf\\n' | paste - - -")
+        #expect(cap.stdout == "a\tb\tc\nd\te\tf\n")
+    }
+
+    @Test func pasteSerialDashConsumesAllStdin() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        // Serial mode walks files in command-line order: the first
+        // `-` drains stdin, the second sees EOF.
+        try await cap.shell.run("printf 'a\\nb\\nc\\n' | paste -s - -")
+        #expect(cap.stdout == "a\tb\tc\n\n")
+    }
+
     // MARK: comm
 
     @Test func commProducesThreeColumns() async throws {

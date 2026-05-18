@@ -4,6 +4,9 @@ import Foundation
 
 /// `cmp [-s] FILE1 FILE2` — byte-by-byte comparison. Exit 0 if equal,
 /// 1 if different, 2 on error. With `-s`, no output.
+///
+/// Either FILE argument may be `-`, which reads from standard input.
+/// Only one `-` is allowed per invocation; stdin can't be replayed.
 public struct CmpCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "cmp",
@@ -14,7 +17,7 @@ public struct CmpCommand: ParsableBashCommand {
           help: "Suppress output; exit status only.")
     public var silent: Bool = false
 
-    @Argument(help: "FILE1 FILE2")
+    @Argument(help: "FILE1 FILE2 (use - for stdin)")
     public var files: [String] = []
 
     public init() {}
@@ -24,10 +27,14 @@ public struct CmpCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("cmp: usage: cmp [-s] FILE1 FILE2\n")
             return ExitStatus(2)
         }
+        if files[0] == "-" && files[1] == "-" {
+            Shell.bashCurrent.stderr("cmp: standard input can only be used once\n")
+            return ExitStatus(2)
+        }
         let dataA: Data, dataB: Data
         do {
-            dataA = try await Shell.bashCurrent.readDataAtPath(files[0])
-            dataB = try await Shell.bashCurrent.readDataAtPath(files[1])
+            dataA = try await readOperand(files[0])
+            dataB = try await readOperand(files[1])
         } catch {
             Shell.bashCurrent.stderr("cmp: \(error)\n")
             return ExitStatus(2)
@@ -51,5 +58,12 @@ public struct CmpCommand: ParsableBashCommand {
             return ExitStatus(1)
         }
         return .success
+    }
+
+    private func readOperand(_ path: String) async throws -> Data {
+        if path == "-" {
+            return await Shell.bashCurrent.stdin.readAllData()
+        }
+        return try await Shell.bashCurrent.readDataAtPath(path)
     }
 }

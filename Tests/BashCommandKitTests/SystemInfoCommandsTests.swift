@@ -109,6 +109,23 @@ import Foundation
         #expect(status == ExitStatus(1))
         #expect(cap.stdout == "")
     }
+
+    @Test func cmpDashReadsStdin() async throws {
+        let cap = makeShell()
+        let dir = NSTemporaryDirectory() + "cmp-\(UUID())"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try "abc".write(toFile: dir + "/a", atomically: true, encoding: .utf8)
+        let status = try await cap.shell.run("printf abc | cmp -s - \(dir)/a")
+        #expect(status == .success)
+    }
+
+    @Test func cmpDashRejectedTwice() async throws {
+        let cap = makeShell()
+        let status = try await cap.shell.run("printf abc | cmp -s - -")
+        #expect(status == ExitStatus(2))
+        #expect(cap.stderr.contains("standard input"))
+    }
     #endif
 
 }
