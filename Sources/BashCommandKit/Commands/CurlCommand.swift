@@ -337,7 +337,7 @@ extension CurlCommand {
             case "-w", "--write-out":
                 opts.writeOut = try requireArg(argv, idx, name: arg)
                 idx += 2
-            case "--max-time":
+            case "-m", "--max-time":
                 let raw = try requireArg(argv, idx, name: arg)
                 if let val = TimeInterval(raw) { opts.maxTimeSeconds = val }
                 idx += 2
