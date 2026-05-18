@@ -310,6 +310,32 @@ import Foundation
         #expect(cap.stdout == "./a\u{0}./b\u{0}")
     }
 
+    // MARK: - printf
+
+    @Test func printfWithPathAndType() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("touch a b")
+        try await cap.shell.run("find . -type f -printf '%p %y\\n'")
+        #expect(cap.stdout == "./a f\n./b f\n")
+    }
+
+    @Test func printfRelativePathAndBasename() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("mkdir -p sub")
+        try await cap.shell.run("touch sub/a")
+        try await cap.shell.run("find . -type f -printf '%P|%f\\n'")
+        #expect(cap.stdout == "sub/a|a\n")
+    }
+
+    @Test func printfHasNoImplicitNewline() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("touch a")
+        // Two matches: . and ./a. Without a trailing \n the output
+        // joins without separation.
+        try await cap.shell.run("find . -type f -printf '%p'")
+        #expect(cap.stdout == "./a")
+    }
+
     // MARK: - prune
 
     @Test func pruneSkipsDirectoryDescent() async throws {

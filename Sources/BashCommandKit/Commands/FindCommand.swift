@@ -91,7 +91,7 @@ public struct FindCommand: Command {
           -size [+-]N[ckMG]        -perm [-/]MODE
 
         ACTIONS:
-          -print (default)         -print0
+          -print (default)         -print0          -printf FORMAT
           -prune                   -delete
           -exec CMD ... ;          -exec CMD ... {} +
 
@@ -142,6 +142,7 @@ public struct FindCommand: Command {
             do {
                 try await walk(displayPath: path,
                                absolutePath: resolved,
+                               startingPath: path,
                                depth: 0,
                                ctx: ctx)
             } catch {
@@ -162,6 +163,7 @@ public struct FindCommand: Command {
 
     private func walk(displayPath: String,
                       absolutePath: String,
+                      startingPath: String,
                       depth: Int,
                       ctx: EvalContext) async throws {
         // Per-entry cancellation check — `find /` against a huge tree
@@ -177,6 +179,7 @@ public struct FindCommand: Command {
             && (ctx.opts.maxDepth.map { depth <= $0 } ?? true)
         let node = NodeInfo(displayPath: displayPath,
                             absolutePath: absolutePath,
+                            startingPath: startingPath,
                             meta: meta)
 
         // Pre-order: evaluate this node first, then descend.
@@ -237,6 +240,7 @@ public struct FindCommand: Command {
             let childDisplay = Self.joinPath(node.displayPath, name)
             try await walk(displayPath: childDisplay,
                            absolutePath: childAbs,
+                           startingPath: node.startingPath,
                            depth: depth + 1,
                            ctx: ctx)
         }
@@ -378,6 +382,9 @@ public struct FindCommand: Command {
         case .print0:
             Shell.bashCurrent.stdout(node.displayPath + "\u{0}")
             return EvalResult(matched: true)
+        case .printf(let format):
+            Shell.bashCurrent.stdout(Self.formatPrintf(format, node: node))
+            return EvalResult(matched: true)
         case .prune:
             // Returns true; the walker reads `pruned` to skip descent.
             // No effect under `-depth` (already descended) — matches
@@ -458,6 +465,7 @@ public struct FindCommand: Command {
     private struct NodeInfo {
         let displayPath: String
         let absolutePath: String
+        let startingPath: String
         let meta: FileMetadata
     }
 
@@ -521,6 +529,7 @@ public struct FindCommand: Command {
     enum Action: Sendable {
         case print
         case print0
+        case printf(String)
         case prune
         case delete
         case execEach([String])
@@ -689,7 +698,7 @@ public struct FindCommand: Command {
         switch expr {
         case .action(let action):
             switch action {
-            case .print, .print0, .delete, .execEach, .execBatch: return true
+            case .print, .print0, .printf, .delete, .execEach, .execBatch: return true
             case .prune: return false
             }
         case .test: return false
@@ -840,6 +849,8 @@ public struct FindCommand: Command {
                 return .action(.print)
             case "-print0":
                 return .action(.print0)
+            case "-printf":
+                return .action(.printf(try value(for: flag)))
             case "-prune":
                 return .action(.prune)
             case "-delete":
@@ -946,6 +957,149 @@ public struct FindCommand: Command {
             throw ParseError(message: "-perm: bad mode: \(raw)")
         }
         return PermResult(mode: mode, match: match)
+    }
+
+    // MARK: -printf formatting
+    //
+    // GNU find-compatible format string interpreter. Supports the
+    // mainstream directives users actually reach for; rarer ones
+    // (`%a` access-time variants, `%c` ctime, `%A@`, `%C@`, format
+    // flags like `%-20p`) are not yet implemented and pass through
+    // as the original two characters so a typo still gets debugged.
+
+    static func formatPrintf(_ format: String, node nodeAny: Any) -> String {
+        // `nodeAny` is `NodeInfo` — accepted as `Any` so this helper
+        // can stay static without exposing the private NodeInfo type.
+        guard let node = nodeAny as? NodeInfo else { return "" }
+        var out = ""
+        let chars = Array(format)
+        var idx = 0
+        while idx < chars.count {
+            let char = chars[idx]
+            if char == "\\", idx + 1 < chars.count {
+                switch chars[idx + 1] {
+                case "n": out.append("\n")
+                case "t": out.append("\t")
+                case "r": out.append("\r")
+                case "\\": out.append("\\")
+                case "0": out.append("\u{0}")
+                case "a": out.append("\u{07}")
+                case "b": out.append("\u{08}")
+                case "f": out.append("\u{0C}")
+                case "v": out.append("\u{0B}")
+                default:
+                    out.append(chars[idx + 1])
+                }
+                idx += 2
+                continue
+            }
+            if char == "%", idx + 1 < chars.count {
+                let directive = chars[idx + 1]
+                // `%T<X>` is two characters of suffix; everything else
+                // is a single character.
+                if directive == "T", idx + 2 < chars.count {
+                    out.append(printfTimeField(chars[idx + 2], date: node.meta.modifiedAt))
+                    idx += 3
+                    continue
+                }
+                if let rendered = printfField(directive, node: node) {
+                    out.append(rendered)
+                    idx += 2
+                    continue
+                }
+                // Unknown directive — emit the two characters as-is.
+                out.append(char)
+                out.append(directive)
+                idx += 2
+                continue
+            }
+            out.append(char)
+            idx += 1
+        }
+        return out
+    }
+
+    private static func printfField(_ directive: Character, node: NodeInfo) -> String? {
+        switch directive {
+        case "%": return "%"
+        case "p": return node.displayPath
+        case "P": return relativeToStart(displayPath: node.displayPath,
+                                          startingPath: node.startingPath)
+        case "f": return (node.displayPath as NSString).lastPathComponent
+        case "h":
+            let parent = (node.displayPath as NSString).deletingLastPathComponent
+            return parent.isEmpty ? "." : parent
+        case "s": return String(node.meta.size)
+        case "m": return String(node.meta.mode & 0o7777, radix: 8)
+        case "M":
+            // ls-style mode string ("-rw-r--r--", "drwxr-xr-x", ...).
+            return modeString(kind: node.meta.kind, mode: node.meta.mode)
+        case "y":
+            switch node.meta.kind {
+            case .file: return "f"
+            case .directory: return "d"
+            case .symlink: return "l"
+            case .other: return "?"
+            }
+        case "u": return String(node.meta.uid)
+        case "g": return String(node.meta.gid)
+        case "U": return String(node.meta.uid)
+        case "G": return String(node.meta.gid)
+        case "n": return String(node.meta.linkCount)
+        case "d": return "0"  // depth — not threaded into NodeInfo
+        default: return nil
+        }
+    }
+
+    private static func printfTimeField(_ directive: Character, date: Date) -> String {
+        if directive == "@" {
+            return String(format: "%.10f", date.timeIntervalSince1970)
+        }
+        let calendar = Calendar(identifier: .gregorian)
+        let comps = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second, .weekday],
+            from: date)
+        func pad(_ value: Int?, width: Int) -> String {
+            String(format: "%0\(width)d", value ?? 0)
+        }
+        switch directive {
+        case "Y": return pad(comps.year, width: 4)
+        case "m": return pad(comps.month, width: 2)
+        case "d": return pad(comps.day, width: 2)
+        case "H": return pad(comps.hour, width: 2)
+        case "M": return pad(comps.minute, width: 2)
+        case "S": return pad(comps.second, width: 2)
+        case "j":
+            let day = calendar.ordinality(of: .day, in: .year, for: date) ?? 0
+            return String(format: "%03d", day)
+        default: return "%T\(directive)"
+        }
+    }
+
+    private static func relativeToStart(displayPath: String, startingPath: String) -> String {
+        if displayPath == startingPath { return "" }
+        let prefix = startingPath.hasSuffix("/") ? startingPath : startingPath + "/"
+        if displayPath.hasPrefix(prefix) {
+            return String(displayPath.dropFirst(prefix.count))
+        }
+        return displayPath
+    }
+
+    private static func modeString(kind: FileMetadata.Kind, mode: UInt16) -> String {
+        let kindChar: Character
+        switch kind {
+        case .file: kindChar = "-"
+        case .directory: kindChar = "d"
+        case .symlink: kindChar = "l"
+        case .other: kindChar = "?"
+        }
+        func triplet(_ shift: Int) -> String {
+            let bits = (mode >> shift) & 0o7
+            return "\(bits & 0o4 != 0 ? "r" : "-")"
+                 + "\(bits & 0o2 != 0 ? "w" : "-")"
+                 + "\(bits & 0o1 != 0 ? "x" : "-")"
+        }
+        return "\(kindChar)\(triplet(6))\(triplet(3))\(triplet(0))"
     }
 
     // MARK: Glob matching
