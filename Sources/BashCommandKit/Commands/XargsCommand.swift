@@ -48,6 +48,9 @@ public struct XargsCommand: ParsableBashCommand {
                 }
                 replaceStr = rawArgv[idx + 1]; idx += 2; cmdStart = idx; continue
             }
+            if arg.hasPrefix("-I") && arg.count > 2 {
+                replaceStr = String(arg.dropFirst(2)); idx += 1; cmdStart = idx; continue
+            }
             if arg.hasPrefix("--replace=") {
                 replaceStr = String(arg.dropFirst("--replace=".count)); idx += 1; cmdStart = idx; continue
             }
@@ -57,11 +60,30 @@ public struct XargsCommand: ParsableBashCommand {
                 }
                 delimiter = unescape(rawArgv[idx + 1]); idx += 2; cmdStart = idx; continue
             }
+            if arg.hasPrefix("-d") && arg.count > 2 {
+                delimiter = unescape(String(arg.dropFirst(2))); idx += 1; cmdStart = idx; continue
+            }
+            if arg.hasPrefix("--delimiter=") {
+                delimiter = unescape(String(arg.dropFirst("--delimiter=".count)))
+                idx += 1; cmdStart = idx; continue
+            }
             if arg == "-n" || arg == "--max-args" {
                 guard idx + 1 < rawArgv.count, let num = Int(rawArgv[idx + 1]) else {
                     Shell.bashCurrent.stderr("xargs: -n requires N\n"); return ExitStatus(2)
                 }
                 maxArgs = num; idx += 2; cmdStart = idx; continue
+            }
+            if arg.hasPrefix("-n") && arg.count > 2 {
+                guard let num = Int(arg.dropFirst(2)) else {
+                    Shell.bashCurrent.stderr("xargs: -n requires N\n"); return ExitStatus(2)
+                }
+                maxArgs = num; idx += 1; cmdStart = idx; continue
+            }
+            if arg.hasPrefix("--max-args=") {
+                guard let num = Int(arg.dropFirst("--max-args=".count)) else {
+                    Shell.bashCurrent.stderr("xargs: -n requires N\n"); return ExitStatus(2)
+                }
+                maxArgs = num; idx += 1; cmdStart = idx; continue
             }
             if arg == "-P" || arg == "--max-procs" {
                 // Accept but ignore; we run sequentially.
@@ -69,6 +91,12 @@ public struct XargsCommand: ParsableBashCommand {
                     Shell.bashCurrent.stderr("xargs: -P requires N\n"); return ExitStatus(2)
                 }
                 idx += 2; cmdStart = idx; continue
+            }
+            if arg.hasPrefix("-P") && arg.count > 2 {
+                idx += 1; cmdStart = idx; continue
+            }
+            if arg.hasPrefix("--max-procs=") {
+                idx += 1; cmdStart = idx; continue
             }
             if arg == "-0" || arg == "--null" {
                 nullSep = true; idx += 1; cmdStart = idx; continue
