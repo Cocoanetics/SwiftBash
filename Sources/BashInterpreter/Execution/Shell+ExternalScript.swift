@@ -160,7 +160,7 @@ extension Shell {
     /// and friends return paths like `C:\Users\…\run.foo`. Without
     /// this, every Windows-shaped temp path falls through to
     /// `command not found`.
-    private func looksLikePath(_ token: String) -> Bool {
+    func looksLikePath(_ token: String) -> Bool {
         #if os(Windows)
         return token.contains("/") || token.contains("\\")
         #else

@@ -268,7 +268,7 @@ import Foundation
         let cap = makeShell()
         // Use a closure-registered consumer so we don't depend on
         // BashCommandKit being loaded in BashInterpreter tests.
-        cap.shell.register(name: "count") { _ in
+        cap.shell.installShellBuiltin(name: "count") { _ in
             var count = 0
             for await _ in Shell.bashCurrent.stdin.lines { count += 1 }
             Shell.bashCurrent.stdout("\(count)\n")

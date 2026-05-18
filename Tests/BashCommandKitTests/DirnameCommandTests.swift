@@ -6,7 +6,7 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(DirnameCommand.self)
+        cap.shell.install(DirnameCommand.self)
         return cap
     }
 

@@ -69,16 +69,16 @@ extension Shell {
     public func registerSwiftPortsCommands() {
         // jq — JSON processor. Standalone-CLI surface, no
         // GitHub-style subcommand tree.
-        register(Jq.self)
+        install(Jq.self)
 
         // gh / glab / git — large multi-tool CLIs. Their
         // root command's `subcommands:` list pulls in the entire
         // subcommand tree automatically; registering the root
         // makes `gh issue list`, `glab mr view`, `git log`, etc.
         // all addressable as one builtin per top-level command.
-        register(GhCommand.self)
-        register(GlabCommand.self)
-        register(GitCommand.self)
+        install(GhCommand.self)
+        install(GlabCommand.self)
+        install(GitCommand.self)
 
         // rg / fd — pure-Swift ports of BurntSushi's ripgrep and
         // sharkdp's fd. Supersede `BashCommandKit/Commands/RgCommand`
@@ -94,19 +94,22 @@ extension Shell {
         // `Commands/RgCommand.swift` type — that local type still
         // ships for source compat. Use the explicit module-level type
         // here to make sure the SwiftPorts one is what gets registered.
-        register(Rg.self)
-        register(FdCommand.self)
+        install(Rg.self)
+        // `fd` isn't in the BinCatalog yet — slot under
+        // `/usr/local/bin` to match the Homebrew / user-skill
+        // convention used for the rest of the SwiftPorts surface.
+        install(FdCommand.self, at: "/usr/local/bin/fd")
 
         // Archive family.
-        register(TarCommand.self)
-        register(ZipCommand.self)
-        register(UnzipCommand.self)
+        install(TarCommand.self)
+        install(ZipCommand.self)
+        install(UnzipCommand.self)
 
         // gzip personalities — zlib is universally available, no
         // platform gate.
-        register(Gzip.self)
-        register(Gunzip.self)
-        register(Zcat.self)
+        install(Gzip.self)
+        install(Gunzip.self)
+        install(Zcat.self)
 
         // bzip2 / zstd — libbz2 / libzstd aren't in the iOS /
         // tvOS / watchOS / visionOS SDK and aren't in Android's
@@ -114,13 +117,13 @@ extension Shell {
         // `#if os(macOS) || os(Linux) || os(Windows)`; mirror
         // that gate here.
         #if os(macOS) || os(Linux) || os(Windows)
-        register(Bzip2.self)
-        register(Bunzip2.self)
-        register(Bzcat.self)
+        install(Bzip2.self)
+        install(Bunzip2.self)
+        install(Bzcat.self)
 
-        register(Zstd.self)
-        register(Unzstd.self)
-        register(Zstdcat.self)
+        install(Zstd.self)
+        install(Unzstd.self)
+        install(Zstdcat.self)
         #endif
 
         // xz / lz4 — Apple platforms back these via the
@@ -130,13 +133,13 @@ extension Shell {
         // `#if canImport(Compression) || os(Linux) || os(Windows)`;
         // mirror that.
         #if canImport(Compression) || os(Linux) || os(Windows)
-        register(Xz.self)
-        register(Unxz.self)
-        register(Xzcat.self)
+        install(Xz.self)
+        install(Unxz.self)
+        install(Xzcat.self)
 
-        register(Lz4.self)
-        register(Unlz4.self)
-        register(Lz4cat.self)
+        install(Lz4.self)
+        install(Unlz4.self)
+        install(Lz4cat.self)
         #endif
     }
 }

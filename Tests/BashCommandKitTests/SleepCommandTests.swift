@@ -7,7 +7,7 @@ import Foundation
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(SleepCommand.self)
+        cap.shell.install(SleepCommand.self)
         return cap
     }
 

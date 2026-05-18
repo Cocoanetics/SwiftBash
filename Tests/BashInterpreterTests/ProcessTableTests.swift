@@ -124,13 +124,26 @@ import Foundation
         // the entry on the way out, so depending on whether the
         // observer or wait's reap wins the race we'd either see
         // `.exited` (macOS scheduler) or `nil` (Linux scheduler).
-        // Sleep long enough for the observer to land deterministically.
-        try? await Task.sleep(nanoseconds: 50_000_000)
-        let entry = await table.entry(for: pid)
-        if case .exited(let status) = entry?.state {
+        //
+        // Poll for the `.exited` state with a 5-second deadline. A
+        // fixed sleep was previously flaky on slow runners (Linux,
+        // Android) where 50 ms wasn't always enough for the observer
+        // task to land.
+        let deadline = Date().addingTimeInterval(5)
+        var observed: ProcessTable.Entry?
+        while Date() < deadline {
+            let entry = await table.entry(for: pid)
+            if case .exited = entry?.state {
+                observed = entry
+                break
+            }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        if case .exited(let status) = observed?.state {
             #expect(status.code == 11)
         } else {
-            Issue.record("expected .exited, got \(String(describing: entry?.state))")
+            Issue.record(
+                "expected .exited within 5s, got \(String(describing: observed?.state))")
         }
     }
 

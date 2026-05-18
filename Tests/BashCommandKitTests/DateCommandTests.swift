@@ -8,7 +8,7 @@ import Foundation
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(DateCommand.self)
+        cap.shell.install(DateCommand.self)
         return cap
     }
 

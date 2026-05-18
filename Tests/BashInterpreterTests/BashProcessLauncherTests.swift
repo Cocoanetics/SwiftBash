@@ -20,7 +20,7 @@ import Testing
 
     @Test func launcherDispatchesByExecutableName() async throws {
         let shell = Shell()
-        shell.register(name: "greet") { argv in
+        shell.installShellBuiltin(name: "greet") { argv in
             let who = argv.dropFirst().first ?? "world"
             Shell.bashCurrent.stdout("hello \(who)\n")
             return .success
@@ -48,7 +48,7 @@ import Testing
         // `BinCatalog`, so it matches `VirtualBinFileSystem`'s
         // synthesized-file rule on the bash side.
         let shell = Shell()
-        shell.register(name: "echo") { argv in
+        shell.installShellBuiltin(name: "echo") { argv in
             Shell.bashCurrent.stdout(argv.dropFirst().joined(separator: " ") + "\n")
             return .success
         }
@@ -76,7 +76,7 @@ import Testing
         // location, not the registry). Throws `ProcessLaunchUnresolved`
         // instead of silently dispatching.
         let shell = Shell()
-        shell.register(name: "echo") { _ in .success }
+        shell.installShellBuiltin(name: "echo") { _ in .success }
 
         await #expect(throws: ProcessLaunchUnresolved.self) {
             try await shell.withCurrent {
@@ -95,7 +95,7 @@ import Testing
     // MARK: Resolve miss
 
     @Test func launcherThrowsUnresolvedForUnknownName() async {
-        let shell = Shell(commands: [:])
+        let shell = Shell()
         // SwiftBash never composes through ChainLauncher — the
         // unresolved error reaches the caller as the "command not
         // found" signal.
@@ -118,7 +118,7 @@ import Testing
     @Test func launcherPassesArgvWithNameAtIndexZero() async throws {
         let shell = Shell()
         let captured = ArgvCapture()
-        shell.register(name: "argecho") { argv in
+        shell.installShellBuiltin(name: "argecho") { argv in
             captured.set(argv)
             return .success
         }
@@ -141,7 +141,7 @@ import Testing
 
     @Test func launcherReturnsExitCodeFromCommand() async throws {
         let shell = Shell()
-        shell.register(name: "rc") { argv in
+        shell.installShellBuiltin(name: "rc") { argv in
             let code = Int32(argv.dropFirst().first.flatMap(Int.init) ?? 0)
             return ExitStatus(code)
         }
@@ -173,7 +173,7 @@ import Testing
         // see the bytes — otherwise `$(cmd)` substitution and
         // `Subprocess.run(.string(...))` would double-print.
         let shell = Shell()
-        shell.register(name: "shout") { _ in
+        shell.installShellBuiltin(name: "shout") { _ in
             Shell.bashCurrent.stdout("captured\n")
             return .success
         }
@@ -235,7 +235,7 @@ import Testing
         // untouched on the way out.
         let shell = Shell()
         shell.environment["PARENT_KEY"] = "parent"
-        shell.register(name: "tamper") { _ in
+        shell.installShellBuiltin(name: "tamper") { _ in
             Shell.bashCurrent.environment["LEAKED"] = "yes"
             return .success
         }

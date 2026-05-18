@@ -92,7 +92,7 @@ import Testing
 
     @Test func quotedDollarAtPreservesSpaces() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv in
+        cap.shell.installShellBuiltin(name: "args") { argv in
             for (idx, arg) in argv.dropFirst().enumerated() {
                 Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }
@@ -108,7 +108,7 @@ import Testing
 
     @Test func unquotedDollarAtIFSSplits() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv in
+        cap.shell.installShellBuiltin(name: "args") { argv in
             Shell.bashCurrent.stdout("count=\(argv.count - 1)\n")
             return .success
         }
@@ -148,7 +148,7 @@ import Testing
 
     @Test func boundaryMergeInWord() async throws {
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv in
+        cap.shell.installShellBuiltin(name: "args") { argv in
             for (idx, arg) in argv.dropFirst().enumerated() {
                 Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }

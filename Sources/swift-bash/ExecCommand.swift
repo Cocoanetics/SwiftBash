@@ -86,8 +86,8 @@ struct ExecCommand: AsyncParsableCommand {
         let source = try Self.readScript(at: scriptPath)
 
         let setup = try makeShellSetup()
-        let shell = Shell(environment: setup.environment,
-                          fileSystem: setup.fileSystem)
+        let shell = Shell(fileSystem: setup.fileSystem,
+                          environment: setup.environment)
         shell.hostInfo = setup.hostInfo
         shell.sandbox = setup.urlSandbox
         shell.registerStandardCommands()

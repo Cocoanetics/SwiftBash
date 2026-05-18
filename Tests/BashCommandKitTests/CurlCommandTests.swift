@@ -44,7 +44,7 @@ import Foundation
         let fetcher: SecureFetcher? = try config.map {
             try SecureFetcher(config: $0, fetcher: mock)
         }
-        cap.shell.register(name: "curl") { argv in
+        cap.shell.installShellBuiltin(name: "curl") { argv in
             try await CurlCommand.run(argv: argv, fetcher: fetcher)
         }
         return cap

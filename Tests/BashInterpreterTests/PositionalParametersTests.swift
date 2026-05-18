@@ -143,7 +143,7 @@ import Testing
         // through as ONE argv element even when it contains spaces.
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["hello world", "second"]
-        cap.shell.register(name: "showargs") { argv in
+        cap.shell.installShellBuiltin(name: "showargs") { argv in
             for (idx, arg) in argv.dropFirst().enumerated() {
                 Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }
@@ -157,7 +157,7 @@ import Testing
         // Unquoted $@ also splits per arg in argv position.
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["one", "two", "three"]
-        cap.shell.register(name: "count") { argv in
+        cap.shell.installShellBuiltin(name: "count") { argv in
             Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
@@ -168,7 +168,7 @@ import Testing
     @Test func dollarAtEmptyParamsContributesZeroArgs() async throws {
         let cap = CapturingShell()
         // No positional params set.
-        cap.shell.register(name: "count") { argv in
+        cap.shell.installShellBuiltin(name: "count") { argv in
             Shell.bashCurrent.stdout("\(argv.count - 1)\n")
             return .success
         }
@@ -181,7 +181,7 @@ import Testing
         // Classic pattern: wrapper "$@" → callee sees the same args.
         let cap = CapturingShell()
         cap.shell.positionalParameters = ["a b", "c"]
-        cap.shell.register(name: "echoargs") { argv in
+        cap.shell.installShellBuiltin(name: "echoargs") { argv in
             for arg in argv.dropFirst() {
                 Shell.bashCurrent.stdout("<\(arg)>\n")
             }

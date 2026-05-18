@@ -16,8 +16,7 @@ import ShellKit
         let shell = BashInterpreter.Shell(
             stdout: capture.stdoutSink,
             stderr: capture.stderrSink,
-            environment: Environment(),
-            commands: BashInterpreter.Shell.defaultCommands())
+            environment: Environment())
         shell.registerSwiftScript()
         return (shell, capture)
     }

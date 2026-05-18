@@ -6,7 +6,7 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(SeqCommand.self)
+        cap.shell.install(SeqCommand.self)
         return cap
     }
 

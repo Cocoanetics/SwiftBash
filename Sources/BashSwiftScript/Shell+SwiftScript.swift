@@ -40,7 +40,7 @@ extension Shell {
             registerScriptInterpreter(SwiftScriptShellInterpreter(name: name))
 
             let invokedAs = name
-            register(name: name) { argv in
+            install(name: name) { argv in
                 await runSwiftScriptCommand(invokedAs: invokedAs, argv: argv)
             }
         }

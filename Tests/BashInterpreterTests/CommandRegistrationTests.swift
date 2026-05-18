@@ -7,7 +7,7 @@ import Testing
 
     @Test func registerClosureCommand() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "greet") { argv in
+        cap.shell.installShellBuiltin(name: "greet") { argv in
             let who = argv.dropFirst().first ?? "world"
             Shell.bashCurrent.stdout("hello \(who)\n")
             return .success
@@ -18,7 +18,7 @@ import Testing
 
     @Test func closureCommandCanFail() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "nope") { _ in .failure }
+        cap.shell.installShellBuiltin(name: "nope") { _ in .failure }
         let status = try await cap.shell.run("nope")
         #expect(status == .failure)
         #expect(cap.shell.lastExitStatus == .failure)
@@ -26,7 +26,7 @@ import Testing
 
     @Test func closureCommandCanThrow() async {
         let cap = CapturingShell()
-        cap.shell.register(name: "boom") { _ in
+        cap.shell.installShellBuiltin(name: "boom") { _ in
             throw BashInterpreterError.io("kaboom")
         }
         let err = await #expect(throws: BashInterpreterError.self) {
@@ -37,7 +37,7 @@ import Testing
 
     @Test func closureCommandMutatesEnvironment() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "bless") { argv in
+        cap.shell.installShellBuiltin(name: "bless") { argv in
             for arg in argv.dropFirst() { Shell.bashCurrent.environment[arg] = "ok" }
             return .success
         }
@@ -59,39 +59,38 @@ import Testing
             }
         }
         let cap = CapturingShell()
-        cap.shell.register(UpperCaseCommand())
+        cap.shell.installShellBuiltin(UpperCaseCommand())
         try await cap.shell.run("upper hello world")
         #expect(cap.stdout == "HELLO WORLD\n")
     }
 
     // MARK: Unregister / override
 
-    @Test func unregisterRemovesCommand() async throws {
+    @Test func uninstallRemovesCommand() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "once") { _ in
+        cap.shell.installShellBuiltin(name: "once") { _ in
             Shell.bashCurrent.stdout("first\n"); return .success
         }
         try await cap.shell.run("once")
         #expect(cap.stdout == "first\n")
 
-        let removed = cap.shell.unregister("once")
-        #expect(removed != nil)
-        #expect(removed?.name == "once")
+        let removed = cap.shell.uninstall(name: "once")
+        #expect(removed >= 1)
 
         try await cap.shell.run("once")
         #expect(cap.shell.lastExitStatus.code == 127)
         #expect(cap.stderr.contains("once: command not found"))
     }
 
-    @Test func unregisterReturnsNilIfMissing() {
+    @Test func uninstallReturnsZeroIfMissing() {
         let cap = CapturingShell()
-        #expect(cap.shell.unregister("nope") == nil)
+        #expect(cap.shell.uninstall(name: "nope") == 0)
     }
 
     @Test func registeringOverridesBuiltin() async throws {
         let cap = CapturingShell()
         // Override `echo` with a louder version.
-        cap.shell.register(name: "echo") { argv in
+        cap.shell.installShellBuiltin(name: "echo") { argv in
             let loud = argv.dropFirst().joined(separator: " ").uppercased()
             Shell.bashCurrent.stdout(loud + "!\n")
             return .success
@@ -104,7 +103,7 @@ import Testing
 
     @Test func registeredCommandInsideLoop() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "collect") { argv in
+        cap.shell.installShellBuiltin(name: "collect") { argv in
             let prior = Shell.bashCurrent.environment["COLLECTED"] ?? ""
             Shell.bashCurrent.environment["COLLECTED"] = prior
                 + (prior.isEmpty ? "" : ",")
@@ -117,7 +116,7 @@ import Testing
 
     @Test func registeredCommandUsedInPipelinePositions() async throws {
         let cap = CapturingShell()
-        cap.shell.register(name: "emit") { argv in
+        cap.shell.installShellBuiltin(name: "emit") { argv in
             for arg in argv.dropFirst() { Shell.bashCurrent.stdout("\(arg)\n") }
             return .success
         }
@@ -128,23 +127,30 @@ import Testing
     // MARK: Default registry sanity
 
     @Test func defaultRegistryContainsBundledCommands() {
-        let defaults = Shell.defaultCommands()
-        for name in ["echo", "true", "false", ":", "pwd", "cd",
-                     "export", "unset", "exit", "break", "continue"] {
-            #expect(defaults[name] != nil,
-                "bundled command `\(name)` missing from default registry")
+        let shell = Shell()
+        for name in [":", "cd", "export", "unset", "exit", "break", "continue"] {
+            #expect(shell.shellBuiltins[name] != nil,
+                "pure built-in `\(name)` missing from default registry")
+        }
+        // Hybrid commands (built-in AND file form).
+        for name in ["echo", "true", "false", "pwd"] {
+            #expect(shell.shellBuiltins[name] != nil,
+                "hybrid built-in `\(name)` missing")
         }
     }
 
     @Test func initWithEmptyRegistryOnlyRunsExplicitlyRegistered() async throws {
         let cap = CapturingShell()
         cap.shell.commands = [:]
+        cap.shell.commandsByPath = [:]
+        cap.shell.pathsByBasename = [:]
+        cap.shell.shellBuiltins = [:]
         // Even `echo` is gone now — must report not-found and return 127.
         try await cap.shell.run("echo hi")
         #expect(cap.shell.lastExitStatus.code == 127)
 
         // Register something and verify only it works.
-        cap.shell.register(name: "hi") { _ in
+        cap.shell.installShellBuiltin(name: "hi") { _ in
             Shell.bashCurrent.stdout("hi\n"); return .success
         }
         try await cap.shell.run("hi")

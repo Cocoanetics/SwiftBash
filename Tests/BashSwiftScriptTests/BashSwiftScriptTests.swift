@@ -29,12 +29,11 @@ import ShellKit
             environment: Environment(),
             sandbox: sandbox,
             networkConfig: networkConfig,
-            hostInfo: hostInfo,
-            // The ShellKit-base init defaults `commands` to `[:]`,
-            // which strips out bash builtins (`echo`, `cd`, `:`, …).
-            // Restore the defaults so a test script using `echo` /
-            // `set` / `exit` behaves like a real shell.
-            commands: BashInterpreter.Shell.defaultCommands())
+            hostInfo: hostInfo)
+        // Primary init leaves the registry empty; install the bash
+        // defaults so test scripts using `echo` / `set` / `exit`
+        // behave like a real shell.
+        shell.installDefaultBuiltins()
         shell.registerSwiftScript()
         return (shell, capture)
     }
@@ -266,7 +265,7 @@ import ShellKit
         let (shell, cap) = makeShell()
         // Sentinel registered only in this Shell'shell command table.
         // Prints a marker that no real binary anywhere would emit.
-        shell.register(name: "swiftbash-only-marker") { argv in
+        shell.installShellBuiltin(name: "swiftbash-only-marker") { argv in
             let payload = argv.dropFirst().joined(separator: " ")
             Shell.bashCurrent.stdout("REGISTRY-OK: \(payload)\n")
             return .success
@@ -307,11 +306,14 @@ import ShellKit
         // bypassed `BashProcessLauncher` for canonical-path resolution
         // would invoke the real `/bin/echo` and miss the prefix.
         let (shell, cap) = makeShell()
-        shell.register(name: "echo") { argv in
+        // The test invokes `/bin/echo` (absolute path), so the built-in
+        // form would be bypassed. Override the file-backed form at
+        // `/bin/echo` directly so the sentinel is what dispatch hits.
+        shell.install(ClosureCommand(name: "echo") { argv in
             let payload = argv.dropFirst().joined(separator: " ")
             Shell.bashCurrent.stdout("BUILTIN: \(payload)\n")
             return .success
-        }
+        })
         let script = try writeScript("""
             #!/usr/bin/env swift-script
             import Subprocess

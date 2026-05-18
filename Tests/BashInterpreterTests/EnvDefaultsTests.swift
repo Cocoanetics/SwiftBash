@@ -9,7 +9,7 @@ import Foundation
     @Test func bareShellHasPathSet() async throws {
         let cap = CapturingShell()
         try await cap.shell.run("echo $PATH")
-        #expect(cap.stdout == "/usr/bin:/bin\n")
+        #expect(cap.stdout == "/usr/local/bin:/usr/bin:/bin\n")
     }
 
     @Test func bareShellHasIfsSet() async throws {

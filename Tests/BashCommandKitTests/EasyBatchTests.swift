@@ -3,6 +3,7 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+// swiftlint:disable:next type_body_length
 @Suite(.timeLimit(.minutes(1))) struct EasyBatchTests {
 
     private func makeShell() throws -> (CapturingShell, String) {
@@ -186,9 +187,13 @@ import Foundation
     }
 
     @Test func whichReportsShellBuiltinForPureBuiltin() async throws {
-        // `cd` has no /bin/cd file on macOS — it's purely a shell
-        // built-in. `which cd` says so explicitly.
+        // Pure shell built-ins (`cd`, `export`, …) have no file
+        // shadow in `$PATH`. `which cd` reports the SwiftBash
+        // convention `cd: shell built-in command`. Sandbox the FS
+        // first so the host's `/usr/bin/cd` doesn't surface as a
+        // file match.
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        cap.shell.fileSystem = InMemoryFileSystem()
         try await cap.shell.run("which cd")
         #expect(cap.stdout == "cd: shell built-in command\n")
     }
@@ -200,10 +205,29 @@ import Foundation
         #expect(cap.stdout == "")
     }
 
-    @Test func typeReportsBinaryShadowPath() async throws {
+    @Test func typeReportsBuiltinForHybridWhenBuiltinWins() async throws {
+        // `echo` is a hybrid: both a shell built-in AND a file at
+        // `/bin/echo`. Built-in wins dispatch, so `type echo` reports
+        // it as a built-in (real bash matches).
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("type echo")
-        #expect(cap.stdout == "echo is /bin/echo\n")
+        #expect(cap.stdout == "echo is a shell builtin\n")
+    }
+
+    @Test func typeReportsBinaryShadowPathForFileOnlyCommand() async throws {
+        // `ls` has no built-in form, so `type ls` reports the file path.
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("type ls")
+        #expect(cap.stdout == "ls is /bin/ls\n")
+    }
+
+    @Test func typeDashAReportsBuiltinAndFileForHybrid() async throws {
+        // With `-a`, both the built-in entry and the file path show
+        // up. Built-in first.
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("type -a echo")
+        #expect(cap.stdout
+            == "echo is a shell builtin\necho is /bin/echo\n")
     }
 
     @Test func typeReportsShellBuiltinForPureBuiltin() async throws {
@@ -212,10 +236,18 @@ import Foundation
         #expect(cap.stdout == "cd is a shell builtin\n")
     }
 
-    @Test func commandDashVPrintsBinaryPath() async throws {
+    @Test func commandDashVPrintsBuiltinNameForHybrid() async throws {
+        // `echo` is a hybrid; built-in wins so `command -v` prints
+        // just the name (matches bash).
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         try await cap.shell.run("command -v echo")
-        #expect(cap.stdout == "/bin/echo\n")
+        #expect(cap.stdout == "echo\n")
+    }
+
+    @Test func commandDashVPrintsPathForFileOnlyCommand() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("command -v ls")
+        #expect(cap.stdout == "/bin/ls\n")
     }
 
     @Test func commandDashVPrintsBuiltinName() async throws {
@@ -231,20 +263,39 @@ import Foundation
         #expect(cap.stdout == "")
     }
 
+    @Test func typeReportsFunctionForDefinedFunction() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("greet() { echo hi; }; type greet")
+        #expect(cap.stdout == "greet is a function\n")
+    }
+
+    @Test func commandDashVRecognizesFunction() async throws {
+        // Real bash's `command -v` succeeds for shell functions and
+        // prints just the name. The dotfile idiom
+        // `command -v foo >/dev/null && foo` relies on this.
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("greet() { :; }; command -v greet")
+        #expect(cap.stdout == "greet\n")
+    }
+
     // MARK: printenv
 
     @Test func printenvAllVariablesSorted() async throws {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
-        cap.shell.environment.variables = ["B": "two", "A": "one"]
+        cap.shell.environment.variables = [
+            "PATH": "/usr/bin:/bin", "B": "two", "A": "one"
+        ]
         try await cap.shell.run("printenv")
-        #expect(cap.stdout == "A=one\nB=two\n")
+        #expect(cap.stdout == "A=one\nB=two\nPATH=/usr/bin:/bin\n")
     }
 
     @Test func printenvNamedVariablePrintsValue() async throws {
         let cap = CapturingShell()
         cap.shell.registerStandardCommands()
-        cap.shell.environment.variables = ["FOO": "bar"]
+        cap.shell.environment.variables = [
+            "PATH": "/usr/bin:/bin", "FOO": "bar"
+        ]
         try await cap.shell.run("printenv FOO")
         #expect(cap.stdout == "bar\n")
     }

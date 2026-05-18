@@ -4,22 +4,26 @@ import BashInterpreter
 /// `which NAME...` — for each NAME, print where the shell would
 /// resolve it.
 ///
-/// Output format mirrors what a real macOS install reports:
-/// - For a registered command that has a binary shadow path
-///   (`cat`, `ls`, `grep`, …) — print the full `/bin/<name>` or
-///   `/usr/bin/<name>` path, the same string `ls /bin` would show.
-/// - For a registered command that's a pure shell built-in (`cd`,
-///   `export`, `eval`, `declare`, …) — print
+/// Output:
+/// - File-backed match in `$PATH` → the absolute path.
+/// - Pure shell built-in (no file at any `$PATH` entry) →
 ///   `<name>: shell built-in command`.
-/// - For an unknown name — print nothing and contribute a non-zero
-///   exit, matching `/usr/bin/which` semantics.
+/// - Unknown name → nothing printed, contributes a non-zero exit.
+///
+/// With `-a`, every PATH hit is printed in order so callers can see
+/// shadowing. A pure built-in's "shell built-in command" line is
+/// printed alongside the (empty) PATH hits.
 ///
 /// Exit status: 0 if every NAME resolved, 1 otherwise.
 public struct WhichCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "which",
-        abstract: "Locate a command in the shell's registry."
+        abstract: "Locate a command in PATH."
     )
+
+    @Flag(name: .customShort("a"),
+          help: "Print every match in PATH order, not just the first.")
+    public var all: Bool = false
 
     @Argument(help: "Command names to look up.")
     public var names: [String] = []
@@ -31,18 +35,39 @@ public struct WhichCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("which: missing operand\n")
             return .failure
         }
+        let shell = Shell.bashCurrent
+        let resolver = PathResolver(shell)
         var missing = false
         for name in names {
-            guard Shell.bashCurrent.commands[name] != nil else {
+            let matches = await resolver.allMatches(forName: name)
+            if matches.isEmpty {
+                if shell.shellBuiltins[name] != nil {
+                    // Pure shell built-in: no file shadow anywhere
+                    // in $PATH. Emit the SwiftBash convention so
+                    // scripts probing `which` can tell built-ins
+                    // from "not found."
+                    shell.stdout("\(name): shell built-in command\n")
+                    continue
+                }
                 missing = true
                 continue
             }
-            if let path = BinCatalog.knownPaths[name] {
-                Shell.bashCurrent.stdout("\(path)\n")
-            } else {
-                Shell.bashCurrent.stdout("\(name): shell built-in command\n")
+            if all {
+                for match in matches {
+                    shell.stdout(pathFor(match) + "\n")
+                }
+            } else if let first = matches.first {
+                shell.stdout(pathFor(first) + "\n")
             }
         }
         return missing ? .failure : .success
+    }
+
+    private func pathFor(_ resolution: PathResolver.Resolution) -> String {
+        switch resolution {
+        case .registered(_, let path): return path
+        case .externalScript(let path): return path
+        case .notFound: return ""
+        }
     }
 }

@@ -198,7 +198,7 @@ import Testing
         // Associative array keys may contain spaces — "${!m[@]}"
         // preserves each key as a single arg.
         let cap = makeShell()
-        cap.shell.register(name: "args") { argv in
+        cap.shell.installShellBuiltin(name: "args") { argv in
             for (idx, arg) in argv.dropFirst().enumerated() {
                 Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }

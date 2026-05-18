@@ -6,7 +6,7 @@ import Testing
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
-        cap.shell.register(name: "args") { argv in
+        cap.shell.installShellBuiltin(name: "args") { argv in
             for (idx, arg) in argv.dropFirst().enumerated() {
                 Shell.bashCurrent.stdout("[\(idx + 1)]\(arg)\n")
             }

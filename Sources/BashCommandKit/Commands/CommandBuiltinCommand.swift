@@ -1,17 +1,19 @@
 import ArgumentParser
 import BashInterpreter
+import Foundation
 
-/// `command -v NAME...` — print the resolved name (just NAME in our
-/// world; we don't have $PATH paths) if registered, else exit non-zero
-/// with no output. This is the bash idiom for "is X available?":
+/// `command -v NAME...` — print the resolved name (or path, for
+/// file-backed commands) if registered, else exit non-zero with no
+/// output. Bash idiom for "is X available?":
 ///
 /// ```bash
 /// if command -v jq >/dev/null; then …
 /// ```
 ///
-/// Out of scope: `command -p` (default-PATH bypass), `command -V`
-/// (verbose), bypassing functions/aliases — we don't have separable
-/// resolution categories.
+/// Without `-v`: re-dispatches as a normal invocation, bypassing
+/// shell functions / aliases (this implementation doesn't have a
+/// separable function bucket from PATH yet, so it just runs the
+/// shell built-in if available else the first `$PATH` hit).
 public struct CommandBuiltinCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "command",
@@ -32,32 +34,53 @@ public struct CommandBuiltinCommand: ParsableBashCommand {
             Shell.bashCurrent.stderr("command: missing operand\n")
             return .failure
         }
+        let shell = Shell.bashCurrent
         if lookup {
-            var missing = false
-            for name in names {
-                guard Shell.bashCurrent.commands[name] != nil else {
-                    missing = true
-                    continue
-                }
-                // bash `command -v` prints the resolved path for
-                // file-shadowed commands and just the name for
-                // built-ins, exactly matching `which` shape.
-                if let path = BinCatalog.knownPaths[name] {
-                    Shell.bashCurrent.stdout("\(path)\n")
-                } else {
-                    Shell.bashCurrent.stdout("\(name)\n")
-                }
-            }
-            return missing ? .failure : .success
+            return await lookupNames(in: shell)
         }
-        // Without -v: re-dispatch as a normal invocation. We have no
-        // functions/aliases yet, so this reduces to "look up in the
-        // registry and call". Same shape as Shell's own dispatch.
+        return try await runHead(in: shell)
+    }
+
+    private func lookupNames(in shell: Shell) async -> ExitStatus {
+        let resolver = PathResolver(shell)
+        var missing = false
+        for name in names {
+            // Function or built-in: print just the name (bash
+            // convention). Functions win over built-ins in real bash
+            // dispatch, but for `command -v`'s single-line output the
+            // emitted text is the same either way.
+            if shell.isFunction(named: name)
+                || shell.shellBuiltins[name] != nil {
+                shell.stdout("\(name)\n")
+                continue
+            }
+            let first = await resolver.allMatches(forName: name).first
+            switch first {
+            case .registered(_, let path), .externalScript(let path):
+                shell.stdout("\(path)\n")
+            case .notFound, .none:
+                missing = true
+            }
+        }
+        return missing ? .failure : .success
+    }
+
+    private func runHead(in shell: Shell) async throws -> ExitStatus {
+        // Without -v: bash's `command` bypasses *functions and
+        // aliases* but still runs built-ins and PATH hits. Honor that
+        // here — functions are skipped, built-ins run, then PATH.
         let head = names[0]
-        guard let cmd = Shell.bashCurrent.commands[head] else {
-            Shell.bashCurrent.stderr("command: \(head): not found\n")
+        if let builtin = shell.shellBuiltins[head] {
+            return try await builtin.run(names)
+        }
+        switch await PathResolver(shell).resolve(head) {
+        case .registered(let cmd, let path):
+            var argv = names
+            argv[0] = (path as NSString).lastPathComponent
+            return try await cmd.run(argv)
+        case .externalScript, .notFound:
+            shell.stderr("command: \(head): not found\n")
             return ExitStatus(127)
         }
-        return try await cmd.run(names)
     }
 }
