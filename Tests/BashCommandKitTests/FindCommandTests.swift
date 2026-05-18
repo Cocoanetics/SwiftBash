@@ -207,6 +207,40 @@ import Foundation
         #expect(cap.stderr.contains("-bogus"))
     }
 
+    @Test func helpFlagPrintsUsageAndExitsZero() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("find --help")
+        #expect(status == .success)
+        #expect(cap.stdout.contains("USAGE: find"))
+        #expect(cap.stderr == "")
+    }
+
+    @Test func versionFlagPrintsBannerAndExitsZero() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("find --version")
+        #expect(status == .success)
+        #expect(cap.stdout.contains("find"))
+        #expect(cap.stderr == "")
+    }
+
+    @Test func helpAfterStartPathStillTriggers() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        let status = try await cap.shell.run("find . --help")
+        #expect(status == .success)
+        #expect(cap.stdout.contains("USAGE: find"))
+    }
+
+    @Test func helpAsPredicateArgumentIsTreatedAsArgument() async throws {
+        // `--help` after `-name` is the glob pattern, not the help flag.
+        // No file is literally named "--help", so output should be empty
+        // and the walk should still succeed.
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("touch a b")
+        let status = try await cap.shell.run("find . -name --help")
+        #expect(status == .success)
+        #expect(cap.stdout == "")
+    }
+
     @Test func missingValueForNameFails() async throws {
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
         let status = try await cap.shell.run("find . -name")
