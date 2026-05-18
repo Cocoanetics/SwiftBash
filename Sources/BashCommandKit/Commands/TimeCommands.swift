@@ -12,6 +12,13 @@ public struct TimeCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
+        // Match only `time --version`. `time cmd --version` must
+        // forward `--version` to the wrapped command instead of
+        // printing the timing wrapper's banner.
+        if args.first == "--version" {
+            Shell.bashCurrent.stdout("time (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+            return .success
+        }
         guard !args.isEmpty else {
             Shell.bashCurrent.stderr("time: usage: time COMMAND [ARG...]\n")
             return ExitStatus(2)
@@ -53,8 +60,17 @@ public struct TimeoutCommand: Command {
     public let name = "timeout"
     public init() {}
 
+    // swiftlint:disable:next cyclomatic_complexity - argv prefix loop + version short-circuit
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
+        // `timeout --version` only — once we're past the wrapper's
+        // own flags + DURATION, every remaining token belongs to
+        // the managed command (e.g. `timeout 5 cmd --version` must
+        // pass `--version` through to `cmd`).
+        if args.first == "--version" {
+            Shell.bashCurrent.stdout("timeout (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+            return .success
+        }
         // Skip the GNU --foreground / --preserve-status / -k flags
         // we don't honour.
         while let first = args.first {

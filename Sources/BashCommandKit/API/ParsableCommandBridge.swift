@@ -18,10 +18,15 @@ struct ParsableCommandBridge<Parsed: ParsableBashCommand>: Command {
         // "unknown option" instead of printing a banner. Catch the
         // flag in the bridge and emit a generic in-process marker
         // when the command itself didn't override.
-        if args.contains("--version") {
+        // Only short-circuit when `--version` is the leading argument.
+        // A laxer `args.contains("--version")` swallows the flag when
+        // it's meant for a different tool — `command find --version`
+        // would otherwise print `command`'s banner instead of routing
+        // the flag to `find`.
+        if args.first == "--version" {
             let configured = Parsed.configuration.version
             let banner = configured.isEmpty
-                ? "\(name) (swift-bash built-in)"
+                ? "\(name) (SwiftBash) \(SwiftBashVersion.packageVersion)"
                 : configured
             Shell.bashCurrent.stdout(banner + "\n")
             return .success

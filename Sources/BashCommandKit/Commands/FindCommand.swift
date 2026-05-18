@@ -67,7 +67,7 @@ public struct FindCommand: Command {
                 Shell.bashCurrent.stdout(helpText)
                 return .success
             case "--version":
-                Shell.bashCurrent.stdout("find (swift-bash built-in)\n")
+                Shell.bashCurrent.stdout("find (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
                 return .success
             default:
                 if isExpressionToken(arg) { return nil }

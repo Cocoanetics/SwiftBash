@@ -10,6 +10,13 @@ import Foundation
 /// than expanding to empty.
 public enum SwiftBashVersion {
 
+    /// SwiftBash package version. Surfaced through every builtin's
+    /// `--version` banner via ``ParsableCommandBridge`` and the
+    /// fallbacks inside the few non-`ParsableBashCommand` builtins
+    /// (find / time / timeout). Bump on release; the bash-semantics
+    /// version below is independent.
+    public static let packageVersion = "0.1.0"
+
     /// `BASH_VERSION` value — major.minor.patch[(build)]-release form,
     /// matching what `/bin/bash` reports. The major/minor advertise
     /// the bash semantics we target (4.x), not the SwiftBash package
