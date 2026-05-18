@@ -1235,11 +1235,22 @@ final class JSRuntimeTests: XCTestCase {
         // that keeps writing leaks bytes (silently dropped on
         // .hostShell, or growing the AsyncStream buffer on
         // .inProcess).
+        //
+        // A 3-second watchdog fires `WATCHDOG` and clears the
+        // pending-timers set if the host-shell 'close' event never
+        // arrives (observed flake on some Linux CI runners) — without
+        // it the runloop drain in `JSRuntime.run` blocks indefinitely
+        // and the whole test binary hangs until SIGSEGV. With the
+        // watchdog the test fails fast with a clear marker.
         let (jsRuntime, out, _) = hostShellRuntime()
         jsRuntime.run("""
         const cp = require('node:child_process');
         const proc = cp.spawn('printf', ['done']);
+        const watchdog = setTimeout(() => {
+          console.log('WATCHDOG: close event never fired');
+        }, 3000);
         proc.on('close', () => {
+          clearTimeout(watchdog);
           console.log('writable=' + proc.stdin.writable,
                       'wroteAfter=' + proc.stdin.write('late'));
         });
