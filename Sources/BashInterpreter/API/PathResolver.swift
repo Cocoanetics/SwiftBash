@@ -155,30 +155,40 @@ public struct PathResolver {
         #endif
     }
 
-    /// Probe the shell's filesystem for an executable regular file.
-    /// Returns `false` on any error (missing, unreadable, sandboxed)
-    /// — those are not resolver failures, just "not here". Real
-    /// permission diagnostics surface later when the dispatcher tries
-    /// to execute.
+    /// Probe the shell's filesystem for an executable regular file
+    /// the dispatcher could actually run — a text script (with or
+    /// without a `#!`-shebang), not a binary. Returns `false` on any
+    /// error (missing, unreadable, sandboxed) and on binary files.
+    ///
+    /// Binaries are filtered out at the resolver level so a real
+    /// `/usr/bin/bash` on a host Linux image doesn't shadow the
+    /// registered `bash` at `/bin/bash` — without that filter, the
+    /// PATH walk hits the host binary first and the dispatcher falls
+    /// through to "command not found" because SwiftBash has no
+    /// real-`exec` path. Text scripts (the local-script case from the
+    /// design doc) still surface here.
     private func isExecutableFile(at path: String) async -> Bool {
         do {
             guard let meta = try await shell.fileSystem.metadata(path) else {
                 return false
             }
             guard meta.kind == .file else { return false }
-            #if os(Windows)
-            // Windows has no POSIX execute bit; treat every regular
-            // file as executable so virtualised mounts work.
-            return true
-            #else
-            // Virtualised filesystems sometimes report mode `0` —
-            // treat those as executable so synthetic catalog entries
-            // (which carry a real `0o755`) and in-memory test fixtures
-            // both surface here. Real files with permissions set are
-            // gated on the execute bit.
-            if meta.mode == 0 { return true }
-            return (meta.mode & 0o111) != 0
+            #if !os(Windows)
+            // POSIX execute bit gate. Virtualised filesystems
+            // sometimes report mode `0` — treat those as executable
+            // so synthetic catalog entries (which carry `0o755`) and
+            // in-memory test fixtures both surface here. Real files
+            // with permissions set are gated on the execute bit.
+            if meta.mode != 0, (meta.mode & 0o111) == 0 { return false }
             #endif
+            // Probe text-ness: a NUL byte in the first kilobyte is a
+            // strong signal the file is a real binary (ELF / Mach-O
+            // / PE / archive). Real-bash would `execve` it; SwiftBash
+            // can't, so skip and let the resolver keep walking PATH.
+            // Read failure (sandboxed / unreadable) is treated the
+            // same as binary — the dispatcher couldn't run it either.
+            let probe = try await shell.fileSystem.readData(path)
+            return !probe.prefix(1024).contains(0)
         } catch {
             return false
         }

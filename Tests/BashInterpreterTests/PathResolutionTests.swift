@@ -167,6 +167,29 @@ import Testing
         #expect(listing.contains("foo"))
     }
 
+    // MARK: Binary executables don't shadow registered commands
+
+    @Test func binaryFileInEarlierPathDirDoesNotShadowRegistered() async throws {
+        // Reproduces the Linux CI failure: host `/usr/bin/bash` is a
+        // real ELF that SwiftBash can't `execve`. The PATH walk must
+        // skip it and reach the registered `/bin/bash` further down.
+        let cap = makeShell()
+        // Write a NUL byte at the start — emulates an ELF binary so
+        // the resolver's text-probe rejects it.
+        try await cap.shell.fileSystem.createDirectory(
+            "/host/bin", intermediates: true)
+        try await cap.shell.fileSystem.writeData(
+            Data([0x7F, 0x45, 0x4C, 0x46, 0x00, 0x00]),  // ELF magic
+            to: "/host/bin/foo", append: false)
+        try await cap.shell.fileSystem.chmod("/host/bin/foo", mode: 0o755)
+        // Registered command lives later in PATH.
+        cap.shell.install(Foo(marker: "registered"), at: "/bin/foo")
+        cap.shell.environment["PATH"] = "/host/bin:/bin"
+
+        try await cap.shell.run("foo")
+        #expect(cap.stdout == "registered\n")
+    }
+
     @Test func compgenResolvesRelativePathEntriesAgainstCwd() async throws {
         // `PATH=.` should match an install under the shell's working
         // directory after lexical resolution — completion must apply
