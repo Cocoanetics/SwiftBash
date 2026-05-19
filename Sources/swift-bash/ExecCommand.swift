@@ -34,10 +34,12 @@ struct ExecCommand: AsyncParsableCommand {
             help: ArgumentHelp(
                 "Confine the script to a sandboxed view of HOST_DIR. "
                 + "The host directory is mounted at the virtual --workspace "
-                + "path (default /batch) and host /tmp at virtual /tmp; "
-                + "writes inside either mount land on real disk and are "
-                + "visible to FileManager-backed callers. Paths outside "
-                + "the mounts return ENOENT."))
+                + "path (default /batch); the platform's real temp dir "
+                + "(NSTemporaryDirectory) is mounted at virtual /tmp and at "
+                + "its own path so $TMPDIR works too. Writes inside either "
+                + "mount land on real disk and are visible to "
+                + "FileManager-backed callers. Paths outside the mounts "
+                + "return ENOENT."))
     var sandbox: String?
 
     @Option(name: .long,
@@ -155,16 +157,24 @@ struct ExecCommand: AsyncParsableCommand {
         // and similar HOME-relative idioms a sensible answer.
         env["HOME"] = workspace
         env["PWD"] = workspace
-        env["TMPDIR"] = "/tmp"
+        // Foundation chooses the platform-appropriate scratch dir:
+        // `/tmp` on Linux, `/var/folders/…/T/` on macOS, `%TEMP%` on
+        // Windows. Setting `$TMPDIR` to that real path means
+        // FileManager-backed callers (SwiftPorts CLIs, SwiftScript
+        // bridges) and bash agree on where temp writes land — and
+        // bash scripts using `mktemp -t foo` get a path that exists
+        // on every host (#58).
+        env["TMPDIR"] = NSTemporaryDirectory()
         // ShellKit-side URL gate paired with the real-disk
         // `MountedFileSystem` above. Bash builtins resolve writes
-        // through the mount table (host workspace dir + host `/tmp`),
-        // and ShellKit-aware bridges (registered SwiftPorts CLIs,
-        // the SwiftScript interpreter) authorise the same virtual
-        // paths via `Shell.sandbox`. Because both sides hit the same
-        // real-disk files now, `mkdir -p /tmp/foo && echo > /tmp/foo/x
-        // && fd x /tmp/foo` actually finds the file (regression fix
-        // for #48 / #55).
+        // through the mount table (host workspace + the host's real
+        // temp dir, mounted at both virtual `/tmp` and its true path);
+        // ShellKit-aware bridges (registered SwiftPorts CLIs, the
+        // SwiftScript interpreter) authorise the same paths via
+        // `Shell.sandbox`. Because both sides hit the same real-disk
+        // files now, `mkdir -p /tmp/foo && echo > /tmp/foo/x &&
+        // fd x /tmp/foo` actually finds the file (regression fix for
+        // #48 / #55).
         let urlSandbox = ShellKit.Sandbox.bashWorkspace(workspace: workspace)
         return ShellSetup(
             environment: env,
@@ -175,17 +185,22 @@ struct ExecCommand: AsyncParsableCommand {
 
     /// Build the real-disk-backed mount table the `--sandbox` flag
     /// installs. `sandboxRoot` (the host workspace dir) appears at the
-    /// virtual `workspace` mount; the host's real `/tmp` appears at
-    /// `/tmp`. Both are writable. `MountedFileSystem` enforces
-    /// confinement: a symlink under either mount that points outside
-    /// its host root reads back as ENOENT, and paths outside both
-    /// mounts (`/etc`, `/Users`, …) likewise look missing.
+    /// virtual `workspace` mount; the host's real temp dir
+    /// (``Foundation.NSTemporaryDirectory()``) is mounted at virtual
+    /// `/tmp` and — when the platform's real temp dir is somewhere
+    /// other than `/tmp` (macOS, iOS, Windows) — also at its own
+    /// path so callers using `$TMPDIR` agree with bash's `/tmp`-using
+    /// scripts. All three mounts are writable.
     ///
-    /// Routing writes through real disk — rather than capturing them
-    /// in an in-memory overlay — is what lets FileManager-backed
-    /// callers (SwiftPorts CLIs, SwiftScript bridges) see the same
-    /// files bash just wrote. The two layers now agree on what's
-    /// reachable.
+    /// `MountedFileSystem` enforces confinement: a symlink under any
+    /// mount that points outside its host root reads back as ENOENT,
+    /// and paths outside every mount (`/etc`, `/Users`, …) likewise
+    /// look missing.
+    ///
+    /// Asking Foundation for the temp dir (rather than hardcoding
+    /// `/tmp`) is what makes the sandbox work on hosts where `/tmp`
+    /// doesn't exist (Windows) or isn't writable (Android emulator's
+    /// read-only root volume). See #58.
     static func makeSandboxFileSystem(
         sandboxRoot: String,
         workspace: String
@@ -201,17 +216,24 @@ struct ExecCommand: AsyncParsableCommand {
             throw CLIError(
                 "--workspace: must be an absolute path other than /")
         }
-        // Mount host `/tmp` at virtual `/tmp` so bash and FileManager-
-        // backed callers see the same files there. `NSTemporaryDirectory`
-        // would be more iOS-friendly but yields a per-process scratch
-        // FileManager-backed SwiftPorts CLIs wouldn't see — defeating
-        // the whole point of moving off the in-memory scratch.
-        return MountedFileSystem(
-            mounts: [
-                .init(virtual: workspace, host: sandboxRoot),
-                .init(virtual: "/tmp", host: "/tmp")
-            ],
-            backing: RealFileSystem())
+        let tmpHost = NSTemporaryDirectory()
+        var mounts: [MountedFileSystem.Mount] = [
+            .init(virtual: workspace, host: sandboxRoot),
+            .init(virtual: "/tmp", host: tmpHost)
+        ]
+        // Expose the host's real temp dir at its true path too so
+        // `$TMPDIR/foo` and `/tmp/foo` resolve to the same files —
+        // matters on platforms where Foundation's temp dir isn't
+        // `/tmp` (macOS `/var/folders/…/T/`, Windows `%TEMP%`). On
+        // Linux Foundation returns `/tmp`, so this would duplicate
+        // the entry above; the Mount's normalised `virtual` field
+        // tells us when to skip.
+        let identityMount = MountedFileSystem.Mount(
+            virtual: tmpHost, host: tmpHost)
+        if identityMount.virtual != "/tmp" {
+            mounts.append(identityMount)
+        }
+        return MountedFileSystem(mounts: mounts, backing: RealFileSystem())
     }
 
     /// Apply --allow-url / --allow-method / --dangerous-full-network /

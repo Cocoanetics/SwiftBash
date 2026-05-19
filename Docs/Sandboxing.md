@@ -108,9 +108,13 @@ shell.hostInfo = HostInfo.real()
 The `swift-bash` CLI's `exec --sandbox PATH` flag enforces all four
 axes at once:
 
-- `fileSystem = MountedFileSystem` with two mounts on real disk:
+- `fileSystem = MountedFileSystem` with mounts on real disk:
   - virtual `/batch` (or `--workspace`) → host `PATH` (read-write)
-  - virtual `/tmp` → host `/tmp` (read-write, shared with the host)
+  - virtual `/tmp` → host `NSTemporaryDirectory()` (read-write)
+  - the host's real temp dir → itself, when it isn't `/tmp` (so
+    `$TMPDIR/foo` and `/tmp/foo` reach the same files on macOS,
+    iOS, Windows)
+- `TMPDIR = NSTemporaryDirectory()` in the script's environment
 - `sandbox = Sandbox.bashWorkspace(workspace: workspace)` (URL gate for SwiftPorts CLIs)
 - `networkConfig = nil` (deny-all)
 - `hostInfo = .synthetic`
@@ -142,7 +146,7 @@ let shell = Shell(
     fileSystem: MountedFileSystem(
         mounts: [
             .init(virtual: "/batch", host: workspace),
-            .init(virtual: "/tmp", host: "/tmp")
+            .init(virtual: "/tmp", host: NSTemporaryDirectory())
         ],
         backing: RealFileSystem())
 )
@@ -169,8 +173,8 @@ state changes, not memory-level exploitation of the runtime itself.
 
 **Inside the mounts**, writes persist to real disk (the CLI's choice
 for `--sandbox`). The workspace is wherever the user pointed
-`--sandbox`; `/tmp` is the host's real `/tmp`, shared with other
-processes per POSIX.
+`--sandbox`; `/tmp` resolves to `NSTemporaryDirectory()` on the host,
+shared with other processes per the platform's convention.
 
 **Out of scope:**
 - Memory-corruption attacks against Swift runtime / Foundation.
