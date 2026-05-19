@@ -157,20 +157,19 @@ struct ExecCommand: AsyncParsableCommand {
         // (the registered SwiftPorts CLIs and the SwiftScript
         // interpreter) consult `Shell.sandbox` instead.
         //
-        // Root the URL gate at the *virtual* workspace path, not the
-        // host directory: SwiftPorts CLIs (fd, rg, jq, …) and the
-        // SwiftScript interpreter all see paths from
-        // `Shell.currentDirectory` / `Shell.resolve(_:)`, which return
-        // the bash-side virtual cwd (`workspace`). Anchoring the gate
-        // at the host path put it in a different namespace from those
-        // callers — `fd file .` always tripped "file URL is outside
-        // sandbox root" because `/batch/.` (virtual) wasn't under
-        // `/Users/.../host-root`. Migration target (#10): retire the
-        // legacy `fileSystem` overlay and have bash consult the URL
-        // gate too.
-        let urlSandbox = ShellKit.Sandbox.rooted(
-            at: URL(fileURLWithPath: workspace),
-            allowedHosts: [])
+        // `bashWorkspace(workspace:)` accepts both the virtual
+        // workspace path (where the overlay is mounted) and `/tmp`
+        // (where the overlay seeds its in-memory scratch). Without
+        // the `/tmp` carve-out, a script's `cd /tmp; fd X` trips
+        // "file URL is outside sandbox root" — the bash side
+        // considers `/tmp` valid but the URL gate, rooted only at
+        // the workspace, doesn't (#48). FileManager still walks the
+        // host's real `/tmp` after authorize succeeds, so the in-
+        // memory scratch isn't searchable from SwiftPorts CLIs — the
+        // gate error just stops being misleading. Migration target
+        // (#10): retire the legacy `fileSystem` overlay and have
+        // bash consult the URL gate too.
+        let urlSandbox = ShellKit.Sandbox.bashWorkspace(workspace: workspace)
         return ShellSetup(
             environment: env,
             fileSystem: fileSystem,
