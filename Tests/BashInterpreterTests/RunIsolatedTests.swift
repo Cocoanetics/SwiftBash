@@ -99,10 +99,13 @@ import Testing
     /// isolated invocation, so a file the run writes is visible to the
     /// next call. Only the in-memory shell state (env, traps, cwd) is
     /// confined to the subshell.
+    ///
+    /// Uses `NSTemporaryDirectory()` rather than `/tmp` so the test
+    /// runs on Windows too (where `/tmp` doesn't exist).
     @Test func fileSystemSideEffectsPropagateAcrossRunIsolated() async throws {
         let cap = CapturingShell()
-        cap.shell.environment.workingDirectory = "/"
-        let marker = "/tmp/swift-bash-runIsolated-\(UUID().uuidString)"
+        let marker = NSTemporaryDirectory()
+            + "swift-bash-runIsolated-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(atPath: marker) }
 
         _ = try await cap.shell.runIsolated("echo hi > '\(marker)'")
