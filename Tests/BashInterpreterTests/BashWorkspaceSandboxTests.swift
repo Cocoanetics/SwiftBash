@@ -11,6 +11,12 @@ import ShellKit
 /// paths the bash side writes to. Regression coverage for #48 / #55.
 @Suite(.timeLimit(.minutes(1))) struct BashWorkspaceSandboxTests {
 
+    /// Whether the host has a writable `/tmp` — false on Windows
+    /// (path missing) and on the Android emulator (read-only root
+    /// volume). Tests that plant on-disk fixtures there gate on this.
+    static let tmpIsWritable: Bool = FileManager.default
+        .isWritableFile(atPath: "/tmp")
+
     @Test func authorizesWorkspaceRoot() async throws {
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
         try await sandbox.authorize(
@@ -68,14 +74,16 @@ import ShellKit
         }
     }
 
-    // Host `/tmp` doesn't exist on Windows, and the `--sandbox` mode
-    // these tests cover isn't a Windows target anyway — the bash
-    // sandbox mounts `/tmp` to the host's real `/tmp`. Both checks
-    // need to plant real on-disk symlinks / files under `/tmp` to
-    // exercise the URL gate's canonical re-check, so they're gated
-    // to Unix-y hosts.
-#if !os(Windows)
-    @Test func deniesTmpSymlinkEscape() async throws {
+    // Host `/tmp` is missing on Windows and read-only on the Android
+    // emulator; on every such host the `--sandbox` mode these tests
+    // exercise can't actually mount `/tmp` either. The two checks
+    // below plant real on-disk symlinks / files there to exercise the
+    // URL gate's canonical re-check, so they're gated to hosts with a
+    // writable `/tmp`. Tracked at #58 — once the bash sandbox uses
+    // `NSTemporaryDirectory()` for the host backing, the gate test
+    // can move with it.
+    @Test(.enabled(if: Self.tmpIsWritable))
+    func deniesTmpSymlinkEscape() async throws {
         // Regression coverage for the #55 review concern: once host
         // `/tmp` is mounted at virtual `/tmp`, a bash-side
         // `ln -s /etc/passwd /tmp/p` plants a real symlink whose
@@ -95,7 +103,8 @@ import ShellKit
         }
     }
 
-    @Test func allowsLegitimateTmpFilesAfterSymlinkResolution() async throws {
+    @Test(.enabled(if: Self.tmpIsWritable))
+    func allowsLegitimateTmpFilesAfterSymlinkResolution() async throws {
         // The new canonical re-check must not regress the legitimate
         // case where a real file exists under host `/tmp` (which on
         // macOS resolves to `/private/tmp` — both spellings stay
@@ -107,7 +116,6 @@ import ShellKit
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
         try await sandbox.authorize(URL(fileURLWithPath: path))
     }
-#endif
 
     @Test func temporaryDirectoryIsVirtualTmp() {
         // `Shell.temporaryDirectory` reads `sandbox.temporaryDirectory`.

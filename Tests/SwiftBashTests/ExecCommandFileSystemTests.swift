@@ -13,6 +13,13 @@ import BashInterpreter
 /// path to a host URL actually find the file. Issues #48 / #49.
 @Suite(.timeLimit(.minutes(1))) struct ExecCommandFileSystemTests {
 
+    /// Whether the host has a writable `/tmp` — false on Windows
+    /// (path missing) and on the Android emulator (read-only root
+    /// volume). The `/tmp`-targeted test gates on this; tracked at
+    /// #58 alongside the broader `NSTemporaryDirectory()` migration.
+    static let tmpIsWritable: Bool = FileManager.default
+        .isWritableFile(atPath: "/tmp")
+
     /// Each test gets its own scratch dir under `NSTemporaryDirectory()`
     /// to act as the host workspace. `defer`-cleaned in every test.
     private static func makeScratchDir() throws -> URL {
@@ -40,7 +47,8 @@ import BashInterpreter
         #expect(String(bytes: bytes, encoding: .utf8) == "hello\n")
     }
 
-    @Test func tmpWritesPersistToRealTmp() async throws {
+    @Test(.enabled(if: Self.tmpIsWritable))
+    func tmpWritesPersistToRealTmp() async throws {
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
