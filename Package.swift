@@ -235,6 +235,11 @@ let package = Package(
             dependencies: ["BashCommandKit"],
             path: "Tests/BashCommandKitTests"
         ),
+        .testTarget(
+            name: "SwiftBashTests",
+            dependencies: ["swift-bash"],
+            path: "Tests/SwiftBashTests"
+        ),
 
         // ---- SwiftJS — JavaScript runtime + CLI ----
         // Universal: SwiftJSCore talks to the JSC C API exclusively

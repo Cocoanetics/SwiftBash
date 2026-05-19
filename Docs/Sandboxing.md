@@ -104,7 +104,10 @@ shell.hostInfo = HostInfo.real()
 The `swift-bash` CLI's `exec --sandbox PATH` flag enforces all four
 axes at once:
 
-- `fileSystem = SandboxedOverlayFileSystem(.init(root: PATH, mountPoint: "/batch"))`
+- `fileSystem = MountedFileSystem` with two mounts:
+  - virtual `/batch` (or `--workspace`) → host `PATH` (read-write)
+  - virtual `/tmp` → host `/tmp` (read-write, shared with the host)
+- `urlSandbox` confines file URLs to those two roots
 - `networkConfig = nil` (deny-all)
 - `hostInfo = .synthetic`
 - Process table is always virtual (no flag needed)
@@ -114,9 +117,15 @@ $ swift-bash exec --sandbox /tmp/work script.sh
 ```
 
 The script sees `/batch` as its workspace, can `cd /batch && ls`,
-write files there, but can't reach `/Users/`, `~/Documents`,
-`/etc/passwd`, or anything else on the host. It can't make network
-requests. `whoami` says "user". `hostname` says "sandbox".
+write files there (and they persist at `/tmp/work` on the host), and
+can also use `/tmp` for scratch space. It can't reach `/Users/`,
+`~/Documents`, `/etc/passwd`, or anything else on the host. It can't
+make network requests. `whoami` says "user". `hostname` says "sandbox".
+
+The `/tmp` mount routes to the host's real `/tmp` (not an in-memory
+scratch) so SwiftPorts CLIs (`gzip`, `gunzip`, `fd`, `rg`, …) that
+read through Foundation's `Data(contentsOf:)` actually find the
+files bash builtins wrote there. Issues #48 / #49.
 
 For embedders not using the CLI, mirror the same setup:
 
@@ -127,13 +136,23 @@ let shell = Shell(
         env.workingDirectory = "/batch"
         return env
     }(),
-    fileSystem: try SandboxedOverlayFileSystem(.init(
-        root: NSHomeDirectory() + "/Documents/scratch",
-        mountPoint: "/batch"))
+    fileSystem: MountedFileSystem(
+        mounts: [
+            .init(virtual: "/batch",
+                  host: NSHomeDirectory() + "/Documents/scratch"),
+            .init(virtual: "/tmp", host: "/tmp"),
+        ],
+        backing: RealFileSystem())
 )
 shell.registerStandardCommands()
 // hostInfo defaults to .synthetic; networkConfig defaults to nil.
 ```
+
+`SandboxedOverlayFileSystem` is still available for embedders who
+want the COW-in-memory model — script writes captured in RAM, host
+left untouched. Pick that when *auditing* a script matters more than
+*running* one to completion; the CLI's `--sandbox` mode prefers
+running.
 
 ## Threat model
 
@@ -142,12 +161,18 @@ in-process** — the threat is information leakage and unauthorized
 state changes, not memory-level exploitation of the runtime itself.
 
 **In scope:**
-- Reading host files outside the mount point.
-- Writing host files (sandboxed → all writes captured in memory).
+- Reading host files outside the mount points.
+- Writing host files outside the mount points (workspace + `/tmp`).
 - Discovering host identity (uid, username, hostname, machine).
 - Seeing host processes via `ps` / `pgrep`.
 - Probing the network (default deny; allow-list with segment-safe matching).
 - TOCTOU and symlink-traversal escape attempts.
+
+**Inside the mounts**, writes persist to real disk (the CLI's choice
+for `--sandbox`). The workspace is wherever the user pointed
+`--sandbox`; `/tmp` is the host's real `/tmp`, shared with other
+processes per POSIX. Use `SandboxedOverlayFileSystem` directly if
+you need the legacy in-memory-write capture.
 
 **Out of scope:**
 - Memory-corruption attacks against Swift runtime / Foundation.
