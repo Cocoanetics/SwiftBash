@@ -53,6 +53,45 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertTrue(err().contains("boom"))
     }
 
+    func testReferenceErrorFromEvalSetsExitCode() {
+        // Regression: `swift-js -e 'print("ok")'` used to print the
+        // ReferenceError but still exit 0, so CI couldn't detect the
+        // failure (issue #50).
+        let (jsRuntime, _, err) = runtime()
+        jsRuntime.run("print('ok')", name: "[eval]")
+        XCTAssertEqual(jsRuntime.exitCode, 1)
+        XCTAssertTrue(err().contains("ReferenceError"))
+    }
+
+    func testAsyncTimerThrowSetsExitCode() {
+        // Regression: a throw inside a `setTimeout` callback used to
+        // be captured silently — the runtime drained without ever
+        // routing the exception through `exceptionHandler`.
+        let (jsRuntime, _, err) = runtime()
+        jsRuntime.run("setTimeout(() => { throw new Error('late') }, 5)")
+        XCTAssertEqual(jsRuntime.exitCode, 1)
+        XCTAssertTrue(err().contains("late"))
+    }
+
+    func testThrowCaughtByJSDoesNotSetExitCode() throws {
+        // The complement of the above: a `require()` whose module
+        // throws on load is caught by the surrounding JS — that's a
+        // handled error, so the host exit code must stay 0.
+        let dir = NSTemporaryDirectory() + "swiftjs-catch-\(UUID().uuidString)/"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let helper = dir + "broken.js"
+        try "throw new Error('module fail');".write(toFile: helper, atomically: true, encoding: .utf8)
+        let main = dir + "main.js"
+        try """
+        try { require('./broken'); } catch (e) { console.log('caught:', e.message); }
+        """.write(toFile: main, atomically: true, encoding: .utf8)
+        let (jsRuntime, out, _) = runtime()
+        try jsRuntime.runFile(main)
+        XCTAssertEqual(jsRuntime.exitCode, 0)
+        XCTAssertTrue(out().contains("caught: module fail"))
+    }
+
     func testShebangIsStripped() {
         let (jsRuntime, out, _) = runtime()
         let src = "#!/usr/bin/env swift-js\nconsole.log('after-shebang')\n"
