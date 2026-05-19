@@ -112,6 +112,24 @@ import Testing
         #expect(check.stdout == "present\n")
     }
 
+    /// The parent shell's `interactive` flag (iBash-style REPL
+    /// formatting: drop `: line N:` from diagnostics) must carry into
+    /// the isolated subshell. Without this an embedder that switches
+    /// its captured path from `runCapturing` to `runCapturingIsolated`
+    /// would suddenly see `iBash: line 1: foo: command not found`
+    /// instead of `iBash: foo: command not found`.
+    @Test func interactiveFlagPropagatesIntoRunIsolated() async throws {
+        let cap = CapturingShell()
+        cap.shell.scriptName = "iBash"
+        cap.shell.interactive = true
+
+        let result = try await cap.shell.runCapturingIsolated("nosuchcommand")
+        #expect(result.stderr == "iBash: nosuchcommand: command not found\n")
+        // Parent stayed interactive — sanity check the flag itself
+        // didn't leak the wrong direction either.
+        #expect(cap.shell.interactive == true)
+    }
+
     // MARK: - persistent run() still propagates (regression guard)
 
     /// Sanity check that the persistent ``run(_:)`` path keeps its
