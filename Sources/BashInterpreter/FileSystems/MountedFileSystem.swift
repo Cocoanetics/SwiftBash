@@ -42,7 +42,6 @@ import Foundation
 /// Virtual ancestors of a mount (e.g. `/` for `[/batch, /tmp]`) are
 /// synthesised as read-only directories so `cd /` works; writes throw
 /// `permissionDenied`, `mkdir` throws `alreadyExists`.
-// swiftlint:disable:next type_body_length - FileSystem conformance is cohesive
 public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public struct Mount: Sendable {
