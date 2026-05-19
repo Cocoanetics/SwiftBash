@@ -18,11 +18,10 @@ extension Shell {
     /// try await shell.sourceProfileIfPresent(at: sandboxRoot)
     /// ```
     ///
-    /// Reads through ``Shell/fileSystem``, so ConfinedFileSystem and
-    /// SandboxedOverlayFileSystem all gate this — a profile sitting
-    /// outside the sandbox is silently ignored, the same way a
-    /// missing one is. Use ``filenames:`` to add `.bash_profile`,
-    /// `.zshrc`, etc.
+    /// Reads through ``Shell/fileSystem``, so a ``MountedFileSystem``
+    /// gates this — a profile sitting outside the sandbox is silently
+    /// ignored, the same way a missing one is. Use ``filenames:`` to
+    /// add `.bash_profile`, `.zshrc`, etc.
     @discardableResult
     public func sourceProfileIfPresent(
         at home: URL,

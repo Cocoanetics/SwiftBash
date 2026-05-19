@@ -34,8 +34,9 @@ struct ExecCommand: AsyncParsableCommand {
             help: ArgumentHelp(
                 "Confine the script to a sandboxed view of HOST_DIR. "
                 + "The host directory is mounted at the virtual --workspace "
-                + "path (default /batch) and writes there persist on disk. "
-                + "`/tmp` is mounted to the host's real /tmp. Paths outside "
+                + "path (default /batch) and host /tmp at virtual /tmp; "
+                + "writes inside either mount land on real disk and are "
+                + "visible to FileManager-backed callers. Paths outside "
                 + "the mounts return ENOENT."))
     var sandbox: String?
 
@@ -134,18 +135,16 @@ struct ExecCommand: AsyncParsableCommand {
                 hostInfo: .real(),
                 urlSandbox: nil)
         }
-        // Validate the host workspace exists so the user gets a clean
-        // diagnostic up front. `MountedFileSystem` doesn't validate
-        // host paths at init the way `SandboxedOverlayFileSystem` did,
-        // so move the check into the CLI.
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: sandboxRoot,
-                                             isDirectory: &isDir),
-              isDir.boolValue else {
-            throw CLIError("--sandbox: no such directory: \(sandboxRoot)")
+        let fileSystem: FileSystem
+        do {
+            fileSystem = try Self.makeSandboxFileSystem(
+                sandboxRoot: sandboxRoot,
+                workspace: workspace)
+        } catch let err as FileSystemError {
+            throw CLIError("--sandbox: \(err.description)")
+        } catch let err as CLIError {
+            throw err
         }
-        let fileSystem = Self.makeFileSystem(
-            workspace: workspace, sandboxRoot: sandboxRoot)
         let hostInfo = HostInfo.synthetic
         var env = Environment.synthetic(hostInfo: hostInfo,
                                         workingDirectory: workspace)
@@ -157,20 +156,15 @@ struct ExecCommand: AsyncParsableCommand {
         env["HOME"] = workspace
         env["PWD"] = workspace
         env["TMPDIR"] = "/tmp"
-        // ShellKit-side URL gate. Bash builtins consult the
-        // `fileSystem` overlay above; ShellKit-aware bridges
-        // (the registered SwiftPorts CLIs and the SwiftScript
-        // interpreter) consult `Shell.sandbox` instead.
-        //
-        // `bashWorkspace(workspace:)` accepts both the virtual
-        // workspace path and `/tmp`. With the FS layer now mounting
-        // `/tmp` to the host's real `/tmp` (above), authorize-allowed
-        // paths under `/tmp` resolve to bytes on disk — `Data(contentsOf:)`
-        // in SwiftPorts CLIs (`gzip`, `gunzip`, `fd`, …) finds the
-        // same files bash builtins wrote. The workspace mount is
-        // similar but `/batch` doesn't exist on real disk so tools
-        // still hit "no such file" there; tracked at Cocoanetics/SwiftPorts#39
-        // and the existing #10 migration note.
+        // ShellKit-side URL gate paired with the real-disk
+        // `MountedFileSystem` above. Bash builtins resolve writes
+        // through the mount table (host workspace dir + host `/tmp`),
+        // and ShellKit-aware bridges (registered SwiftPorts CLIs,
+        // the SwiftScript interpreter) authorise the same virtual
+        // paths via `Shell.sandbox`. Because both sides hit the same
+        // real-disk files now, `mkdir -p /tmp/foo && echo > /tmp/foo/x
+        // && fd x /tmp/foo` actually finds the file (regression fix
+        // for #48 / #55).
         let urlSandbox = ShellKit.Sandbox.bashWorkspace(workspace: workspace)
         return ShellSetup(
             environment: env,
@@ -179,33 +173,43 @@ struct ExecCommand: AsyncParsableCommand {
             urlSandbox: urlSandbox)
     }
 
-    /// Build the bash overlay for `--sandbox` mode.
+    /// Build the real-disk-backed mount table the `--sandbox` flag
+    /// installs. `sandboxRoot` (the host workspace dir) appears at the
+    /// virtual `workspace` mount; the host's real `/tmp` appears at
+    /// `/tmp`. Both are writable. `MountedFileSystem` enforces
+    /// confinement: a symlink under either mount that points outside
+    /// its host root reads back as ENOENT, and paths outside both
+    /// mounts (`/etc`, `/Users`, …) likewise look missing.
     ///
-    /// Mount the workspace and `/tmp` onto real disk via a
-    /// ``MountedFileSystem``. The legacy ``SandboxedOverlayFileSystem``
-    /// setup captured every write in an in-memory layer (including
-    /// `/tmp`), which broke the SwiftPorts compression / search
-    /// family — `gzip`, `gunzip`, `zcat`, `fd`, etc. — because those
-    /// tools read through Foundation's `Data(contentsOf:)` and never
-    /// see the overlay. The same in-memory model also hid the user's
-    /// actual outputs from `--sandbox`: a script that ran
-    /// `gzip -c file > file.gz` produced bytes only the shell could
-    /// see, and they vanished at exit.
-    ///
-    /// Switching the workspace mount to ``RealFileSystem`` makes
-    /// writes persist where the user passed `--sandbox`, and mounting
-    /// `/tmp` to the host's real `/tmp` lets SwiftPorts tools resolve
-    /// `/tmp/...` to a real fs location they can read and write.
-    /// ``MountedFileSystem``'s prefix confinement + symlink-escape
-    /// check keeps paths outside the mounts (`/etc`, `/Users`, …)
-    /// reporting ENOENT to the script. Issue #49.
-    static func makeFileSystem(workspace: String,
-                               sandboxRoot: String) -> MountedFileSystem {
-        MountedFileSystem(
+    /// Routing writes through real disk — rather than capturing them
+    /// in an in-memory overlay — is what lets FileManager-backed
+    /// callers (SwiftPorts CLIs, SwiftScript bridges) see the same
+    /// files bash just wrote. The two layers now agree on what's
+    /// reachable.
+    static func makeSandboxFileSystem(
+        sandboxRoot: String,
+        workspace: String
+    ) throws -> FileSystem {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(
+                atPath: sandboxRoot, isDirectory: &isDir),
+              isDir.boolValue
+        else {
+            throw FileSystemError.notFound(sandboxRoot)
+        }
+        guard workspace.hasPrefix("/"), workspace != "/" else {
+            throw CLIError(
+                "--workspace: must be an absolute path other than /")
+        }
+        // Mount host `/tmp` at virtual `/tmp` so bash and FileManager-
+        // backed callers see the same files there. `NSTemporaryDirectory`
+        // would be more iOS-friendly but yields a per-process scratch
+        // FileManager-backed SwiftPorts CLIs wouldn't see — defeating
+        // the whole point of moving off the in-memory scratch.
+        return MountedFileSystem(
             mounts: [
-                MountedFileSystem.Mount(virtual: workspace,
-                                        host: sandboxRoot),
-                MountedFileSystem.Mount(virtual: "/tmp", host: "/tmp")
+                .init(virtual: workspace, host: sandboxRoot),
+                .init(virtual: "/tmp", host: "/tmp")
             ],
             backing: RealFileSystem())
     }

@@ -38,6 +38,10 @@ import Foundation
 /// any ``OverlayProvider`` layered above this mount table (e.g.
 /// ``BinCatalogOverlay``'s `/bin/cat`) never reach this layer —
 /// the overlay short-circuits reads before resolution.
+///
+/// Virtual ancestors of a mount (e.g. `/` for `[/batch, /tmp]`) are
+/// synthesised as read-only directories so `cd /` works; writes throw
+/// `permissionDenied`, `mkdir` throws `alreadyExists`.
 public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public struct Mount: Sendable {
@@ -64,19 +68,24 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public let backing: any FileSystem
     private let mounts: [Mount]
+    /// See `MountedFileSystem+Synthesis.swift`.
+    let synthesizedAncestors: Set<String>
 
     public init(mounts: [Mount], backing: any FileSystem) {
-        // Sort longest-prefix-first so prefix matching picks the
-        // most specific mount.
-        self.mounts = mounts.sorted { $0.virtual.count > $1.virtual.count }
+        // Longest-prefix-first so the most specific mount wins.
+        let sorted = mounts.sorted { $0.virtual.count > $1.virtual.count }
+        self.mounts = sorted
         self.backing = backing
+        self.synthesizedAncestors = Self.computeSynthesizedAncestors(sorted)
     }
+
+    var allMountVirtuals: [String] { mounts.map(\.virtual) }
 
     // MARK: - Mount lookup
 
     /// Translate a virtual path to a host path, or return `nil` when
     /// no mount matches. `(mount, hostPath, readOnly)`.
-    private func resolve(_ virtual: String) -> (mount: Mount, host: String)? {
+    func resolve(_ virtual: String) -> (mount: Mount, host: String)? {
         // Standardise the virtual path so `/tmp/../home/foo` resolves
         // to `/home/foo` BEFORE we route it. Otherwise `..` could
         // escape its mount.
@@ -114,6 +123,10 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func gateRead(_ path: String) async throws -> String {
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            throw FileSystemError.isADirectory(path)
+        }
         guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
@@ -121,6 +134,12 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func gateWrite(_ path: String) async throws -> String {
+        let std = Shell.normalizePath(path)
+        // Synthesised ancestors exist only for traversal; writes against
+        // them throw `permissionDenied`.
+        if synthesizedAncestors.contains(std) {
+            throw FileSystemError.permissionDenied(path)
+        }
         guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
@@ -212,13 +231,15 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     // MARK: - FileSystem conformance
 
     public func metadata(_ path: String) async throws -> FileMetadata? {
-        // "Outside the mount table" looks like ENOENT to scripts —
-        // not a thrown error, just `nil`, so test idioms like
-        // `[ -f /etc/passwd ]` behave as on a chrooted shell.
+        // Outside the mount table looks like ENOENT to scripts (nil,
+        // not a thrown error) so idioms like `[ -f /etc/passwd ]` stay
+        // quiet on a chrooted shell. Same answer when a symlink chain
+        // escapes the mount.
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            return Self.synthesizedDirMetadata()
+        }
         guard let resolved = resolve(path) else { return nil }
-        // The same chrooted-shell answer for symlinks escaping the
-        // mount: report nil rather than a thrown error so `[ -f ]`
-        // tests stay quiet.
         let host: String
         do {
             host = try await canonicalGate(resolved, virtual: path)
@@ -229,7 +250,11 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func list(_ path: String) async throws -> [FileEntry] {
-        try await backing.list(try await gateRead(path))
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            return synthesizedChildren(of: std)
+        }
+        return try await backing.list(try await gateRead(path))
     }
 
     public func canonicalize(_ path: String,
@@ -237,6 +262,10 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // Important: return the VIRTUAL path back, not the host one.
         // Otherwise `realpath /home/foo` leaks the host path into
         // the script's view.
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            return std
+        }
         guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
@@ -276,6 +305,12 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public func createDirectory(_ path: String,
                                 intermediates: Bool) async throws {
+        // mkdir on a synthesised ancestor matches bash's "File exists".
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            if intermediates { return }
+            throw FileSystemError.alreadyExists(path)
+        }
         try await backing.createDirectory(try await gateWrite(path),
                                           intermediates: intermediates)
     }
@@ -321,13 +356,12 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func symlink(target: String, at linkPath: String) async throws {
-        // Symlink targets are stored verbatim — they may be relative
-        // (`ln -s foo bar`) or absolute, and resolution happens at
-        // *use* time through the same gate as any other path access.
-        // Translating the target through `gateRead` would (a) break
-        // relative-target semantics and (b) leak the host's mount
-        // path into the link's stored target text. Only the link
-        // *site* needs to be remapped through the mount table.
+        // The link target is stored verbatim and follows host symlink
+        // semantics once it lands on disk, so anything reading via
+        // FileManager bypasses our virtual mount table. Reject targets
+        // that resolve outside any mount up front (see
+        // `MountedFileSystem+Symlinks.swift`).
+        try resolveSymlinkTarget(target: target, linkPath: linkPath)
         try await backing.symlink(target: target,
                                   at: try await gateWrite(linkPath))
     }

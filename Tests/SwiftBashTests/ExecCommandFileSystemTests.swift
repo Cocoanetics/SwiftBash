@@ -13,6 +13,13 @@ import BashInterpreter
 /// path to a host URL actually find the file. Issues #48 / #49.
 @Suite(.timeLimit(.minutes(1))) struct ExecCommandFileSystemTests {
 
+    /// Whether the host has a writable `/tmp` — false on Windows
+    /// (path missing) and on the Android emulator (read-only root
+    /// volume). The `/tmp`-targeted test gates on this; tracked at
+    /// #58 alongside the broader `NSTemporaryDirectory()` migration.
+    static let tmpIsWritable: Bool = FileManager.default
+        .isWritableFile(atPath: "/tmp")
+
     /// Each test gets its own scratch dir under `NSTemporaryDirectory()`
     /// to act as the host workspace. `defer`-cleaned in every test.
     private static func makeScratchDir() throws -> URL {
@@ -28,8 +35,8 @@ import BashInterpreter
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
-        let fileSystem = ExecCommand.makeFileSystem(
-            workspace: "/batch", sandboxRoot: host.path)
+        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
         try await fileSystem.writeData(
             Data("hello\n".utf8), to: "/batch/foo.txt", append: false)
 
@@ -40,7 +47,8 @@ import BashInterpreter
         #expect(String(bytes: bytes, encoding: .utf8) == "hello\n")
     }
 
-    @Test func tmpWritesPersistToRealTmp() async throws {
+    @Test(.enabled(if: Self.tmpIsWritable))
+    func tmpWritesPersistToRealTmp() async throws {
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
@@ -51,8 +59,8 @@ import BashInterpreter
             .appendingPathComponent(probeName)
         defer { try? FileManager.default.removeItem(at: hostProbe) }
 
-        let fileSystem = ExecCommand.makeFileSystem(
-            workspace: "/batch", sandboxRoot: host.path)
+        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
         try await fileSystem.createDirectory("/tmp/\(probeName)",
                                              intermediates: true)
         try await fileSystem.writeData(
@@ -73,8 +81,8 @@ import BashInterpreter
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
-        let fileSystem = ExecCommand.makeFileSystem(
-            workspace: "/batch", sandboxRoot: host.path)
+        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
         // `/etc` and `/Users` exist on the host but aren't mounted.
         // The FS reports `nil` metadata (not a thrown error) so bash
         // tests like `[ -f /etc/passwd ]` behave as on a chroot.
@@ -91,8 +99,8 @@ import BashInterpreter
         let seed = host.appendingPathComponent("seed.txt")
         try Data("preseed\n".utf8).write(to: seed)
 
-        let fileSystem = ExecCommand.makeFileSystem(
-            workspace: "/batch", sandboxRoot: host.path)
+        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
         let bytes = try await fileSystem.readData("/batch/seed.txt")
         #expect(String(bytes: bytes, encoding: .utf8) == "preseed\n")
     }

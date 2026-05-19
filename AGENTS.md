@@ -30,7 +30,7 @@ Sources/BashInterpreter/
   API/                       Shell, Environment, Command, FileSystem, BinCatalog
   Builtins/                  cd, echo, export, declare, source, …
   Execution/                 Shell+Run, Shell+Pipeline, Shell+ControlFlow, …
-  FileSystems/               Real, InMemory, SandboxedOverlay, VirtualBin
+  FileSystems/               Real, InMemory, Mounted, Overlay (BinCatalog provider)
   Network/                   curl plumbing + URL allow-list
   Arithmetic/                ((…)) lexer + Pratt parser + evaluator
 Sources/BashCommandKit/
@@ -95,8 +95,9 @@ splitting big types — `Shell` lives in `API/Shell.swift` plus ~15
 - **Assert full output rather than `.contains(...)` where possible.**
   Substring assertions hide whitespace bugs and ordering issues
   that exact-string assertions catch.
-- **Sandbox tests use `SandboxedOverlayFileSystem`** with a real
-  temp dir as root and `mountPoint: "/batch"`. Clean up the temp
+- **Sandbox tests use `MountedFileSystem`** with a real temp dir
+  mounted at `/batch` and host `/tmp` mounted at `/tmp` (the same
+  shape `swift-bash exec --sandbox` installs). Clean up the temp
   dir in `defer`.
 - **Never re-test the parser from interpreter tests.** Parser
   behaviour belongs in `BashSyntax` tests; interpreter tests
