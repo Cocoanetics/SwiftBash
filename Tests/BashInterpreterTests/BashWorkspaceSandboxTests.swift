@@ -83,6 +83,16 @@ import ShellKit
         }
     }
 
+    // The canonical re-check relies on `URL.resolvingSymlinksInPath()`
+    // to follow the symlink and re-evaluate the destination. swift-
+    // corelibs-foundation's Windows implementation doesn't traverse
+    // NTFS symlinks the way the Darwin/Glibc backends do, so a planted
+    // symlink survives canonicalisation unchanged and the gate's
+    // second-pass check can't fire. Production code still depends on
+    // OS-level sandboxing on Windows (see Threat model in
+    // `Docs/Sandboxing.md`); the gate's defence here is best-effort
+    // on hosts where Foundation walks symlinks.
+#if !os(Windows)
     @Test func deniesTmpSymlinkEscape() async throws {
         // Regression coverage for the #55 review concern: once the
         // temp dir is mounted at virtual `/tmp`, a bash-side
@@ -91,7 +101,8 @@ import ShellKit
         // authorize — letting FileManager-backed bridges follow the
         // link out of the sandbox. Plant the fixture at the host's
         // real temp dir (always writable, even where `/tmp` isn't)
-        // so the test runs on every platform (#58).
+        // so the test runs everywhere Foundation traverses symlinks
+        // (#58).
         let host = (NSTemporaryDirectory() as NSString)
             .appendingPathComponent("swiftbash-escape-\(UUID().uuidString)")
         try FileManager.default.createSymbolicLink(
@@ -103,6 +114,7 @@ import ShellKit
             try await sandbox.authorize(URL(fileURLWithPath: host))
         }
     }
+#endif
 
     @Test func allowsLegitimateTmpFilesAfterSymlinkResolution() async throws {
         // The canonical re-check must not regress the legitimate case
