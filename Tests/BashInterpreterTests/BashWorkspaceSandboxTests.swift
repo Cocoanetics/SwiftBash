@@ -68,6 +68,13 @@ import ShellKit
         }
     }
 
+    // Host `/tmp` doesn't exist on Windows, and the `--sandbox` mode
+    // these tests cover isn't a Windows target anyway — the bash
+    // sandbox mounts `/tmp` to the host's real `/tmp`. Both checks
+    // need to plant real on-disk symlinks / files under `/tmp` to
+    // exercise the URL gate's canonical re-check, so they're gated
+    // to Unix-y hosts.
+#if !os(Windows)
     @Test func deniesTmpSymlinkEscape() async throws {
         // Regression coverage for the #55 review concern: once host
         // `/tmp` is mounted at virtual `/tmp`, a bash-side
@@ -100,6 +107,7 @@ import ShellKit
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
         try await sandbox.authorize(URL(fileURLWithPath: path))
     }
+#endif
 
     @Test func temporaryDirectoryIsVirtualTmp() {
         // `Shell.temporaryDirectory` reads `sandbox.temporaryDirectory`.
