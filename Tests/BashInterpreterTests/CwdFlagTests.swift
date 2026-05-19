@@ -179,8 +179,12 @@ private let unixTmpDir = "/tmp"
             atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
-        let fileSystem = try SandboxedOverlayFileSystem(.init(
-            root: dir, mountPoint: "/batch"))
+        let fileSystem = MountedFileSystem(
+            mounts: [
+                .init(virtual: "/batch", host: dir),
+                .init(virtual: "/tmp", host: "/tmp")
+            ],
+            backing: RealFileSystem())
         var env = Environment.synthetic(workingDirectory: "/batch")
         env["HOME"] = "/batch"
         let cap = CapturingShell(environment: env)

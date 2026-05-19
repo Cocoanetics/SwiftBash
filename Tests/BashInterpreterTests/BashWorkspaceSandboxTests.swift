@@ -3,12 +3,12 @@ import Foundation
 import ShellKit
 @testable import BashInterpreter
 
-/// Coverage for `Sandbox.bashWorkspace(workspace:)` — the URL gate
-/// the SwiftBash `--sandbox` CLI pairs with `SandboxedOverlayFileSystem`.
-/// The gate accepts the virtual workspace mount point plus `/tmp` (where
-/// the overlay seeds its in-memory scratch), so SwiftPorts CLIs and the
-/// SwiftScript interpreter authorize the same paths the bash side
-/// considers valid. Regression coverage for #48.
+/// Coverage for `Sandbox.bashWorkspace(workspace:)` — the URL gate the
+/// SwiftBash `--sandbox` CLI pairs with the real-disk
+/// ``MountedFileSystem`` mounting the workspace and `/tmp`. The gate
+/// accepts the virtual workspace mount point plus `/tmp`, so
+/// SwiftPorts CLIs and the SwiftScript interpreter authorize the same
+/// paths the bash side writes to. Regression coverage for #48 / #55.
 @Suite(.timeLimit(.minutes(1))) struct BashWorkspaceSandboxTests {
 
     @Test func authorizesWorkspaceRoot() async throws {
@@ -20,10 +20,10 @@ import ShellKit
     }
 
     @Test func authorizesTmpScratchRoot() async throws {
-        // The bash overlay seeds `/tmp` as in-memory scratch and a
-        // script's `cd /tmp; fd X` lands at virtual `/tmp` —
-        // without the carve-out, every SwiftPorts CLI invocation
-        // from there tripped "file URL is outside sandbox root" (#48).
+        // The bash sandbox mounts host `/tmp` at virtual `/tmp` and a
+        // script's `cd /tmp; fd X` lands at virtual `/tmp` — without
+        // the carve-out, every SwiftPorts CLI invocation from there
+        // tripped "file URL is outside sandbox root" (#48).
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
         try await sandbox.authorize(URL(fileURLWithPath: "/tmp"))
         try await sandbox.authorize(

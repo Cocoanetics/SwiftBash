@@ -22,8 +22,7 @@ import Foundation
 ///
 /// The wrapper is transparent: any path the providers don't claim
 /// reaches the backing FS untouched, so the chrooted-shell guarantee
-/// of ``MountedFileSystem`` and the COW semantics of
-/// ``SandboxedOverlayFileSystem`` keep working when layered below.
+/// of ``MountedFileSystem`` keeps working when layered below.
 public final class OverlayFileSystem: FileSystem, @unchecked Sendable {
 
     public let backing: any FileSystem

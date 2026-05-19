@@ -395,7 +395,7 @@ Sources/BashInterpreter/
                      Shell+ParameterExpansion.swift, Shell+Arithmetic.swift,
                      FunctionCommand.swift, ProcessTable.swift, …
   FileSystems/       RealFileSystem, InMemoryFileSystem,
-                     SandboxedOverlayFileSystem, VirtualBinFileSystem
+                     MountedFileSystem, OverlayFileSystem (+ BinCatalogOverlay)
   Network/           NetworkConfig, URLAllowList, SecureFetcher
   Arithmetic/        ArithToken, ArithLexer, ArithParser, ArithExpr, Arithmetic
 ```

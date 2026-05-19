@@ -144,10 +144,12 @@ swappable, per-shell. Three implementations ship:
   Use on a trusted workstation.
 - **`InMemoryFileSystem`** — pure in-memory tree. Useful for tests, iOS
   previews, or scripts that should leave nothing behind.
-- **`SandboxedOverlayFileSystem`** — copy-on-write overlay confining a
-  script to a single host directory. Reads fall through to the host;
-  writes are captured in memory. The sandbox guards against symlink
-  escape, TOCTOU, and host-path leaks in error messages.
+- **`MountedFileSystem`** — confines a script to one or more host
+  directories mounted at chosen virtual paths. Reads and writes land
+  on real disk under each mount; paths outside the mounts look
+  missing. Symlink escape is blocked via canonical-path comparison,
+  and `cd /` works thanks to synthesised virtual ancestor directories.
+  This is what `swift-bash exec --sandbox` installs.
 
 Whatever you pass to `Shell(fileSystem:)` is automatically wrapped in
 `VirtualBinFileSystem` so `/bin`, `/usr/bin`, and `/usr/local/bin`
@@ -161,7 +163,8 @@ Four virtualisation axes ensure a script can't fingerprint or reach
 out to the host unless the embedder explicitly opts in:
 
 1. **Filesystem** — every path goes through a `FileSystem`; default
-   for `--sandbox` is `SandboxedOverlayFileSystem`.
+   for `--sandbox` is `MountedFileSystem` with the workspace and
+   `/tmp` mounted on real disk.
 2. **Network** — `curl` defaults to deny-all. To enable, set
    `Shell.networkConfig` with an explicit URL allow-list.
 3. **Processes** — `&`, `wait`, `ps`, `kill`, `pgrep`, `pkill`

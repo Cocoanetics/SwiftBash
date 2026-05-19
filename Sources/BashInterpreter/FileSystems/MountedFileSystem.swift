@@ -1,3 +1,9 @@
+// MountedFileSystem and its conformance to the full `FileSystem`
+// protocol live in one file — splitting would scatter the public
+// type's surface across multiple modules. The synthesis helpers
+// (virtual ancestor directories) live in MountedFileSystem+Synthesis.
+// swiftlint:disable file_length
+
 import Foundation
 
 /// A `FileSystem` that presents a virtual root (`/`) backed by one or
@@ -38,6 +44,15 @@ import Foundation
 /// any ``OverlayProvider`` layered above this mount table (e.g.
 /// ``BinCatalogOverlay``'s `/bin/cat`) never reach this layer —
 /// the overlay short-circuits reads before resolution.
+///
+/// Virtual ancestor directories on the way to a mount (e.g. `/` when
+/// the only mounts are `/batch` and `/tmp`) are synthesised
+/// automatically as read-only directories, so `cd /`, `ls /`, and
+/// `[ -d / ]` work without forcing the caller to declare a root
+/// mount. Writes through those synthesised paths report
+/// `permissionDenied`; `mkdir`-ing one reports `alreadyExists` to
+/// match bash's diagnostic.
+// swiftlint:disable:next type_body_length - the FileSystem conformance is cohesive
 public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public struct Mount: Sendable {
@@ -64,13 +79,27 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public let backing: any FileSystem
     private let mounts: [Mount]
+    /// Virtual directories that aren't mount points themselves but sit
+    /// on the way to one — e.g. mounts `[/batch, /tmp]` synthesise `/`
+    /// as a directory so `cd /` and `ls /` work. Mounts at `/usr/bin`
+    /// additionally synthesise `/usr`. Without this set, any path that
+    /// isn't covered by a mount returns `nil` from `resolve` and the
+    /// shell reports `notFound` on perfectly reasonable navigation.
+    let synthesizedAncestors: Set<String>
 
     public init(mounts: [Mount], backing: any FileSystem) {
         // Sort longest-prefix-first so prefix matching picks the
         // most specific mount.
-        self.mounts = mounts.sorted { $0.virtual.count > $1.virtual.count }
+        let sorted = mounts.sorted { $0.virtual.count > $1.virtual.count }
+        self.mounts = sorted
         self.backing = backing
+        self.synthesizedAncestors = Self.computeSynthesizedAncestors(sorted)
     }
+
+    /// Virtual paths of every concrete mount (used by the synthesis
+    /// helper to merge in mount points when listing a synthesised
+    /// ancestor — `/` lists `batch` + `tmp` etc.).
+    var allMountVirtuals: [String] { mounts.map(\.virtual) }
 
     // MARK: - Mount lookup
 
@@ -114,6 +143,10 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func gateRead(_ path: String) async throws -> String {
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            throw FileSystemError.isADirectory(path)
+        }
         guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
@@ -121,6 +154,13 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     private func gateWrite(_ path: String) async throws -> String {
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            // Synthesised ancestor directories are read-only — they
+            // exist purely so scripts can traverse from `/` to a real
+            // mount point.
+            throw FileSystemError.permissionDenied(path)
+        }
         guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
@@ -215,6 +255,10 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // "Outside the mount table" looks like ENOENT to scripts —
         // not a thrown error, just `nil`, so test idioms like
         // `[ -f /etc/passwd ]` behave as on a chrooted shell.
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            return Self.synthesizedDirMetadata()
+        }
         guard let resolved = resolve(path) else { return nil }
         // The same chrooted-shell answer for symlinks escaping the
         // mount: report nil rather than a thrown error so `[ -f ]`
@@ -229,7 +273,11 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func list(_ path: String) async throws -> [FileEntry] {
-        try await backing.list(try await gateRead(path))
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            return synthesizedChildren(of: std)
+        }
+        return try await backing.list(try await gateRead(path))
     }
 
     public func canonicalize(_ path: String,
@@ -237,6 +285,10 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // Important: return the VIRTUAL path back, not the host one.
         // Otherwise `realpath /home/foo` leaks the host path into
         // the script's view.
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            return std
+        }
         guard let resolved = resolve(path) else {
             throw FileSystemError.notFound(path)
         }
@@ -276,6 +328,14 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     public func createDirectory(_ path: String,
                                 intermediates: Bool) async throws {
+        // `mkdir /tmp` when `/tmp` is a synthesised ancestor matches
+        // bash's "File exists" diagnostic rather than the more terse
+        // "permission denied" the generic gateWrite would emit.
+        let std = Shell.normalizePath(path)
+        if synthesizedAncestors.contains(std) {
+            if intermediates { return }
+            throw FileSystemError.alreadyExists(path)
+        }
         try await backing.createDirectory(try await gateWrite(path),
                                           intermediates: intermediates)
     }

@@ -3,24 +3,17 @@ import ShellKit
 
 extension ShellKit.Sandbox {
 
-    /// Build the URL gate the SwiftBash sandbox CLI pairs with a
-    /// ``SandboxedOverlayFileSystem`` mounted at `workspace`.
+    /// Build the URL gate the SwiftBash sandbox CLI pairs with the
+    /// real-disk ``MountedFileSystem`` mounting `workspace` and `/tmp`.
     ///
-    /// The gate accepts two virtual roots: the `workspace` mount point
-    /// itself and the in-memory `/tmp` scratch the overlay seeds by
-    /// default. SwiftPorts CLIs (fd, rg, jq, …) and the SwiftScript
-    /// interpreter resolve paths through ``Shell/currentDirectory`` and
-    /// ``Shell/resolve(_:)``, both of which return the bash-side
-    /// virtual cwd — `cd /tmp; fd X` lands at virtual `/tmp`. Without
-    /// the `/tmp` carve-out, every such call would trip
-    /// "file URL is outside sandbox root" even though the bash side
-    /// (which consults the overlay, not the URL gate) is fine with the
-    /// access (#48). FileManager still walks the host's real `/tmp`
-    /// after authorize succeeds, so the in-memory scratch isn't
-    /// actually searchable by those CLIs — same shape as the workspace
-    /// case where authorize succeeds but the virtual path doesn't
-    /// exist on real disk (tracked at Cocoanetics/SwiftPorts#39 and
-    /// the existing #10 migration note).
+    /// The gate accepts two virtual roots: the `workspace` mount and
+    /// `/tmp`. Bash builtins write through `Shell.fileSystem` to the
+    /// real host directories those mounts back onto; SwiftPorts CLIs
+    /// (fd, rg, jq, …) and the SwiftScript interpreter resolve the
+    /// same virtual paths through ``Shell/currentDirectory`` /
+    /// ``Shell/resolve(_:)`` and authorise them here. Because both
+    /// sides land on the same real-disk files, `cd /tmp; mkdir foo;
+    /// echo > foo/x; fd x foo` finds the file (#48 / #55).
     ///
     /// The returned sandbox's `temporaryDirectory` is `/tmp` (the
     /// virtual path scripts see via `$TMPDIR`), not the default
