@@ -309,7 +309,7 @@ public final class JSValue {
                                    buf.count, buf.baseAddress, &exception)
         }
         if let raisedException = exception {
-            context.exception = JSValue(ref: raisedException, in: context)
+            context.reportUncaught(raisedException)
             return nil
         }
         return result.map { JSValue(ref: $0, in: context) }
@@ -341,7 +341,7 @@ public final class JSValue {
                                    buf.count, buf.baseAddress, &exception)
         }
         if let raisedException = exception {
-            context.exception = JSValue(ref: raisedException, in: context)
+            context.reportUncaught(raisedException)
             return nil
         }
         return result.map { JSValue(ref: $0, in: context) }
@@ -362,7 +362,7 @@ public final class JSValue {
                                       buf.count, buf.baseAddress, &exception)
         }
         if let raisedException = exception {
-            context.exception = JSValue(ref: raisedException, in: context)
+            context.reportUncaught(raisedException)
             return nil
         }
         return result.map { JSValue(ref: $0, in: context) }

@@ -37,9 +37,14 @@ public final class JSContext {
     /// returns and writes to the C `exception` out-parameter).
     public var exception: JSValue?
 
-    /// Called by `evaluateScript` when JS raises an unhandled
-    /// exception. Mirrors `JSContext.exceptionHandler` from Apple's
-    /// ObjC API.
+    /// Fired when JS raises an exception that no JSC callback
+    /// trampoline frame is on the call stack to drain — i.e. the
+    /// throw escaped into the host (top-level `evaluateScript`, a
+    /// timer's fire callback, an exit listener). Mirrors
+    /// `JSContext.exceptionHandler` from Apple's ObjC API. Throws
+    /// raised inside a native callback are left in `self.exception`
+    /// instead so the trampoline can route them back to a JS
+    /// `try/catch`.
     public var exceptionHandler: ((JSContext?, JSValue?) -> Void)?
 
     // MARK: - Lifecycle
@@ -107,12 +112,29 @@ public final class JSContext {
                                          sourceURLRef, 0, &exceptionOut)
 
         if let exRef = exceptionOut {
-            let exVal = JSValue(ref: exRef, in: self)
-            self.exception = exVal
-            exceptionHandler?(self, exVal)
+            reportUncaught(exRef)
             return nil
         }
         return resultRef.map { JSValue(ref: $0, in: self) }
+    }
+
+    /// Capture an exception raised by a C-API call (`JSEvaluateScript`,
+    /// `JSObjectCallAsFunction`, `JSObjectCallAsConstructor`). Always
+    /// stores it on `self.exception`, and additionally fires
+    /// `exceptionHandler` unless the active JSC callback trampoline
+    /// frame already belongs to this same context — that trampoline
+    /// drains `self.exception` back into JSC's `exception`
+    /// out-parameter and any surrounding `try/catch` handles the rest.
+    /// A trampoline for a *different* context can't drain ours, so we
+    /// still fire the handler in that case (multi-context embedders
+    /// where a callback registered in context A calls into context B
+    /// and B throws).
+    func reportUncaught(_ ref: JSValueRef) {
+        let exVal = JSValue(ref: ref, in: self)
+        self.exception = exVal
+        if JSContext.current() !== self {
+            exceptionHandler?(self, exVal)
+        }
     }
 
     // MARK: - Global-object access
