@@ -121,17 +121,18 @@ public final class JSContext {
     /// Capture an exception raised by a C-API call (`JSEvaluateScript`,
     /// `JSObjectCallAsFunction`, `JSObjectCallAsConstructor`). Always
     /// stores it on `self.exception`, and additionally fires
-    /// `exceptionHandler` when there is no active JSC callback
-    /// trampoline frame — i.e. when the host (a timer's
-    /// `setEventHandler`, the CLI's top-level `run`, or an exit
-    /// listener) is the direct caller, so no JS-side `catch` will
-    /// see the throw. Inside a trampoline we just store, because the
-    /// trampoline drains `self.exception` back into JSC's `exception`
+    /// `exceptionHandler` unless the active JSC callback trampoline
+    /// frame already belongs to this same context — that trampoline
+    /// drains `self.exception` back into JSC's `exception`
     /// out-parameter and any surrounding `try/catch` handles the rest.
+    /// A trampoline for a *different* context can't drain ours, so we
+    /// still fire the handler in that case (multi-context embedders
+    /// where a callback registered in context A calls into context B
+    /// and B throws).
     func reportUncaught(_ ref: JSValueRef) {
         let exVal = JSValue(ref: ref, in: self)
         self.exception = exVal
-        if JSContext.current() == nil {
+        if JSContext.current() !== self {
             exceptionHandler?(self, exVal)
         }
     }

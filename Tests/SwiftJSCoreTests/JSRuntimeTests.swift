@@ -92,6 +92,32 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertTrue(out().contains("caught: module fail"))
     }
 
+    func testThrowInForeignContextFromCallbackStillReported() {
+        // Multi-context safety: when a native callback registered in
+        // context A invokes JS in a *different* context B, A's
+        // trampoline drains A's `exception` slot — not B's. So an
+        // uncaught throw inside B must still fire B's exception
+        // handler. The earlier `current() == nil` guard regressed this
+        // because A's trampoline made `current()` non-nil.
+        let runtimeA = JSRuntime(argv: ["swift-js"], env: [:])
+        let runtimeB = JSRuntime(argv: ["swift-js"], env: [:])
+        var bErr = ""
+        runtimeB.stderr = { bErr += $0 }
+        // Expose a native function in A that synchronously runs source
+        // in B. When that source throws, B is the throwing context.
+        let bridge = runtimeA.block { _ in
+            runtimeA.context.evaluateScript("globalThis.__noteCrossEnter = true;")
+            return runtimeB.run("throw new Error('cross-context boom')",
+                                name: "[B]")
+        }
+        runtimeA.context.setObject(bridge, forKeyedSubscript: "callIntoB" as NSString)
+        runtimeA.run("callIntoB()")
+        // B's exception handler must have fired even though A's
+        // trampoline was on the stack when B threw.
+        XCTAssertEqual(runtimeB.exitCode, 1)
+        XCTAssertTrue(bErr.contains("cross-context boom"))
+    }
+
     func testShebangIsStripped() {
         let (jsRuntime, out, _) = runtime()
         let src = "#!/usr/bin/env swift-js\nconsole.log('after-shebang')\n"
