@@ -34,8 +34,9 @@ struct ExecCommand: AsyncParsableCommand {
             help: ArgumentHelp(
                 "Confine the script to a sandboxed view of HOST_DIR. "
                 + "The host directory is mounted at the virtual --workspace "
-                + "path (default /batch); writes are kept in memory and "
-                + "never touch disk. Paths outside the mount return ENOENT."))
+                + "path (default /batch) and writes there persist on disk. "
+                + "`/tmp` is mounted to the host's real /tmp. Paths outside "
+                + "the mounts return ENOENT."))
     var sandbox: String?
 
     @Option(name: .long,
@@ -133,14 +134,18 @@ struct ExecCommand: AsyncParsableCommand {
                 hostInfo: .real(),
                 urlSandbox: nil)
         }
-        let fileSystem: FileSystem
-        do {
-            fileSystem = try SandboxedOverlayFileSystem(.init(
-                root: sandboxRoot,
-                mountPoint: workspace))
-        } catch let err as FileSystemError {
-            throw CLIError("--sandbox: \(err.description)")
+        // Validate the host workspace exists so the user gets a clean
+        // diagnostic up front. `MountedFileSystem` doesn't validate
+        // host paths at init the way `SandboxedOverlayFileSystem` did,
+        // so move the check into the CLI.
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sandboxRoot,
+                                             isDirectory: &isDir),
+              isDir.boolValue else {
+            throw CLIError("--sandbox: no such directory: \(sandboxRoot)")
         }
+        let fileSystem = Self.makeFileSystem(
+            workspace: workspace, sandboxRoot: sandboxRoot)
         let hostInfo = HostInfo.synthetic
         var env = Environment.synthetic(hostInfo: hostInfo,
                                         workingDirectory: workspace)
@@ -158,23 +163,51 @@ struct ExecCommand: AsyncParsableCommand {
         // interpreter) consult `Shell.sandbox` instead.
         //
         // `bashWorkspace(workspace:)` accepts both the virtual
-        // workspace path (where the overlay is mounted) and `/tmp`
-        // (where the overlay seeds its in-memory scratch). Without
-        // the `/tmp` carve-out, a script's `cd /tmp; fd X` trips
-        // "file URL is outside sandbox root" — the bash side
-        // considers `/tmp` valid but the URL gate, rooted only at
-        // the workspace, doesn't (#48). FileManager still walks the
-        // host's real `/tmp` after authorize succeeds, so the in-
-        // memory scratch isn't searchable from SwiftPorts CLIs — the
-        // gate error just stops being misleading. Migration target
-        // (#10): retire the legacy `fileSystem` overlay and have
-        // bash consult the URL gate too.
+        // workspace path and `/tmp`. With the FS layer now mounting
+        // `/tmp` to the host's real `/tmp` (above), authorize-allowed
+        // paths under `/tmp` resolve to bytes on disk — `Data(contentsOf:)`
+        // in SwiftPorts CLIs (`gzip`, `gunzip`, `fd`, …) finds the
+        // same files bash builtins wrote. The workspace mount is
+        // similar but `/batch` doesn't exist on real disk so tools
+        // still hit "no such file" there; tracked at Cocoanetics/SwiftPorts#39
+        // and the existing #10 migration note.
         let urlSandbox = ShellKit.Sandbox.bashWorkspace(workspace: workspace)
         return ShellSetup(
             environment: env,
             fileSystem: fileSystem,
             hostInfo: hostInfo,
             urlSandbox: urlSandbox)
+    }
+
+    /// Build the bash overlay for `--sandbox` mode.
+    ///
+    /// Mount the workspace and `/tmp` onto real disk via a
+    /// ``MountedFileSystem``. The legacy ``SandboxedOverlayFileSystem``
+    /// setup captured every write in an in-memory layer (including
+    /// `/tmp`), which broke the SwiftPorts compression / search
+    /// family — `gzip`, `gunzip`, `zcat`, `fd`, etc. — because those
+    /// tools read through Foundation's `Data(contentsOf:)` and never
+    /// see the overlay. The same in-memory model also hid the user's
+    /// actual outputs from `--sandbox`: a script that ran
+    /// `gzip -c file > file.gz` produced bytes only the shell could
+    /// see, and they vanished at exit.
+    ///
+    /// Switching the workspace mount to ``RealFileSystem`` makes
+    /// writes persist where the user passed `--sandbox`, and mounting
+    /// `/tmp` to the host's real `/tmp` lets SwiftPorts tools resolve
+    /// `/tmp/...` to a real fs location they can read and write.
+    /// ``MountedFileSystem``'s prefix confinement + symlink-escape
+    /// check keeps paths outside the mounts (`/etc`, `/Users`, …)
+    /// reporting ENOENT to the script. Issue #49.
+    static func makeFileSystem(workspace: String,
+                               sandboxRoot: String) -> MountedFileSystem {
+        MountedFileSystem(
+            mounts: [
+                MountedFileSystem.Mount(virtual: workspace,
+                                        host: sandboxRoot),
+                MountedFileSystem.Mount(virtual: "/tmp", host: "/tmp")
+            ],
+            backing: RealFileSystem())
     }
 
     /// Apply --allow-url / --allow-method / --dangerous-full-network /
