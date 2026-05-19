@@ -214,9 +214,12 @@ jobs:
   build-android:
     runs-on: ubuntu-latest
     # First cold run = ~25 min (SDK + NDK + emulator boot dominates);
-    # cached subsequent runs are ~5 min. 30 min covers both with a
-    # comfortable margin.
-    timeout-minutes: 30
+    # cached subsequent runs are ~5 min. The original 30 min ceiling
+    # was a near-miss for cold runs and we kept clipping it on hosted
+    # runners under load (three consecutive cancellations at exactly
+    # 30:10–30:14 on PR #52). 60 min gives the cold path real headroom
+    # while still capping a stuck emulator.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       # Bun's Android-targeted JSC archive. Cross-build from the
