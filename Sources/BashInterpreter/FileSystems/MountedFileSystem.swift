@@ -85,7 +85,7 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     /// Translate a virtual path to a host path, or return `nil` when
     /// no mount matches. `(mount, hostPath, readOnly)`.
-    private func resolve(_ virtual: String) -> (mount: Mount, host: String)? {
+    func resolve(_ virtual: String) -> (mount: Mount, host: String)? {
         // Standardise the virtual path so `/tmp/../home/foo` resolves
         // to `/home/foo` BEFORE we route it. Otherwise `..` could
         // escape its mount.
@@ -356,38 +356,14 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     }
 
     public func symlink(target: String, at linkPath: String) async throws {
-        // Symlink targets are stored verbatim — they may be relative
-        // (`ln -s foo bar`) or absolute, and resolution happens at
-        // *use* time. But the target is a real string on real disk
-        // once we write it: anything reading the link via the OS
-        // (FileManager-backed bridges) follows the host symlink, not
-        // our virtual mount table. Validate at creation time that the
-        // target — resolved against `linkPath`'s parent for relative
-        // forms — points inside a mount (or a synthesised ancestor);
-        // otherwise reject the `ln` instead of staging a host-visible
-        // escape. The bash-side `canonicalGate` would catch reads
-        // through such a link, but a script-staged
-        // `ln -s /etc/passwd /tmp/p` shouldn't get to plant the link
-        // at all.
+        // The link target is stored verbatim and follows host symlink
+        // semantics once it lands on disk, so anything reading via
+        // FileManager bypasses our virtual mount table. Reject targets
+        // that resolve outside any mount up front (see
+        // `MountedFileSystem+Symlinks.swift`).
         try resolveSymlinkTarget(target: target, linkPath: linkPath)
         try await backing.symlink(target: target,
                                   at: try await gateWrite(linkPath))
-    }
-
-    private func resolveSymlinkTarget(target: String,
-                                      linkPath: String) throws {
-        let linkVirtual = Shell.normalizePath(linkPath)
-        let targetVirtual: String
-        if Shell.isAbsolutePath(target) {
-            targetVirtual = Shell.normalizePath(target)
-        } else {
-            let parent = (linkVirtual as NSString).deletingLastPathComponent
-            let joined = (parent as NSString).appendingPathComponent(target)
-            targetVirtual = Shell.normalizePath(joined)
-        }
-        if synthesizedAncestors.contains(targetVirtual) { return }
-        if resolve(targetVirtual) != nil { return }
-        throw FileSystemError.permissionDenied(linkPath)
     }
 
     public func hardlink(target: String, at linkPath: String) async throws {
