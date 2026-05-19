@@ -569,6 +569,7 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.currentSource = currentSource
         bash.scriptInterpreters = scriptInterpreters
         bash.interactivePresenter = interactivePresenter
+        bash.interactive = interactive
         bash.stdoutIsTTY = stdoutIsTTY
         bash.stdinIsTTY = stdinIsTTY
         bash.stderrIsTTY = stderrIsTTY

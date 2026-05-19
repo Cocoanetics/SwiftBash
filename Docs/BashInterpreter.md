@@ -91,6 +91,38 @@ sink.finish()
 `OutputSink` exposes both `.lines` (text) and `.bytes` (binary-safe)
 plus an `onWrite` synchronous hook for accumulating callers.
 
+## REPL state vs. isolated invocations
+
+`shell.run(_:)` is REPL-style: mutations a script makes — `cd`,
+`export`, `trap`, `set -e`, function definitions — stick to the
+shell so the next `run(_:)` call sees them. That's the contract
+`source`, `eval`, `find -exec`, `xargs`, and
+`sourceProfileIfPresent` all rely on:
+
+```swift
+let shell = Shell()
+try await shell.run("export FOO=1")
+try await shell.run("echo $FOO")          // → 1
+```
+
+Embedders that want each call to be a **separate invocation** — an
+LLM-agent `bash` tool where one call's `cd /tmp` or `trap … EXIT`
+must not leak into the next — use `runIsolated(_:)` (or its
+capturing variant `runCapturingIsolated(_:)`). It runs the script
+in a fresh `copy()` of this shell, so the in-memory shell state
+(env, cwd, traps, set/shopt options, function definitions) is
+discarded when the call returns:
+
+```swift
+try await shell.runIsolated("cd /tmp; export X=leak")
+try await shell.runIsolated("echo $PWD $X")   // → / (nothing for X)
+```
+
+Side effects that aren't in-memory shell state — filesystem writes,
+network requests, background jobs in `processTable`, output to the
+sinks — still propagate, because the subshell shares those by
+reference. Only the variables, cwd, traps, and option flags reset.
+
 ## The `Shell` is a `@TaskLocal`
 
 `Shell.current` is the active shell during dispatch — every command,

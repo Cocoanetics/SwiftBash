@@ -37,6 +37,18 @@ extension Shell {
 
     /// Parse and execute a bash source string. Returns the exit status of
     /// the last command run (or `.success` if the input was empty).
+    ///
+    /// **State propagates.** A script that runs `cd /tmp`, `export X=1`,
+    /// or `trap 'echo bye' EXIT` mutates `self`, so a later
+    /// ``run(_:)`` call on the same `Shell` sees the new cwd, the
+    /// exported variable, and (until cleared) the trap. This is the
+    /// REPL contract — `source`, `eval`, `find -exec`, and
+    /// ``Shell/sourceProfileIfPresent(at:filenames:)`` all rely on it.
+    ///
+    /// Embedders running each call as an independent "invocation"
+    /// (e.g. an LLM-agent `bash` tool whose calls shouldn't share
+    /// state) should use ``runIsolated(_:)`` instead — that variant
+    /// confines mutations to a fresh subshell.
     @discardableResult
     public func run(_ source: String) async throws -> ExitStatus {
         let parts = try BashSyntax.parse(source)
