@@ -152,6 +152,55 @@ import Foundation
         }
     }
 
+    // MARK: ln target sanitisation
+
+    @Test func rejectsAbsoluteSymlinkTargetOutsideMounts() async throws {
+        // `ln -s /etc/passwd /tmp/p` would otherwise plant a real
+        // host symlink that FileManager-backed bridges follow straight
+        // to `/etc/passwd`. Reject at creation time so the link never
+        // lands on disk; the URL gate's canonical re-check stays as
+        // defence-in-depth.
+        let root = try Self.makeTempDir(); defer { Self.cleanup(root) }
+        let tmp = try Self.makeTempDir(); defer { Self.cleanup(tmp) }
+        let fileSystem = Self.makeFs(workspaceRoot: root, tmpHost: tmp)
+        let err = await #expect(throws: FileSystemError.self) {
+            try await fileSystem.symlink(target: "/etc/passwd",
+                                         at: "/tmp/p")
+        }
+        if case .permissionDenied = err { } else {
+            Issue.record("expected permissionDenied, got \(String(describing: err))")
+        }
+        // Nothing landed on disk.
+        let hostLink = (tmp as NSString).appendingPathComponent("p")
+        #expect(!FileManager.default.fileExists(atPath: hostLink))
+    }
+
+    @Test func rejectsRelativeSymlinkEscape() async throws {
+        // `ln -s ../etc/passwd /tmp/p` lexically normalises to
+        // `/etc/passwd` — outside any mount.
+        let root = try Self.makeTempDir(); defer { Self.cleanup(root) }
+        let tmp = try Self.makeTempDir(); defer { Self.cleanup(tmp) }
+        let fileSystem = Self.makeFs(workspaceRoot: root, tmpHost: tmp)
+        await #expect(throws: FileSystemError.self) {
+            try await fileSystem.symlink(target: "../etc/passwd",
+                                         at: "/tmp/p")
+        }
+    }
+
+    @Test func allowsSymlinkWithinSandbox() async throws {
+        // Relative targets pointing inside the same mount, and absolute
+        // targets that cross between mounts (workspace ↔ /tmp), both
+        // stay legal — they don't leak outside the sandbox.
+        let root = try Self.makeTempDir(); defer { Self.cleanup(root) }
+        let tmp = try Self.makeTempDir(); defer { Self.cleanup(tmp) }
+        let fileSystem = Self.makeFs(workspaceRoot: root, tmpHost: tmp)
+        try await fileSystem.writeData(Data("hi".utf8),
+                                       to: "/batch/target", append: false)
+        try await fileSystem.symlink(target: "target", at: "/batch/link")
+        try await fileSystem.symlink(target: "/batch/target",
+                                     at: "/tmp/cross-mount-link")
+    }
+
     // MARK: makeTempPath
 
     @Test func makeTempPathLandsInTmpMount() async throws {
