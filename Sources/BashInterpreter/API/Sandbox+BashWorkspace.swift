@@ -4,18 +4,24 @@ import ShellKit
 extension ShellKit.Sandbox {
 
     /// Build the URL gate the SwiftBash sandbox CLI pairs with the
-    /// real-disk ``MountedFileSystem`` mounting `workspace` and `/tmp`.
+    /// real-disk ``MountedFileSystem`` mounting `workspace` and the
+    /// platform's temp dir.
     ///
     /// The gate accepts two virtual roots: the `workspace` mount and
-    /// `/tmp`. Bash builtins write through `Shell.fileSystem` to the
-    /// real host directories those mounts back onto; SwiftPorts CLIs
+    /// the host's real temp dir (``Foundation.NSTemporaryDirectory()``),
+    /// addressable as either `/tmp` (the Unix-y virtual path scripts
+    /// expect) or its true platform path. Bash builtins write through
+    /// `Shell.fileSystem` to the same host directories; SwiftPorts CLIs
     /// (fd, rg, jq, …) and the SwiftScript interpreter resolve the
-    /// same virtual paths through ``Shell/currentDirectory`` /
+    /// same paths through ``Shell/currentDirectory`` /
     /// ``Shell/resolve(_:)`` and authorise them here. Because both
     /// sides land on the same real-disk files, `cd /tmp; mkdir foo;
-    /// echo > foo/x; fd x foo` finds the file (#48 / #55).
+    /// echo > foo/x; fd x foo` finds the file (#48 / #55) — and the
+    /// same works on hosts where `/tmp` doesn't exist (Windows) or
+    /// isn't writable (Android emulator) because the host backing is
+    /// always the platform's real temp dir (#58).
     ///
-    /// The `/tmp` carve-out checks **both** the unresolved standardised
+    /// The temp carve-out checks **both** the unresolved standardised
     /// path (what the script asked for) and the symlink-resolved path
     /// (what `FileManager` would actually read) — without the second
     /// check a script's `ln -s /etc/passwd /tmp/p` would let
@@ -23,15 +29,15 @@ extension ShellKit.Sandbox {
     /// The bash-side `MountedFileSystem.canonicalGate` already rejects
     /// this; the URL gate has to match.
     ///
-    /// The returned sandbox's `temporaryDirectory` is `/tmp` (the
-    /// virtual path scripts see via `$TMPDIR`), not the default
-    /// `<workspace>/tmp` that ``rooted(at:allowedHosts:)`` would
-    /// produce — that keeps ``Shell/temporaryDirectory`` aligned with
-    /// the path bash code actually uses.
+    /// The returned sandbox's `temporaryDirectory` is the host's real
+    /// temp dir (the same value `$TMPDIR` carries inside the sandbox)
+    /// so ``Shell/temporaryDirectory`` agrees with bash, scripts using
+    /// `$TMPDIR`, and FileManager-backed callers.
     public static func bashWorkspace(workspace: String) -> ShellKit.Sandbox {
         let workspaceURL = URL(fileURLWithPath: workspace,
                                isDirectory: true)
-        let tmpURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory(),
+                         isDirectory: true)
         let baseSandbox = ShellKit.Sandbox.rooted(
             at: workspaceURL,
             allowedHosts: [])
@@ -53,27 +59,61 @@ extension ShellKit.Sandbox {
                     try await baseSandbox.authorize(url)
                 } catch let denial as ShellKit.Sandbox.Denial {
                     guard url.isFileURL else { throw denial }
-                    // Unresolved virtual path must be in `/tmp`. Compare
-                    // against `standardizedFileURL` so `/tmp/./foo` and
+                    // Unresolved virtual path must be under one of the
+                    // accepted temp prefixes. Compare against
+                    // `standardizedFileURL` so `/tmp/./foo` and
                     // `/tmp/foo` agree.
                     let unresolved = url.standardizedFileURL.path
-                    guard Self.pathIsInTmp(unresolved) else { throw denial }
-                    // Canonical (symlink-resolved) path must stay in
-                    // `/tmp` too — defends against a bash-staged
+                    guard Self.pathIsInTemp(unresolved) else { throw denial }
+                    // Canonical (symlink-resolved) path must stay in a
+                    // temp prefix too — defends against a bash-staged
                     // `ln -s /etc/passwd /tmp/p` escape.
                     let resolved = url.resolvingSymlinksInPath()
                         .standardizedFileURL.path
-                    if !Self.pathIsInTmp(resolved) { throw denial }
+                    if !Self.pathIsInTemp(resolved) { throw denial }
                 }
             })
     }
 
+    /// Path prefixes the bash sandbox's URL gate treats as "inside
+    /// the temp mount":
+    ///
+    /// - `/tmp` — the Unix-y virtual path scripts use.
+    /// - `/private/tmp` — what `/tmp` symlink-resolves to on macOS.
+    /// - The platform's real temp dir (`NSTemporaryDirectory()`),
+    ///   plus its symlink-resolved spelling, so callers using
+    ///   `$TMPDIR` (which carries the same real path) also pass.
+    ///
+    /// Computed once at first use; Foundation's temp dir is stable
+    /// for the lifetime of the process.
+    private static let temporaryPrefixes: [String] = {
+        var prefixes: [String] = ["/tmp", "/private/tmp"]
+        let raw = NSTemporaryDirectory()
+        let normalized = (raw as NSString).standardizingPath
+        let resolved = URL(fileURLWithPath: normalized)
+            .resolvingSymlinksInPath().path
+        for path in [normalized, resolved] {
+            let stripped: String = {
+                if path.count > 1 && path.hasSuffix("/") {
+                    return String(path.dropLast())
+                }
+                return path
+            }()
+            if !prefixes.contains(stripped) {
+                prefixes.append(stripped)
+            }
+        }
+        return prefixes
+    }()
+
     /// Whether `path` (unresolved or canonical) names a location under
-    /// the host `/tmp`. On macOS `/tmp` itself is a symlink to
-    /// `/private/tmp`, so the canonical form of every `/tmp` write
-    /// shows up as `/private/tmp/...` — accept either spelling.
-    private static func pathIsInTmp(_ path: String) -> Bool {
-        path == "/tmp" || path.hasPrefix("/tmp/")
-            || path == "/private/tmp" || path.hasPrefix("/private/tmp/")
+    /// any accepted temp prefix — see ``temporaryPrefixes``.
+    private static func pathIsInTemp(_ path: String) -> Bool {
+        for prefix in temporaryPrefixes {
+            if path == prefix || path.hasPrefix(prefix + "/") {
+                return true
+            }
+        }
+        return false
     }
 }

@@ -8,17 +8,11 @@ import BashInterpreter
 /// The legacy ``SandboxedOverlayFileSystem`` model captured every
 /// write — workspace AND `/tmp` — in an in-memory layer, so SwiftPorts
 /// CLIs (`gzip`, `gunzip`, `fd`, …) couldn't see them through
-/// `Data(contentsOf:)`. The CLI now uses a ``MountedFileSystem``
-/// that puts both mounts on real disk, so tools that resolve a virtual
-/// path to a host URL actually find the file. Issues #48 / #49.
+/// `Data(contentsOf:)`. The CLI now uses a ``MountedFileSystem`` that
+/// puts both mounts on real disk, with the temp dir backed by
+/// `NSTemporaryDirectory()` so the sandbox works on every host the
+/// rest of the toolkit builds for. Issues #48 / #49 / #58.
 @Suite(.timeLimit(.minutes(1))) struct ExecCommandFileSystemTests {
-
-    /// Whether the host has a writable `/tmp` — false on Windows
-    /// (path missing) and on the Android emulator (read-only root
-    /// volume). The `/tmp`-targeted test gates on this; tracked at
-    /// #58 alongside the broader `NSTemporaryDirectory()` migration.
-    static let tmpIsWritable: Bool = FileManager.default
-        .isWritableFile(atPath: "/tmp")
 
     /// Each test gets its own scratch dir under `NSTemporaryDirectory()`
     /// to act as the host workspace. `defer`-cleaned in every test.
@@ -47,15 +41,15 @@ import BashInterpreter
         #expect(String(bytes: bytes, encoding: .utf8) == "hello\n")
     }
 
-    @Test(.enabled(if: Self.tmpIsWritable))
-    func tmpWritesPersistToRealTmp() async throws {
+    @Test func tmpWritesPersistToRealTempDir() async throws {
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
-        // Stamp a unique subdir under /tmp so we don't clash with other
-        // runs / leak past the test.
+        // Stamp a unique subdir under the host's real temp dir so we
+        // don't clash with other runs / leak past the test.
         let probeName = "swift-bash-tmptest-\(UUID().uuidString)"
-        let hostProbe = URL(fileURLWithPath: "/tmp")
+        let realTemp = NSTemporaryDirectory()
+        let hostProbe = URL(fileURLWithPath: realTemp)
             .appendingPathComponent(probeName)
         defer { try? FileManager.default.removeItem(at: hostProbe) }
 
@@ -67,13 +61,12 @@ import BashInterpreter
             Data("scratch\n".utf8),
             to: "/tmp/\(probeName)/data.txt", append: false)
 
-        // SwiftPorts CLIs use `Data(contentsOf:)` with virtual URLs.
-        // On macOS realpath resolves /tmp -> /private/tmp, so a
-        // file URL spelled `/tmp/.../data.txt` reaches the same inode
-        // we just wrote.
-        let virtualURL = URL(fileURLWithPath:
-            "/tmp/\(probeName)/data.txt")
-        let bytes = try Data(contentsOf: virtualURL)
+        // Bash wrote through virtual `/tmp/...`; the mount table sends
+        // that to the host's real temp dir. FileManager-backed callers
+        // reading the real path see the same file (#58 — same agreement
+        // property as #48 / #55, now portable).
+        let hostFile = hostProbe.appendingPathComponent("data.txt")
+        let bytes = try Data(contentsOf: hostFile)
         #expect(String(bytes: bytes, encoding: .utf8) == "scratch\n")
     }
 

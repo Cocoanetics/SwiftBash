@@ -5,17 +5,13 @@ import ShellKit
 
 /// Coverage for `Sandbox.bashWorkspace(workspace:)` — the URL gate the
 /// SwiftBash `--sandbox` CLI pairs with the real-disk
-/// ``MountedFileSystem`` mounting the workspace and `/tmp`. The gate
-/// accepts the virtual workspace mount point plus `/tmp`, so
+/// ``MountedFileSystem`` mounting the workspace and the platform's
+/// real temp dir. The gate accepts the virtual workspace mount point,
+/// `/tmp`, and the host's real temp dir (`NSTemporaryDirectory()`), so
 /// SwiftPorts CLIs and the SwiftScript interpreter authorize the same
-/// paths the bash side writes to. Regression coverage for #48 / #55.
+/// paths the bash side writes to on every platform. Regression cover
+/// for #48 / #55 / #58.
 @Suite(.timeLimit(.minutes(1))) struct BashWorkspaceSandboxTests {
-
-    /// Whether the host has a writable `/tmp` — false on Windows
-    /// (path missing) and on the Android emulator (read-only root
-    /// volume). Tests that plant on-disk fixtures there gate on this.
-    static let tmpIsWritable: Bool = FileManager.default
-        .isWritableFile(atPath: "/tmp")
 
     @Test func authorizesWorkspaceRoot() async throws {
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
@@ -26,16 +22,29 @@ import ShellKit
     }
 
     @Test func authorizesTmpScratchRoot() async throws {
-        // The bash sandbox mounts host `/tmp` at virtual `/tmp` and a
-        // script's `cd /tmp; fd X` lands at virtual `/tmp` — without
-        // the carve-out, every SwiftPorts CLI invocation from there
-        // tripped "file URL is outside sandbox root" (#48).
+        // The bash sandbox mounts the host's real temp dir at virtual
+        // `/tmp`; a script's `cd /tmp; fd X` lands at virtual `/tmp` —
+        // without the carve-out, every SwiftPorts CLI invocation from
+        // there tripped "file URL is outside sandbox root" (#48).
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
         try await sandbox.authorize(URL(fileURLWithPath: "/tmp"))
         try await sandbox.authorize(
             URL(fileURLWithPath: "/tmp/retest_fd_repro"))
         try await sandbox.authorize(
             URL(fileURLWithPath: "/tmp/retest_fd_repro/data.txt"))
+    }
+
+    @Test func authorizesRealTempPath() async throws {
+        // Callers using `$TMPDIR` (set to `NSTemporaryDirectory()` by
+        // the CLI) hand the gate the real host path, not `/tmp`. The
+        // mount table also exposes that real path at its true location
+        // so both spellings reach the same files; the gate must accept
+        // both. Regression for #58.
+        let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
+        let realTemp = NSTemporaryDirectory()
+        try await sandbox.authorize(URL(fileURLWithPath: realTemp))
+        try await sandbox.authorize(URL(fileURLWithPath:
+            (realTemp as NSString).appendingPathComponent("probe.txt")))
     }
 
     @Test func deniesPathsOutsideBothRoots() async throws {
@@ -74,42 +83,46 @@ import ShellKit
         }
     }
 
-    // Host `/tmp` is missing on Windows and read-only on the Android
-    // emulator; on every such host the `--sandbox` mode these tests
-    // exercise can't actually mount `/tmp` either. The two checks
-    // below plant real on-disk symlinks / files there to exercise the
-    // URL gate's canonical re-check, so they're gated to hosts with a
-    // writable `/tmp`. Tracked at #58 — once the bash sandbox uses
-    // `NSTemporaryDirectory()` for the host backing, the gate test
-    // can move with it.
-    @Test(.enabled(if: Self.tmpIsWritable))
-    func deniesTmpSymlinkEscape() async throws {
-        // Regression coverage for the #55 review concern: once host
-        // `/tmp` is mounted at virtual `/tmp`, a bash-side
-        // `ln -s /etc/passwd /tmp/p` plants a real symlink whose
-        // *unresolved* path (`/tmp/p`) the carve-out would otherwise
-        // happily authorize — letting FileManager-backed bridges
-        // follow the link out of the sandbox. The URL gate has to
-        // reject these the same way `MountedFileSystem.canonicalGate`
-        // does on the bash side.
-        let link = "/tmp/swiftbash-escape-\(UUID().uuidString)"
+    // The canonical re-check relies on `URL.resolvingSymlinksInPath()`
+    // to follow the symlink and re-evaluate the destination. swift-
+    // corelibs-foundation's Windows implementation doesn't traverse
+    // NTFS symlinks the way the Darwin/Glibc backends do — a planted
+    // symlink survives canonicalisation unchanged and the gate's
+    // second-pass check can't fire. Production code still depends on
+    // OS-level sandboxing on Windows (see Threat model in
+    // `Docs/Sandboxing.md`).
+#if !os(Windows)
+    @Test func deniesTmpSymlinkEscape() async throws {
+        // Regression coverage for the #55 review concern: once the
+        // temp dir is mounted at virtual `/tmp`, a bash-side
+        // `ln -s / /tmp/p` plants a real symlink whose *unresolved*
+        // path the carve-out would otherwise happily authorize —
+        // letting FileManager-backed bridges follow the link out of
+        // the sandbox. Plant the fixture at the host's real temp dir
+        // (always writable, even where `/tmp` isn't) and aim the link
+        // at `/` so it resolves on every platform — `/etc/passwd`
+        // doesn't exist on the Android emulator and dangling-link
+        // resolution behaves differently across the libc backends.
+        let host = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("swiftbash-escape-\(UUID().uuidString)")
         try FileManager.default.createSymbolicLink(
-            atPath: link, withDestinationPath: "/etc/passwd")
-        defer { try? FileManager.default.removeItem(atPath: link) }
+            atPath: host, withDestinationPath: "/")
+        defer { try? FileManager.default.removeItem(atPath: host) }
 
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
         await #expect(throws: ShellKit.Sandbox.Denial.self) {
-            try await sandbox.authorize(URL(fileURLWithPath: link))
+            try await sandbox.authorize(URL(fileURLWithPath: host))
         }
     }
+#endif
 
-    @Test(.enabled(if: Self.tmpIsWritable))
-    func allowsLegitimateTmpFilesAfterSymlinkResolution() async throws {
-        // The new canonical re-check must not regress the legitimate
-        // case where a real file exists under host `/tmp` (which on
-        // macOS resolves to `/private/tmp` — both spellings stay
-        // authorized).
-        let path = "/tmp/swiftbash-legit-\(UUID().uuidString)"
+    @Test func allowsLegitimateTmpFilesAfterSymlinkResolution() async throws {
+        // The canonical re-check must not regress the legitimate case
+        // where a real file exists under the host's temp dir (which on
+        // macOS may symlink-resolve through `/private/var/folders/…` —
+        // both spellings stay authorized).
+        let path = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("swiftbash-legit-\(UUID().uuidString)")
         FileManager.default.createFile(atPath: path, contents: Data("hi".utf8))
         defer { try? FileManager.default.removeItem(atPath: path) }
 
@@ -117,12 +130,15 @@ import ShellKit
         try await sandbox.authorize(URL(fileURLWithPath: path))
     }
 
-    @Test func temporaryDirectoryIsVirtualTmp() {
+    @Test func temporaryDirectoryIsRealTempPath() {
         // `Shell.temporaryDirectory` reads `sandbox.temporaryDirectory`.
-        // Bash sets `TMPDIR=/tmp`; the sandbox must agree so SwiftJSCore's
-        // `os.tmpdir()` and similar consumers return the same virtual
-        // path the bash environment exposes.
+        // The CLI sets `$TMPDIR = NSTemporaryDirectory()`; the gate has
+        // to agree so SwiftJSCore's `os.tmpdir()` and similar consumers
+        // return the same real path the bash environment exposes.
         let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch")
-        #expect(sandbox.temporaryDirectory.path == "/tmp")
+        let expected = URL(fileURLWithPath: NSTemporaryDirectory(),
+                           isDirectory: true).standardizedFileURL.path
+        let actual = sandbox.temporaryDirectory.standardizedFileURL.path
+        #expect(actual == expected)
     }
 }
