@@ -24,7 +24,7 @@ extension Shell {
     // **Misc:** `date`, `seq`, `sleep`.
     //
     // Individual commands can still be registered à la carte via
-    // ``register(_:)-<…>``; this is just the convenient one-call form.
+    // ``install(_:)``; this is just the convenient one-call form.
     //
     // Single flat registration list; splitting by category would scatter
     // sibling commands across multiple files and add cross-file plumbing

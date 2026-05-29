@@ -32,7 +32,7 @@ import BashInterpreter
 /// }
 ///
 /// let shell = Shell()
-/// shell.register(Greet.self)
+/// shell.install(Greet.self)
 /// try shell.run("greet --loud alice")    // → HELLO ALICE
 /// ```
 ///
