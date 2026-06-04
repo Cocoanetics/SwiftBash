@@ -9,8 +9,9 @@ import Foundation
 /// substituted (subset of GNU): `%n` name, `%s` size, `%y` mtime
 /// (ISO 8601 in UTC), `%F` file type word, `%a` permissions in
 /// octal, `%A` symbolic mode, `%N` quoted name (with -> for symlinks),
-/// `%U` owner user (always "user" since we don't carry uid mappings),
-/// `%G` owner group ("group"), `%h` hard link count (always 1).
+/// `%u`/`%U` owner uid/name, `%g`/`%G` group gid/name — all from the
+/// shell's virtual `HostInfo` (so `stat` agrees with `ls -l` rather
+/// than leaking the real host's ids), `%h` hard link count (always 1).
 public struct StatCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "stat",
@@ -74,6 +75,10 @@ public struct StatCommand: ParsableBashCommand {
     private func formatString(_ fmt: String, name: String,
                               meta: FileMetadata) -> String {
         var out = ""
+        // Ownership tracks the shell's virtual identity, not the
+        // backing inode — `stat` must agree with `ls -l` instead of
+        // surfacing the real host uid/gid a MountedFileSystem carries.
+        let host = Shell.bashCurrent.hostInfo
         let chars = Array(fmt)
         var index = 0
         while index < chars.count {
@@ -92,10 +97,10 @@ public struct StatCommand: ParsableBashCommand {
                     } else {
                         out += "'\(name)'"
                     }
-                case "u": out += String(meta.uid)
-                case "g": out += String(meta.gid)
-                case "U": out += "user"
-                case "G": out += "group"
+                case "u": out += String(host.uid)
+                case "g": out += String(host.gid)
+                case "U": out += host.userName
+                case "G": out += host.groupName
                 case "h": out += String(meta.linkCount)
                 case "%": out += "%"
                 default: out.append(char)
@@ -122,8 +127,10 @@ public struct StatCommand: ParsableBashCommand {
         summary += "  Size: \(meta.size)\t\(FsTools.typeWord(meta.kind))\n"
         let modeStr = String(format: "%04o", meta.mode)
         let symbolicMode = FsTools.symbolicMode(kind: meta.kind, mode: meta.mode)
-        let uidStr = String(format: "%5d", meta.uid)
-        let gidStr = String(format: "%5d", meta.gid)
+        // Virtual identity, not the backing inode (see formatString).
+        let host = Shell.bashCurrent.hostInfo
+        let uidStr = String(format: "%5d", host.uid)
+        let gidStr = String(format: "%5d", host.gid)
         summary += "Access: (\(modeStr)/\(symbolicMode))  "
         summary += "Uid: (\(uidStr))   Gid: (\(gidStr))\n"
         summary += "Access: \(FsTools.iso8601(meta.accessedAt))\n"

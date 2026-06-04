@@ -31,6 +31,32 @@ import Foundation
         #expect(cap.stdout == "f 2\n")
     }
 
+    // Ownership must come from the shell's virtual `HostInfo`, not the
+    // real inode the temp file carries (which would leak the host's
+    // uid/gid) — `stat` has to agree with `ls -l`. Use ids distinct
+    // from both the real host and the old hardcoded "user"/"group".
+    @Test func statOwnershipTracksVirtualIdentity() async throws {
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
+        try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
+        var info = cap.shell.hostInfo
+        info.uid = 4242; info.userName = "alice"
+        info.gid = 99; info.groupName = "crew"
+        cap.shell.hostInfo = info
+        try await cap.shell.run("stat -c '%u %U %g %G' f")
+        #expect(cap.stdout == "4242 alice 99 crew\n")
+    }
+
+    @Test func statDefaultSummaryUsesVirtualUidGid() async throws {
+        let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
+        try "x".write(toFile: dir + "/f", atomically: true, encoding: .utf8)
+        var info = cap.shell.hostInfo
+        info.uid = 4242; info.gid = 99
+        cap.shell.hostInfo = info
+        try await cap.shell.run("stat f")
+        #expect(cap.stdout.contains("Uid: ( 4242)"))
+        #expect(cap.stdout.contains("Gid: (   99)"))
+    }
+
     #if !os(Windows)
     @Test func chmodChangesPermissions() async throws {
         let (cap, dir) = try makeShellWithDir(); defer { cleanup(dir) }
