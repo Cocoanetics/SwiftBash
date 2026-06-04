@@ -102,9 +102,13 @@ extension Shell {
         install(FdCommand.self, at: "/usr/local/bin/fd")
 
         // sqlite3 — SwiftPorts' SQLite shell port over the vendored
-        // CSQLite amalgamation. Not in the BinCatalog yet, so use the
-        // explicit-path overload (real macOS ships it at
-        // `/usr/bin/sqlite3`); the bare `install(_:)` would trap.
+        // CSQLite amalgamation. Registered at its canonical
+        // /usr/bin/sqlite3 path, which ShellKit's BinCatalog also lists
+        // so overlay-backed shells synthesize the file (`ls`, `[ -x ]`,
+        // and tool-presence checks — not just `which`). Explicit-path
+        // overload, not bare: registration must not trap if SwiftBash
+        // is built against a ShellKit predating that catalog entry,
+        // since we track ShellKit's `main`.
         install(Sqlite3.self, at: "/usr/bin/sqlite3")
 
         // Archive family.
