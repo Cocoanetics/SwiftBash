@@ -116,6 +116,38 @@ shell.fileSystem = RealFileSystem()                     // real disk
 Each axis is independent. Read [Sandboxing](Docs/Sandboxing.md) for
 the threat model and the complete picture.
 
+## What's virtual (and what that means)
+
+SwiftBash is an interpreter, not a process host — so a few things behave
+differently from a native shell. None of these are bugs:
+
+- **Commands are in-process Swift builtins, not executables.** Reading
+  `/bin/bash` or `/usr/bin/curl` yields a one-line marker, not a
+  Mach-O/ELF — the binary doesn't exist; `ls /bin` reflects the live
+  command registry. See [Virtual /bin and /usr/bin](Docs/VirtualBin.md).
+- **Outbound network is denied by default** — `curl https://example.com`
+  fails with `(7) Network access denied` until an embedder installs a
+  `NetworkConfig` allow-list (`--allow-url …` on the CLI). See
+  [Networking](Docs/Networking.md).
+- **The filesystem is a chroot-style mount table.** `/` is the
+  read-only sandbox root; the workspace (`/batch` under `--sandbox`,
+  `/home` in document apps) is writable; `/tmp` is writable scratch on
+  the host temp dir; everything else returns *No such file or
+  directory*. `mount` prints the table.
+- **Identity is synthetic by default** — `whoami` → `user`, `id` →
+  `uid=1000(user) gid=1000(users)`, and `uname` a Darwin-flavoured
+  kernel string over a generic Unix layout. `stat` / `ls -l` report
+  this same virtual identity, never the host's ids; `hostInfo = .real()`
+  opts in.
+- **The process table is virtual** — `ps` / `pgrep` / `kill` see only
+  this shell and its `&` background jobs, never host processes.
+- **Most common GNU/BSD options work; gaps report on stderr.** One
+  structural note: ArgumentParser-backed commands take the *separated*
+  short-option form (`-l 64`), not the *attached* one (`-l64`) —
+  commands that need the attached form scan their own argv.
+
+See [Sandboxing](Docs/Sandboxing.md) for the full model.
+
 ## Install
 
 ```swift
