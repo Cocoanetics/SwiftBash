@@ -79,4 +79,17 @@ import Foundation
         #expect(cap.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 == "/Users/foo/docs")
     }
+
+    @Test func resolvesMultiplePaths() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("realpath -m /a/b /c /e/f/g")
+        #expect(cap.stdout == "/a/b\n/c\n/e/f/g\n")
+    }
+
+    @Test func noArgumentsIsAnError() async throws {
+        let cap = makeShell()
+        let status = try await cap.shell.run("realpath")
+        #expect(!status.isSuccess)
+        #expect(cap.stderr.contains("missing operand"))
+    }
 }
