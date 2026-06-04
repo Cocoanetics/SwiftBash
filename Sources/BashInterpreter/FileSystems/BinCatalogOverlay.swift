@@ -2,9 +2,17 @@ import Foundation
 
 /// An ``OverlayProvider`` that synthesises `/bin`, `/usr/bin`, and
 /// `/usr/local/bin` (plus the intermediate `/usr` and `/usr/local`
-/// directories) from the running shell's command registry and the
-/// `BinCatalog` "where would this live on a real macOS install"
-/// map.
+/// directories) for the running shell.
+///
+/// Two sources, split by role:
+/// - **Directory geometry** — which bin directories exist — comes from
+///   `BinCatalog` ("where would this live on a real macOS install").
+///   This is a stable, command-independent set.
+/// - **Files** within those directories come from the live command
+///   registry (``Shell/commandsByPath``): every file-backed command
+///   shows up at its install path. So adding a builtin needs no
+///   `BinCatalog` entry — registering it is enough — and off-catalog
+///   installs (`install(_:at:)`) are visible just like cataloged ones.
 ///
 /// The shell never executes real on-disk binaries — every command
 /// dispatches in-process through ``Shell/commands``. This provider
@@ -52,19 +60,18 @@ public final class BinCatalogOverlay: OverlayProvider, @unchecked Sendable {
         return result
     }()
 
-    /// Names whose canonical catalog path lies under `directory`
-    /// AND which the running shell has actually installed at that
-    /// path. Drives the synthetic file listing the overlay vends.
-    private func registeredCatalogNames(in directory: String) -> [String] {
-        let shell = Shell.bashCurrent
-        var names: [String] = []
-        for (name, canonical) in BinCatalog.knownPaths
-            where (canonical as NSString).deletingLastPathComponent == directory {
-            if shell.commandsByPath[canonical] != nil {
-                names.append(name)
-            }
-        }
-        return names
+    /// Basenames of every file-backed command the running shell has
+    /// actually installed under `directory`. Driven by the live command
+    /// registry (``Shell/commandsByPath``) rather than the static
+    /// ``BinCatalog`` map, so off-catalog installs via
+    /// ``Shell/install(_:at:)`` — `fd` at `/usr/local/bin/fd`,
+    /// `sqlite3` at `/usr/bin/sqlite3` — surface in the synthetic
+    /// listing exactly like cataloged commands, with no per-command
+    /// `BinCatalog` entry required.
+    private func installedCommandNames(in directory: String) -> [String] {
+        Shell.bashCurrent.commandsByPath.keys
+            .filter { ($0 as NSString).deletingLastPathComponent == directory }
+            .map { ($0 as NSString).lastPathComponent }
     }
 
     private func isLeafDir(_ path: String) -> Bool {
@@ -75,11 +82,13 @@ public final class BinCatalogOverlay: OverlayProvider, @unchecked Sendable {
         Self.intermediateDirectories.contains(path)
     }
 
+    /// A synthetic file exists at `path` when a file-backed command is
+    /// installed there and its directory is one of the catalog's bin
+    /// leaves (`/bin`, `/usr/bin`, `/usr/local/bin`). Registry-driven,
+    /// so no per-command ``BinCatalog`` entry is needed for `ls`,
+    /// `[ -x … ]`, and tool-presence checks to see an installed CLI.
     private func isSynthesizedFile(_ path: String) -> Bool {
-        guard let canonical = BinCatalog.knownPaths[
-            (path as NSString).lastPathComponent]
-        else { return false }
-        return canonical == path
+        isLeafDir((path as NSString).deletingLastPathComponent)
             && Shell.bashCurrent.commandsByPath[path] != nil
     }
 
@@ -99,7 +108,7 @@ public final class BinCatalogOverlay: OverlayProvider, @unchecked Sendable {
         // Leaf directory (`/bin`, `/usr/bin`, …): emit file entries
         // for each registered catalog command.
         if isLeafDir(parent) {
-            return registeredCatalogNames(in: parent)
+            return installedCommandNames(in: parent)
                 .sorted()
                 .map { name in
                     let path = (parent as NSString).appendingPathComponent(name)
