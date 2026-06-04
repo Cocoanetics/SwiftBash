@@ -228,4 +228,20 @@ import Foundation
         #expect(cap.stdout
             == "00000000: 4142                                     AB\n")
     }
+
+    @Test func xxdGroupSizeOne() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'hello' | xxd -g1")
+        // -g1 spaces every byte; the default -g2 pairs them.
+        #expect(cap.stdout.hasPrefix("00000000: 68 65 6c 6c 6f "))
+        #expect(cap.stdout.hasSuffix("hello\n"))
+    }
+
+    @Test func xxdGroupSizeZero() async throws {
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try await cap.shell.run("printf 'hello' | xxd -g0")
+        // -g0 runs the hex together with no group separators.
+        #expect(cap.stdout.hasPrefix("00000000: 68656c6c6f "))
+        #expect(cap.stdout.hasSuffix("hello\n"))
+    }
 }

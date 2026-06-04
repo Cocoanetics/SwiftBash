@@ -2,7 +2,8 @@ import ArgumentParser
 import BashInterpreter
 import Foundation
 
-/// `xxd [FILE]` — make a hex dump of FILE (or stdin).
+/// `xxd [-l LEN] [-g GROUPSIZE] [FILE]` — make a hex dump of FILE (or
+/// stdin).
 ///
 /// Default output: 16 bytes per row, hex grouped in 2-byte pairs, ASCII
 /// rendering on the right. Non-printable bytes show as `.`.
@@ -11,27 +12,30 @@ import Foundation
 /// 00000000: 6865 6c6c 6f20 776f 726c 640a            hello world.
 /// ```
 ///
-/// Out of scope for v1: `-r` reverse mode, `-p` plain mode, `-c COLS`,
-/// `-g GROUPSIZE`, `-s SEEK`. `-l LEN` is now supported. Defaults match
-/// macOS / vim `xxd`.
+/// `-l LEN` stops after LEN bytes (decimal, `0x…` hex, or `0…` octal);
+/// `-g GROUPSIZE` sets bytes per hex group (`-g0` = one continuous
+/// run). Both accept the attached (`-g1`) and separated (`-g 1`) forms.
+/// Out of scope: `-r` reverse, `-p` plain, `-c COLS`, `-s SEEK`.
 public struct XxdCommand: ParsableBashCommand {
     public static let configuration = CommandConfiguration(
         commandName: "xxd",
         abstract: "Hex dump (default 16-byte rows)."
     )
 
-    @Option(name: [.customShort("l"), .customLong("len")],
-            help: "Stop after dumping N bytes (decimal, or 0x… for hex).")
-    public var length: String?
-
-    @Argument(help: "Input file. Reads stdin if empty.")
-    public var input: String?
+    // Hand-rolled option scan (see ``CLIOptionScanner``) so the attached
+    // short forms GNU/BSD users expect — `-g1`, `-l0x40` — parse, which
+    // the ArgumentParser bridge rejects for value-bearing short options.
+    @Argument(parsing: .captureForPassthrough,
+              help: "[-l LEN] [-g N] [FILE]")
+    public var rawArgv: [String] = []
 
     public init() {}
 
     public mutating func execute() async throws -> ExitStatus {
+        guard let options = parseArguments() else { return ExitStatus(2) }
+
         let data: Data
-        if let file = input, file != "-" {
+        if let file = options.file, file != "-" {
             do {
                 data = try await Shell.bashCurrent.readDataAtPath(file)
             } catch {
@@ -47,14 +51,13 @@ public struct XxdCommand: ParsableBashCommand {
         // prefixed hex (`-l 0x40`), or `0`-prefixed octal (`-l 0100`);
         // we honour the common decimal and hex forms.
         let truncated: Data
-        if let lengthString = length {
+        if let lengthString = options.length {
             guard let limit = Self.parseLength(lengthString), limit >= 0 else {
                 Shell.bashCurrent.stderr(
                     "xxd: invalid length: \(lengthString)\n")
                 return ExitStatus(2)
             }
-            let safeLimit = min(limit, data.count)
-            truncated = data.prefix(safeLimit)
+            truncated = data.prefix(min(limit, data.count))
         } else {
             truncated = data
         }
@@ -67,13 +70,53 @@ public struct XxdCommand: ParsableBashCommand {
             // means cancellation lands within microseconds.
             try Task.checkCancellation()
             let end = min(offset + bytesPerRow, bytes.count)
-            let row = bytes[offset..<end]
             Shell.bashCurrent.stdout(Self.format(offset: offset,
-                                     row: Array(row),
-                                     bytesPerRow: bytesPerRow) + "\n")
+                                     row: Array(bytes[offset..<end]),
+                                     bytesPerRow: bytesPerRow,
+                                     groupSize: options.groupSize) + "\n")
             offset = end
         }
         return .success
+    }
+
+    private struct Options {
+        var length: String?
+        var groupSize: Int = 2
+        var file: String?
+    }
+
+    /// Scan `rawArgv`. Emits a diagnostic and returns `nil` on a bad
+    /// option (the caller then exits 2).
+    private func parseArguments() -> Options? {
+        var options = Options()
+        var index = 0
+        while index < rawArgv.count {
+            let arg = rawArgv[index]
+            if arg == "--" {
+                index += 1
+                if index < rawArgv.count { options.file = rawArgv[index] }
+                break
+            }
+            if arg == "-" || !arg.hasPrefix("-") {
+                options.file = arg; index += 1; continue
+            }
+            if let match = CLIOptionScanner.value(
+                arg, short: "l", long: "len", argv: rawArgv, at: index) {
+                options.length = match.value; index += match.advance; continue
+            }
+            if let match = CLIOptionScanner.value(
+                arg, short: "g", long: "groupsize", argv: rawArgv, at: index) {
+                guard let parsed = Int(match.value), parsed >= 0 else {
+                    Shell.bashCurrent.stderr(
+                        "xxd: invalid group size: \(match.value)\n")
+                    return nil
+                }
+                options.groupSize = parsed; index += match.advance; continue
+            }
+            Shell.bashCurrent.stderr("xxd: invalid option: \(arg)\n")
+            return nil
+        }
+        return options
     }
 
     /// Parse `-l N` argument: decimal (`64`), `0x`-prefixed hex
@@ -96,7 +139,7 @@ public struct XxdCommand: ParsableBashCommand {
     /// Render one xxd row. The hex column always has a fixed width so
     /// short trailing rows still align with the ASCII column.
     static func format(offset: Int, row: [UInt8],
-                       bytesPerRow: Int) -> String {
+                       bytesPerRow: Int, groupSize: Int) -> String {
         var hex = ""
         for idx in 0..<bytesPerRow {
             if idx < row.count {
@@ -104,8 +147,9 @@ public struct XxdCommand: ParsableBashCommand {
             } else {
                 hex += "  "
             }
-            // Group in pairs of 2 bytes (4 hex chars).
-            if idx % 2 == 1, idx + 1 < bytesPerRow {
+            // Separator after every `groupSize` bytes (0 = no grouping).
+            // Skipped after the final byte so short rows still align.
+            if groupSize > 0, (idx + 1) % groupSize == 0, idx + 1 < bytesPerRow {
                 hex += " "
             }
         }
