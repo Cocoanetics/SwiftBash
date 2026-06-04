@@ -206,6 +206,12 @@ let package = Package(
                          condition: .when(platforms: swiftPortsPlatforms)),
                 .product(name: "FdCommand", package: "SwiftPorts",
                          condition: .when(platforms: swiftPortsPlatforms)),
+                // SQLiteKit — `sqlite3` shell port over the vendored
+                // SQLite amalgamation (CSQLite). Reads/writes DB files
+                // through `Shell.resolve`, so it honors the host's
+                // sandbox path mapping like the git / archive family.
+                .product(name: "Sqlite3Command", package: "SwiftPorts",
+                         condition: .when(platforms: swiftPortsPlatforms)),
             ],
             path: "Sources/BashCommandKit"
         ),
