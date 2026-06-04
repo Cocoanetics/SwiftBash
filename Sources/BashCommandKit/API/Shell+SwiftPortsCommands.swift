@@ -21,6 +21,7 @@ import GzipCommand
 import JqCommand
 import Lz4Command
 import RgCommand
+import Sqlite3Command
 import TarCommand
 import UnzipCommand
 import XzCommand
@@ -99,6 +100,15 @@ extension Shell {
         // `/usr/local/bin` to match the Homebrew / user-skill
         // convention used for the rest of the SwiftPorts surface.
         install(FdCommand.self, at: "/usr/local/bin/fd")
+
+        // sqlite3 — SwiftPorts' SQLite shell port over the vendored
+        // CSQLite amalgamation. Like fd, it isn't in ShellKit's
+        // BinCatalog, so use the explicit-path overload (real macOS
+        // ships it at /usr/bin/sqlite3); bare install(_:) would trap.
+        // The registry-driven BinCatalogOverlay surfaces it under
+        // /usr/bin from this install alone, so `ls`/`[ -x ]`/presence
+        // checks work without any BinCatalog (ShellKit) change.
+        install(Sqlite3.self, at: "/usr/bin/sqlite3")
 
         // Archive family.
         install(TarCommand.self)
