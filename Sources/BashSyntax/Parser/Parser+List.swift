@@ -45,7 +45,7 @@ extension Parser {
         case .word, .assignmentWord, .redirectWord, .number,
              .leftParen, .leftCurly,
              .ifKw, .whileKw, .untilKw, .forKw, .caseKw,
-             .functionKw, .bang, .less, .greater, .lessLess, .lessLessMinus,
+             .functionKw, .bang, .timeKw, .less, .greater, .lessLess, .lessLessMinus,
              .lessLessLess, .lessAnd, .greaterAnd, .lessGreater, .greaterBar,
              .greaterGreater, .andGreater, .andGreaterGreater,
              .arithCommand:
@@ -105,23 +105,42 @@ extension Parser {
     // MARK: Pipeline + bang
 
     func parsePipelineCommand() throws -> Node {
-        var bangNode: Node?
+        // Reserved-word prefixes, in bash order: `time [-p] [--]` then
+        // an optional `!`. `time` measures the whole pipeline; its
+        // `-p` / `--` companions are accepted and dropped (we emit one
+        // real/user/sys block regardless of the POSIX-format request).
+        var prefix: [Node] = []
+        if peek().type == .timeKw {
+            let token = try next()
+            prefix.append(Node(kind: .reservedWord(token.value),
+                               range: token.range))
+            // `-p` (POSIX format) then `--` (end of options), in bash
+            // order. The tokenizer emits these as plain words; accept
+            // and drop them — we emit one real/user/sys block anyway.
+            if peek().type == .timeOpt
+                || (peek().type == .word && peek().value == "-p") {
+                _ = try next()
+            }
+            if peek().type == .timeIgn
+                || (peek().type == .word && peek().value == "--") {
+                _ = try next()
+            }
+        }
         if peek().type == .bang {
             let token = try next()
-            bangNode = Node(kind: .reservedWord(token.value), range: token.range)
+            prefix.append(Node(kind: .reservedWord(token.value),
+                               range: token.range))
         }
 
         let pipe = try parsePipeline()
-        if let bangNode {
-            var parts: [Node]
-            if case .pipeline(let existing) = pipe.kind {
-                parts = [bangNode] + existing
-            } else {
-                parts = [bangNode, pipe]
-            }
-            return Node(kind: .pipeline(parts: parts), range: spanOf(parts))
+        guard !prefix.isEmpty else { return pipe }
+        var parts: [Node]
+        if case .pipeline(let existing) = pipe.kind {
+            parts = prefix + existing
+        } else {
+            parts = prefix + [pipe]
         }
-        return pipe
+        return Node(kind: .pipeline(parts: parts), range: spanOf(parts))
     }
 
     func parsePipeline() throws -> Node {

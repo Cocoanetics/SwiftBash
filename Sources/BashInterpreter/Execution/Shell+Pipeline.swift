@@ -19,10 +19,19 @@ extension Shell {
     func executePipeline(parts: [Node]) async throws -> ExitStatus {
         var index = 0
         var invert = false
-        if !parts.isEmpty,
-           case .reservedWord(let word) = parts[0].kind, word == "!" {
+        var timed = false
+        // `time` reserved word — measures the whole pipeline. (`-p`/`--`
+        // were dropped by the parser; we emit one real/user/sys block.)
+        if index < parts.count,
+           case .reservedWord(let word) = parts[index].kind, word == "time" {
+            timed = true
+            index += 1
+        }
+        // Optional leading `!` that inverts the final exit status.
+        if index < parts.count,
+           case .reservedWord(let word) = parts[index].kind, word == "!" {
             invert = true
-            index = 1
+            index += 1
         }
 
         var stages: [Node] = []
@@ -54,6 +63,9 @@ extension Shell {
         let template = self  // captured for use in per-stage closure
 
         let pipefailMode = pipefail
+        // Start the clock for a `time`-prefixed pipeline just before the
+        // stages run, so the measurement covers the pipeline itself.
+        let timingStart = timed ? Date() : nil
         let status = try await withThrowingTaskGroup(
             of: (Int, ExitStatus).self
         ) { group in
@@ -143,6 +155,11 @@ extension Shell {
             return stageStatuses.last ?? .success
         }
 
+        // `time` reports to the shell's stderr after the pipeline ends.
+        if let timingStart {
+            stderr(bashTimeReport(elapsed: Date().timeIntervalSince(timingStart)))
+        }
+
         // `!`-prefixed pipelines disable errexit on the inverted
         // result (matching bash). Tell the enclosing executeList to
         // skip its next errexit check.
@@ -155,4 +172,14 @@ extension Shell {
         lastExitStatus = status
         return status
     }
+}
+
+/// Format a `time` report block (`real` / `user` / `sys`) for stderr.
+/// SwiftBash has no CPU-time accounting, so `user`/`sys` are reported
+/// as `0m0.000s`, matching the `\time` builtin's output shape.
+private func bashTimeReport(elapsed seconds: TimeInterval) -> String {
+    let minutes = Int(seconds / 60)
+    let secs = seconds - Double(minutes) * 60
+    let real = String(format: "%dm%.3fs", minutes, secs)
+    return "\nreal\t\(real)\nuser\t0m0.000s\nsys\t0m0.000s\n"
 }
