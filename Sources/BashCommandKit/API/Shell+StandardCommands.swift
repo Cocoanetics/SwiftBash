@@ -113,6 +113,9 @@ extension Shell {
         install(UnexpandCommand.self)
         install(FoldCommand.self)
         install(StatCommand.self)
+        // `mount` isn't in the BinCatalog — install off-catalog at its
+        // conventional path (matches the grep/sqlite3 wrappers).
+        install(MountCommand.self, at: "/usr/bin/mount")
         install(ReadlinkCommand.self)
         install(LnCommand.self)
         install(ChmodCommand.self)
