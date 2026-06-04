@@ -4,9 +4,9 @@ import Foundation
 @testable import BashCommandKit
 
 /// Tests cover the **virtual** process model: `ps` / `kill` / `pgrep`
-/// / `pkill` operate exclusively on ``Shell/processTable``, which is
-/// populated by `&` background jobs. The host process table is never
-/// touched.
+/// / `pkill` operate exclusively on ``Shell/processTable``, which the
+/// shell seeds with its own `bash` entry and which `&` background jobs
+/// add to. The host process table is never touched.
 @Suite(.timeLimit(.minutes(1))) struct ProcessCommandsTests {
 
     private func makeShell() -> CapturingShell {
@@ -17,14 +17,15 @@ import Foundation
 
     // MARK: ps
 
-    @Test func psWithNoBackgroundJobsShowsHeaderOnly() async throws {
+    @Test func psShowsTheShellItself() async throws {
         let cap = makeShell()
         try await cap.shell.run("ps")
-        // Header row only, no entries.
-        let lines = cap.stdout.split(separator: "\n")
-        #expect(lines.count == 1)
+        // Header + the shell's own `bash` entry, even with no `&` jobs.
+        let lines = cap.stdout.split(separator: "\n").map(String.init)
+        #expect(lines.count == 2)
         #expect(lines[0].contains("PID"))
         #expect(lines[0].contains("COMMAND"))
+        #expect(lines[1].contains("bash"))
     }
 
     @Test func psShowsBackgroundedJobs() async throws {
@@ -96,6 +97,14 @@ import Foundation
         let status = try await cap.shell.run(
             "pgrep zzzzzz_definitely_not_a_process")
         #expect(status == ExitStatus(1))
+    }
+
+    @Test func pgrepBashMatchesTheShell() async throws {
+        let cap = makeShell()
+        let status = try await cap.shell.run("pgrep bash")
+        #expect(status == .success)
+        // The shell's own entry sits at its virtual PID (default 1).
+        #expect(cap.stdout.split(separator: "\n").compactMap { Int32($0) } == [1])
     }
 
     @Test func pkillCancelsMatching() async throws {

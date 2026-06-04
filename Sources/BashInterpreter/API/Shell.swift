@@ -288,6 +288,10 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// correctly without runtime casts.
     @TaskLocal public static var bashCurrent: Shell = Shell()
 
+    /// Tracks whether ``ensureSelfProcessRegistered()`` has seeded the
+    /// shell's own ``processTable`` entry yet. Mutated only there.
+    var selfProcessSeeded = false
+
     // MARK: - Init
 
     public required init(
