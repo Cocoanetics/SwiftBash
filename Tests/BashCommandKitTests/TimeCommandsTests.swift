@@ -48,4 +48,47 @@ import Foundation
         let status = try await cap.shell.run("timeout 1s echo ok")
         #expect(status == .success)
     }
+
+    // MARK: `time` reserved word (the keyword handler, not `\time`)
+
+    @Test func timeKeywordRunsAndReports() async throws {
+        let cap = makeShell()
+        let status = try await cap.shell.run("time echo hi")
+        #expect(status == .success)
+        #expect(cap.stdout == "hi\n")
+        #expect(cap.stderr.contains("real"))
+        #expect(cap.stderr.contains("user"))
+        #expect(cap.stderr.contains("sys"))
+    }
+
+    @Test func timeKeywordInsideGroup() async throws {
+        // The exact construct from the bug report.
+        let cap = makeShell()
+        let status = try await cap.shell.run("{ time sleep 0.02; }")
+        #expect(status == .success)
+        #expect(cap.stderr.contains("real"))
+    }
+
+    @Test func timeKeywordTimesWholePipeline() async throws {
+        let cap = makeShell()
+        let status = try await cap.shell.run("time echo a | wc -c")
+        #expect(status == .success)
+        #expect(cap.stdout.contains("2"))
+        #expect(cap.stderr.contains("real"))
+    }
+
+    @Test func timeKeywordPosixFlagIsDropped() async throws {
+        // `-p` / `--` are accepted and dropped, not run as a command.
+        let cap = makeShell()
+        let status = try await cap.shell.run("time -p echo hi")
+        #expect(status == .success)
+        #expect(cap.stdout == "hi\n")
+    }
+
+    @Test func timeKeywordPropagatesFailure() async throws {
+        let cap = makeShell()
+        let status = try await cap.shell.run("time false")
+        #expect(status == .failure)
+        #expect(cap.stderr.contains("real"))
+    }
 }
