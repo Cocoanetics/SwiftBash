@@ -66,8 +66,21 @@ extension Shell {
         }
     }
 
+    /// Seed a `bash` entry at ``virtualPID`` in ``processTable`` the
+    /// first time the shell runs, so `ps` lists the shell itself and
+    /// `pgrep bash` matches — the table otherwise only holds `&` jobs.
+    /// Idempotent; a no-op after the first call.
+    func ensureSelfProcessRegistered() async {
+        guard !selfProcessSeeded else { return }
+        selfProcessSeeded = true
+        await processTable.register(command: "bash", pid: virtualPID)
+    }
+
     private func runImpl(_ parts: [Node],
                          source: String) async throws -> ExitStatus {
+        // Make the shell itself visible to `ps` / `pgrep` (seeded once).
+        await ensureSelfProcessRegistered()
+
         let saved = currentSource
         currentSource = source
         defer { currentSource = saved }
