@@ -173,6 +173,13 @@ extension Shell {
         registerSwiftPortsCommands()
         #endif
 
+        // sqlite3 — registered unconditionally (Android included). It drives
+        // SwiftPorts' ArgumentParser-free `Sqlite3Shell` via a native
+        // ShellKit command rather than the Android-dropped `*Command`
+        // layer, so it builds and runs on every platform. See
+        // `Shell+Sqlite3.swift`.
+        registerSqlite3()
+
         // fgrep / egrep are thin grep aliases. Resolve `grep` from the
         // *running* shell rather than capturing the registering shell —
         // works correctly inside subshells too, and avoids reference
