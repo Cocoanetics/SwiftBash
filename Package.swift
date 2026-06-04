@@ -76,7 +76,10 @@ let swiftPortsCommandProducts: [Target.Dependency] = buildingForAndroid ? [] : [
     .product(name: "Lz4Command", package: "SwiftPorts"),
     .product(name: "RgCommand", package: "SwiftPorts"),
     .product(name: "FdCommand", package: "SwiftPorts"),
-    .product(name: "Sqlite3Command", package: "SwiftPorts"),
+    // NB: sqlite3 is NOT here. It's registered from the
+    // ArgumentParser-free `Sqlite3Shell` product (a direct, unconditional
+    // BashCommandKit dependency below) so the `sqlite3` builtin works on
+    // Android too — see `Shell+Sqlite3.swift`.
 ]
 
 var products: [Product] = [
@@ -192,8 +195,14 @@ let package = Package(
                 "BashInterpreter",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
-                // The SwiftPorts CLI family (jq / gh / glab / git / the
-                // archive + compression set / rg / fd / sqlite3),
+                // sqlite3's shell driver — SwiftPorts' ArgumentParser-free
+                // `Sqlite3Shell` (Parser + `Sqlite3Executable`). Depended on
+                // unconditionally (incl. Android): it builds wherever
+                // SQLiteKit does, and `Shell+Sqlite3.swift` registers the
+                // `sqlite3` builtin from it via a native ShellKit command.
+                .product(name: "Sqlite3Shell", package: "SwiftPorts"),
+                // The rest of the SwiftPorts CLI family (jq / gh / glab /
+                // git / the archive + compression set / rg / fd),
                 // registered as builtins by `registerSwiftPortsCommands()`.
                 // Each reads/writes through `Shell.current`, so pipes /
                 // redirection / `$(...)` capture all just work. The list

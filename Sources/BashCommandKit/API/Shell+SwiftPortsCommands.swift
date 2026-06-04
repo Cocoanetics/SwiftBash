@@ -21,7 +21,6 @@ import GzipCommand
 import JqCommand
 import Lz4Command
 import RgCommand
-import Sqlite3Command
 import TarCommand
 import UnzipCommand
 import XzCommand
@@ -101,14 +100,12 @@ extension Shell {
         // convention used for the rest of the SwiftPorts surface.
         install(FdCommand.self, at: "/usr/local/bin/fd")
 
-        // sqlite3 — SwiftPorts' SQLite shell port over the vendored
-        // CSQLite amalgamation. Like fd, it isn't in ShellKit's
-        // BinCatalog, so use the explicit-path overload (real macOS
-        // ships it at /usr/bin/sqlite3); bare install(_:) would trap.
-        // The registry-driven BinCatalogOverlay surfaces it under
-        // /usr/bin from this install alone, so `ls`/`[ -x ]`/presence
-        // checks work without any BinCatalog (ShellKit) change.
-        install(Sqlite3.self, at: "/usr/bin/sqlite3")
+        // NB: `sqlite3` is registered separately by `registerSqlite3()`
+        // (called unconditionally from `registerStandardCommands()`), not
+        // here. It drives SwiftPorts' ArgumentParser-free `Sqlite3Shell`
+        // through a native ShellKit command, so it works on Android too —
+        // unlike this `#if !os(Android)`-gated family. See
+        // `Shell+Sqlite3.swift`.
 
         // Archive family.
         install(TarCommand.self)
