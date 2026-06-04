@@ -81,6 +81,10 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
     var allMountVirtuals: [String] { mounts.map(\.virtual) }
 
+    /// Mount table ordered by virtual path, for display by a `mount`
+    /// command (`mounts` is sorted longest-prefix first internally).
+    public var mountList: [Mount] { mounts.sorted { $0.virtual < $1.virtual } }
+
     // MARK: - Mount lookup
 
     /// Translate a virtual path to a host path, or return `nil` when
