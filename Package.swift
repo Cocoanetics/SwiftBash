@@ -43,6 +43,42 @@ let swiftPortsPlatforms: [Platform] = [
     .macOS, .iOS, .tvOS, .watchOS, .visionOS, .linux, .windows,
 ]
 
+// `swift build` runs with TARGET_OS_ANDROID=1 under
+// skiptools/swift-android-action when cross-compiling for Android. A
+// manifest `#if os(Android)` can't detect that — it reflects the HOST
+// running the manifest, not the build target — so key off the env var,
+// exactly as SwiftPorts' own Package.swift does.
+let buildingForAndroid = Context.environment["TARGET_OS_ANDROID"] == "1"
+
+// SwiftPorts' ArgumentParser-based `*Command` library products, which
+// `registerSwiftPortsCommands()` installs as builtins. SwiftPorts drops
+// this whole layer on Android — a spurious Android <-> ArgumentParser
+// explicit-module scanner cycle (an upstream toolchain bug, see
+// SwiftPorts `Docs/Android.md`), NOT a C-library problem: the SDK libs
+// (incl. SQLiteKit / libgit2) do build there. Because SwiftPorts doesn't
+// vend these products on Android, a plain `.when(platforms:)` condition
+// isn't enough — SwiftPM still validates the reference and fails with
+// "product '…' not found in package 'SwiftPorts'". Our
+// `Shell+SwiftPortsCommands` surface is already `#if !os(Android)`, so on
+// Android we reference none of them; drop the list from the graph too.
+let swiftPortsCommandProducts: [Target.Dependency] = buildingForAndroid ? [] : [
+    .product(name: "JqCommand", package: "SwiftPorts"),
+    .product(name: "GhCommand", package: "SwiftPorts"),
+    .product(name: "GlabCommand", package: "SwiftPorts"),
+    .product(name: "GitCommand", package: "SwiftPorts"),
+    .product(name: "TarCommand", package: "SwiftPorts"),
+    .product(name: "ZipCommand", package: "SwiftPorts"),
+    .product(name: "UnzipCommand", package: "SwiftPorts"),
+    .product(name: "GzipCommand", package: "SwiftPorts"),
+    .product(name: "Bzip2Command", package: "SwiftPorts"),
+    .product(name: "XzCommand", package: "SwiftPorts"),
+    .product(name: "ZstdCommand", package: "SwiftPorts"),
+    .product(name: "Lz4Command", package: "SwiftPorts"),
+    .product(name: "RgCommand", package: "SwiftPorts"),
+    .product(name: "FdCommand", package: "SwiftPorts"),
+    .product(name: "Sqlite3Command", package: "SwiftPorts"),
+]
+
 var products: [Product] = [
     .library(name: "BashSyntax", targets: ["BashSyntax"]),
     .library(name: "BashInterpreter", targets: ["BashInterpreter"]),
@@ -156,63 +192,13 @@ let package = Package(
                 "BashInterpreter",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
-                // SwiftPorts ships these AsyncParsableCommand types
-                // as library products — we register them as builtins
-                // via `Shell+SwiftPortsCommands.registerSwiftPortsCommands()`.
-                // Each one reads/writes through `Shell.current`, so
-                // pipes / redirection / `$(...)` capture all just work.
-                //
-                // Gated off on Android: SwiftPorts' transitive C
-                // graph (libgit2, BoringSSL, swift-archive, the
-                // systemLibrary pkg-config shims) emits
-                // unconditional `-lz` / `-ldl` plus host-pkg-config
-                // search paths on Android, which pulls
-                // `/lib/x86_64-linux-gnu/` onto ld.lld and breaks
-                // Bionic libc symbol resolution at link time. Until
-                // that's resolved upstream, SwiftBash on Android
-                // ships without the SwiftPorts CLIs (the bash
-                // interpreter + native command surface still work).
-                .product(name: "JqCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "GhCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "GlabCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "GitCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "TarCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "ZipCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "UnzipCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "GzipCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "Bzip2Command", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "XzCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "ZstdCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "Lz4Command", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                // RipgrepKit / FdKit — pure-Swift ports of ripgrep
-                // and fd. Their `RgCommand` / `FdCommand` library
-                // products expose ParsableCommand types we register as
-                // builtins; supersedes BashCommandKit's local
-                // `RgCommand` (which lacked .gitignore, -F, parent
-                // walk, etc.).
-                .product(name: "RgCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                .product(name: "FdCommand", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-                // SQLiteKit — `sqlite3` shell port over the vendored
-                // SQLite amalgamation (CSQLite). Reads/writes DB files
-                // through `Shell.resolve`, so it honors the host's
-                // sandbox path mapping like the git / archive family.
-                .product(name: "Sqlite3Command", package: "SwiftPorts",
-                         condition: .when(platforms: swiftPortsPlatforms)),
-            ],
+                // The SwiftPorts CLI family (jq / gh / glab / git / the
+                // archive + compression set / rg / fd / sqlite3),
+                // registered as builtins by `registerSwiftPortsCommands()`.
+                // Each reads/writes through `Shell.current`, so pipes /
+                // redirection / `$(...)` capture all just work. The list
+                // is empty on Android — see `swiftPortsCommandProducts`.
+            ] + swiftPortsCommandProducts,
             path: "Sources/BashCommandKit"
         ),
         .executableTarget(
