@@ -18,10 +18,10 @@ import ShellKit
 /// - ``Executable/name(_:)`` is looked up by the supplied name as-is.
 /// - ``Executable/path(_:)`` resolves only when the supplied path
 ///   matches the canonical bin location for the name in
-///   ``ShellKit/BinCatalog`` (so `/bin/echo` and `/usr/bin/jq`
+///   ``BinCatalog`` (so `/bin/echo` and `/usr/bin/jq`
 ///   resolve, but `/tmp/echo` doesn't — that one would be running
 ///   *some* file on disk under a different command shape, not the
-///   registered `echo`). Mirrors ``VirtualBinFileSystem``'s
+///   registered `echo`). Mirrors ``BinCatalogOverlay``'s
 ///   synthesized-file rule on the bash side.
 /// - A miss throws ``ProcessLaunchUnresolved`` — for SwiftBash that
 ///   means "command not found." Bash itself never composes through

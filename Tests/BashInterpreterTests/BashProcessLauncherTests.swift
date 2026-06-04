@@ -45,7 +45,7 @@ import Testing
     @Test func launcherDispatchesCanonicalBinPath() async throws {
         // `Executable.path("/bin/echo")` should reach the shell's
         // registered `echo` — that's the canonical bin path per
-        // `BinCatalog`, so it matches `VirtualBinFileSystem`'s
+        // `BinCatalog`, so it matches `BinCatalogOverlay`'s
         // synthesized-file rule on the bash side.
         let shell = Shell()
         shell.installShellBuiltin(name: "echo") { argv in

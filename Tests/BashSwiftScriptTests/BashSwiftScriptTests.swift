@@ -297,7 +297,7 @@ import ShellKit
         // `BashProcessLauncher` against `BinCatalog.knownPaths` — the
         // canonical path matches, so it dispatches to the registered
         // `echo` builtin (not the host'shell `/bin/echo`). Mirrors the
-        // `VirtualBinFileSystem` synthesized-file rule from the bash
+        // `BinCatalogOverlay` synthesized-file rule from the bash
         // side.
         //
         // To make the routing visible (host `/bin/echo` produces
