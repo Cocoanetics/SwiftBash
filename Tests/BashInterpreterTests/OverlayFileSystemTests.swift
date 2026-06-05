@@ -23,6 +23,57 @@ import Foundation
         #expect(entries.contains("usr"))
     }
 
+    /// Full iBash composition: an `OverlayFileSystem` wrapping a
+    /// `MountedFileSystem` (`/` read-only, `/home`, `/tmp`) plus the
+    /// BinCatalog overlay and a `/examples` HostDirectory overlay. `ls
+    /// /` must surface the overlay roots (`bin`, `usr`, `examples`) AND
+    /// every mount point — including `/tmp`, whose host dir lives
+    /// OUTSIDE the sandbox root and so is absent from the root's on-disk
+    /// listing. Regression guard for `ls /` omitting `tmp`.
+    @Test func ibashRootListingIncludesTmpMount() async throws {
+        let fileManager = FileManager.default
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+        let sandbox = base.appendingPathComponent("ibash-ov-\(UUID()).d")
+        let scratchTmp = base.appendingPathComponent("ibash-ov-tmp-\(UUID()).d")
+        let examples = base.appendingPathComponent("ibash-ov-ex-\(UUID()).d")
+        let home = sandbox.appendingPathComponent("home")
+        try fileManager.createDirectory(
+            at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: scratchTmp, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: examples, withIntermediateDirectories: true)
+        try "echo hi\n".write(to: examples.appendingPathComponent("hello.sh"),
+                              atomically: true, encoding: .utf8)
+        defer {
+            try? fileManager.removeItem(at: sandbox)
+            try? fileManager.removeItem(at: scratchTmp)
+            try? fileManager.removeItem(at: examples)
+        }
+
+        let mounted = MountedFileSystem(
+            mounts: [
+                .init(virtual: "/", host: sandbox.path, readOnly: true),
+                .init(virtual: "/home", host: home.path),
+                .init(virtual: "/tmp", host: scratchTmp.path)
+            ],
+            backing: RealFileSystem())
+        let fileSystem = OverlayFileSystem(
+            backing: mounted,
+            providers: [
+                BinCatalogOverlay(),
+                HostDirectoryOverlay(virtualRoot: "/examples", hostRoot: examples)
+            ])
+        let shell = Shell(fileSystem: fileSystem)
+        let entries = try await shell.withCurrent {
+            try await shell.fileSystem.list("/").map(\.name).sorted()
+        }
+        for expected in ["bin", "examples", "home", "tmp", "usr"] {
+            #expect(entries.contains(expected),
+                    "ls / should list \(expected); got \(entries)")
+        }
+    }
+
     @Test func usrListingShowsBinAndLocal() async throws {
         let shell = Shell(fileSystem: InMemoryFileSystem())
         let entries = try await shell.withCurrent {
