@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import Foundation
 
 /// A `FileSystem` that presents a virtual root (`/`) backed by one or
@@ -250,7 +251,9 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         } catch FileSystemError.notFound {
             return nil
         }
-        return try await backing.metadata(host)
+        // Ownership boundary: virtualize uid/gid to the shell identity.
+        let id = Shell.bashCurrent.hostInfo
+        return try await backing.metadata(host)?.withOwnership(uid: id.uid, gid: id.gid)
     }
 
     public func list(_ path: String) async throws -> [FileEntry] {
@@ -258,7 +261,18 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         if synthesizedAncestors.contains(std) {
             return synthesizedChildren(of: std)
         }
-        return try await backing.list(try await gateRead(path))
+        let entries = try await backing.list(try await gateRead(path))
+        // Ownership boundary: virtualize each entry's uid/gid to the
+        // shell identity, exactly as `metadata(_:)` does. `FileEntry`
+        // carries `FileMetadata` so callers (`ls -l`, `find`) read
+        // ownership straight from the listing without a follow-up stat —
+        // that path must not surface the host inode's ids either.
+        let id = Shell.bashCurrent.hostInfo
+        return entries.map {
+            FileEntry(name: $0.name,
+                      metadata: $0.metadata.withOwnership(uid: id.uid,
+                                                          gid: id.gid))
+        }
     }
 
     public func canonicalize(_ path: String,
