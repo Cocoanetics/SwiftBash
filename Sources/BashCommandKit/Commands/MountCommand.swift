@@ -5,13 +5,15 @@ import BashInterpreter
 ///
 /// SwiftBash has no host mount table; this lists the
 /// ``MountedFileSystem`` entries the embedder wired up — each virtual
-/// prefix, the host directory backing it, and whether it's read-only —
-/// in a `mount`-style line:
+/// prefix and whether it's read-only — in a `mount`-style line. The
+/// host directory backing each mount is deliberately **not** shown, so
+/// host paths stay out of the sandbox (matching `pwd` / `realpath` /
+/// diagnostics); the device column is a synthetic `sandbox` label:
 ///
 /// ```
-/// /private/tmp/sandbox on / type sandbox (ro)
-/// /private/tmp/sandbox/home on /home type sandbox (rw)
-/// /private/tmp/scratch on /tmp type sandbox (rw)
+/// sandbox on / type sandbox (ro)
+/// sandbox on /home type sandbox (rw)
+/// sandbox on /tmp type sandbox (rw)
 /// ```
 ///
 /// Operands are accepted and ignored — this is a read-only view of the
@@ -33,10 +35,29 @@ public struct MountCommand: ParsableBashCommand {
             of: Shell.bashCurrent.fileSystem) else {
             return .success
         }
-        for mount in mounted.mountList {
+        let table = mounted.mountList
+        var seen = Set<String>()
+        for mount in table {
+            // Resolve the mountpoint to its virtual spelling before
+            // printing. Some mounts exist only as a real-path alias: the
+            // CLI mounts `$TMPDIR`'s host path (e.g. `/var/folders/…/T`)
+            // next to `/tmp` so `$TMPDIR` resolves, and printing that
+            // virtual verbatim would leak a host path. When another mount
+            // exposes this one's `virtual` (itself a host path) under a
+            // cleaner name, print that name; the de-dup below then folds
+            // the alias into `/tmp`. A genuine `/tmp → /tmp` mount (Linux,
+            // where `NSTemporaryDirectory()` normalises to `/tmp`) has no
+            // such alias and stays visible.
+            let mountPoint = table.first {
+                $0.host == mount.virtual && $0.virtual != mount.virtual
+            }?.virtual ?? mount.virtual
+            guard seen.insert(mountPoint).inserted else { continue }
             let options = mount.readOnly ? "ro" : "rw"
+            // Synthetic `sandbox` device — never the real `mount.host`
+            // backing path, which would leak the host workspace / temp
+            // container path into the sandbox.
             Shell.bashCurrent.stdout(
-                "\(mount.host) on \(mount.virtual) type sandbox (\(options))\n")
+                "sandbox on \(mountPoint) type sandbox (\(options))\n")
         }
         return .success
     }

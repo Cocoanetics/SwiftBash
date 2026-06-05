@@ -17,21 +17,22 @@ extension Shell {
     // local to the closure that captures it.
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     func executePipeline(parts: [Node]) async throws -> ExitStatus {
+        // Strip leading reserved-word prefixes — `time` (measures the
+        // whole pipeline; `-p`/`--` already dropped by the parser) and
+        // `!` (inverts the final status). They may appear in either
+        // order (`time ! …`, `! time …`).
         var index = 0
         var invert = false
         var timed = false
-        // `time` reserved word — measures the whole pipeline. (`-p`/`--`
-        // were dropped by the parser; we emit one real/user/sys block.)
-        if index < parts.count,
-           case .reservedWord(let word) = parts[index].kind, word == "time" {
-            timed = true
-            index += 1
-        }
-        // Optional leading `!` that inverts the final exit status.
-        if index < parts.count,
-           case .reservedWord(let word) = parts[index].kind, word == "!" {
-            invert = true
-            index += 1
+        prefixLoop: while index < parts.count {
+            guard case .reservedWord(let word) = parts[index].kind else {
+                break
+            }
+            switch word {
+            case "time": timed = true; index += 1
+            case "!": invert = true; index += 1
+            default: break prefixLoop
+            }
         }
 
         var stages: [Node] = []

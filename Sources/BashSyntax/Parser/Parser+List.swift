@@ -105,31 +105,38 @@ extension Parser {
     // MARK: Pipeline + bang
 
     func parsePipelineCommand() throws -> Node {
-        // Reserved-word prefixes, in bash order: `time [-p] [--]` then
-        // an optional `!`. `time` measures the whole pipeline; its
-        // `-p` / `--` companions are accepted and dropped (we emit one
-        // real/user/sys block regardless of the POSIX-format request).
+        // Reserved-word prefixes: `time [-p] [--]` and `!`. bash nests
+        // them recursively, so they appear in either order (`time ! …`
+        // and `! time …` both parse). Consume at most one of each, in
+        // whatever order they arrive. `time`'s `-p` / `--` companions are
+        // accepted and dropped (we emit one real/user/sys block anyway).
         var prefix: [Node] = []
-        if peek().type == .timeKw {
-            let token = try next()
-            prefix.append(Node(kind: .reservedWord(token.value),
-                               range: token.range))
-            // `-p` (POSIX format) then `--` (end of options), in bash
-            // order. The tokenizer emits these as plain words; accept
-            // and drop them — we emit one real/user/sys block anyway.
-            if peek().type == .timeOpt
-                || (peek().type == .word && peek().value == "-p") {
-                _ = try next()
+        var sawTime = false
+        var sawBang = false
+        while true {
+            if !sawTime, peek().type == .timeKw {
+                sawTime = true
+                let token = try next()
+                prefix.append(Node(kind: .reservedWord(token.value),
+                                   range: token.range))
+                if peek().type == .timeOpt
+                    || (peek().type == .word && peek().value == "-p") {
+                    _ = try next()
+                }
+                if peek().type == .timeIgn
+                    || (peek().type == .word && peek().value == "--") {
+                    _ = try next()
+                }
+                continue
             }
-            if peek().type == .timeIgn
-                || (peek().type == .word && peek().value == "--") {
-                _ = try next()
+            if !sawBang, peek().type == .bang {
+                sawBang = true
+                let token = try next()
+                prefix.append(Node(kind: .reservedWord(token.value),
+                                   range: token.range))
+                continue
             }
-        }
-        if peek().type == .bang {
-            let token = try next()
-            prefix.append(Node(kind: .reservedWord(token.value),
-                               range: token.range))
+            break
         }
 
         let pipe = try parsePipeline()

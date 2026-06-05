@@ -54,4 +54,26 @@ import Foundation
         try await cap.shell.run("printf 'hello' | od -A n -t x1")
         #expect(cap.stdout == " 68 65 6c 6c 6f\n")
     }
+
+    @Test func multipleFilesConcatenate() async throws {
+        // GNU od concatenates multiple operands — `od a b` must not
+        // silently drop `a` and dump only `b`.
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try Data([0x41]).write(to: URL(fileURLWithPath: dir + "/a"))
+        try Data([0x42]).write(to: URL(fileURLWithPath: dir + "/b"))
+        try await cap.shell.run("od -An -tx1 a b")
+        #expect(cap.stdout == " 41 42\n")
+    }
+
+    @Test func dumpsReadableOperandsThenErrorsOnMissing() async throws {
+        // A bad trailing operand must not discard output already read
+        // from an earlier one: `od good missing` dumps `good`, reports
+        // the error on stderr, and exits non-zero (GNU od).
+        let (cap, dir) = try makeShell(); defer { cleanup(dir) }
+        try Data([0x41]).write(to: URL(fileURLWithPath: dir + "/good"))
+        let status = try await cap.shell.run("od -An -tx1 good missing")
+        #expect(cap.stdout == " 41\n")
+        #expect(status == .failure)
+        #expect(cap.stderr.contains("missing"))
+    }
 }
