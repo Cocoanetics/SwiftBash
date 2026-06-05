@@ -39,19 +39,9 @@ public struct OdCommand: ParsableBashCommand {
     public mutating func execute() async throws -> ExitStatus {
         guard let options = parseArguments() else { return ExitStatus(1) }
 
-        let data: Data
-        if let file = options.file, file != "-" {
-            do {
-                data = try await Shell.bashCurrent.readDataAtPath(file)
-            } catch {
-                Shell.bashCurrent.stderr("od: \(file): \(error)\n")
-                return .failure
-            }
-        } else {
-            data = await Shell.bashCurrent.stdin.readAllData()
-        }
+        let input = await readInput(options.files)
 
-        var bytes = [UInt8](data)
+        var bytes = [UInt8](input.data)
         if let limit = options.readLimit { bytes = Array(bytes.prefix(limit)) }
 
         // `-t` selects the GNU-style typed renderer; otherwise fall
@@ -62,7 +52,38 @@ public struct OdCommand: ParsableBashCommand {
             try renderLegacy(bytes: bytes, mode: options.mode,
                              radix: options.radix)
         }
-        return .success
+        // Dump whatever was read, then report failure if any operand was
+        // unreadable — a bad trailing path must not discard valid output
+        // already accepted from earlier operands (GNU od).
+        return input.allRead ? .success : .failure
+    }
+
+    /// Read all operands concatenated (GNU od); an empty list or `-`
+    /// means stdin. On a read failure it emits a diagnostic, skips that
+    /// operand, and keeps going, so bytes already read from earlier (and
+    /// later readable) operands are still returned. `ok` is false when
+    /// any operand failed.
+    private func readInput(_ files: [String]) async
+        -> (data: Data, allRead: Bool) {
+        if files.isEmpty {
+            return (await Shell.bashCurrent.stdin.readAllData(), true)
+        }
+        var combined = Data()
+        var allRead = true
+        for file in files {
+            if file == "-" {
+                combined.append(await Shell.bashCurrent.stdin.readAllData())
+                continue
+            }
+            do {
+                combined.append(
+                    try await Shell.bashCurrent.readDataAtPath(file))
+            } catch {
+                Shell.bashCurrent.stderr("od: \(file): \(error)\n")
+                allRead = false
+            }
+        }
+        return (combined, allRead)
     }
 
     // MARK: - Argument parsing
@@ -72,12 +93,12 @@ public struct OdCommand: ParsableBashCommand {
         var radix: AddressRadix = .octal
         var readLimit: Int?
         var type: OdOutputType?
-        var file: String?
+        var files: [String] = []
     }
 
     // Scan `rawArgv`. Emits a diagnostic and returns `nil` on any bad
     // option (the caller then exits 1).
-    // swiftlint:disable:next cyclomatic_complexity
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func parseArguments() -> Options? {
         var options = Options()
         var index = 0
@@ -85,7 +106,9 @@ public struct OdCommand: ParsableBashCommand {
             let arg = rawArgv[index]
             if arg == "--" {
                 index += 1
-                if index < rawArgv.count { options.file = rawArgv[index] }
+                while index < rawArgv.count {
+                    options.files.append(rawArgv[index]); index += 1
+                }
                 break
             }
             switch arg {
@@ -122,7 +145,7 @@ public struct OdCommand: ParsableBashCommand {
                 options.type = type; index += match.advance; continue
             }
             if arg == "-" || !arg.hasPrefix("-") {
-                options.file = arg; index += 1; continue
+                options.files.append(arg); index += 1; continue
             }
             Shell.bashCurrent.stderr("od: invalid option: \(arg)\n")
             return nil

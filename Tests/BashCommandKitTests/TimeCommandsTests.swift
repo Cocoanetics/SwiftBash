@@ -91,4 +91,15 @@ import Foundation
         #expect(status == .failure)
         #expect(cap.stderr.contains("real"))
     }
+
+    @Test func timeKeywordInversionEitherOrder() async throws {
+        // `! time …` and `time ! …` both parse; both time the pipeline
+        // and invert the status (false → success).
+        for line in ["! time false", "time ! false"] {
+            let cap = makeShell()
+            let status = try await cap.shell.run(line)
+            #expect(status == .success, "\(line)")
+            #expect(cap.stderr.contains("real"), "\(line)")
+        }
+    }
 }
