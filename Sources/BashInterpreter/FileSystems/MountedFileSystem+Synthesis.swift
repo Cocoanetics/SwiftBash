@@ -27,9 +27,12 @@ extension MountedFileSystem {
         return ancestors
     }
 
-    /// Direct child names that synthesised ancestor `parent` should
-    /// expose — the first path component of every mount whose virtual
-    /// path lies under `parent`, deduplicated.
+    /// Direct child names `parent` should expose by virtue of the mount
+    /// table — the first path component of every mount (and synthesised
+    /// ancestor) whose virtual path lies under `parent`, deduplicated.
+    /// Used both for a fully-synthesised ancestor (which has no backing
+    /// directory of its own) and to fold cross-store mount points into a
+    /// concrete mount's host listing (so `/tmp` shows up under `ls /`).
     func synthesizedChildren(of parent: String) -> [FileEntry] {
         let prefix = parent == "/" ? "/" : parent + "/"
         var seen: Set<String> = []

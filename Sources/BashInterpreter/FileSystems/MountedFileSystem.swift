@@ -261,7 +261,21 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         if synthesizedAncestors.contains(std) {
             return synthesizedChildren(of: std)
         }
-        let entries = try await backing.list(try await gateRead(path))
+        // Concrete mount (or a directory inside one): list its backing
+        // host directory, then fold in any child mount points whose
+        // parent is this directory. A mount whose host target lives
+        // OUTSIDE this directory's backing store never appears in the
+        // host listing — the canonical case being `/tmp` mapped to the
+        // OS temp dir, which made `ls /` omit `tmp` even though `cd
+        // /tmp` and `ls /tmp` already worked. Dedupe by name so a mount
+        // that *does* coincide with a real on-disk entry (`/home` →
+        // `<root>/home`) isn't listed twice.
+        var entries = try await backing.list(try await gateRead(path))
+        let present = Set(entries.map(\.name))
+        for child in synthesizedChildren(of: std)
+        where !present.contains(child.name) {
+            entries.append(child)
+        }
         // Ownership boundary: virtualize each entry's uid/gid to the
         // shell identity, exactly as `metadata(_:)` does. `FileEntry`
         // carries `FileMetadata` so callers (`ls -l`, `find`) read

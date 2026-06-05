@@ -59,6 +59,65 @@ struct MountedFileSystemTests {
         #expect(lines.contains("home"))
     }
 
+    @Test("`ls /` surfaces a cross-store mount point (`/tmp`)")
+    func lsRootShowsTmpMount() async throws {
+        let bench = try makeBench()
+        defer {
+            try? FileManager.default.removeItem(at: bench.sandboxRoot)
+            try? FileManager.default.removeItem(at: bench.tmpRoot)
+        }
+
+        // `/tmp` is mounted to a host dir OUTSIDE the sandbox root, so it
+        // never appears in the root's on-disk listing. It should still
+        // show up as a child of `/` by virtue of the mount table.
+        let entries = try await bench.cap.shell.fileSystem.list("/")
+            .map(\.name)
+        #expect(entries.contains("tmp"))
+        let tmp = try #require(try await bench.cap.shell.fileSystem
+            .list("/").first { $0.name == "tmp" })
+        #expect(tmp.metadata.kind == .directory)
+
+        // And it's traversable / listable, not just a name.
+        let status = try await bench.cap.shell.run(
+            "echo hi > /tmp/probe.txt; ls /tmp")
+        #expect(status == .success)
+        #expect(bench.cap.stdout.split(separator: "\n").map(String.init)
+            .contains("probe.txt"))
+    }
+
+    @Test("a mount whose host lives on disk isn't double-listed")
+    func mountNotDoubledWhenOnDisk() async throws {
+        // Mirror iBash's layout: `/home` is a mount pointing at
+        // `<root>/home`, which also physically exists on disk. The
+        // mount-point folding must dedupe it so `ls /` shows `home`
+        // exactly once (it's both a real backing entry AND a child
+        // mount).
+        let sandbox = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ibash-mount-\(UUID().uuidString)")
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ibash-mount-tmp-\(UUID().uuidString)")
+        let home = sandbox.appendingPathComponent("home")
+        try FileManager.default.createDirectory(
+            at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: sandbox)
+            try? FileManager.default.removeItem(at: tmp)
+        }
+
+        let mounted = MountedFileSystem(
+            mounts: [
+                .init(virtual: "/", host: sandbox.path),
+                .init(virtual: "/home", host: home.path),
+                .init(virtual: "/tmp", host: tmp.path)
+            ],
+            backing: RealFileSystem())
+        let names = try await mounted.list("/").map(\.name)
+        #expect(names.filter { $0 == "home" }.count == 1)
+        #expect(names.contains("tmp"))
+    }
+
     @Test("`/tmp/foo` writes go to the tmp mount, not the root")
     func tmpMountIsSeparate() async throws {
         let bench = try makeBench()
