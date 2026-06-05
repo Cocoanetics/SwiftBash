@@ -290,6 +290,17 @@ public struct FileMetadata: Sendable, Equatable, Hashable {
         self.accessedAt = accessedAt ?? modifiedAt
         self.createdAt = createdAt ?? modifiedAt
     }
+
+    /// A copy with ownership remapped. Virtualizing layers (e.g.
+    /// ``MountedFileSystem``) use this to report a synthetic identity
+    /// instead of the backing inode's real uid/gid, so a sandboxed
+    /// `stat` / `find` never surfaces the host's ids.
+    public func withOwnership(uid: UInt32, gid: UInt32) -> FileMetadata {
+        FileMetadata(kind: kind, size: size, modifiedAt: modifiedAt,
+                     symlinkTarget: symlinkTarget, mode: mode,
+                     uid: uid, gid: gid, linkCount: linkCount,
+                     accessedAt: accessedAt, createdAt: createdAt)
+    }
 }
 
 // MARK: Errors
