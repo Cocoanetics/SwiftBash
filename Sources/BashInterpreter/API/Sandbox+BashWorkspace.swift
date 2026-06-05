@@ -33,11 +33,26 @@ extension ShellKit.Sandbox {
     /// temp dir (the same value `$TMPDIR` carries inside the sandbox)
     /// so ``Shell/temporaryDirectory`` agrees with bash, scripts using
     /// `$TMPDIR`, and FileManager-backed callers.
-    public static func bashWorkspace(workspace: String) -> ShellKit.Sandbox {
+    /// - Parameter temporaryDirectory: the host dir reported as
+    ///   ``Shell/temporaryDirectory``. Defaults to
+    ///   `NSTemporaryDirectory()` (the CLI's choice); an embedder that
+    ///   isolates `/tmp` per session (e.g. a per-document subdir) passes
+    ///   its own. The `/tmp` carve-out still covers it as long as it
+    ///   sits under one of the accepted temp prefixes.
+    /// - Parameter authorizeNetwork: embedder policy for non-file URLs
+    ///   (e.g. routing host access through a permission prompt) while
+    ///   still reusing this file-URL gate — `/tmp` carve-out included.
+    ///   When `nil`, non-file URLs are denied (the base gate's
+    ///   `allowedHosts: []`), matching the CLI's offline default.
+    public static func bashWorkspace(
+        workspace: String,
+        temporaryDirectory: URL? = nil,
+        authorizeNetwork: (@Sendable (URL) async throws -> Void)? = nil
+    ) -> ShellKit.Sandbox {
         let workspaceURL = URL(fileURLWithPath: workspace,
                                isDirectory: true)
-        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory(),
-                         isDirectory: true)
+        let tmpURL = temporaryDirectory
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let baseSandbox = ShellKit.Sandbox.rooted(
             at: workspaceURL,
             allowedHosts: [])
@@ -55,14 +70,23 @@ extension ShellKit.Sandbox {
             cachesDirectory: baseSandbox.cachesDirectory,
             homeDirectory: baseSandbox.homeDirectory,
             authorize: { url in
+                // Non-file URLs go through the embedder's network policy
+                // when supplied; otherwise the deny-all base gate stands.
+                guard url.isFileURL else {
+                    if let authorizeNetwork {
+                        try await authorizeNetwork(url)
+                    } else {
+                        try await baseSandbox.authorize(url)
+                    }
+                    return
+                }
                 do {
                     try await baseSandbox.authorize(url)
                 } catch let denial as ShellKit.Sandbox.Denial {
-                    guard url.isFileURL else { throw denial }
-                    // Unresolved virtual path must be under one of the
-                    // accepted temp prefixes. Compare against
-                    // `standardizedFileURL` so `/tmp/./foo` and
-                    // `/tmp/foo` agree.
+                    // File URL denied by the workspace root — allow it
+                    // only if it lands under an accepted temp prefix.
+                    // Compare against `standardizedFileURL` so
+                    // `/tmp/./foo` and `/tmp/foo` agree.
                     let unresolved = url.standardizedFileURL.path
                     guard Self.pathIsInTemp(unresolved) else { throw denial }
                     // Canonical (symlink-resolved) path must stay in a

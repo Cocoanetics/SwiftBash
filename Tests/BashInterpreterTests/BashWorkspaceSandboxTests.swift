@@ -141,4 +141,52 @@ import ShellKit
         let actual = sandbox.temporaryDirectory.standardizedFileURL.path
         #expect(actual == expected)
     }
+
+    @Test func temporaryDirectoryOverrideIsReported() async throws {
+        // An embedder (e.g. iBash, isolating /tmp per document) passes
+        // its own temp dir; the gate reports it, and a file URL under it
+        // is still authorized by the carve-out.
+        let custom = URL(fileURLWithPath: NSTemporaryDirectory(),
+                         isDirectory: true)
+            .appendingPathComponent("custom-\(UUID().uuidString)",
+                                    isDirectory: true)
+        let sandbox = ShellKit.Sandbox.bashWorkspace(
+            workspace: "/batch", temporaryDirectory: custom)
+        #expect(sandbox.temporaryDirectory.standardizedFileURL.path
+                == custom.standardizedFileURL.path)
+        try await sandbox.authorize(custom.appendingPathComponent("f"))
+    }
+
+    @Test func authorizeNetworkRoutesNonFileURLs() async throws {
+        let recorder = URLRecorder()
+        let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch") { url in
+            await recorder.record(url)
+        }
+        // Non-file URL → the embedder's closure handles it.
+        try await sandbox.authorize(URL(string: "https://api.example.com/x")!)
+        #expect(await recorder.hosts == ["api.example.com"])
+        // File URLs keep using the workspace + /tmp carve-out, never the
+        // network closure.
+        try await sandbox.authorize(URL(fileURLWithPath: "/batch/f"))
+        try await sandbox.authorize(URL(fileURLWithPath: "/tmp/f"))
+        #expect(await recorder.hosts.count == 1)
+    }
+
+    @Test func authorizeNetworkCanDeny() async throws {
+        struct Blocked: Error {}
+        let sandbox = ShellKit.Sandbox.bashWorkspace(workspace: "/batch") { _ in
+            throw Blocked()
+        }
+        await #expect(throws: Blocked.self) {
+            try await sandbox.authorize(
+                URL(string: "https://blocked.example/")!)
+        }
+        // …a /tmp file URL is still allowed (carve-out unaffected).
+        try await sandbox.authorize(URL(fileURLWithPath: "/tmp/ok"))
+    }
+}
+
+private actor URLRecorder {
+    private(set) var hosts: [String] = []
+    func record(_ url: URL) { hosts.append(url.host ?? "") }
 }
