@@ -62,24 +62,18 @@ let buildingForAndroid = Context.environment["TARGET_OS_ANDROID"] == "1"
 // `Shell+SwiftPortsCommands` surface is already `#if !os(Android)`, so on
 // Android we reference none of them; drop the list from the graph too.
 let swiftPortsCommandProducts: [Target.Dependency] = buildingForAndroid ? [] : [
-    .product(name: "JqCommand", package: "SwiftPorts"),
-    .product(name: "GhCommand", package: "SwiftPorts"),
-    .product(name: "GlabCommand", package: "SwiftPorts"),
-    .product(name: "GitCommand", package: "SwiftPorts"),
-    .product(name: "TarCommand", package: "SwiftPorts"),
-    .product(name: "ZipCommand", package: "SwiftPorts"),
-    .product(name: "UnzipCommand", package: "SwiftPorts"),
-    .product(name: "GzipCommand", package: "SwiftPorts"),
-    .product(name: "Bzip2Command", package: "SwiftPorts"),
-    .product(name: "XzCommand", package: "SwiftPorts"),
-    .product(name: "ZstdCommand", package: "SwiftPorts"),
-    .product(name: "Lz4Command", package: "SwiftPorts"),
-    .product(name: "RgCommand", package: "SwiftPorts"),
-    .product(name: "FdCommand", package: "SwiftPorts"),
-    // NB: sqlite3 is NOT here. It's registered from the
+    // SwiftPorts vends its whole ArgumentParser-backed CLI surface — jq, gh,
+    // glab, git, rg, fd, the archive + compression families — as ready-to-
+    // install ShellKit `Command`s behind one product. `Shell+SwiftPortsCommands`
+    // installs them as virtual bins; no bridging happens in SwiftBash. Gated to
+    // non-Android: the products are ArgumentParser-bearing and SwiftPorts'
+    // transitive C-library graph isn't Android-supported.
+    //
+    // NB: sqlite3 is NOT here. It's registered from SwiftPorts'
     // ArgumentParser-free `Sqlite3Shell` product (a direct, unconditional
     // BashCommandKit dependency below) so the `sqlite3` builtin works on
     // Android too — see `Shell+Sqlite3.swift`.
+    .product(name: "SwiftPortsCommands", package: "SwiftPorts"),
 ]
 
 var products: [Product] = [
@@ -143,15 +137,6 @@ let package = Package(
         // Pinned to `main` until SwiftPorts ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/SwiftPorts",
                  branch: "main"),
-        // SQLiteKit — the SQLite SDK and its ArgumentParser-free
-        // `Sqlite3Shell` CLI driver (the argv parser + dot-command / REPL
-        // engine). `Shell+Sqlite3.swift` registers the `sqlite3` builtin from
-        // `Sqlite3Shell` via a native ShellKit command, so it works on every
-        // platform — Android included. (The SDK was extracted from SwiftPorts;
-        // the shell driver followed it, so this is now a direct dependency.)
-        // Pinned to `main` until SQLiteKit ships a tagged release.
-        .package(url: "https://github.com/Cocoanetics/SQLiteKit",
-                 branch: "main"),
         // SwiftScript — Swift tree-walking interpreter that reads
         // its IO / FS / network / identity / exit through
         // `ShellKit.Shell.current`. The `BashSwiftScript` target
@@ -204,12 +189,13 @@ let package = Package(
                 "BashInterpreter",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
-                // sqlite3's shell driver — SQLiteKit's ArgumentParser-free
-                // `Sqlite3Shell` (Parser + `Sqlite3Executable`). Depended on
-                // unconditionally (incl. Android): it builds wherever the
-                // SQLiteKit SDK does, and `Shell+Sqlite3.swift` registers the
-                // `sqlite3` builtin from it via a native ShellKit command.
-                .product(name: "Sqlite3Shell", package: "SQLiteKit"),
+                // sqlite3's shell port — SwiftPorts' ArgumentParser-free
+                // `Sqlite3Shell` (Parser + `Sqlite3Executable` + the
+                // `Sqlite3Builtin` ShellKit command). Depended on
+                // unconditionally (incl. Android): being ArgumentParser-free it
+                // builds wherever its SQLiteKit-SDK + ShellKit subgraph does,
+                // and `Shell+Sqlite3.swift` installs the `sqlite3` builtin.
+                .product(name: "Sqlite3Shell", package: "SwiftPorts"),
                 // The rest of the SwiftPorts CLI family (jq / gh / glab /
                 // git / the archive + compression set / rg / fd),
                 // registered as builtins by `registerSwiftPortsCommands()`.

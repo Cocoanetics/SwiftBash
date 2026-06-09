@@ -64,7 +64,7 @@ enum BinCatalog {
         // user-installed). We slot them under /usr/local/bin so
         // their location matches the convention macOS users expect.
         for name in [
-            "rg", "yq",
+            "rg", "fd", "yq",
             // SwiftPorts CLI surface — git/gh/glab and the
             // compression family ship via the BashCommandKit /
             // SwiftPorts registration, but `which` and `compgen -c`

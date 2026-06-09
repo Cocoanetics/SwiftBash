@@ -82,12 +82,17 @@ import Foundation
             atPath: (dir as NSString).appendingPathComponent("data.db")))
     }
 
-    @Test func doubleDashVersionGivesUniformBanner() async throws {
+    @Test func doubleDashVersionMatchesRealSqlite3() async throws {
         let (cap, dir) = try makeShell(); defer { cleanup(dir) }
-        // `--version` (double dash) gets SwiftBash's uniform builtin banner,
-        // matching the ArgumentParser bridge the other commands route through.
+        // `--version` and `-version` both report the SQLite library version —
+        // exactly like the real sqlite3 CLI and the standalone SwiftPorts
+        // `sqlite3` executable. SwiftPorts' shell port owns this behavior;
+        // SwiftBash adds no `--version` banner of its own, it just installs the
+        // command. (Previously SwiftBash hijacked `--version` for a uniform
+        // "(SwiftBash) x.y.z" builtin banner — a deviation from real sqlite3.)
         try await cap.shell.run("sqlite3 --version")
-        #expect(cap.stdout == "sqlite3 (SwiftBash) \(SwiftBashVersion.packageVersion)\n")
+        #expect(cap.stdout.hasSuffix(" (64-bit)\n"))
+        #expect(!cap.stdout.contains("SwiftBash"))
     }
 
     @Test func singleDashVersionGivesSQLiteVersion() async throws {
