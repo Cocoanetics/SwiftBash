@@ -143,6 +143,15 @@ let package = Package(
         // Pinned to `main` until SwiftPorts ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/SwiftPorts",
                  branch: "main"),
+        // SQLiteKit — the SQLite SDK and its ArgumentParser-free
+        // `Sqlite3Shell` CLI driver (the argv parser + dot-command / REPL
+        // engine). `Shell+Sqlite3.swift` registers the `sqlite3` builtin from
+        // `Sqlite3Shell` via a native ShellKit command, so it works on every
+        // platform — Android included. (The SDK was extracted from SwiftPorts;
+        // the shell driver followed it, so this is now a direct dependency.)
+        // Pinned to `main` until SQLiteKit ships a tagged release.
+        .package(url: "https://github.com/Cocoanetics/SQLiteKit",
+                 branch: "main"),
         // SwiftScript — Swift tree-walking interpreter that reads
         // its IO / FS / network / identity / exit through
         // `ShellKit.Shell.current`. The `BashSwiftScript` target
@@ -195,12 +204,12 @@ let package = Package(
                 "BashInterpreter",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Crypto", package: "swift-crypto"),
-                // sqlite3's shell driver — SwiftPorts' ArgumentParser-free
+                // sqlite3's shell driver — SQLiteKit's ArgumentParser-free
                 // `Sqlite3Shell` (Parser + `Sqlite3Executable`). Depended on
-                // unconditionally (incl. Android): it builds wherever
-                // SQLiteKit does, and `Shell+Sqlite3.swift` registers the
+                // unconditionally (incl. Android): it builds wherever the
+                // SQLiteKit SDK does, and `Shell+Sqlite3.swift` registers the
                 // `sqlite3` builtin from it via a native ShellKit command.
-                .product(name: "Sqlite3Shell", package: "SwiftPorts"),
+                .product(name: "Sqlite3Shell", package: "SQLiteKit"),
                 // The rest of the SwiftPorts CLI family (jq / gh / glab /
                 // git / the archive + compression set / rg / fd),
                 // registered as builtins by `registerSwiftPortsCommands()`.
