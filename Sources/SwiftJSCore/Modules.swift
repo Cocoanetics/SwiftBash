@@ -70,39 +70,58 @@ extension JSRuntime {
             ?? (Shell.current === Shell.processDefault
                 ? FileManager.default.currentDirectoryPath
                 : Shell.current.environment.workingDirectory)
-        var resolved = (spec as NSString).hasPrefix("/")
+        let base = (spec as NSString).hasPrefix("/")
             ? spec
             : (basePath as NSString).appendingPathComponent(spec)
 
-        // Try `.js`, `.mjs`, `.cjs`, `.json` if the bare path doesn't
-        // exist (Node's resolution order). `.json` parsed below.
+        // Candidate spellings in Node's resolution order: the bare
+        // path, then the implicit extensions. Each is a script-visible
+        // (virtual) spelling — the cache key, `__filename` /
+        // `__dirname`, and the stack-frame source URL all carry it;
+        // its HOST translation (`Shell.resolve`; identity without a
+        // sandbox path mapping) drives the gate and disk access.
+        let cacheStore = context.objectForKeyedSubscript("__swiftjs_module_cache")
         let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: resolved) {
-            for ext in [".js", ".mjs", ".cjs", ".json"]
-            where fileManager.fileExists(atPath: resolved + ext) {
-                resolved += ext
-                break
+        let candidates = [base]
+            + [".js", ".mjs", ".cjs", ".json"].map { base + $0 }
+
+        var resolved = ""
+        var hostPath = ""
+        var found = false
+        for candidate in candidates {
+            // Cache hit short-circuits before any gate / disk touch —
+            // a cached module was authorized when first loaded.
+            if let cached = cacheStore?.objectForKeyedSubscript(candidate),
+               !cached.isUndefined, !cached.isNull {
+                return cached
             }
+            let candidateHost = ShellKit.Shell.current.resolve(candidate).path
+            // Authorize BEFORE probing the filesystem, and treat a
+            // denied candidate exactly like a missing one (keep
+            // looking, ultimately MODULE_NOT_FOUND). Probing first
+            // would `stat` through a workspace symlink that escapes
+            // the sandbox before the gate runs, letting a script tell
+            // an existing outside target from a missing one via the
+            // error shape (Codex P2 on #88). Folding deny into
+            // not-found closes that oracle: neither the gate result
+            // nor a stat reveals anything outside the namespace.
+            let authorized = (try? awaitSync {
+                try await authorizePath(candidateHost, for: .read)
+            }) != nil
+            guard authorized,
+                  fileManager.fileExists(atPath: candidateHost)
+            else { continue }
+            resolved = candidate
+            hostPath = candidateHost
+            found = true
+            break
+        }
+        guard found else {
+            return throwJSError("Cannot find module '\(spec)'",
+                                code: "MODULE_NOT_FOUND")
         }
 
-        // Cache check (use the resolved absolute path as the key).
-        if let cached = (context.objectForKeyedSubscript("__swiftjs_module_cache")?
-            .objectForKeyedSubscript(resolved)),
-           !cached.isUndefined, !cached.isNull {
-            return cached
-        }
-
-        // Sandbox gate: a `require('./secret')` is a read; route the
-        // resolved path through the bound shell's sandbox before we
-        // touch disk.
-        let gatedPath = resolved
-        do {
-            try awaitSync { try await authorizePath(gatedPath, for: .read) }
-        } catch {
-            return throwSandboxDenial(error, syscall: "open", path: gatedPath)
-        }
-
-        guard let source = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+        guard let source = try? String(contentsOfFile: hostPath, encoding: .utf8) else {
             return throwJSError("Cannot find module '\(spec)'", code: "MODULE_NOT_FOUND")
         }
 

@@ -94,12 +94,15 @@ import BashInterpreter
         #expect(String(bytes: backA, encoding: .utf8) == "A's secret\n")
     }
 
-    @Test func tmpSpellingsReachTheSameFiles() async throws {
-        // `$TMPDIR` carries the instance dir's host path; the mount
-        // table exposes that dir at virtual `/tmp` AND at its own host
-        // path. Both spellings must hit the same files — including on
-        // Linux, where the host path nests inside the `/tmp` mount and
-        // longest-prefix routing has to keep it from double-nesting.
+    @Test func bothFacadesReachTheSameTmpFiles() async throws {
+        // `$TMPDIR` carries the virtual `/tmp` spelling now (#83):
+        // bash translates it through the mount table (Facade A), and
+        // FileManager-backed callers translate the SAME spelling
+        // through `Shell.resolve` + the sandbox's path mapping
+        // (Facade B). Both must land on this instance's own temp dir
+        // — the pre-#83 identity mount (host path mounted at itself)
+        // is gone, so the host spelling no longer routes through the
+        // mount table at all.
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
@@ -109,9 +112,26 @@ import BashInterpreter
 
         try await fileSystem.writeData(
             Data("agree\n".utf8), to: "/tmp/agree.txt", append: false)
-        let viaHostSpelling = try await fileSystem.readData(
-            tempHost.appendingPathComponent("agree.txt").path)
-        #expect(String(bytes: viaHostSpelling, encoding: .utf8) == "agree\n")
+
+        // Facade B: resolve the virtual spelling on a shell carrying
+        // the same mapping, authorize it, and read with Foundation.
+        let shell = Shell(fileSystem: fileSystem)
+        shell.sandbox = .confined(to: fileSystem.mapping,
+                                  home: "/batch",
+                                  temporaryDirectory: tempHost)
+        let resolved = shell.resolve("/tmp/agree.txt")
+        #expect(resolved.path
+                == tempHost.appendingPathComponent("agree.txt").path)
+        try await shell.sandbox?.authorize(resolved)
+        let viaFoundation = try Data(contentsOf: resolved)
+        #expect(String(bytes: viaFoundation, encoding: .utf8) == "agree\n")
+
+        // The identity mount is retired: the mount table is just
+        // workspace + /tmp, and the host spelling doesn't resolve
+        // through the bash-side FS any more.
+        #expect(fileSystem.mountList.map(\.virtual).sorted()
+                == ["/batch", "/tmp"])
+        #expect(try await fileSystem.metadata(tempHost.path) == nil)
     }
 
     @Test func pathsOutsideMountsAreMissing() async throws {

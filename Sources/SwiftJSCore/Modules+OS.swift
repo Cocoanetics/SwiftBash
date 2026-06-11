@@ -34,8 +34,12 @@ extension JSRuntime {
         if Shell.current === Shell.processDefault {
             return NSHomeDirectory()
         }
-        if let sandboxHome = Shell.current.sandbox?.homeDirectory.path {
-            return sandboxHome
+        if let sandboxHome = Shell.current.sandbox?.homeDirectory {
+            // Region URLs are host-spelled (consumers hand them to
+            // Foundation); what the script SEES folds back to the
+            // virtual spelling under a path-mapped sandbox — the
+            // same answer `$HOME` carries.
+            return Shell.current.displayPath(for: sandboxHome)
         }
         return Shell.current.environment.variables["HOME"] ?? NSHomeDirectory()
     }
@@ -44,8 +48,13 @@ extension JSRuntime {
         if Shell.current === Shell.processDefault {
             return NSTemporaryDirectory()
         }
-        if let sandboxTmp = Shell.current.sandbox?.temporaryDirectory.path {
-            return sandboxTmp
+        if let sandboxTmp = Shell.current.sandbox?.temporaryDirectory {
+            // Fold the per-instance host dir back to `/tmp` under a
+            // path-mapped sandbox (#82 / #83): the host path must not
+            // leak, and anything the script does with the answer
+            // (`fs.writeFileSync(os.tmpdir() + "/x")`) re-translates
+            // through `resolveAgainstShellCWD` onto the same dir.
+            return Shell.current.displayPath(for: sandboxTmp)
         }
         return NSTemporaryDirectory()
     }
