@@ -214,22 +214,40 @@ import Foundation
         // able to address files through it. Facade A already ENOENTs
         // it (no mount matches); Facade B's resolve voids it so the
         // gate denies — the two doors agree.
+        //
+        // This test's mounts deliberately avoid virtual `/tmp`: on
+        // Linux the platform temp root IS `/tmp`, so the host
+        // spelling of a dir under it would prefix-match a virtual
+        // `/tmp` mount and translate as an ordinary virtual path —
+        // landing inside the mount's own backing (harmless, but not
+        // the no-mount-matches contract under test).
         let fixture = try Self.makeFixture()
         defer { fixture.cleanup() }
-        try await fixture.shell.fileSystem.writeData(
-            Data("secret\n".utf8), to: "/batch/secret.txt", append: false)
+        let mapping = PathMapping(mounts: [
+            .init(virtual: "/work", host: fixture.workspace.path),
+            .init(virtual: "/scratch", host: fixture.temp.path)
+        ])
+        var env = Environment()
+        env.workingDirectory = "/work"
+        let shell = Shell(
+            fileSystem: MountedFileSystem(mapping: mapping,
+                                          backing: RealFileSystem()),
+            environment: env)
+        shell.sandbox = .confined(to: mapping, home: "/work")
+        try await shell.fileSystem.writeData(
+            Data("secret\n".utf8), to: "/work/secret.txt", append: false)
         let hostSpelling = fixture.workspace.path + "/secret.txt"
 
         // Facade A: not part of the virtual namespace.
-        #expect(try await fixture.shell.fileSystem
+        #expect(try await shell.fileSystem
             .metadata(hostSpelling) == nil)
 
         // Facade B: voided by resolve, denied by the gate, and the
         // voided location cannot exist on disk.
-        let resolved = fixture.shell.resolve(hostSpelling)
+        let resolved = shell.resolve(hostSpelling)
         #expect(!FileManager.default.fileExists(atPath: resolved.path))
         await #expect(throws: ShellKit.Sandbox.Denial.self) {
-            try await fixture.shell.sandbox!.authorize(resolved)
+            try await shell.sandbox!.authorize(resolved)
         }
     }
 
