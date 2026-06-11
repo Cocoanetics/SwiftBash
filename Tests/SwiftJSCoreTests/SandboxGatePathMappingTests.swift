@@ -174,6 +174,48 @@ final class SandboxGatePathMappingTests: XCTestCase {
             XCTAssertEqual(result?.toString(), "loaded|/batch/mod.js")
         }
     }
+
+    func testRequireSymlinkEscapeIsNotAnExistenceOracle() async throws {
+        // Codex P2 on #88: `require` probed `fileExists` on the
+        // translated host path BEFORE authorizing, so a workspace
+        // symlink escaping the sandbox let a script distinguish an
+        // existing outside target from a missing one by the error
+        // shape. The gate now runs first and a denied candidate folds
+        // into MODULE_NOT_FOUND — so both escapes look identical.
+        let runtime = SandboxGateTestSupport.makeRuntime().runtime
+        let fixture = makeMappedSandbox()
+        defer { fixture.cleanup() }
+
+        // Two workspace symlinks: one to an existing outside file,
+        // one to a guaranteed-missing path. Both escape the mount.
+        let existingOutside = fixture.workspace
+            .appendingPathComponent("link-existing").path
+        try FileManager.default.createSymbolicLink(
+            atPath: existingOutside, withDestinationPath: "/etc/hosts")
+        let missingOutside = fixture.workspace
+            .appendingPathComponent("link-missing").path
+        try FileManager.default.createSymbolicLink(
+            atPath: missingOutside,
+            withDestinationPath: "/no/such/path-\(UUID().uuidString)")
+
+        await SandboxGateTestSupport.withSandboxedShell(
+            sandbox: fixture.sandbox, cwd: "/batch") {
+            let probe = #"""
+            (name) => {
+              try { require(name); return 'loaded'; }
+              catch (e) { return e.code; }
+            }
+            """#
+            let fn = runtime.run(probe)!
+            let existing = fn.call(withArguments: ["/batch/link-existing"])
+            let missing = fn.call(withArguments: ["/batch/link-missing"])
+            // Identical outcome — no oracle — and specifically the
+            // not-found shape, never EACCES that would confirm the
+            // escape reached an existing file.
+            XCTAssertEqual(existing?.toString(), "MODULE_NOT_FOUND")
+            XCTAssertEqual(missing?.toString(), "MODULE_NOT_FOUND")
+        }
+    }
 }
 
 #endif
