@@ -175,6 +175,29 @@ import ShellKit
     }
 #endif
 
+#if !os(Windows)
+    @Test func acceptsSymlinkSpelledTempDir() async throws {
+        // An embedder may hand the gate a temp dir reached through a
+        // symlink and put that spelling in `$TMPDIR`. The carve-out
+        // must keep the verbatim spelling — `standardizingPath`
+        // rewrites symlinked components on corelibs-foundation, which
+        // would otherwise drop the only spelling callers actually use.
+        let real = try Self.makeInstanceTempDir()
+        defer { try? FileManager.default.removeItem(at: real) }
+        let linkPath = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent(
+                "swiftbash-gatelink-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(
+            atPath: linkPath, withDestinationPath: real.path)
+        defer { try? FileManager.default.removeItem(atPath: linkPath) }
+
+        let linkURL = URL(fileURLWithPath: linkPath, isDirectory: true)
+        let sandbox = ShellKit.Sandbox.bashWorkspace(
+            workspace: "/batch", temporaryDirectory: linkURL)
+        try await sandbox.authorize(linkURL.appendingPathComponent("f"))
+    }
+#endif
+
     @Test func allowsLegitimateTmpFilesAfterSymlinkResolution() async throws {
         // The canonical re-check must not regress the legitimate case
         // where a real file exists under the temp dir (which on macOS

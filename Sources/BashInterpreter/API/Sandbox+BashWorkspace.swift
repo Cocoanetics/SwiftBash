@@ -112,18 +112,23 @@ extension ShellKit.Sandbox {
     }
 
     /// Path prefixes the URL gate treats as "inside this sandbox's
-    /// temp dir": the dir's normalised spelling plus its
-    /// symlink-resolved one (macOS' temp root lives behind the
-    /// `/var → /private/var` link, so `FileManager`'s canonical paths
-    /// carry the `/private` form while `$TMPDIR` carries the bare
-    /// one). Derived per instance — a sibling sandbox's temp dir
-    /// under the same platform root never matches (#82).
+    /// temp dir": the dir's verbatim spelling, its normalised one,
+    /// and its symlink-resolved one (macOS' temp root lives behind
+    /// the `/var → /private/var` link, so `FileManager`'s canonical
+    /// paths carry the `/private` form while `$TMPDIR` carries the
+    /// bare one). The verbatim spelling matters because
+    /// `standardizingPath` may rewrite it — swift-corelibs-foundation
+    /// follows symlinks, Darwin strips `/private` — while callers
+    /// hand the gate paths built from the `$TMPDIR` value exactly as
+    /// the embedder spelled it. Derived per instance — a sibling
+    /// sandbox's temp dir under the same platform root never
+    /// matches (#82).
     private static func temporaryPrefixes(for tempDir: URL) -> [String] {
         var prefixes: [String] = []
         let normalized = (tempDir.path as NSString).standardizingPath
         let resolved = URL(fileURLWithPath: normalized)
             .resolvingSymlinksInPath().path
-        for path in [normalized, resolved] {
+        for path in [tempDir.path, normalized, resolved] {
             let stripped: String = {
                 if path.count > 1 && path.hasSuffix("/") {
                     return String(path.dropLast())
