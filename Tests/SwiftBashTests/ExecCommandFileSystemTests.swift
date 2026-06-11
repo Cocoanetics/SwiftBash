@@ -9,9 +9,10 @@ import BashInterpreter
 /// write — workspace AND `/tmp` — in an in-memory layer, so SwiftPorts
 /// CLIs (`gzip`, `gunzip`, `fd`, …) couldn't see them through
 /// `Data(contentsOf:)`. The CLI now uses a ``MountedFileSystem`` that
-/// puts both mounts on real disk, with the temp dir backed by
-/// `NSTemporaryDirectory()` so the sandbox works on every host the
-/// rest of the toolkit builds for. Issues #48 / #49 / #58.
+/// puts both mounts on real disk, with virtual `/tmp` backed by a
+/// per-instance `swiftbash-<UUID>` dir under `NSTemporaryDirectory()`
+/// so the sandbox works on every host AND concurrent instances can't
+/// see each other's scratch. Issues #48 / #49 / #58 / #82.
 @Suite(.timeLimit(.minutes(1))) struct ExecCommandFileSystemTests {
 
     /// Each test gets its own scratch dir under `NSTemporaryDirectory()`
@@ -29,8 +30,9 @@ import BashInterpreter
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
-        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+        let (fileSystem, tempHost) = try ExecCommand.makeSandboxFileSystem(
             sandboxRoot: host.path, workspace: "/batch")
+        defer { try? FileManager.default.removeItem(at: tempHost) }
         try await fileSystem.writeData(
             Data("hello\n".utf8), to: "/batch/foo.txt", append: false)
 
@@ -41,41 +43,84 @@ import BashInterpreter
         #expect(String(bytes: bytes, encoding: .utf8) == "hello\n")
     }
 
-    @Test func tmpWritesPersistToRealTempDir() async throws {
+    @Test func tmpWritesPersistToPerInstanceTempDir() async throws {
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
-        // Stamp a unique subdir under the host's real temp dir so we
-        // don't clash with other runs / leak past the test.
-        let probeName = "swift-bash-tmptest-\(UUID().uuidString)"
-        let realTemp = NSTemporaryDirectory()
-        let hostProbe = URL(fileURLWithPath: realTemp)
-            .appendingPathComponent(probeName)
-        defer { try? FileManager.default.removeItem(at: hostProbe) }
-
-        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+        let (fileSystem, tempHost) = try ExecCommand.makeSandboxFileSystem(
             sandboxRoot: host.path, workspace: "/batch")
-        try await fileSystem.createDirectory("/tmp/\(probeName)",
+        defer { try? FileManager.default.removeItem(at: tempHost) }
+        try await fileSystem.createDirectory("/tmp/probe",
                                              intermediates: true)
         try await fileSystem.writeData(
             Data("scratch\n".utf8),
-            to: "/tmp/\(probeName)/data.txt", append: false)
+            to: "/tmp/probe/data.txt", append: false)
 
         // Bash wrote through virtual `/tmp/...`; the mount table sends
-        // that to the host's real temp dir. FileManager-backed callers
-        // reading the real path see the same file (#58 — same agreement
-        // property as #48 / #55, now portable).
-        let hostFile = hostProbe.appendingPathComponent("data.txt")
+        // that to this instance's own temp dir — NOT the shared
+        // platform temp root (#82). FileManager-backed callers reading
+        // the instance dir's real path see the same file (#48 / #58).
+        let hostFile = tempHost.appendingPathComponent("probe")
+            .appendingPathComponent("data.txt")
         let bytes = try Data(contentsOf: hostFile)
         #expect(String(bytes: bytes, encoding: .utf8) == "scratch\n")
+        let rootProbe = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("probe")
+        #expect(!FileManager.default.fileExists(atPath: rootProbe.path))
+    }
+
+    @Test func tmpIsIsolatedPerInstance() async throws {
+        // Two sandboxes in the same process must not share /tmp: a
+        // hardcoded name like `/tmp/secret.txt` resolves into each
+        // instance's own backing dir (#82).
+        let host = try Self.makeScratchDir()
+        defer { try? FileManager.default.removeItem(at: host) }
+
+        let (fsA, tempA) = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
+        defer { try? FileManager.default.removeItem(at: tempA) }
+        let (fsB, tempB) = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
+        defer { try? FileManager.default.removeItem(at: tempB) }
+        #expect(tempA.path != tempB.path)
+
+        try await fsA.writeData(
+            Data("A's secret\n".utf8), to: "/tmp/secret.txt", append: false)
+        // B sees no such file — not A's content, not a collision.
+        #expect(try await fsB.metadata("/tmp/secret.txt") == nil)
+        try await fsB.writeData(
+            Data("B's notes\n".utf8), to: "/tmp/secret.txt", append: false)
+        let backA = try await fsA.readData("/tmp/secret.txt")
+        #expect(String(bytes: backA, encoding: .utf8) == "A's secret\n")
+    }
+
+    @Test func tmpSpellingsReachTheSameFiles() async throws {
+        // `$TMPDIR` carries the instance dir's host path; the mount
+        // table exposes that dir at virtual `/tmp` AND at its own host
+        // path. Both spellings must hit the same files — including on
+        // Linux, where the host path nests inside the `/tmp` mount and
+        // longest-prefix routing has to keep it from double-nesting.
+        let host = try Self.makeScratchDir()
+        defer { try? FileManager.default.removeItem(at: host) }
+
+        let (fileSystem, tempHost) = try ExecCommand.makeSandboxFileSystem(
+            sandboxRoot: host.path, workspace: "/batch")
+        defer { try? FileManager.default.removeItem(at: tempHost) }
+
+        try await fileSystem.writeData(
+            Data("agree\n".utf8), to: "/tmp/agree.txt", append: false)
+        let viaHostSpelling = try await fileSystem.readData(
+            tempHost.appendingPathComponent("agree.txt").path)
+        #expect(String(bytes: viaHostSpelling, encoding: .utf8) == "agree\n")
     }
 
     @Test func pathsOutsideMountsAreMissing() async throws {
         let host = try Self.makeScratchDir()
         defer { try? FileManager.default.removeItem(at: host) }
 
-        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+        let (fileSystem, tempHost) = try ExecCommand.makeSandboxFileSystem(
             sandboxRoot: host.path, workspace: "/batch")
+        defer { try? FileManager.default.removeItem(at: tempHost) }
         // `/etc` and `/Users` exist on the host but aren't mounted.
         // The FS reports `nil` metadata (not a thrown error) so bash
         // tests like `[ -f /etc/passwd ]` behave as on a chroot.
@@ -92,8 +137,9 @@ import BashInterpreter
         let seed = host.appendingPathComponent("seed.txt")
         try Data("preseed\n".utf8).write(to: seed)
 
-        let fileSystem = try ExecCommand.makeSandboxFileSystem(
+        let (fileSystem, tempHost) = try ExecCommand.makeSandboxFileSystem(
             sandboxRoot: host.path, workspace: "/batch")
+        defer { try? FileManager.default.removeItem(at: tempHost) }
         let bytes = try await fileSystem.readData("/batch/seed.txt")
         #expect(String(bytes: bytes, encoding: .utf8) == "preseed\n")
     }

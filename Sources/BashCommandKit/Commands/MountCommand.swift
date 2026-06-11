@@ -40,14 +40,12 @@ public struct MountCommand: ParsableBashCommand {
         for mount in table {
             // Resolve the mountpoint to its virtual spelling before
             // printing. Some mounts exist only as a real-path alias: the
-            // CLI mounts `$TMPDIR`'s host path (e.g. `/var/folders/…/T`)
-            // next to `/tmp` so `$TMPDIR` resolves, and printing that
-            // virtual verbatim would leak a host path. When another mount
-            // exposes this one's `virtual` (itself a host path) under a
-            // cleaner name, print that name; the de-dup below then folds
-            // the alias into `/tmp`. A genuine `/tmp → /tmp` mount (Linux,
-            // where `NSTemporaryDirectory()` normalises to `/tmp`) has no
-            // such alias and stays visible.
+            // CLI mounts `$TMPDIR`'s host path (the per-instance
+            // `…/swiftbash-<UUID>` dir) next to `/tmp` so `$TMPDIR`
+            // resolves, and printing that virtual verbatim would leak a
+            // host path. When another mount exposes this one's `virtual`
+            // (itself a host path) under a cleaner name, print that
+            // name; the de-dup below then folds the alias into `/tmp`.
             let mountPoint = table.first {
                 $0.host == mount.virtual && $0.virtual != mount.virtual
             }?.virtual ?? mount.virtual

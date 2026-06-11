@@ -132,8 +132,9 @@ differently from a native shell. None of these are bugs:
 - **The filesystem is a chroot-style mount table.** `/` is the
   read-only sandbox root; the workspace (`/batch` under `--sandbox`,
   `/home` in document apps) is writable; `/tmp` is writable scratch on
-  the host temp dir; everything else returns *No such file or
-  directory*. `mount` prints the table.
+  a per-instance dir under the host temp dir (removed when the script
+  ends); everything else returns *No such file or directory*. `mount`
+  prints the table.
 - **Identity is synthetic by default** — `whoami` → `user`, `id` →
   `uid=1000(user) gid=1000(users)`, and `uname` a Darwin-flavoured
   kernel string over a generic Unix layout. `stat` / `ls -l` report
