@@ -110,12 +110,17 @@ axes at once:
 
 - `fileSystem = MountedFileSystem` with mounts on real disk:
   - virtual `/batch` (or `--workspace`) → host `PATH` (read-write)
-  - virtual `/tmp` → host `NSTemporaryDirectory()` (read-write)
-  - the host's real temp dir → itself, when it isn't `/tmp` (so
-    `$TMPDIR/foo` and `/tmp/foo` reach the same files on macOS,
-    iOS, Windows)
-- `TMPDIR = NSTemporaryDirectory()` in the script's environment
-- `sandbox = Sandbox.bashWorkspace(workspace: workspace)` (URL gate for SwiftPorts CLIs)
+  - virtual `/tmp` → a per-instance `swiftbash-<UUID>` dir created
+    under host `NSTemporaryDirectory()` (read-write), removed when
+    the script ends — concurrent instances and other host processes
+    can't see each other's scratch (#82)
+  - the per-instance dir → itself (so `$TMPDIR/foo` and `/tmp/foo`
+    reach the same files on every platform)
+- `TMPDIR = <per-instance dir>` (host spelling) in the script's
+  environment
+- `sandbox = Sandbox.bashWorkspace(workspace:temporaryDirectory:)`
+  (URL gate for SwiftPorts CLIs, accepting the workspace and the
+  per-instance temp dir)
 - `networkConfig = nil` (deny-all)
 - `hostInfo = .synthetic`
 - Process table is always virtual (no flag needed)
@@ -126,27 +131,46 @@ $ swift-bash exec --sandbox /tmp/work script.sh
 
 The script sees `/batch` as its workspace, can `cd /batch && ls`,
 write files there (and they persist at `/tmp/work` on the host), and
-can use `/tmp` as scratch — writes through either virtual path land
-on real disk so FileManager-backed callers (SwiftPorts CLIs,
-SwiftScript bridges) see them immediately. The script can't reach
-`/Users/`, `~/Documents`, `/etc/passwd`, or anything else on the host.
-It can't make network requests. `whoami` says "user". `hostname` says
-"sandbox". Issues #48 / #49.
+can use `/tmp` as scratch — writes land on real disk in the
+instance's own temp dir so FileManager-backed callers (SwiftPorts
+CLIs, SwiftScript bridges) see them immediately via `$TMPDIR`-spelled
+paths. The script can't reach `/Users/`, `~/Documents`,
+`/etc/passwd`, or anything else on the host. It can't make network
+requests. `whoami` says "user". `hostname` says "sandbox".
+Issues #48 / #49 / #82.
+
+Until the path-mapping core lands in ShellKit (#83), bash builtins
+and FileManager-backed callers agree on temp paths through the
+**host** spelling only: bash scripts may say `/tmp/foo` or
+`$TMPDIR/foo` interchangeably, but a SwiftPorts CLI / SwiftScript /
+JS call must be handed `$TMPDIR/foo` — a literal `/tmp/foo` argument
+to those is denied, because they would do real I/O on the host's
+shared `/tmp` instead of the instance's temp dir.
 
 For embedders not using the CLI, mirror the same setup:
 
 ```swift
 let workspace = NSHomeDirectory() + "/Documents/scratch"
+// Per-instance scratch dir backing virtual /tmp — create it up
+// front, remove it when the session ends (#82).
+let tempHost = URL(fileURLWithPath: NSTemporaryDirectory(),
+                   isDirectory: true)
+    .appendingPathComponent("myapp-\(UUID().uuidString)",
+                            isDirectory: true)
+try FileManager.default.createDirectory(
+    at: tempHost, withIntermediateDirectories: true)
 let shell = Shell(
     environment: {
         var env = Environment.empty()
         env.workingDirectory = "/batch"
+        env["TMPDIR"] = tempHost.path
         return env
     }(),
     fileSystem: MountedFileSystem(
         mounts: [
             .init(virtual: "/batch", host: workspace),
-            .init(virtual: "/tmp", host: NSTemporaryDirectory())
+            .init(virtual: "/tmp", host: tempHost.path),
+            .init(virtual: tempHost.path, host: tempHost.path)
         ],
         backing: RealFileSystem())
 )
@@ -173,8 +197,9 @@ state changes, not memory-level exploitation of the runtime itself.
 
 **Inside the mounts**, writes persist to real disk (the CLI's choice
 for `--sandbox`). The workspace is wherever the user pointed
-`--sandbox`; `/tmp` resolves to `NSTemporaryDirectory()` on the host,
-shared with other processes per the platform's convention.
+`--sandbox`; `/tmp` resolves to a per-instance dir under
+`NSTemporaryDirectory()` that no other sandbox instance or host
+process shares, and that is removed when the script ends (#82).
 
 **Out of scope:**
 - Memory-corruption attacks against Swift runtime / Foundation.

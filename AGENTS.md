@@ -96,9 +96,9 @@ splitting big types — `Shell` lives in `API/Shell.swift` plus ~15
   Substring assertions hide whitespace bugs and ordering issues
   that exact-string assertions catch.
 - **Sandbox tests use `MountedFileSystem`** with a real temp dir
-  mounted at `/batch` and host `/tmp` mounted at `/tmp` (the same
-  shape `swift-bash exec --sandbox` installs). Clean up the temp
-  dir in `defer`.
+  mounted at `/batch` and a per-instance temp dir mounted at `/tmp`
+  (the same shape `swift-bash exec --sandbox` installs). Clean up
+  the temp dirs in `defer`.
 - **Never re-test the parser from interpreter tests.** Parser
   behaviour belongs in `BashSyntax` tests; interpreter tests
   exercise execution against pre-parsed shapes.
