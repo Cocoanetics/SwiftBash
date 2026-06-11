@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import Foundation
 
 /// A `FileSystem` that presents a virtual root (`/`) backed by one or
@@ -64,9 +63,9 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
     public let backing: any FileSystem
 
     /// The shared virtual↔host mapping this filesystem translates
-    /// through — hand the same value to ``ShellKit/Sandbox/confined(to:home:temporaryDirectory:allowedHosts:authorizeNetwork:)``
-    /// so FileManager-backed callers resolve and authorize against
-    /// the identical table.
+    /// through — hand the same value to `Sandbox.confined(to:)` so
+    /// FileManager-backed callers resolve and authorize against the
+    /// identical table.
     public let mapping: PathMapping
 
     /// See `MountedFileSystem+Synthesis.swift`.
