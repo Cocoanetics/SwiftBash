@@ -78,8 +78,8 @@ public extension RealFileSystem {
         let result = path.withCString { pathPtr in
             name.withCString { namePtr in removexattr(pathPtr, namePtr, 0) }
         }
-        // ENOATTR (93 on macOS) is fine — silent no-op.
-        if result < 0 && errno != 93 {
+        // ENOATTR ("attribute not found") is fine — silent no-op.
+        if result < 0 && errno != ENOATTR {
             throw fsError(op: "removexattr", path: path)
         }
     }
@@ -141,8 +141,8 @@ public extension RealFileSystem {
         let result = path.withCString { pathPtr in
             name.withCString { namePtr in removexattr(pathPtr, namePtr) }
         }
-        // ENODATA (61 on Linux) means "no such attribute" — silent no-op.
-        if result < 0 && errno != 61 {
+        // ENODATA ("attribute not found") means no such attribute — silent no-op.
+        if result < 0 && errno != ENODATA {
             throw fsError(op: "removexattr", path: path)
         }
     }

@@ -143,9 +143,18 @@ public extension RealFileSystem {
 }
 
 func fsError(op operation: String, path: String) -> FileSystemError {
-    let msg = String(cString: strerror(errno))
-    if errno == ENOENT { return .notFound(path) }
-    if errno == EACCES || errno == EPERM { return .permissionDenied(path) }
-    return .io("\(operation) \(path) failed: \(msg)")
+    // Capture `errno` once, up front. It's a thread-local global that any
+    // intervening libc call — `strerror` included — is permitted to
+    // overwrite, so re-reading it after the message lookup (as this used
+    // to) risks classifying the error off a clobbered value.
+    let code = errno
+    switch code {
+    case ENOENT:
+        return .notFound(path)
+    case EACCES, EPERM:
+        return .permissionDenied(path)
+    default:
+        return .io("\(operation) \(path) failed: \(String(cString: strerror(code)))")
+    }
 }
 #endif
