@@ -1,6 +1,7 @@
 #if !os(Windows)
 
 import Foundation
+import BashInterpreter
 
 // MARK: - Exception formatting
 //
@@ -55,7 +56,15 @@ extension JSRuntime {
         } else {
             path = sourceURL
         }
-        guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
+        // The path travels in the script-visible (virtual) spelling;
+        // read its HOST translation, and gate it — `sourceURL` is
+        // script-influenced, so without the gate a thrown exception
+        // could point this read at any host file and have its
+        // contents echoed into the error frame.
+        let hostPath = ShellKit.Shell.current.resolve(path).path
+        guard (try? awaitSync { try await authorizePath(hostPath, for: .read) }) != nil,
+              let source = try? String(contentsOfFile: hostPath, encoding: .utf8)
+        else {
             return nil
         }
         let lines = source.split(omittingEmptySubsequences: false,

@@ -17,22 +17,33 @@ import Foundation
 ///   doesn't exist — same model as a chrooted shell.
 ///
 /// `MountedFileSystem` is the building block for that. You hand it a
-/// list of mount points and a backing FS; it rewrites every virtual
-/// path to a host path before delegating, and rejects paths that
-/// don't fall inside any mount with `notFound`.
+/// ``ShellKit/PathMapping`` (or a list of mount points) and a backing
+/// FS; it rewrites every virtual path to a host path before
+/// delegating, and rejects paths that don't fall inside any mount
+/// with `notFound`.
 ///
 /// ```swift
-/// let fs = MountedFileSystem(
-///     mounts: [
-///         .init(virtual: "/",    host: sandboxRoot.path),
-///         .init(virtual: "/tmp", host: NSTemporaryDirectory()),
-///     ],
-///     backing: RealFileSystem())
-/// shell.fileSystem = fs
+/// let mapping = PathMapping(mounts: [
+///     .init(virtual: "/",    host: sandboxRoot.path),
+///     .init(virtual: "/tmp", host: NSTemporaryDirectory()),
+/// ])
+/// shell.fileSystem = MountedFileSystem(mapping: mapping,
+///                                      backing: RealFileSystem())
+/// shell.sandbox = .confined(to: mapping)
 /// shell.environment.workingDirectory = "/home"
 /// shell.environment["HOME"] = "/home"
 /// shell.environment["TMPDIR"] = "/tmp"
 /// ```
+///
+/// This is **Facade A** over the shared mapping core (#83): bash
+/// builtins and pure-Swift commands route through the `FileSystem`
+/// protocol and this class translates + confines each call. Code
+/// that does real Foundation/C I/O instead (SwiftPorts CLIs, the JS
+/// runtime) goes through **Facade B** — ``ShellKit/Shell/resolve(_:)``
+/// + ``ShellKit/Sandbox/authorize(_:)`` — which, when the embedder
+/// installs `Sandbox.confined(to:)` over the *same* mapping, lands
+/// on the same host files with the same boundary. One core, two
+/// doors.
 ///
 /// Mount precedence is "longest virtual prefix wins" — `/tmp/foo`
 /// matches the `/tmp` mount, not `/`. Synthetic paths supplied by
@@ -45,86 +56,46 @@ import Foundation
 /// `permissionDenied`, `mkdir` throws `alreadyExists`.
 public final class MountedFileSystem: FileSystem, @unchecked Sendable {
 
-    public struct Mount: Sendable {
-        /// Virtual prefix this mount answers to. `/` matches every
-        /// virtual path; `/tmp` matches `/tmp` and `/tmp/...`.
-        public var virtual: String
-        /// Absolute host path the mount maps onto.
-        public var host: String
-        /// If true, every write through this mount is rejected with
-        /// `permissionDenied`. Reads still pass.
-        public var readOnly: Bool
-
-        public init(virtual: String, host: String, readOnly: Bool = false) {
-            // Normalise: strip trailing `/` so `/tmp` and `/tmp/`
-            // compare equal. The empty string represents the root
-            // mount specially.
-            var virtualPath = (virtual as NSString).standardizingPath
-            if virtualPath.count > 1, virtualPath.hasSuffix("/") { virtualPath.removeLast() }
-            self.virtual = virtualPath
-            self.host = (host as NSString).standardizingPath
-            self.readOnly = readOnly
-        }
-    }
+    /// Mount entries live on the shared ``ShellKit/PathMapping`` core
+    /// now; the historical `MountedFileSystem.Mount` spelling keeps
+    /// working.
+    public typealias Mount = PathMapping.Mount
 
     public let backing: any FileSystem
-    private let mounts: [Mount]
+
+    /// The shared virtual↔host mapping this filesystem translates
+    /// through — hand the same value to ``ShellKit/Sandbox/confined(to:home:temporaryDirectory:allowedHosts:authorizeNetwork:)``
+    /// so FileManager-backed callers resolve and authorize against
+    /// the identical table.
+    public let mapping: PathMapping
+
     /// See `MountedFileSystem+Synthesis.swift`.
     let synthesizedAncestors: Set<String>
 
-    public init(mounts: [Mount], backing: any FileSystem) {
-        // Longest-prefix-first so the most specific mount wins.
-        let sorted = mounts.sorted { $0.virtual.count > $1.virtual.count }
-        self.mounts = sorted
+    public init(mapping: PathMapping, backing: any FileSystem) {
+        self.mapping = mapping
         self.backing = backing
-        self.synthesizedAncestors = Self.computeSynthesizedAncestors(sorted)
+        self.synthesizedAncestors = Self.computeSynthesizedAncestors(mapping.mounts)
     }
 
-    var allMountVirtuals: [String] { mounts.map(\.virtual) }
+    public convenience init(mounts: [Mount], backing: any FileSystem) {
+        self.init(mapping: PathMapping(mounts: mounts), backing: backing)
+    }
+
+    var allMountVirtuals: [String] { mapping.mounts.map(\.virtual) }
 
     /// Mount table ordered by virtual path, for display by a `mount`
-    /// command (`mounts` is sorted longest-prefix first internally).
-    public var mountList: [Mount] { mounts.sorted { $0.virtual < $1.virtual } }
+    /// command.
+    public var mountList: [Mount] { mapping.mountList }
 
     // MARK: - Mount lookup
 
     /// Translate a virtual path to a host path, or return `nil` when
-    /// no mount matches. `(mount, hostPath, readOnly)`.
+    /// no mount matches. Lexical only — `..` collapses before routing
+    /// so it can't escape a mount; symlink confinement is
+    /// ``canonicalGate(_:virtual:)``'s job.
     func resolve(_ virtual: String) -> (mount: Mount, host: String)? {
-        // Standardise the virtual path so `/tmp/../home/foo` resolves
-        // to `/home/foo` BEFORE we route it. Otherwise `..` could
-        // escape its mount.
-        //
-        // Use `Shell.normalizePath` (purely lexical) rather than
-        // `NSString.standardizingPath`, which consults the host
-        // filesystem and resolves any symlinks it finds. On macOS
-        // `/home` is an autofs symlink to `/System/Volumes/Data/home`,
-        // so `(/home/..) standardizingPath` yields
-        // `/System/Volumes/Data` and misses the mount table entirely —
-        // breaking any script that lands a `..`-crossing virtual path
-        // here (e.g. tab completion of `cd ../ex` from `/home`).
-        let std = Shell.normalizePath(virtual)
-        for mount in mounts {
-            if mount.virtual == "/" {
-                // Root mount — every path lands here unless an earlier
-                // (more specific) mount matched. Strip the leading `/`
-                // and append.
-                let rel = std == "/" ? "" : String(std.dropFirst())
-                let host = (mount.host as NSString)
-                    .appendingPathComponent(rel)
-                return (mount, host)
-            }
-            if std == mount.virtual {
-                return (mount, mount.host)
-            }
-            if std.hasPrefix(mount.virtual + "/") {
-                let rel = String(std.dropFirst(mount.virtual.count + 1))
-                let host = (mount.host as NSString)
-                    .appendingPathComponent(rel)
-                return (mount, host)
-            }
-        }
-        return nil
+        mapping.hostPath(forVirtual: virtual)
     }
 
     private func gateRead(_ path: String) async throws -> String {
@@ -365,7 +336,8 @@ public final class MountedFileSystem: FileSystem, @unchecked Sendable {
         // If the mount table covers `/tmp`, defer to the backing FS
         // there. Otherwise drop into a hidden `.tmp` directory under
         // the root mount.
-        if let tmp = mounts.first(where: { $0.virtual == "/tmp" }), !tmp.readOnly {
+        if let tmp = mapping.mounts.first(where: { $0.virtual == "/tmp" }),
+           !tmp.readOnly {
             try? await backing.createDirectory(tmp.host, intermediates: true)
             let suffix = String(UUID().uuidString.prefix(12))
             return "/tmp/\(prefix)\(suffix)"

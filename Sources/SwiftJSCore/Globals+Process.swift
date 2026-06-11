@@ -239,20 +239,27 @@ extension JSRuntime {
             // expects it to compose with the prior cwd. Storing the
             // raw relative string here would leave the bound CWD
             // unusable for subsequent `fs.*` ops.
-            let resolved = resolveAgainstShellCWD(path)
+            //
+            // The STORED cwd stays in the script-visible (virtual)
+            // spelling — `process.cwd()` reports it and `fs.*`
+            // re-resolves through it — while the gate checks the
+            // HOST path that spelling lands on, the same space
+            // `resolveAgainstShellCWD` produces for I/O.
+            let virtual = virtualPathAgainstShellCWD(path)
+            let host = Shell.current.resolve(virtual).path
             // Sandbox gate: chdir into a denied region is a write —
             // it would let a script position subsequent relative-path
             // ops anywhere. Surface as a Node-style EACCES.
             do {
-                try self?.awaitSync { try await authorizePath(resolved, for: .write) }
+                try self?.awaitSync { try await authorizePath(host, for: .write) }
             } catch {
                 _ = self?.throwSandboxDenial(error, syscall: "chdir", path: path)
                 return nil
             }
             if Shell.current === Shell.processDefault {
-                _ = FileManager.default.changeCurrentDirectoryPath(resolved)
+                _ = FileManager.default.changeCurrentDirectoryPath(virtual)
             }
-            Shell.current.environment.workingDirectory = resolved
+            Shell.current.environment.workingDirectory = virtual
             return nil
         }
         process.setObject(chdir, forKeyedSubscript: "chdir")

@@ -74,13 +74,22 @@ extension JSRuntime {
             ? spec
             : (basePath as NSString).appendingPathComponent(spec)
 
+        // `resolved` is the script-visible spelling — the cache key,
+        // `__filename` / `__dirname`, and stack-frame source URL all
+        // carry it. Disk probes, the gate, and the read use its HOST
+        // translation (`Shell.resolve`; identity without a sandbox
+        // path mapping). Translation is prefix rewriting, so probing
+        // `host + ext` and recording `resolved + ext` stay in step.
+        var host = ShellKit.Shell.current.resolve(resolved).path
+
         // Try `.js`, `.mjs`, `.cjs`, `.json` if the bare path doesn't
         // exist (Node's resolution order). `.json` parsed below.
         let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: resolved) {
+        if !fileManager.fileExists(atPath: host) {
             for ext in [".js", ".mjs", ".cjs", ".json"]
-            where fileManager.fileExists(atPath: resolved + ext) {
+            where fileManager.fileExists(atPath: host + ext) {
                 resolved += ext
+                host += ext
                 break
             }
         }
@@ -93,16 +102,16 @@ extension JSRuntime {
         }
 
         // Sandbox gate: a `require('./secret')` is a read; route the
-        // resolved path through the bound shell's sandbox before we
-        // touch disk.
-        let gatedPath = resolved
+        // host path — the one the read below actually opens — through
+        // the bound shell's sandbox before we touch disk.
+        let hostPath = host
         do {
-            try awaitSync { try await authorizePath(gatedPath, for: .read) }
+            try awaitSync { try await authorizePath(hostPath, for: .read) }
         } catch {
-            return throwSandboxDenial(error, syscall: "open", path: gatedPath)
+            return throwSandboxDenial(error, syscall: "open", path: resolved)
         }
 
-        guard let source = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+        guard let source = try? String(contentsOfFile: hostPath, encoding: .utf8) else {
             return throwJSError("Cannot find module '\(spec)'", code: "MODULE_NOT_FOUND")
         }
 

@@ -21,8 +21,9 @@ enum PathAccessIntent: Sendable {
 }
 
 /// Resolve a JS-side path against the bound shell's logical CWD when
-/// it's relative. Mirrors Node's `process.chdir` semantics: after
-/// `process.chdir("/work")`, `readFileSync("./x")` opens `/work/x`.
+/// it's relative, staying in the SCRIPT-VISIBLE path space. Mirrors
+/// Node's `process.chdir` semantics: after `process.chdir("/work")`,
+/// `readFileSync("./x")` means `/work/x`.
 ///
 /// Why this matters for sandbox correctness: under a non-default
 /// `Shell`, `process.chdir(...)` updates `Shell.current.environment
@@ -30,16 +31,12 @@ enum PathAccessIntent: Sendable {
 /// can't, the host is shared with the embedder). Without this
 /// resolver, every relative-path `fs.*` call would resolve against
 /// the host CWD via `URL(fileURLWithPath:)` — so `process.cwd()`
-/// would diverge from where `readFileSync("./x")` actually reads,
-/// and the gate would authorize the wrong path. Pre-resolving here
-/// means the gate sees what the script intended, and the Foundation
-/// hop that follows opens the same file.
+/// would diverge from where `readFileSync("./x")` actually reads.
 ///
-/// Under `Shell.processDefault` the bound CWD mirrors the host
-/// process CWD, so the result is identical to plain
-/// `URL(fileURLWithPath: path).path` — the standalone `swift-js` CLI
-/// behaviour is unchanged.
-func resolveAgainstShellCWD(_ path: String) -> String {
+/// The result is what the script gets to SEE (`process.chdir` stores
+/// it, `__filename` carries it). For the path to DO I/O on, use
+/// ``resolveAgainstShellCWD(_:)``, which adds the virtual→host hop.
+func virtualPathAgainstShellCWD(_ path: String) -> String {
     let raw: String
     if (path as NSString).isAbsolutePath {
         raw = path
@@ -54,6 +51,29 @@ func resolveAgainstShellCWD(_ path: String) -> String {
     // when doing so doesn't alter intermediate path components, so
     // sandbox prefix matching stays predictable.
     return (raw as NSString).standardizingPath
+}
+
+/// Resolve a JS-side path to the HOST path to do real I/O on: the
+/// virtual resolution of ``virtualPathAgainstShellCWD(_:)``, then —
+/// when the bound shell's sandbox carries a `PathMapping` (the
+/// SwiftBash `--sandbox` case, #83) — translated to the host
+/// directory backing the mount, via `Shell.resolve`.
+///
+/// Every `fs.*` bridge resolves through here and uses the result for
+/// BOTH the authorize gate and the Foundation hop. That pairing is
+/// load-bearing: translating for the check but not the I/O (or vice
+/// versa) would authorize one file and touch another — under a
+/// sandbox whose virtual `/tmp` is a per-instance dir, a literal
+/// `/tmp/x` would otherwise reach the host's *shared* temp dir.
+/// Display output keeps the user's own spelling (the original
+/// argument), never this host path.
+///
+/// Under `Shell.processDefault` (standalone `swift-js`) and under
+/// shells without a mapping there is no translation — behaviour is
+/// unchanged.
+func resolveAgainstShellCWD(_ path: String) -> String {
+    let virtual = virtualPathAgainstShellCWD(path)
+    return Shell.current.resolve(virtual).path
 }
 
 /// Authorize a filesystem access against the bound shell's sandbox.
