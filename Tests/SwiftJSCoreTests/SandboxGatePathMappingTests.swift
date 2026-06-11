@@ -206,9 +206,11 @@ final class SandboxGatePathMappingTests: XCTestCase {
               catch (e) { return e.code; }
             }
             """#
-            let fn = runtime.run(probe)!
-            let existing = fn.call(withArguments: ["/batch/link-existing"])
-            let missing = fn.call(withArguments: ["/batch/link-missing"])
+            let tryRequire = runtime.run(probe)!
+            let existing = tryRequire.call(
+                withArguments: ["/batch/link-existing"])
+            let missing = tryRequire.call(
+                withArguments: ["/batch/link-missing"])
             // Identical outcome — no oracle — and specifically the
             // not-found shape, never EACCES that would confirm the
             // escape reached an existing file.
