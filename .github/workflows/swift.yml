@@ -86,7 +86,9 @@ jobs:
     # headers + pkg-config to wire up TLS. xattr functions still
     # resolve via the local CXattr systemLibrary; `<sys/xattr.h>`
     # ships in the standard libc-dev set the swiftlang/swift
-    # container already has.
+    # container already has. `libsecret-1-dev` supplies the
+    # `<libsecret/secret.h>` that SwiftPorts' CSecretShim (ForgeKit's
+    # Linux token store) compiles against.
     runs-on: ubuntu-latest
     # SwiftPorts' dependency graph (libgit2 + the compression family
     # + Bun's prebuilt JSC) plus a full `swift test` pushes the cold
@@ -101,7 +103,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config ca-certificates \
                                   zlib1g-dev libbz2-dev liblzma-dev \
-                                  libzstd-dev liblz4-dev
+                                  libzstd-dev liblz4-dev libsecret-1-dev
       - name: Verify Swift version
         run: swift --version
       # Bun's prebuilt JavaScriptCore static archive (oven-sh/WebKit
