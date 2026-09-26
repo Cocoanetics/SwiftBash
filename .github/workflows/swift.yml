@@ -51,7 +51,22 @@ jobs:
       - name: Build (macOS)
         run: swift build --build-tests -v
       - name: Test (macOS)
-        run: swift test -v --skip-build --no-parallel
+        # Swift 6.2 back-deploys `Span` to macOS < 26 through
+        # `libswiftCompatibilitySpan.dylib` (in the toolchain's
+        # `swift-6.2/macosx/`). swift-subprocess, linked via ShellKit,
+        # references Span types unconditionally, so every test binary
+        # carries an `@rpath/libswiftCompatibilitySpan.dylib` load
+        # command, and SwiftPM's test runner doesn't search the
+        # back-deployment dir. Same workaround as ShellKit's workflow.
+        run: |
+          COMPAT_DIR="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx"
+          if [ ! -d "$COMPAT_DIR" ]; then
+            echo "::error::expected back-deployment dir not found: $COMPAT_DIR"
+            ls -d "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-"*/macosx 2>/dev/null || true
+            exit 1
+          fi
+          export DYLD_LIBRARY_PATH="$COMPAT_DIR:${DYLD_LIBRARY_PATH:-}"
+          swift test -v --skip-build --no-parallel
       # JSC linkage smoke check — uses the system JavaScriptCore
       # framework on Apple. Mirror of the non-Apple verification
       # below so CI proves the same C-API path on every platform.
