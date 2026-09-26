@@ -152,10 +152,15 @@ See [Sandboxing](Docs/Sandboxing.md) for the full model.
 ## Install
 
 ```swift
-.package(url: "https://github.com/.../SwiftBash", from: "0.1.0")
+.package(url: "https://github.com/Cocoanetics/SwiftBash", branch: "main")
 ```
 
-then depend on the products you want:
+There is no tagged release yet. SwiftBash's own ShellKit /
+SwiftPorts / SwiftScript dependencies track `main`, and SwiftPM
+refuses a version requirement on a package whose dependencies are
+branch-pinned, so depend on `main` for now (tagging is tracked in
+[#89](https://github.com/Cocoanetics/SwiftBash/issues/89)). Then
+depend on the products you want:
 
 ```swift
 .target(name: "YourTarget", dependencies: [
