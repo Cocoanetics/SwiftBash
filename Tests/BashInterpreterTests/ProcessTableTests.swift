@@ -128,10 +128,13 @@ import Foundation
         // Poll for the `.exited` state with a 5-second deadline. A
         // fixed sleep was previously flaky on slow runners (Linux,
         // Android) where 50 ms wasn't always enough for the observer
-        // task to land.
-        let deadline = Date().addingTimeInterval(5)
+        // task to land. The deadline runs on a monotonic clock: the
+        // Android emulator's wall clock can jump forward mid-test, and
+        // a `Date()` deadline once expired after 3.7 s of real time.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
         var observed: ProcessTable.Entry?
-        while Date() < deadline {
+        while clock.now < deadline {
             let entry = await table.entry(for: pid)
             if case .exited = entry?.state {
                 observed = entry

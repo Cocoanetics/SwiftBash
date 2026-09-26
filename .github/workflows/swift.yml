@@ -22,13 +22,17 @@ concurrency:
 jobs:
 
   build-macos:
-    runs-on: macos-latest
+    # Pinned to `macos-15`, like ShellKit's workflow (ShellKit#14):
+    # `setup-xcode` only picks among the Xcodes already on the image,
+    # and the `-latest` alias rotates. `macos-15` ships Xcode 26.0.x
+    # and pre-installs the iOS platform `build-ios` needs; `macos-26`
+    # (what `macos-latest` points at now) has Xcode 26.0 without it.
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      # macos-latest currently ships Xcode 16 / Swift 6.1; SwiftPorts
-      # (and its `swift-configuration` dep) declare tools-version 6.2,
-      # so we need a newer Xcode. 26.0 ships Swift 6.2.
+      # SwiftPorts (and its `swift-configuration` dep) declare
+      # tools-version 6.2, so we need Xcode 26.0 (Swift 6.2).
       - name: Select Xcode 26.0
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -47,7 +51,22 @@ jobs:
       - name: Build (macOS)
         run: swift build --build-tests -v
       - name: Test (macOS)
-        run: swift test -v --skip-build --no-parallel
+        # Swift 6.2 back-deploys `Span` to macOS < 26 through
+        # `libswiftCompatibilitySpan.dylib` (in the toolchain's
+        # `swift-6.2/macosx/`). swift-subprocess, linked via ShellKit,
+        # references Span types unconditionally, so every test binary
+        # carries an `@rpath/libswiftCompatibilitySpan.dylib` load
+        # command, and SwiftPM's test runner doesn't search the
+        # back-deployment dir. Same workaround as ShellKit's workflow.
+        run: |
+          COMPAT_DIR="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx"
+          if [ ! -d "$COMPAT_DIR" ]; then
+            echo "::error::expected back-deployment dir not found: $COMPAT_DIR"
+            ls -d "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-"*/macosx 2>/dev/null || true
+            exit 1
+          fi
+          export DYLD_LIBRARY_PATH="$COMPAT_DIR:${DYLD_LIBRARY_PATH:-}"
+          swift test -v --skip-build --no-parallel
       # JSC linkage smoke check — uses the system JavaScriptCore
       # framework on Apple. Mirror of the non-Apple verification
       # below so CI proves the same C-API path on every platform.
@@ -62,7 +81,8 @@ jobs:
     # hangs the simulator long enough to trigger xcodebuild's restart-
     # and-fail logic, even though a re-run passes); tracking that as
     # follow-up work rather than blocking this PR.
-    runs-on: macos-latest
+    # `macos-15` for its pre-installed iOS platform — see build-macos.
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -86,7 +106,9 @@ jobs:
     # headers + pkg-config to wire up TLS. xattr functions still
     # resolve via the local CXattr systemLibrary; `<sys/xattr.h>`
     # ships in the standard libc-dev set the swiftlang/swift
-    # container already has.
+    # container already has. `libsecret-1-dev` supplies the
+    # `<libsecret/secret.h>` that SwiftPorts' CSecretShim (ForgeKit's
+    # Linux token store) compiles against.
     runs-on: ubuntu-latest
     # SwiftPorts' dependency graph (libgit2 + the compression family
     # + Bun's prebuilt JSC) plus a full `swift test` pushes the cold
@@ -101,7 +123,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config ca-certificates \
                                   zlib1g-dev libbz2-dev liblzma-dev \
-                                  libzstd-dev liblz4-dev
+                                  libzstd-dev liblz4-dev libsecret-1-dev
       - name: Verify Swift version
         run: swift --version
       # Bun's prebuilt JavaScriptCore static archive (oven-sh/WebKit
@@ -123,10 +145,16 @@ jobs:
           ls -la Vendor/bun-webkit/current/ || true
           echo "---"
           ls -la Vendor/bun-webkit/current/include/JavaScriptCore/JavaScript.h
+      # `--build-system native`: this job uses the runner's own
+      # toolchain (Swift 6.4 on ubuntu-24.04 today), whose default
+      # `swiftbuild` engine links test products in a form that can't
+      # absorb Bun's non-PIC libJavaScriptCore.a (ld.gold: "requires
+      # dynamic R_X86_64_PC32 reloc … recompile with -fPIC" on
+      # SwiftJSCoreTests). The executables link fine either way.
       - name: Build (Linux)
-        run: swift build --build-tests -v
+        run: swift build --build-tests -v --build-system native
       - name: Test (Linux)
-        run: swift test -v --skip-build --no-parallel
+        run: swift test -v --skip-build --no-parallel --build-system native
       - name: JSC smoke (Linux)
         run: .build/debug/swift-jsc-smoke
 

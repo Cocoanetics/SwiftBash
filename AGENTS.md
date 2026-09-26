@@ -21,6 +21,9 @@ for how the pieces fit together.
 - `swift-bash exec ./script.swift` — runs a Swift script through
   the in-process SwiftScript interpreter (registered by default).
   See [Docs/SwiftScript.md](Docs/SwiftScript.md).
+- `swift package update <ShellKit|SwiftPorts|SwiftScript>` — move a
+  branch-pinned dependency to its current `main`. See
+  [Dependencies](#dependencies).
 
 ## Where things live
 
@@ -157,6 +160,24 @@ file:
   [Docs/BashInterpreter.md](Docs/BashInterpreter.md) (the
   "Script-shebang interpreters" section). The SwiftScript bridge
   has its own page at [Docs/SwiftScript.md](Docs/SwiftScript.md).
+
+## Dependencies
+
+ShellKit, SwiftPorts, and SwiftScript are pinned to `branch: "main"`,
+so `Package.resolved` is committed: it is the only record of which
+revisions a commit was built and tested against. Without it a fresh
+clone floats to whatever `main` is today, and older commits stop
+building once upstream moves on.
+
+- Picking up upstream work is an explicit step: `swift package update
+  <Dep>`, then commit `Package.resolved` together with the code that
+  needs the new revision. A bump on its own is a `deps:` commit.
+- Breaking upstream changes land in lockstep: merge the dependency's
+  PR first, then the SwiftBash PR that bumps the pin and adapts.
+- Don't switch one dependency to a version requirement on its own.
+  While SwiftPorts / SwiftScript still depend on ShellKit by branch,
+  SwiftPM silently resolves ShellKit to the branch anyway. Version
+  pins have to arrive bottom-up across the family (#89).
 
 ## Commits
 
