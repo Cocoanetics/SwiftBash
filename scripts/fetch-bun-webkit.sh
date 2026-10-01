@@ -16,7 +16,7 @@
 # Override knobs:
 #   BUN_WEBKIT_VERSION       autobuild commit SHA
 #   BUN_WEBKIT_ASSET         exact tarball name (skips host detection)
-#   BUN_WEBKIT_VARIANT       `release` (default) | `lto` | `baseline`
+#   BUN_WEBKIT_VARIANT       `release` (default) | `lto` | `baseline` | `pic`
 #   BUN_WEBKIT_ROOT          where to stage (default: Vendor/bun-webkit)
 #
 # See Docs/SwiftJS.md § Cross-platform for design rationale.
@@ -83,6 +83,11 @@ detect_asset() {
         release)  suffix="" ;;
         lto)      suffix="-lto" ;;
         baseline) suffix="-baseline" ;;
+        # Position-independent build of the release lane, for linking
+        # the archive into a shared object (SwiftPM's `swiftbuild`
+        # engine links Linux test bundles as `.so`s — see #91). Not
+        # published by oven-sh/WebKit yet; proposed upstream.
+        pic)      suffix="-pic" ;;
         *) echo "fetch-bun-webkit: unknown variant '$VARIANT'" >&2
            exit 1 ;;
     esac

@@ -812,6 +812,46 @@ bounded (each runtime owns a single long-lived context). The
 gate lifts when upstream resolves the assert; tracked alongside
 the Windows item.
 
+### Linux — test bundles need a PIC archive (#91)
+
+SwiftPM's `swiftbuild` engine (the default since Swift 6.4) links
+a Linux test product as a shared library plus a thin
+`<name>-test-runner` executable, the way an `.xctest` bundle
+works on macOS. Bun's archives can't go into a shared object:
+their fork turns `CMAKE_POSITION_INDEPENDENT_CODE` off (July 2024,
+"Disable PIC on Linux" / "Less relro"), so the objects are
+clang's default PIE code — fine inside Bun's executable, but in a
+`.so` two things have no valid relocation:
+
+1. PC-relative references to the ~4,400 default-visibility
+   (`JS_EXPORT_PRIVATE`) symbols — ld.gold's `requires dynamic
+   R_X86_64_PC32 reloc … recompile with -fPIC`. A consumer can
+   neutralise these with `--exclude-libs` or `-Bsymbolic`.
+2. Local-exec TLS in `libbmalloc.a(pas_thread_local_cache.c.o)`
+   (`R_X86_64_TPOFF32`, gold's `unsupported reloc 23`). No linker
+   flag fixes this; only a `-fPIC` rebuild does.
+
+Executables link either way, which is why `swift-js` and
+`swift-jsc-smoke` are unaffected. CI builds with
+`--build-system native` for now (deprecated in SwiftPM 6.4).
+
+Ways out, as of 2026-10-01:
+
+- A `-pic` lane in oven-sh/WebKit (`-fPIC -ftls-model=initial-exec`
+  on the release build): proposed in https://github.com/oven-sh/WebKit/pull/756. The fetcher
+  already understands `BUN_WEBKIT_VARIANT=pic`.
+- Building the PIC archive ourselves from the pinned commit with
+  Bun's own `Dockerfile` — the same flags appended to
+  `DEFAULT_CFLAGS` — and hosting it under Cocoanetics. Verified
+  locally on arm64: the archive links into the test bundle and the
+  tests pass.
+- Note for any pin bump: autobuilds after January 2026 build the
+  `release`/`lto` lanes with `USE_MIMALLOC=ON USE_EXTERNAL_MIMALLOC=ON`.
+  That removes libpas (and with it problem 2), but the host must
+  then provide Bun's mimalloc fork (`oven-sh/mimalloc`, `mi_theap_*`
+  API), a zstd-backed `bun_icu_maybe_decompress` for the repacked
+  ICU data, and the `Bun__*` / `WTFTimer__*` hooks.
+
 Outstanding: port SwiftJSCore from `JSContext`/`JSValue` to a
 thin Swift wrapper over the C API so the full runtime compiles
 on non-Apple. Tracked separately.
