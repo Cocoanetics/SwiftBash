@@ -22,6 +22,11 @@
 #                            oven-sh/WebKit) — e.g. a fork that publishes
 #                            a `pic` build of the same commit
 #   BUN_WEBKIT_TAG           release tag (default: autobuild-$BUN_WEBKIT_VERSION)
+#                            Treat a tag as immutable. A staged copy records
+#                            the URL it came from, so changing the repo or the
+#                            tag re-fetches, but replacing an asset under the
+#                            same tag does not: use a new tag, or delete
+#                            Vendor/bun-webkit.
 #
 # See Docs/SwiftJS.md § Cross-platform for design rationale.
 set -euo pipefail
@@ -102,18 +107,43 @@ detect_asset() {
 }
 
 asset="${BUN_WEBKIT_ASSET:-$(detect_asset)}"
+if [[ "$asset" == */* ]]; then
+    echo "fetch-bun-webkit: BUN_WEBKIT_ASSET must be a bare tarball name, got '$asset'" >&2
+    exit 1
+fi
 triple="${asset#bun-webkit-}"
 triple="${triple%.tar.gz}"
 
 stage_dir="$stage_root/$triple-$WEBKIT_VERSION"
 extracted_marker="$stage_dir/.fetched"
+url="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${asset}"
 
 # ---- Stage cache hit -------------------------------------------------------
 
+# The stage dir is keyed by triple + WebKit version, which don't say where the
+# archive came from: BUN_WEBKIT_REPO / BUN_WEBKIT_TAG can point the same triple
+# at another release (a PIC rebuild under a new tag, a fork instead of
+# upstream). So the marker records the URL it was fetched from, and a stage
+# only counts as a hit when that is the URL asked for now. A marker from before
+# the source could be overridden is empty, and was necessarily Bun's stock
+# release.
+cached_url=""
 if [[ -f "$extracted_marker" ]]; then
+    cached_url="$(<"$extracted_marker")"
+    if [[ -z "$cached_url" ]]; then
+        cached_url="https://github.com/oven-sh/WebKit/releases/download/autobuild-${WEBKIT_VERSION}/${asset}"
+    fi
+fi
+
+if [[ "$cached_url" == "$url" ]]; then
     echo "fetch-bun-webkit: cache hit ($triple @ ${WEBKIT_VERSION:0:12})"
 else
-    url="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${asset}"
+    if [[ -e "$stage_dir" ]]; then
+        # Another source's stage, or an unfinished one: start clean so files
+        # of the old archive can't mix into the new one.
+        echo "fetch-bun-webkit: replacing the stage from ${cached_url:-an unfinished download}"
+        rm -rf "$stage_dir"
+    fi
     echo "fetch-bun-webkit: downloading $asset"
     echo "                  from $url"
 
@@ -128,7 +158,7 @@ else
     # The tarball top-level directory is `bun-webkit/`. Strip it so
     # we end up with bin/, lib/, include/ directly under $stage_dir.
     tar -xzf "$tmp/$asset" -C "$stage_dir" --strip-components=1
-    touch "$extracted_marker"
+    printf '%s\n' "$url" > "$extracted_marker"
     echo "fetch-bun-webkit: extracted to $stage_dir"
 fi
 
