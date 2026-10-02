@@ -18,12 +18,18 @@
 #   BUN_WEBKIT_ASSET         exact tarball name (skips host detection)
 #   BUN_WEBKIT_VARIANT       `release` (default) | `lto` | `baseline` | `pic`
 #   BUN_WEBKIT_ROOT          where to stage (default: Vendor/bun-webkit)
+#   BUN_WEBKIT_REPO          GitHub repo hosting the release (default:
+#                            oven-sh/WebKit) — e.g. a fork that publishes
+#                            a `pic` build of the same commit
+#   BUN_WEBKIT_TAG           release tag (default: autobuild-$BUN_WEBKIT_VERSION)
 #
 # See Docs/SwiftJS.md § Cross-platform for design rationale.
 set -euo pipefail
 
 WEBKIT_VERSION="${BUN_WEBKIT_VERSION:-88b2f7a2159c913f7dd0d73c0e88d66138cd67ba}"
 VARIANT="${BUN_WEBKIT_VARIANT:-release}"
+RELEASE_REPO="${BUN_WEBKIT_REPO:-oven-sh/WebKit}"
+RELEASE_TAG="${BUN_WEBKIT_TAG:-autobuild-$WEBKIT_VERSION}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stage_root="${BUN_WEBKIT_ROOT:-$repo_root/Vendor/bun-webkit}"
@@ -107,7 +113,7 @@ extracted_marker="$stage_dir/.fetched"
 if [[ -f "$extracted_marker" ]]; then
     echo "fetch-bun-webkit: cache hit ($triple @ ${WEBKIT_VERSION:0:12})"
 else
-    url="https://github.com/oven-sh/WebKit/releases/download/autobuild-${WEBKIT_VERSION}/${asset}"
+    url="https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_TAG}/${asset}"
     echo "fetch-bun-webkit: downloading $asset"
     echo "                  from $url"
 
