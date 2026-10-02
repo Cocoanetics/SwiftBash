@@ -131,7 +131,15 @@ jobs:
       # Vendor/bun-webkit/<triple>/, with a `current` symlink that
       # CJavaScriptCore's header / library search paths follow. Must
       # run before `swift build` so the linker resolves -lJavaScriptCore.
+      # `pic` variant: Bun doesn't publish one yet (oven-sh/WebKit#756),
+      # so this is the same commit rebuilt with `-fPIC -ftls-model=initial-exec`
+      # on a fork, Bun's own Dockerfile plus one build-arg. It's what lets
+      # the test bundles below link under `swiftbuild` — see #91.
       - name: Fetch bun-webkit (Linux)
+        env:
+          BUN_WEBKIT_VARIANT: pic
+          BUN_WEBKIT_REPO: odrobnik/WebKit
+          BUN_WEBKIT_TAG: pic-88b2f7a2159c913f7dd0d73c0e88d66138cd67ba
         run: ./scripts/fetch-bun-webkit.sh
       # Diagnostic — if the build fails on missing JSC headers,
       # this step's output reveals whether the fetch actually
@@ -145,16 +153,16 @@ jobs:
           ls -la Vendor/bun-webkit/current/ || true
           echo "---"
           ls -la Vendor/bun-webkit/current/include/JavaScriptCore/JavaScript.h
-      # `--build-system native`: this job uses the runner's own
-      # toolchain (Swift 6.4 on ubuntu-24.04 today), whose default
-      # `swiftbuild` engine links test products in a form that can't
-      # absorb Bun's non-PIC libJavaScriptCore.a (ld.gold: "requires
-      # dynamic R_X86_64_PC32 reloc … recompile with -fPIC" on
-      # SwiftJSCoreTests). The executables link fine either way.
+      # Default build system (`swiftbuild` on Swift 6.4): it links test
+      # products as `.so`s, which Bun's stock PIE-not-PIC archives can't
+      # go into (ld.gold: "requires dynamic R_X86_64_PC32 reloc …
+      # recompile with -fPIC", plus local-exec TLS in libbmalloc.a that
+      # no linker flag fixes) — hence the `pic` archive above. See #91
+      # and Docs/SwiftJS.md § "Linux — test bundles need a PIC archive".
       - name: Build (Linux)
-        run: swift build --build-tests -v --build-system native
+        run: swift build --build-tests -v
       - name: Test (Linux)
-        run: swift test -v --skip-build --no-parallel --build-system native
+        run: swift test -v --skip-build --no-parallel
       - name: JSC smoke (Linux)
         run: .build/debug/swift-jsc-smoke
 

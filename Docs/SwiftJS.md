@@ -812,6 +812,64 @@ bounded (each runtime owns a single long-lived context). The
 gate lifts when upstream resolves the assert; tracked alongside
 the Windows item.
 
+### Linux — test bundles need a PIC archive (#91)
+
+SwiftPM's `swiftbuild` engine (the default since Swift 6.4) links
+a Linux test product as a shared library plus a thin
+`<name>-test-runner` executable, the way an `.xctest` bundle
+works on macOS. Bun's archives can't go into a shared object:
+their fork turns `CMAKE_POSITION_INDEPENDENT_CODE` off (July 2024,
+"Disable PIC on Linux" / "Less relro"), so the objects are
+clang's default PIE code — fine inside Bun's executable, but in a
+`.so` two things have no valid relocation:
+
+1. PC-relative references to the ~4,400 default-visibility
+   (`JS_EXPORT_PRIVATE`) symbols — ld.gold's `requires dynamic
+   R_X86_64_PC32 reloc … recompile with -fPIC`. A consumer can
+   neutralise these with `--exclude-libs` or `-Bsymbolic`.
+2. Local-exec TLS in `libbmalloc.a(pas_thread_local_cache.c.o)`
+   (`R_X86_64_TPOFF32`, gold's `unsupported reloc 23`). No linker
+   flag fixes this; only a `-fPIC` rebuild does.
+
+Executables link either way, which is why `swift-js` and
+`swift-jsc-smoke` were never affected. The way out is a `-fPIC`
+build of the same archive.
+
+What CI uses: Bun doesn't publish a PIC build yet — a `-pic` lane
+is proposed in https://github.com/oven-sh/WebKit/pull/756 — so the
+Linux job fetches one we build ourselves, the pinned commit built
+with Bun's own `Dockerfile` plus `-fPIC -ftls-model=initial-exec`.
+The `pic-pinned` branch of https://github.com/odrobnik/WebKit
+carries the one-argument Dockerfile change and a workflow that
+builds `bun-webkit-linux-{amd64,arm64}-pic.tar.gz` natively on
+hosted runners (about 25 minutes per architecture) and publishes
+them as release `pic-<commit>`. The Linux job selects that release
+with three variables for `scripts/fetch-bun-webkit.sh`:
+
+```
+BUN_WEBKIT_VARIANT=pic
+BUN_WEBKIT_REPO=odrobnik/WebKit
+BUN_WEBKIT_TAG=pic-88b2f7a2159c913f7dd0d73c0e88d66138cd67ba
+```
+
+and then builds and tests on the default `swiftbuild` engine, with
+no `--build-system native`. A local Linux build that runs tests on
+Swift 6.4 needs the same three variables; building the executables
+works with Bun's stock archive.
+
+Status: x86-64 is exercised by CI, with the same test counts as
+under the old engine. The arm64 archive is built and published but
+not yet linked into SwiftBash.
+
+When bumping the pin, rebuild the PIC archive for the new commit
+(or, once #756 lands, use Bun's `-pic` lane) and update the tag.
+Note that autobuilds after January 2026 build the `release`/`lto`
+lanes with `USE_MIMALLOC=ON USE_EXTERNAL_MIMALLOC=ON`. That removes
+libpas (and with it problem 2), but the host must then provide
+Bun's mimalloc fork (`oven-sh/mimalloc`, `mi_theap_*` API), a
+zstd-backed `bun_icu_maybe_decompress` for the repacked ICU data,
+and the `Bun__*` / `WTFTimer__*` hooks.
+
 Outstanding: port SwiftJSCore from `JSContext`/`JSValue` to a
 thin Swift wrapper over the C API so the full runtime compiles
 on non-Apple. Tracked separately.
