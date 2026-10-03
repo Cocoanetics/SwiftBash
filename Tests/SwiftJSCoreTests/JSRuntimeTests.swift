@@ -292,6 +292,24 @@ final class JSRuntimeTests: XCTestCase {
         XCTAssertEqual(out(), "sync\nmicro\n")
     }
 
+    // MARK: - Intl
+
+    func testIntlReadsLocaleDisplayNames() {
+        // Display names are the ICU items Bun's Linux archives store
+        // zstd-compressed: without `bun_icu_maybe_decompress`
+        // (Sources/CJavaScriptCore/BunICUDecompress.c) the first two
+        // come back as bare codes and the third throws (#91).
+        let (jsRuntime, out, err) = runtime()
+        jsRuntime.run("""
+        console.log(new Intl.DisplayNames(['de'], {type: 'region'}).of('US'));
+        console.log(new Intl.DisplayNames(['de'], {type: 'language'}).of('fr'));
+        console.log((1).toLocaleString('de-DE',
+            {style: 'currency', currency: 'EUR', currencyDisplay: 'name'}));
+        """)
+        XCTAssertEqual(err(), "")
+        XCTAssertEqual(out(), "Vereinigte Staaten\nFranzösisch\n1,00 Euro\n")
+    }
+
     // MARK: - Timers
 
     func testSetTimeoutFires() {

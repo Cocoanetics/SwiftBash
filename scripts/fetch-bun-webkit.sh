@@ -6,23 +6,34 @@
 # `current` symlink as the include / library search root for the
 # CJavaScriptCore C target on Linux / Windows / Android.
 #
+# On Linux and Android it also stages the mimalloc sources the archive
+# needs (Vendor/bun-webkit/current/mimalloc/), which the CMimalloc
+# target compiles. Bun's archives built since July 2026 carry no
+# allocator of their own: JavaScriptCore calls mimalloc, and expects
+# the program that links it to provide it, at the version Bun links.
+#
 # Apple platforms don't need this — they use the system
 # JavaScriptCore.framework via Swift's `import JavaScriptCore`. The
 # script will refuse to run on Darwin to avoid confusion.
 #
 # Pinned to a specific autobuild commit so SwiftBash builds are
-# reproducible. Bump WEBKIT_VERSION when picking up a newer JSC.
+# reproducible. Bump WEBKIT_VERSION when picking up a newer JSC, and
+# MIMALLOC_COMMIT with it: Bun pins the two together, in
+# scripts/build/deps/webkit.ts and scripts/build/deps/mimalloc.ts of
+# the same oven-sh/bun commit. The pair below is oven-sh/bun@7fe13e1b.
 #
 # Override knobs:
 #   BUN_WEBKIT_VERSION       autobuild commit SHA
 #   BUN_WEBKIT_ASSET         exact tarball name (skips host detection)
 #   BUN_WEBKIT_VARIANT       `release` (default) | `lto` | `baseline`
 #   BUN_WEBKIT_ROOT          where to stage (default: Vendor/bun-webkit)
+#   BUN_MIMALLOC_COMMIT      oven-sh/mimalloc commit paired with it
 #
 # See Docs/SwiftJS.md § Cross-platform for design rationale.
 set -euo pipefail
 
-WEBKIT_VERSION="${BUN_WEBKIT_VERSION:-88b2f7a2159c913f7dd0d73c0e88d66138cd67ba}"
+WEBKIT_VERSION="${BUN_WEBKIT_VERSION:-fb1167ebf2cb9edc1f6771a2c11771b024693ae0}"
+MIMALLOC_COMMIT="${BUN_MIMALLOC_COMMIT:-eab09015a5850ae18fc43ccfaa5bbe8272992314}"
 VARIANT="${BUN_WEBKIT_VARIANT:-release}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -121,6 +132,42 @@ else
     echo "fetch-bun-webkit: extracted to $stage_dir"
 fi
 
+# ---- mimalloc sources (Linux / Android) -------------------------------------
+
+# Windows doesn't link JavaScriptCore yet (Docs/SwiftJS.md § Windows),
+# so it doesn't need an allocator for it either.
+case "$triple" in
+    windows-*) needs_mimalloc=0 ;;
+    *)         needs_mimalloc=1 ;;
+esac
+
+mimalloc_dir="$stage_dir/mimalloc"
+mimalloc_marker="$mimalloc_dir/.fetched"
+if [[ "$needs_mimalloc" == 1 ]]; then
+    if [[ -f "$mimalloc_marker" && "$(<"$mimalloc_marker")" == "$MIMALLOC_COMMIT" ]]; then
+        echo "fetch-bun-webkit: cache hit (mimalloc @ ${MIMALLOC_COMMIT:0:12})"
+    else
+        mimalloc_url="https://github.com/oven-sh/mimalloc/archive/${MIMALLOC_COMMIT}.tar.gz"
+        echo "fetch-bun-webkit: downloading mimalloc @ ${MIMALLOC_COMMIT:0:12}"
+        echo "                  from $mimalloc_url"
+        mimalloc_tmp="$(mktemp -d)"
+        trap 'rm -rf "${tmp:-}" "$mimalloc_tmp"' EXIT
+        curl --fail --location --silent --show-error \
+             --output "$mimalloc_tmp/mimalloc.tar.gz" "$mimalloc_url"
+        rm -rf "$mimalloc_dir"
+        mkdir -p "$mimalloc_dir"
+        # Only what the build compiles, plus the license.
+        tar -xzf "$mimalloc_tmp/mimalloc.tar.gz" -C "$mimalloc_dir" \
+            --strip-components=1 \
+            "mimalloc-${MIMALLOC_COMMIT}/src" \
+            "mimalloc-${MIMALLOC_COMMIT}/include" \
+            "mimalloc-${MIMALLOC_COMMIT}/LICENSE"
+        rm -rf "$mimalloc_tmp"
+        printf '%s\n' "$MIMALLOC_COMMIT" > "$mimalloc_marker"
+        echo "fetch-bun-webkit: extracted mimalloc to $mimalloc_dir"
+    fi
+fi
+
 # ---- Sanity check ----------------------------------------------------------
 
 case "$triple" in
@@ -131,7 +178,12 @@ esac
 required_lib="$stage_dir/lib/${prefix}JavaScriptCore.${ext}"
 required_hdr="$stage_dir/include/JavaScriptCore/JavaScript.h"
 
-for f in "$required_lib" "$required_hdr"; do
+required=("$required_lib" "$required_hdr")
+if [[ "$needs_mimalloc" == 1 ]]; then
+    required+=("$mimalloc_dir/src/static.c" "$mimalloc_dir/include/mimalloc.h")
+fi
+
+for f in "${required[@]}"; do
     if [[ ! -f "$f" ]]; then
         echo "fetch-bun-webkit: expected file missing: $f" >&2
         echo "                  the tarball layout may have changed" >&2

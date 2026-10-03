@@ -76,13 +76,13 @@ public final class JSContext {
             // only tears the engine state down once those have
             // dropped.
             //
-            // Skip the release on non-Apple to dodge a known
-            // shutdown stall in Bun's prebuilt JSC archive — the
-            // bmalloc heap shutdown asserts ~62s after teardown
-            // begins (see `swift-jsc-smoke` for the same workaround
-            // and Docs/SwiftJS.md § Cross-platform for context).
-            // Memory leaks per-context are bounded; fix lands when
-            // upstream resolves the assert.
+            // Skip the release on non-Apple: on Bun's prebuilt JSC
+            // archive it doesn't finish (it stalled ~62s and then
+            // asserted in bmalloc's heap shutdown on the May 2026
+            // pin; it aborts in `WTF::AtomStringImpl::remove` on the
+            // September one). See Docs/SwiftJS.md § "Linux/Android —
+            // JSC teardown skipped". Memory leaks per-context are
+            // bounded; the gate lifts when upstream fixes teardown.
             #if canImport(Darwin)
             JSGlobalContextRelease(raw)
             #endif

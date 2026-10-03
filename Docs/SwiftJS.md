@@ -802,15 +802,63 @@ stub. Tracked as a follow-up.
 
 ### Linux/Android — JSC teardown skipped
 
-`JSGlobalContextRelease` deadlocks for ~62s then aborts (likely a
-bmalloc heap-shutdown assert against an unfinished worker on
-Bun's static archive). All other C-API calls during normal
-execution succeed; only teardown trips. `JSContext.deinit` skips
+Releasing a context created with `JSGlobalContextCreate(nil)` doesn't
+finish on Bun's static archive: on the May 2026 pin it deadlocked for
+~62 s and then aborted in bmalloc's heap shutdown; on the September
+2026 pin it aborts at once in `WTF::AtomStringImpl::remove` during
+`VM::~VM`. All other C-API calls during normal execution succeed;
+only teardown trips. `JSContext.deinit` skips
 `JSGlobalContextRelease` on non-Apple as a workaround — the OS
 reclaims memory at process exit, and per-context leakage is
-bounded (each runtime owns a single long-lived context). The
-gate lifts when upstream resolves the assert; tracked alongside
-the Windows item.
+bounded (each runtime owns a single long-lived context).
+`swift-jsc-smoke` releases through an explicit context group
+instead, the path that exits cleanly on Bun's archive. The gate
+lifts when upstream fixes teardown; tracked alongside the Windows
+item.
+
+### Linux — what Bun's archives need from the host
+
+Since July 2026 Bun builds its standard Linux and Android archives
+with `USE_EXTERNAL_MIMALLOC` (oven-sh/WebKit#283): bmalloc calls
+mimalloc but the archive doesn't contain it, and since May 2026 the
+Linux archives' ICU data is repacked with a zstd frame per display-name
+item (oven-sh/WebKit#237). Bun's own binary supplies both. So does
+SwiftBash, with three things on Linux; Android needs only the first:
+
+1. **mimalloc** — the `CMimalloc` target compiles Bun's fork,
+   `oven-sh/mimalloc`, at the commit Bun pairs with the WebKit pin.
+   `scripts/fetch-bun-webkit.sh` stages its sources next to the
+   archive (`Vendor/bun-webkit/current/mimalloc/`), and the target
+   builds `src/static.c` the way Bun's `scripts/build/deps/mimalloc.ts`
+   does — as C++, with the same defines — except that it doesn't
+   replace the process's `malloc`: only JavaScriptCore allocates
+   through it.
+2. **`bun_icu_maybe_decompress`** — the hook Bun's patched ICU calls
+   on every data item it loads (`Sources/CJavaScriptCore/BunICUDecompress.c`,
+   a C port of Bun's `bun_icu_decompress.cpp`, using the system zstd).
+   Without it ICU can't read the compressed items: `Intl.DisplayNames`
+   returns bare codes, and `currencyDisplay: 'name'` and
+   `timeZoneName` throw. Linux only; Bun's Android image doesn't
+   compress its ICU data.
+3. **`--exclude-libs ALL`** — keeps the archives' symbols out of the
+   dynamic symbol table of whatever links them (Linux only).
+
+The third is what lets the archives go into a shared object, which
+matters because SwiftPM's `swiftbuild` engine — the default since
+Swift 6.4 — links a Linux test product as a `.so` loaded by a thin
+`<name>-test-runner` executable (#91). Bun's x86-64 archives are PIE
+code, not PIC: in a `.so`, ld rejects their PC-relative references to
+symbols the object would export ("requires dynamic R_X86_64_PC32
+reloc … recompile with -fPIC") unless those symbols stay local. The
+arm64 archives link either way. Archives from before July 2026 can't
+go into a shared object at all: their libpas thread-local cache uses
+local-exec TLS, which no linker flag fixes.
+
+When bumping `WEBKIT_VERSION`, bump `MIMALLOC_COMMIT` with it: find
+the oven-sh/bun commit whose `scripts/build/deps/webkit.ts` sets that
+WebKit version and take `MIMALLOC_COMMIT` from its
+`scripts/build/deps/mimalloc.ts`, and check that file's defines
+against `CMimalloc`'s in `Package.swift`.
 
 Outstanding: port SwiftJSCore from `JSContext`/`JSValue` to a
 thin Swift wrapper over the C API so the full runtime compiles
@@ -822,8 +870,11 @@ on non-Apple. Tracked separately.
 $ ./scripts/fetch-bun-webkit.sh        # one-time per WebKit version
 fetch-bun-webkit: downloading bun-webkit-linux-amd64.tar.gz
                   from https://github.com/oven-sh/WebKit/releases/...
-fetch-bun-webkit: extracted to Vendor/bun-webkit/linux-amd64-88b2f7a...
-fetch-bun-webkit: Vendor/bun-webkit/current -> linux-amd64-88b2f7a...
+fetch-bun-webkit: extracted to Vendor/bun-webkit/linux-amd64-fb1167e...
+fetch-bun-webkit: downloading mimalloc @ eab09015a585
+                  from https://github.com/oven-sh/mimalloc/archive/...
+fetch-bun-webkit: extracted mimalloc to Vendor/bun-webkit/linux-amd64-fb1167e.../mimalloc
+fetch-bun-webkit: Vendor/bun-webkit/current -> linux-amd64-fb1167e...
 fetch-bun-webkit: ready
 
 $ swift build --product swift-jsc-smoke
@@ -835,7 +886,8 @@ swift-jsc-smoke: 1 + 2 = 3  [bun-webkit static archive]
 ```
 
 The fetcher pins a WebKit-fork commit SHA — bumping that constant
-is how we pick up newer JSC. CI runs the fetcher on Linux,
+(and the paired `MIMALLOC_COMMIT`, see § "Linux — what Bun's archives
+need from the host") is how we pick up newer JSC. CI runs the fetcher on Linux,
 Windows, and Android before `swift build`; on macOS it's a no-op
 (the system framework is already on the search path).
 
