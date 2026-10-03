@@ -388,6 +388,12 @@ let package = Package(
         // `JSContext` / `JSValue` wrapper over the C API.
         .target(
             name: "CJavaScriptCore",
+            dependencies: [
+                // Bun's archives call mimalloc but don't contain it;
+                // see Sources/CMimalloc/CMimalloc.cpp.
+                .target(name: "CMimalloc",
+                        condition: .when(platforms: [.linux, .android])),
+            ],
             path: "Sources/CJavaScriptCore",
             publicHeadersPath: "include",
             cSettings: [
@@ -457,6 +463,21 @@ let package = Package(
                 // logging API (`__android_log_print` /
                 // `__android_log_write`); resolve via `-llog`.
                 .linkedLibrary("log", .when(platforms: [.android])),
+                // zstd backs `bun_icu_maybe_decompress`
+                // (BunICUDecompress.c), which unpacks the ICU items
+                // Bun's Linux archives store compressed.
+                .linkedLibrary("zstd", .when(platforms: [.linux])),
+                // Keeps the archives' symbols out of the dynamic symbol
+                // table of whatever links them. That's what lets the
+                // x86-64 archives, which are PIE code rather than PIC,
+                // go into a shared object: `swiftbuild` links Linux test
+                // products as `.so` files, and ld rejects the archives'
+                // PC-relative references to symbols such an object would
+                // otherwise export (#91). It also keeps references into
+                // the archives from binding to another copy of those
+                // libraries in the process, such as a system ICU.
+                .unsafeFlags(["-Xlinker", "--exclude-libs", "-Xlinker", "ALL"],
+                             .when(platforms: [.linux])),
 
                 // Windows MSVC. `linkedLibrary("Foo")` becomes
                 // `Foo.lib`; Bun's Windows tarball ships static ICU
@@ -478,6 +499,49 @@ let package = Package(
                 // Apple platforms autolink the framework via the
                 // umbrella header's `#include <JavaScriptCore/...>`
                 // — no explicit linkerSetting needed.
+            ]
+        ),
+
+        // ---- CMimalloc — the allocator Bun's JSC archive calls ----
+        // Compiles Bun's mimalloc fork (staged next to the archive by
+        // `scripts/fetch-bun-webkit.sh`) with the settings Bun uses in
+        // scripts/build/deps/mimalloc.ts, except for the global malloc
+        // override. Linux / Android only; an empty translation unit
+        // everywhere else. See Sources/CMimalloc/CMimalloc.cpp.
+        .target(
+            name: "CMimalloc",
+            path: "Sources/CMimalloc",
+            sources: ["CMimalloc.cpp"],
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .define("MI_STATIC_LIB", .when(platforms: [.linux, .android])),
+                .define("MI_BUILD_RELEASE", .when(platforms: [.linux, .android])),
+                // Don't walk the heaps, or tear down mimalloc's state,
+                // at process exit: other static destructors may still
+                // free into it then.
+                .define("MI_SKIP_COLLECT_ON_EXIT", to: "1",
+                        .when(platforms: [.linux, .android])),
+                .define("MI_NO_PROCESS_DETACH", to: "1",
+                        .when(platforms: [.linux, .android])),
+                // JSC hands mimalloc its structure heap through
+                // `mi_manage_os_memory_ex`, which needs the page map.
+                .define("MI_FREE_USE_PAGEMAP", to: "1",
+                        .when(platforms: [.linux, .android])),
+                .define("MI_DEFAULT_ALLOW_THP", to: "0",
+                        .when(platforms: [.linux, .android])),
+                // Absolute paths to the staged sources, like the JSC
+                // headers above. Hidden visibility keeps the mi_*
+                // symbols private to the binary that links them, so
+                // JSC can't bind to another mimalloc in the process.
+                .unsafeFlags(["-I\(bunWebKitDir)/mimalloc/include",
+                              "-I\(bunWebKitDir)/mimalloc/src",
+                              "-fvisibility=hidden"],
+                             .when(platforms: [.linux, .android])),
+                // Bun's TLS model for glibc: no __tls_get_addr on the
+                // allocation path. Android keeps the default, which
+                // works in shared libraries loaded with dlopen.
+                .unsafeFlags(["-ftls-model=initial-exec"],
+                             .when(platforms: [.linux])),
             ]
         ),
     ] + (registerJSCSmoke ? [

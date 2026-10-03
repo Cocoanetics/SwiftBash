@@ -145,16 +145,16 @@ jobs:
           ls -la Vendor/bun-webkit/current/ || true
           echo "---"
           ls -la Vendor/bun-webkit/current/include/JavaScriptCore/JavaScript.h
-      # `--build-system native`: this job uses the runner's own
-      # toolchain (Swift 6.4 on ubuntu-24.04 today), whose default
-      # `swiftbuild` engine links test products in a form that can't
-      # absorb Bun's non-PIC libJavaScriptCore.a (ld.gold: "requires
-      # dynamic R_X86_64_PC32 reloc … recompile with -fPIC" on
-      # SwiftJSCoreTests). The executables link fine either way.
+      # Default build engine (`swiftbuild` since Swift 6.4), which links
+      # Linux test products as shared objects. Bun's archives go into
+      # those since the pin moved past July 2026 (#91): no more libpas
+      # TLS in them, and `--exclude-libs` in Package.swift covers the
+      # x86-64 archives' PC-relative references. See Docs/SwiftJS.md
+      # § "Linux — what Bun's archives need from the host".
       - name: Build (Linux)
-        run: swift build --build-tests -v --build-system native
+        run: swift build --build-tests -v
       - name: Test (Linux)
-        run: swift test -v --skip-build --no-parallel --build-system native
+        run: swift test -v --skip-build --no-parallel
       - name: JSC smoke (Linux)
         run: .build/debug/swift-jsc-smoke
 
