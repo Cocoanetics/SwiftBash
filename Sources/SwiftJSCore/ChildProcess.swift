@@ -297,7 +297,7 @@ extension JSRuntime {
             }
         }
 
-        Self.installReadabilityHandler(
+        Self.startPipeReader(
             on: outPipe.fileHandleForReading,
             target: handles.stdoutS,
             onEOF: {
@@ -307,7 +307,7 @@ extension JSRuntime {
                 finalize()
             }
         )
-        Self.installReadabilityHandler(
+        Self.startPipeReader(
             on: errPipe.fileHandleForReading,
             target: handles.stderrS,
             onEOF: {
@@ -397,33 +397,46 @@ extension JSRuntime {
         }
     }
 
-    /// Wire a `FileHandle.readabilityHandler` to forward bytes to the
-    /// JS-side ``Readable``. Empty Data signals EOF — at which point
-    /// we tear down the handler, push a final `_end`, and call
-    /// `onEOF` so the caller can sequence the `close` event.
+    /// Forward a child's stdout or stderr to the JS-side ``Readable``
+    /// from a reader thread of its own. `availableData` blocks until
+    /// bytes arrive or every writer has closed the pipe, so the loop
+    /// sees each chunk and then the end-of-file (empty Data), at which
+    /// point it pushes a final `_end` and calls `onEOF` so the caller
+    /// can sequence the `close` event. The loop holds `fileHandle`
+    /// until then.
+    ///
+    /// Not a `readabilityHandler`: on Linux, when the child writes and
+    /// exits before the handler first runs, the read source fires
+    /// once, the handler reads the bytes, and the end-of-file never
+    /// produces another event, so `close` never fired. It only seemed
+    /// to work when Foundation released the pipe and closed the
+    /// descriptor under the live source, which could also crash (#97).
     #if os(macOS) || os(Linux)
-    private static func installReadabilityHandler(
+    private static func startPipeReader(
         on fileHandle: FileHandle,
         target: JSValue?,
         onEOF: @escaping @Sendable () -> Void
     ) {
-        fileHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                DispatchQueue.main.async {
-                    target?.invokeMethod("_end", withArguments: [])
+        let reader = Thread {
+            while true {
+                let data = fileHandle.availableData
+                if data.isEmpty {
+                    DispatchQueue.main.async {
+                        target?.invokeMethod("_end", withArguments: [])
+                    }
+                    onEOF()
+                    return
                 }
-                onEOF()
-                return
-            }
-            let bytes = Array(data)
-            DispatchQueue.main.async {
-                if let target {
-                    Self.pushBytes(bytes, to: target)
+                let bytes = Array(data)
+                DispatchQueue.main.async {
+                    if let target {
+                        Self.pushBytes(bytes, to: target)
+                    }
                 }
             }
         }
+        reader.name = "swift-js child stdio"
+        reader.start()
     }
     #endif
 
