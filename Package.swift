@@ -533,15 +533,13 @@ let package = Package(
                 // headers above. Hidden visibility keeps the mi_*
                 // symbols private to the binary that links them, so
                 // JSC can't bind to another mimalloc in the process.
+                // The TLS model depends on the C library, which a
+                // `.linux` condition can't tell apart: CMimalloc.cpp
+                // picks it (initial-exec on glibc, local-dynamic on musl).
                 .unsafeFlags(["-I\(bunWebKitDir)/mimalloc/include",
                               "-I\(bunWebKitDir)/mimalloc/src",
                               "-fvisibility=hidden"],
                              .when(platforms: [.linux, .android])),
-                // Bun's TLS model for glibc: no __tls_get_addr on the
-                // allocation path. Android keeps the default, which
-                // works in shared libraries loaded with dlopen.
-                .unsafeFlags(["-ftls-model=initial-exec"],
-                             .when(platforms: [.linux])),
             ]
         ),
     ] + (registerJSCSmoke ? [
