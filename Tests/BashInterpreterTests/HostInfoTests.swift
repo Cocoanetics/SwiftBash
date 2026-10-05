@@ -56,7 +56,14 @@ import WinSDK
     @Test func realPullsFromProcessInfo() {
         let real = HostInfo.real()
         #expect(real.userName == ProcessInfo.processInfo.userName)
-        #expect(real.uid > 0)
+        // `.real()` documents `uid` as whatever `getuid()` reports —
+        // that's 0 for root, so assert equality rather than `> 0`
+        // (fails under the root-by-default `swift:` Docker images).
+        #if os(Windows)
+        #expect(real.uid == 1000)
+        #else
+        #expect(real.uid == UInt32(getuid()))
+        #endif
         #expect(!real.kernelName.isEmpty)
     }
     #endif
