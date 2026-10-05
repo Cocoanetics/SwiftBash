@@ -3,6 +3,18 @@ import Foundation
 @testable import BashInterpreter
 @testable import BashCommandKit
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Bionic)
+import Bionic
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+
 @Suite(.timeLimit(.minutes(1))) struct WhoamiAndHostnameTests {
 
     // MARK: whoami — synthetic by default
@@ -65,7 +77,14 @@ import Foundation
         // Sanity: `.real()` does query the host.
         #expect(real.userName == ProcessInfo.processInfo.userName)
         #expect(!real.hostName.isEmpty)
-        #expect(real.uid > 0)
+        // `.real()` documents `uid` as whatever `getuid()` reports —
+        // that's 0 for root, so assert equality rather than `> 0`
+        // (fails under the root-by-default `swift:` Docker images).
+        #if os(Windows)
+        #expect(real.uid == 1000)
+        #else
+        #expect(real.uid == UInt32(getuid()))
+        #endif
     }
 
     @Test func realHostInfoFlowsToWhoami() async throws {
