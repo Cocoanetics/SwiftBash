@@ -110,6 +110,12 @@ jobs:
     # `<libsecret/secret.h>` that SwiftPorts' CSecretShim (ForgeKit's
     # Linux token store) compiles against.
     runs-on: ubuntu-latest
+    # Was floating on whatever `ubuntu-latest` preinstalled (Swift 6.4
+    # as of #91, which is how SwiftPM's default build engine changed
+    # under us). Pinned to the official image so the next toolchain
+    # bump is a deliberate version bump here instead of a surprise
+    # red build (#95). `-noble` matches ubuntu-latest's current base.
+    container: swift:6.4-noble
     # SwiftPorts' dependency graph (libgit2 + the compression family
     # + Bun's prebuilt JSC) plus a full `swift test` pushes the cold
     # run past 15 min on the default GitHub Linux runner. 30 min
@@ -119,11 +125,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install C dev headers
+        # Runs as root inside the `swift` container image — no `sudo`.
+        # `curl` isn't in the base image (unlike the GitHub-hosted
+        # `ubuntu-latest` runner); fetch-bun-webkit.sh needs it.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libssl-dev pkg-config ca-certificates \
-                                  zlib1g-dev libbz2-dev liblzma-dev \
-                                  libzstd-dev liblz4-dev libsecret-1-dev
+          apt-get update
+          apt-get install -y curl libssl-dev pkg-config ca-certificates \
+                              zlib1g-dev libbz2-dev liblzma-dev \
+                              libzstd-dev liblz4-dev libsecret-1-dev
       - name: Verify Swift version
         run: swift --version
       # Bun's prebuilt JavaScriptCore static archive (oven-sh/WebKit
