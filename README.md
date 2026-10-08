@@ -152,15 +152,15 @@ See [Sandboxing](Docs/Sandboxing.md) for the full model.
 ## Install
 
 ```swift
-.package(url: "https://github.com/Cocoanetics/SwiftBash", branch: "main")
+.package(url: "https://github.com/Cocoanetics/SwiftBash",
+         .upToNextMinor(from: "0.1.0")),
 ```
 
-There is no tagged release yet. SwiftBash's own ShellKit /
-SwiftPorts / SwiftScript dependencies track `main`, and SwiftPM
-refuses a version requirement on a package whose dependencies are
-branch-pinned, so depend on `main` for now (tagging is tracked in
-[#89](https://github.com/Cocoanetics/SwiftBash/issues/89)). Then
-depend on the products you want:
+SwiftBash is 0.x: a minor release may change API, a patch release
+does not, so pin the minor. The whole ShellKit family (ShellKit,
+SwiftPorts, SwiftScript, SQLiteKit) is versioned the same way and
+moves minors together, so one `upToNextMinor` here is enough to
+get a consistent graph. Then depend on the products you want:
 
 ```swift
 .target(name: "YourTarget", dependencies: [

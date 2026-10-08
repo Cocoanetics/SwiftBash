@@ -1,0 +1,58 @@
+---
+name: Dependency drift
+# PR CI builds the exact revisions in `Package.resolved`, so it no
+# longer notices when a *compatible* upstream release (a new ShellKit /
+# SwiftPorts / SwiftScript patch within the pinned minor) breaks us —
+# nobody sees that until someone runs `swift package update` by hand.
+# This job does that on a schedule, against a throwaway resolution,
+# and fails loudly if the moved graph doesn't build and pass. It never
+# commits; picking up the release is still an explicit `deps:` PR
+# (see AGENTS.md → Dependencies).
+on:
+  schedule:
+    # Mondays 06:00 UTC — after a weekend of upstream merges, before
+    # the week's PRs start resolving against stale assumptions.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  update-and-test:
+    # Same image / toolchain / brew deps as `build-macos` in swift.yml;
+    # keep the two in step.
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Select Xcode 26.0
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+      - name: Install C dependencies (Homebrew)
+        run: |
+          for pkg in bzip2 zstd; do
+            brew list --versions "$pkg" >/dev/null 2>&1 \
+              || brew install "$pkg"
+          done
+      - name: Move every dependency to its newest allowed release
+        run: |
+          cp Package.resolved /tmp/Package.resolved.pinned
+          swift package update
+          echo "::group::Package.resolved diff (pinned → newest)"
+          diff -u /tmp/Package.resolved.pinned Package.resolved \
+            && echo "no dependency moved" || true
+          echo "::endgroup::"
+      - name: Build (macOS)
+        run: swift build --build-tests -v
+      - name: Test (macOS)
+        # Same `libswiftCompatibilitySpan.dylib` workaround as swift.yml.
+        run: |
+          COMPAT_DIR="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx"
+          if [ ! -d "$COMPAT_DIR" ]; then
+            echo "::error::expected back-deployment dir not found: $COMPAT_DIR"
+            exit 1
+          fi
+          export DYLD_LIBRARY_PATH="$COMPAT_DIR:${DYLD_LIBRARY_PATH:-}"
+          swift test -v --skip-build --no-parallel

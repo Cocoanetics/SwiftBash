@@ -1,5 +1,5 @@
 {
-  "originHash" : "8ebf08cfe34805d8f81f6bcdd5a5d5f53494bc3733cf7d4a945779cba72fed3d",
+  "originHash" : "b295c442fd49568dc3e5eba93cbeb81faea3f51c87de9f91ad3e37f903cff7a1",
   "pins" : [
     {
       "identity" : "csqlite",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/GitKit",
       "state" : {
-        "branch" : "main",
-        "revision" : "9e2235c4a639f2df830cd6a256dc2f9acfd43506"
+        "revision" : "64ad623580f6d4f9ac8e6250e6a8eda1d86c6769",
+        "version" : "2.1.0"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/ShellKit",
       "state" : {
-        "branch" : "main",
-        "revision" : "601d5607cefeb06f103125e573b82cd6a83c3e86"
+        "revision" : "40c1b417e6c6318d2ca644d9a3062dc6befd0e31",
+        "version" : "0.1.0"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/SQLiteKit",
       "state" : {
-        "branch" : "main",
-        "revision" : "f05575530c9e460ce728b6bd077176d18098b108"
+        "revision" : "f05575530c9e460ce728b6bd077176d18098b108",
+        "version" : "0.1.0"
       }
     },
     {
@@ -42,7 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/marcprux/swift-archive",
       "state" : {
-        "revision" : "60f478d10ae730c4faed643d3fcc746c07a7e7e5"
+        "revision" : "48fddd77a1d8301ce04e0d7c093fcf0867fa1ff8",
+        "version" : "3.8.9"
       }
     },
     {
@@ -176,8 +177,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/SwiftPorts",
       "state" : {
-        "branch" : "main",
-        "revision" : "7745cad7b43c515d8e545f86d9a290b88dc2be1d"
+        "revision" : "9a9e32d1d81131e28cfa5de79ead648e4d7d4593",
+        "version" : "0.1.0"
       }
     },
     {
@@ -185,8 +186,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/SwiftScript",
       "state" : {
-        "branch" : "main",
-        "revision" : "d298d01dc1aa34d68700f7d0e37ad26b52b36dfc"
+        "revision" : "fe9ae5da8a0c77b6b54fd64974b3ff115ce37502",
+        "version" : "0.1.0"
       }
     },
     {
