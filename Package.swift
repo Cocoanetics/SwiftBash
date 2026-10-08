@@ -125,27 +125,33 @@ let package = Package(
         // HostInfo, BinCatalog, the Command protocol, and the
         // `Shell.current` TaskLocal. SwiftBash subclasses
         // `ShellKit.Shell` to add bash-specific state on top.
-        // Pinned to `main` until ShellKit ships a tagged release.
+        //
+        // All three Cocoanetics packages are required by VERSION, not
+        // `branch: "main"`: SwiftPM refuses a version requirement on a
+        // package whose own dependencies are branch-pinned, so this is
+        // what lets SwiftBash itself be tagged (#89). They are 0.x, and
+        // a 0.x minor may change API, so `.upToNextMinor` — the family
+        // moves minors together. Moving to a new minor is an edit here
+        // plus a `Package.resolved` update; `swift package update` only
+        // walks patch releases within the pinned minor.
         .package(url: "https://github.com/Cocoanetics/ShellKit",
-                 branch: "main"),
+                 .upToNextMinor(from: "0.1.0")),
         // SwiftPorts ports the standard CLI tool surface — `gh`,
         // `glab`, `git`, `jq`, `tar`, `zip`/`unzip`, the gzip /
         // bzip2 / xz / zstd / lz4 compression families — as
         // AsyncParsableCommand types we register as Bash builtins.
         // Each command reads/writes through `Shell.current`, so
         // they participate fully in pipes / redirection / capture.
-        // Pinned to `main` until SwiftPorts ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/SwiftPorts",
-                 branch: "main"),
+                 .upToNextMinor(from: "0.1.0")),
         // SwiftScript — Swift tree-walking interpreter that reads
         // its IO / FS / network / identity / exit through
         // `ShellKit.Shell.current`. The `BashSwiftScript` target
         // registers it as a `swift-script` / `swift` shebang
         // interpreter so `./hello.swift` from a bash script (or
         // `swift-bash exec hello.swift`) routes through it.
-        // Pinned to `main` until SwiftScript ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/SwiftScript",
-                 branch: "main"),
+                 .upToNextMinor(from: "0.1.0")),
     ],
     targets: [
         // The CZlib systemLibrary that used to live here was deleted

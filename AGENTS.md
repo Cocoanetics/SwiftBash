@@ -22,8 +22,8 @@ for how the pieces fit together.
   the in-process SwiftScript interpreter (registered by default).
   See [Docs/SwiftScript.md](Docs/SwiftScript.md).
 - `swift package update <ShellKit|SwiftPorts|SwiftScript>` — move a
-  branch-pinned dependency to its current `main`. See
-  [Dependencies](#dependencies).
+  dependency to its newest patch release within the pinned minor.
+  See [Dependencies](#dependencies).
 
 ## Where things live
 
@@ -163,21 +163,29 @@ file:
 
 ## Dependencies
 
-ShellKit, SwiftPorts, and SwiftScript are pinned to `branch: "main"`,
-so `Package.resolved` is committed: it is the only record of which
-revisions a commit was built and tested against. Without it a fresh
-clone floats to whatever `main` is today, and older commits stop
-building once upstream moves on.
+ShellKit, SwiftPorts, and SwiftScript are required by version,
+`.upToNextMinor(from: "0.x.0")`. They are 0.x packages whose minor
+releases may change API, so the whole family pins the minor and moves
+minors together (#89). `Package.resolved` stays committed: it records
+the exact patch release a commit was built and tested against, so
+fresh clones and CI don't float to a newer patch unnoticed.
 
-- Picking up upstream work is an explicit step: `swift package update
-  <Dep>`, then commit `Package.resolved` together with the code that
-  needs the new revision. A bump on its own is a `deps:` commit.
-- Breaking upstream changes land in lockstep: merge the dependency's
-  PR first, then the SwiftBash PR that bumps the pin and adapts.
-- Don't switch one dependency to a version requirement on its own.
-  While SwiftPorts / SwiftScript still depend on ShellKit by branch,
-  SwiftPM silently resolves ShellKit to the branch anyway. Version
-  pins have to arrive bottom-up across the family (#89).
+- A new upstream *patch* release: `swift package update <Dep>`, then
+  commit `Package.resolved` together with any code that needs it. A
+  bump on its own is a `deps:` commit.
+- A new upstream *minor*: edit the `from:` in `Package.swift`, then
+  `swift package update <Dep>`, and commit both. Breaking changes
+  land in lockstep: tag the dependency first, then the SwiftBash PR
+  that bumps the pin and adapts.
+- Releasing SwiftBash: a dependency can only be required by version
+  if its own dependencies are, so the family tags bottom-up —
+  ShellKit and SQLiteKit, then GitKit, SwiftScript and SwiftPorts,
+  then SwiftBash. Never put a `branch:` requirement back into this
+  graph; SwiftPM silently lets a nested branch requirement override
+  every version requirement above it.
+- `.github/workflows/deps-drift.yml` runs `swift package update` and
+  the suite on a schedule, so a compatible upstream patch that breaks
+  us is noticed before someone bumps the pin by hand.
 
 ## Commits
 
