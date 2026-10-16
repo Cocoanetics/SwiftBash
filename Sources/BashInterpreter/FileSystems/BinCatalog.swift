@@ -53,6 +53,9 @@ enum BinCatalog {
             "mktemp", "more", "nl", "od", "paste", "patch", "pgrep", "pkill",
             "printenv", "printf", "readlink", "rev", "sed", "seq",
             "sha1sum", "sha256sum", "shasum", "sort", "split",
+            // `ssh` — SwiftPorts' in-process OpenSSH port, installed by
+            // `registerSwiftPortsCommands()`; macOS ships it here.
+            "ssh",
             "stat", "strings", "tac", "tail", "tar", "tee", "time",
             "timeout", "touch", "tr", "tree", "true", "truncate",
             "uname", "unexpand", "uniq", "wait", "wc", "which",
