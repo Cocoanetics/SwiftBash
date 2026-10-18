@@ -372,10 +372,10 @@ extension Shell {
                 let status = try await sub.withCurrent {
                     do {
                         return try await sub.execute(node)
-                    } catch is ShellExit {
+                    } catch let exit as ShellExit {
                         // `exit N` inside a background job ends the
                         // JOB, not the parent shell.
-                        return sub.lastExitStatus
+                        return exit.status
                     } catch let ret as ReturnSignal {
                         // So does `return N` in a function's job.
                         return ret.status

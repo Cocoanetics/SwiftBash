@@ -119,6 +119,11 @@ extension Shell {
                         outgoingSink?.finish()
                         return (index, final)
                     } catch is CancellationError {
+                        // A stage cut short because a later one finished
+                        // still runs its EXIT trap, as bash's does when
+                        // the pipe closes. The trap runs in its own task,
+                        // since this one is cancelled.
+                        _ = await Task { await sub.exitSubshell(.success) }.value
                         outgoingSink?.finish()
                         return (index, .success)
                     } catch let exit as ShellExit {

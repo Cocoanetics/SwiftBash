@@ -130,6 +130,33 @@ import Foundation
             """)
     }
 
+    @Test func aJobsExitStatusReachesItsExitTrap() async throws {
+        let cap = try await makeShell()
+        try await cap.shell.run(#"""
+            { trap 'echo "trap $?"' EXIT; exit 5; } & wait $!; echo "job $?"
+            """#)
+        #expect(cap.stdout == "trap 5\njob 5\n")
+    }
+
+    @Test func aCancelledStageStillRunsItsExitTrap() async throws {
+        let cap = try await makeShell()
+        cap.shell.installShellBuiltin(name: "first") { _ in
+            // Read one line, then finish, which cancels the producer.
+            var line = ""
+            for await chunk in Shell.bashCurrent.stdin.bytes {
+                line += String(bytes: chunk, encoding: .utf8) ?? ""
+                if line.contains("\n") { break }
+            }
+            Shell.bashCurrent.stdout(String(line.prefix { $0 != "\n" }) + "\n")
+            return .success
+        }
+        try await cap.shell.run(#"""
+            { trap 'echo cleaned >&2' EXIT; while :; do echo x; done; } | first
+            """#)
+        #expect(cap.stdout == "x\n")
+        #expect(cap.stderr == "cleaned\n")
+    }
+
     @Test func subshellsDoNotRunTheParentsErrTrap() async throws {
         let cap = try await makeShell()
         try await cap.shell.run(#"""
