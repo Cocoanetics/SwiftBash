@@ -145,12 +145,15 @@ extension Shell {
     var optionFlags: String {
         var flags = ""
         if errexit { flags += "e" }
+        if noglob { flags += "f" }
         flags += "h"
         if interactive { flags += "i" }
         if nounset { flags += "u" }
         if verbose { flags += "v" }
         if xtrace { flags += "x" }
-        return flags + "B"
+        flags += "B"
+        if noclobber { flags += "C" }
+        return flags
     }
 
     /// `$LINENO`: the line of the command running now.

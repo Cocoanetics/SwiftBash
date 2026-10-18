@@ -54,20 +54,31 @@ extension Shell {
         }
     }
 
-    // Flat dispatch over redirect operators (`>`, `>>`, `<`, `<<`,
-    // `<<-`, `<<<`, `>&`, `<&`); one case per operator.
-    // swiftlint:disable:next cyclomatic_complexity
+    // Flat dispatch over redirect operators (`>`, `>|`, `>>`, `&>`,
+    // `&>>`, `<`, `<<`, `<<-`, `<<<`, `>&`, `<&`); one case per operator.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func applyOne(input: Int?,
                           type: String,
                           output: Node,
                           heredoc: Node?,
                           openedSinks: inout [OutputSink]) async throws {
         switch type {
-        case ">":
+        case ">", ">|":
             let target = try await expand(word: output)
+            // `set -C`: `>` won't overwrite an existing file; `>|` will.
+            if type == ">" { try await refuseClobbering(target) }
             let sink = try await openOutputPath(target, append: false)
             openedSinks.append(sink)
             bind(outputSink: sink, toFd: input ?? 1)
+
+        case "&>", "&>>":
+            // stdout and stderr both to one file.
+            let target = try await expand(word: output)
+            if type == "&>" { try await refuseClobbering(target) }
+            let sink = try await openOutputPath(target, append: type == "&>>")
+            openedSinks.append(sink)
+            stdout = sink
+            stderr = sink
 
         case ">>":
             let target = try await expand(word: output)
@@ -113,11 +124,23 @@ extension Shell {
         case ">&":
             // fd duplication: `N>&M` points N at whatever M currently is.
             let rhs = try await expand(word: output)
+            if rhs == "-" {
+                // `N>&-` closes fd N: what's written to it goes nowhere.
+                bind(outputSink: .discard, toFd: input ?? 1)
+                return
+            }
             guard let targetFd = Int(rhs) else {
-                // Bash also accepts `>&-` (close fd) and `>&path` forms;
-                // not supporting those yet.
-                throw BashInterpreterError.unimplemented(
-                    "redirect operand not a file descriptor: \(rhs)")
+                // `>&file`, with no fd on the left, is `&>file`.
+                guard input == nil else {
+                    throw BashInterpreterError.unimplemented(
+                        "redirect operand not a file descriptor: \(rhs)")
+                }
+                try await refuseClobbering(rhs)
+                let sink = try await openOutputPath(rhs, append: false)
+                openedSinks.append(sink)
+                stdout = sink
+                stderr = sink
+                return
             }
             let sourceFd = input ?? 1
             let donor = currentOutputSink(forFd: targetFd)
@@ -127,6 +150,11 @@ extension Shell {
             // `<&N` duplicates an input fd. Only fd 0 is meaningful for
             // us — the shell only tracks `stdin`. Validate and no-op.
             let rhs = try await expand(word: output)
+            if rhs == "-" {
+                // `<&-` closes stdin: reads see end of input.
+                if (input ?? 0) == 0 { stdin = .empty }
+                return
+            }
             guard let targetFd = Int(rhs), targetFd == 0 else {
                 throw BashInterpreterError.unimplemented(
                     "input fd duplication from fd \(rhs)")
@@ -137,6 +165,16 @@ extension Shell {
             throw BashInterpreterError.unimplemented(
                 "redirect operator: \(type)")
         }
+    }
+
+    /// `set -C`: refuse to truncate an existing file with `>`, `&>` or
+    /// `>&file`, as bash does. Devices such as `/dev/null` aren't files.
+    private func refuseClobbering(_ target: String) async throws {
+        guard noclobber,
+              let existing = try? await fileSystem.metadata(resolvePath(target)),
+              existing.kind == .file || existing.kind == .symlink
+        else { return }
+        throw FileSystemError.io("\(target): cannot overwrite existing file")
     }
 
     private func bind(outputSink sink: OutputSink, toFd descriptor: Int) {

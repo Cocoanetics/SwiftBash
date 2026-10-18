@@ -93,6 +93,13 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// Propagates through ``copy()``.
     public var verbose: Bool = false
 
+    /// `set -f` / `set -o noglob`: no pathname expansion.
+    public var noglob: Bool = false
+
+    /// `set -C` / `set -o noclobber`: `>` won't overwrite an existing
+    /// file (`>|` still does).
+    public var noclobber: Bool = false
+
     // MARK: - Command registry (file-backed and built-in)
 
     /// File-backed commands keyed by their canonical install path.
@@ -528,6 +535,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.nounset = nounset
         bash.xtrace = xtrace
         bash.verbose = verbose
+        bash.noglob = noglob
+        bash.noclobber = noclobber
         bash.shoptOptions = shoptOptions
         bash.traps = traps
         bash.currentSource = currentSource

@@ -406,6 +406,17 @@ extension Shell {
         return String(chars[low..<high]).trimmingCharacters(in: .whitespaces)
     }
 
+    /// How `set -x` shows an argument: as is, or single-quoted when the
+    /// shell would read any of it specially, the way bash quotes it
+    /// (`'x y'`, `'it'\''s'`).
+    static func xtraceWord(_ word: String) -> String {
+        if word.isEmpty { return "''" }
+        let special = word.contains { " \t\n'\"\\|&;()<>!{}*[?]^$`".contains($0) }
+            || word.first == "~" || word.first == "#"
+        guard special else { return word }
+        return "'" + word.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    }
+
     /// Make a compound command, `[[ … ]]` or `(( … ))` the command
     /// running now — for `$LINENO` and `line N:` diagnostics — until a
     /// simple command inside takes over. Returns the range to restore.
@@ -647,43 +658,11 @@ extension Shell {
             savedScope.removeAll()
         }
 
-        let restoreRedirects: @Sendable () -> Void
-        do {
-            restoreRedirects = try await applyRedirects(redirects)
-        } catch let fsError as FileSystemError {
-            // A failed `>file` / `<file` / `>>file` redirect (target
-            // unreadable, parent missing, mount read-only) is a
-            // per-command failure in real bash, NOT a fatal script
-            // error. Print a bash-style diagnostic, restore the
-            // partial scope, and return non-zero so the enclosing
-            // list keeps running. Without this, `cd /tmp; echo x >
-            // /examples/foo; echo done` would never print `done` —
-            // the entire tool call aborted on the first redirect
-            // failure.
-            let target: String
-            switch fsError {
-            case .notFound(let path), .notADirectory(let path),
-                 .isADirectory(let path), .alreadyExists(let path),
-                 .permissionDenied(let path):
-                target = path
-            case .io(let msg):
-                target = msg
-            }
-            stderr(
-                "\(errorLocationPrefix())\(target): \(fsError.shellMessage())\n")
-            restoreScope()
-            await drainProcessSubs(from: procSubFrame)
-            return ExitStatus(1)
-        } catch {
-            restoreScope()
-            await drainProcessSubs(from: procSubFrame)
-            throw error
-        }
-
         // Step 3 + 4: field splitting (uses scoped $IFS), brace
         // expansion, then globbing. Brace expansion is gated on the
         // word's source so quoted braces (`'{a,b}'`, JSON literals)
-        // pass through untouched.
+        // pass through untouched. This comes before the redirections,
+        // as in bash, so `echo * > out` doesn't list `out`.
         var argv: [String] = []
         do {
             for (node, frags) in wordFragments {
@@ -696,7 +675,65 @@ extension Shell {
                 }
             }
         } catch {
-            restoreRedirects()
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
+        }
+
+        if !argv.isEmpty {
+            // `set -v` / `set -o verbose` — echo the raw source slice
+            // of the simple command to stderr before execution. Only
+            // for a real command word, so empty statements like a bare
+            // assignment block don't fire a phantom blank trace line.
+            // Uses the full first-part → last-part span so multi-word
+            // commands echo intact (`echo hi`, not just `echo`).
+            if verbose, let range = simpleCommandRange {
+                let chars = Array(currentSource)
+                let upper = min(range.upperBound, chars.count)
+                if range.lowerBound < upper {
+                    stderr.write(
+                        String(chars[range.lowerBound..<upper]) + "\n")
+                }
+            }
+            // `set -x` / `set -o xtrace` — echo the resolved argv with
+            // the `$PS4` prefix (default `"+ "`), quoted as bash quotes
+            // it. Like bash, the trace goes to the shell's stderr before
+            // the command's own redirections apply; pipelines and
+            // subshells inherit `xtrace` through ``copy()``.
+            if xtrace {
+                let ps4 = environment["PS4"] ?? "+ "
+                stderr.write(
+                    ps4 + argv.map(Self.xtraceWord).joined(separator: " ") + "\n")
+            }
+        }
+
+        let restoreRedirects: @Sendable () -> Void
+        do {
+            restoreRedirects = try await applyRedirects(redirects)
+        } catch let fsError as FileSystemError {
+            // A failed `>file` / `<file` / `>>file` redirect (target
+            // unreadable, parent missing, mount read-only, `set -C`) is
+            // a per-command failure in real bash, NOT a fatal script
+            // error. Print a bash-style diagnostic, restore the
+            // partial scope, and return non-zero so the enclosing
+            // list keeps running. Without this, `cd /tmp; echo x >
+            // /examples/foo; echo done` would never print `done` —
+            // the entire tool call aborted on the first redirect
+            // failure.
+            let message: String
+            switch fsError {
+            case .notFound(let path), .notADirectory(let path),
+                 .isADirectory(let path), .alreadyExists(let path),
+                 .permissionDenied(let path):
+                message = "\(path): \(fsError.shellMessage())"
+            case .io(let detail):
+                message = detail
+            }
+            stderr("\(errorLocationPrefix())\(message)\n")
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            return ExitStatus(1)
+        } catch {
             restoreScope()
             await drainProcessSubs(from: procSubFrame)
             throw error
@@ -717,31 +754,6 @@ extension Shell {
         // (`mkdir -p dir && cd "$_"`); while it runs, `$_` is still the
         // previous command's.
         defer { environment.variables["_"] = argv[argv.count - 1] }
-
-        // `set -v` / `set -o verbose` — echo the raw source slice of
-        // the simple command to stderr before execution. Runs *here*
-        // (after we know we have a real command word) so empty
-        // statements like a bare assignment block don't fire a
-        // phantom blank trace line. Uses the full first-part →
-        // last-part span so multi-word commands echo intact
-        // (`echo hi`, not just `echo`).
-        if verbose, let range = simpleCommandRange {
-            let chars = Array(currentSource)
-            let upper = min(range.upperBound, chars.count)
-            if range.lowerBound < upper {
-                stderr.write(
-                    String(chars[range.lowerBound..<upper]) + "\n")
-            }
-        }
-        // `set -x` / `set -o xtrace` — echo the resolved argv with
-        // the `$PS4` prefix (default `"+ "`). Matches real bash's
-        // post-expansion trace; pipelines and subshells inherit
-        // `xtrace` through ``copy()`` so a `set -x` inside a script
-        // traces every nested simple command.
-        if xtrace {
-            let ps4 = environment["PS4"] ?? "+ "
-            stderr.write(ps4 + argv.joined(separator: " ") + "\n")
-        }
 
         let result: ExitStatus
         do {

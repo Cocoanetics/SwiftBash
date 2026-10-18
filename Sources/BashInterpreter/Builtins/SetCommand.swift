@@ -7,6 +7,8 @@ import Foundation
 /// - `set -o pipefail` / `set +o pipefail` — toggle the like-named option.
 /// - `set -o errexit` / `set -o nounset` etc. — long-name option toggling.
 /// - `set -u` / `set +u` — toggle `nounset`.
+/// - `set -f` / `set -C` (`-o noglob` / `-o noclobber`) — turn off
+///   pathname expansion / refuse to overwrite files with `>`.
 /// - `set -- ARG …` — replace positional parameters (`$1, $2, …`).
 /// - `set` (no args) — list current positional parameters.
 ///
@@ -99,6 +101,8 @@ public struct SetCommand: Command {
         case "u": Shell.bashCurrent.nounset = enable
         case "x": Shell.bashCurrent.xtrace = enable
         case "v": Shell.bashCurrent.verbose = enable
+        case "f": Shell.bashCurrent.noglob = enable
+        case "C": Shell.bashCurrent.noclobber = enable
         default:
             return "set: -\(char): invalid option\n"
         }
@@ -113,6 +117,8 @@ public struct SetCommand: Command {
         case "nounset":  Shell.bashCurrent.nounset = enable
         case "xtrace":   Shell.bashCurrent.xtrace = enable
         case "verbose":  Shell.bashCurrent.verbose = enable
+        case "noglob":   Shell.bashCurrent.noglob = enable
+        case "noclobber": Shell.bashCurrent.noclobber = enable
         default:
             return "set: -o: invalid option name: \(name)\n"
         }
