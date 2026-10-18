@@ -578,8 +578,8 @@ extension Shell {
         // For `declare -A name=(…)` the items inside `(…)` are
         // `[key]=value` pairs, not dense values. Detect the `-A` flag
         // by scanning the .word parts that follow the command word
-        // and precede any arrayAssignment.
-        let declareAssociativeMode: Bool = {
+        // and precede any arrayAssignment. `-g` (global) likewise.
+        func hasDeclareFlag(_ flag: Character) -> Bool {
             guard isAssignmentBuiltin, let cmdIdx = commandWordIndex
             else { return false }
             for part in parts[(cmdIdx + 1)...] {
@@ -588,13 +588,14 @@ extension Shell {
                     let raw = String(part.source(from: currentSource))
                     // Handle merged flags (`-Ar`, `-rA`).
                     if raw.hasPrefix("-"), !raw.hasPrefix("--"),
-                       raw.contains("A") {
+                       raw.contains(flag) {
                         return true
                     }
                 }
             }
             return false
-        }()
+        }
+        let declareAssociativeMode = hasDeclareFlag("A")
 
         // Bash word expansion order:
         // 1. Substitution (parameter / command / arithmetic) on
@@ -663,12 +664,13 @@ extension Shell {
                     }
                     // Given to `declare` / `local` / `export`, the items
                     // expand first (as in bash); then the array is left
-                    // alone. `export`, or `declare` outside a function,
-                    // drops the rest of the top-level command, as bash
-                    // does; otherwise the builtin sees the bare name
-                    // and fails.
+                    // alone. `export`, `declare -g`, or `declare` outside
+                    // a function, drops the rest of the top-level
+                    // command, as bash does; otherwise the builtin sees
+                    // the bare name and fails.
                     if routeAsArg, refuseReadonlyAssignment(name) {
-                        if assignmentBuiltin == "export" || functionCallDepth == 0 {
+                        if assignmentBuiltin == "export" || functionCallDepth == 0
+                            || (assignmentBuiltin != "local" && hasDeclareFlag("g")) {
                             throw DiscardCommand()
                         }
                         refusedReadonlyArgument = true

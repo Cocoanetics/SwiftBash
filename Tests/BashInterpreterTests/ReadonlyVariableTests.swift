@@ -181,6 +181,7 @@ import Foundation
             { UID=2; echo in-group; }; echo group-same
             while true; do UID=1; echo loop; break; done; echo loop-same
             g() { declare -a UID=(x); echo in-g; }; g; echo g-same
+            h() { declare -g -a UID=(x); echo in-h; }; h; echo h-same
             source /lib.sh; echo source-same
             eval 'UID=1; echo eval-same
             echo eval-l2'; echo eval-after
