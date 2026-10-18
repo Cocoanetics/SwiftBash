@@ -910,7 +910,8 @@ extension Shell {
 
     /// Where bash takes a simple command's line from — for `$LINENO`
     /// and `line N:` diagnostics: the end of its second token, or of
-    /// its first when that's an assignment or the only one. (Bash's
+    /// its first when that's an assignment, a redirect (whose operand
+    /// is the second token) or the only one. (Bash's
     /// parser records the line once it has read that far.) So a
     /// command whose words span lines can report a later line than
     /// the one it starts on: `echo "a<newline>b" $LINENO` says 2.
@@ -918,7 +919,7 @@ extension Shell {
         guard let first = parts.first else { return nil }
         var anchor = first
         switch first.kind {
-        case .assignment, .arrayAssignment: break
+        case .assignment, .arrayAssignment, .redirect: break
         default: if parts.count > 1 { anchor = parts[1] }
         }
         var range = anchor.range

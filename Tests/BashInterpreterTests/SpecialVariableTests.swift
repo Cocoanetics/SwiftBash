@@ -114,8 +114,10 @@ import Foundation
             "
             echo "e $((
             LINENO))"
+            > /dev/stdout \
+            echo "f $LINENO"
             """#)
-        #expect(cap.stdout == "a\n2\nb 4\nc 6\nd 7 7\ne 12\n")
+        #expect(cap.stdout == "a\n2\nb 4\nc 6\nd 7 7\ne 12\nf 13\n")
         #expect(cap.stderr == "swift-bash: line 10: nosuch: command not found\n")
     }
 

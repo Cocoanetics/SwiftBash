@@ -49,11 +49,9 @@ public struct BashCommand: Command {
         var parseOnly = false
         var modeFlags = SubshellModeFlags()
         var sawDoubleDash = false
-        var dashCSource: String?
-        var dashCName: String?
-        var dashCExtra: [String] = []
+        var commandString = false
         var index = 0
-        parseLoop: while index < args.count {
+        while index < args.count {
             let arg = args[index]
             if sawDoubleDash { break }
             if arg == "--" { sawDoubleDash = true; index += 1; break }
@@ -69,12 +67,11 @@ public struct BashCommand: Command {
                 // First positional — script path.
                 break
             }
-            // Short-flag bundle. `-c` is special: everything after
-            // its argument goes to the command, not back to the
-            // parse loop. Other characters accumulate into mode
-            // flags. We walk character-by-character so combos like
-            // `-eux` work.
-            for (charOffset, char) in arg.dropFirst().enumerated() {
+            // Short-flag bundle. Characters accumulate into mode flags;
+            // `-c` only says the first argument after the options is a
+            // command string. We walk character-by-character so combos
+            // like `-eux` and `-cf` work.
+            for char in arg.dropFirst() {
                 switch char {
                 case "n": parseOnly = true
                 case "e": modeFlags.errexit = true
@@ -96,30 +93,9 @@ public struct BashCommand: Command {
                     // called out `bash -lc` specifically.
                     break
                 case "c":
-                    // Anything in the same bundle after `c` is part
-                    // of the CMD (real bash treats `-exc 'cmd'`
-                    // identically to `-ex -c 'cmd'`). The CMD's
-                    // value is the NEXT argv element.
-                    let tail = arg.dropFirst(charOffset + 2)
-                    if !tail.isEmpty {
-                        // `-cCMD` form — rare but allowed.
-                        dashCSource = String(tail)
-                    } else {
-                        guard index + 1 < args.count else {
-                            Shell.bashCurrent.stderr(
-                                "\(name): -c: option requires an argument\n")
-                            return ExitStatus(2)
-                        }
-                        dashCSource = args[index + 1]
-                        index += 1
-                    }
-                    // `$0` for the -c body, then positionals.
-                    if index + 1 < args.count {
-                        dashCName = args[index + 1]
-                        dashCExtra = Array(args.dropFirst(index + 2))
-                    }
-                    index += 1
-                    break parseLoop
+                    // As in bash, `-c` can sit anywhere among the
+                    // options (`-ec`, `-cf`, `-c -e`).
+                    commandString = true
                 default:
                     Shell.bashCurrent.stderr(
                         "\(name): -\(char): invalid option\n")
@@ -129,17 +105,23 @@ public struct BashCommand: Command {
             index += 1
         }
 
-        // -c form short-circuits — runs the literal CMD as the
-        // script source, no file read.
-        if let source = dashCSource {
+        let positional = Array(args[index...])
+        // -c form short-circuits — runs the first argument as the
+        // script source, no file read. The next one is `$0`, the rest
+        // are positionals.
+        if commandString {
+            guard let source = positional.first else {
+                Shell.bashCurrent.stderr(
+                    "\(name): -c: option requires an argument\n")
+                return ExitStatus(2)
+            }
             return try await runScript(
                 source: source,
-                scriptName: dashCName ?? name,
-                args: dashCExtra,
+                scriptName: positional.count > 1 ? positional[1] : name,
+                args: Array(positional.dropFirst(2)),
                 mode: modeFlags,
                 commandString: true)
         }
-        let positional = Array(args[index...])
         guard let path = positional.first else {
             // `bash -n` / `bash -x` with no file: real bash drops to
             // its interactive REPL. We have none, so drain stdin.

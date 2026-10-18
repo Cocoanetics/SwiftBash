@@ -50,6 +50,19 @@ import Foundation
         #expect(cap.stderr.contains("requires an argument"))
     }
 
+    /// As in bash, `-c` can sit anywhere among the options, and the
+    /// command is the first argument after them: `-cf CMD`, `-c -e CMD`.
+    @Test func dashCAmongOtherOptions() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"""
+            bash -cf 'echo "$-"'
+            bash -cC 'echo "$-"'
+            bash -c -e 'echo "$-"'
+            bash -c -- 'echo "$0 $1"' a b
+            """#)
+        #expect(cap.stdout == "fhBc\nhBCc\nehBc\na b\n")
+    }
+
     /// `-l` (login shell), `-i` (force interactive), `-s` (read from
     /// stdin) are all accepted as no-ops so common combos like
     /// `bash -lc 'cmd'` work. We always source `.profile`, we're
