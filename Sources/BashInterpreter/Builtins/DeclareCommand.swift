@@ -60,7 +60,11 @@ public struct DeclareCommand: Command {
 
         if associative {
             if Shell.bashCurrent.environment.associativeArrays[nameOnly] == nil {
-                Shell.bashCurrent.environment.associativeArrays[nameOnly] = [:]
+                // `declare -A UID` keeps the identity as element `0`.
+                let identity = Shell.bashCurrent.isReadonlyVariable(nameOnly)
+                    ? Shell.bashCurrent.dynamicVariable(nameOnly) : nil
+                Shell.bashCurrent.environment.associativeArrays[nameOnly] =
+                    identity.map { ["0": $0] } ?? [:]
             }
             Shell.bashCurrent.environment.arrays.removeValue(forKey: nameOnly)
             Shell.bashCurrent.environment.variables.removeValue(forKey: nameOnly)

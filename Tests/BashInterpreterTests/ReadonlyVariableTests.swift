@@ -170,6 +170,19 @@ import Foundation
         #expect(cap.stdout == "1 a [a] [0] [set]\nsame\n1 [0] [set] [0]\n")
     }
 
+    /// `declare -A UID` keeps the identity as element `0`; `export UID`
+    /// exports its value.
+    @Test func identityVariablesDeclaredAndExported() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            declare -A UID
+            [ "${UID[0]}" = "$UID" ] && [ "${#UID[@]}" = 1 ] && echo kept
+            export EUID
+            """#)
+        #expect(cap.stdout == "kept\n")
+        #expect(cap.shell.environment.variables["EUID"] == String(cap.shell.hostInfo.uid))
+    }
+
     /// What "the rest of the command" is, checked against bash 5.2:
     /// a function call or group is dropped whole; `source`, `eval` and
     /// a trap go on with their own next line; a subshell, `$(…)` or

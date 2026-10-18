@@ -34,7 +34,10 @@ public struct ExportCommand: Command {
                 // `export NAME` without `=` ensures the variable exists
                 // (empty if previously unset).
                 if Shell.bashCurrent.environment[arg] == nil {
-                    Shell.bashCurrent.environment[arg] = ""
+                    // `export UID` exports the computed identity.
+                    let identity = Shell.bashCurrent.isReadonlyVariable(arg)
+                        ? Shell.bashCurrent.dynamicVariable(arg) : nil
+                    Shell.bashCurrent.environment[arg] = identity ?? ""
                 }
             }
         }
