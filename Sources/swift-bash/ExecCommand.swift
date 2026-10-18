@@ -112,6 +112,7 @@ struct ExecCommand: AsyncParsableCommand {
         // and the registered SwiftPorts CLIs use.
         shell.registerSwiftScript()
         shell.scriptName = scriptPath
+        shell.scriptFile = scriptPath
         shell.positionalParameters = scriptArgs
 
         try configureNetworkAccess(on: shell)

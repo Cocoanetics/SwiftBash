@@ -12,10 +12,11 @@ import Testing
 
     @Test func emptyEnvPrintsNothing() async throws {
         let cap = makeShell()
-        // Preserve PATH so `env` resolves; reset everything else.
+        // Preserve PATH so `env` resolves; reset everything else. Like
+        // bash, the shell exports `_` as the command's path.
         cap.shell.environment.variables = ["PATH": "/usr/bin:/bin"]
         try await cap.shell.run("env")
-        #expect(cap.stdout == "PATH=/usr/bin:/bin\n")
+        #expect(cap.stdout == "PATH=/usr/bin:/bin\n_=/usr/bin/env\n")
     }
 
     @Test func printsAllSortedByName() async throws {
@@ -26,7 +27,7 @@ import Testing
         ]
         try await cap.shell.run("env")
         #expect(cap.stdout
-            == "ALPHA=a\nBRAVO=b\nPATH=/usr/bin:/bin\nZEBRA=z\n")
+            == "ALPHA=a\nBRAVO=b\nPATH=/usr/bin:/bin\nZEBRA=z\n_=/usr/bin/env\n")
     }
 
     @Test func reflectsExportedVariables() async throws {
@@ -34,6 +35,6 @@ import Testing
         cap.shell.environment.variables = ["PATH": "/usr/bin:/bin"]
         try await cap.shell.run("export FOO=bar")
         try await cap.shell.run("env")
-        #expect(cap.stdout == "FOO=bar\nPATH=/usr/bin:/bin\n")
+        #expect(cap.stdout == "FOO=bar\nPATH=/usr/bin:/bin\n_=/usr/bin/env\n")
     }
 }

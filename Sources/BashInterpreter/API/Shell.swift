@@ -93,6 +93,13 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// Propagates through ``copy()``.
     public var verbose: Bool = false
 
+    /// `set -f` / `set -o noglob`: no pathname expansion.
+    public var noglob: Bool = false
+
+    /// `set -C` / `set -o noclobber`: `>` won't overwrite an existing
+    /// file (`>|` still does).
+    public var noclobber: Bool = false
+
     // MARK: - Command registry (file-backed and built-in)
 
     /// File-backed commands keyed by their canonical install path.
@@ -255,6 +262,19 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// support via ``registerScriptInterpreter(_:)`` /
     /// ``registerScriptInterpreter(name:_:)``.
     public var scriptInterpreters: [String: ScriptInterpreter] = [:]
+
+    /// State behind `$RANDOM`, `$SECONDS`, `$LINENO`, `$BASHPID`,
+    /// `$BASH_SUBSHELL` and the `FUNCNAME` / `BASH_SOURCE` /
+    /// `BASH_LINENO` call stack (see `Shell+DynamicVariables.swift`).
+    var dynamicVariables = DynamicVariables()
+
+    /// The script file this shell runs — `BASH_SOURCE`'s bottom entry,
+    /// beside `FUNCNAME`'s `main` — or `nil` for `bash -c` strings and
+    /// interactive input. Embedders that run a file set it along with
+    /// ``scriptName``.
+    public var scriptFile: String? {
+        didSet { syncCallStackArrays() }
+    }
 
     // MARK: - Filesystem
 
@@ -501,6 +521,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         // copy() exactly — anything not listed here resets to its
         // initializer default in the new subshell instance.
         bash.fileSystem = fileSystem
+        bash.dynamicVariables = dynamicVariables
+        bash.scriptFile = scriptFile
         // Install paths and shell built-ins propagate exactly so a
         // subshell sees the same command surface as its parent (incl.
         // PATH-aware shadowing). ShellKit's `super.copy()` already
@@ -513,6 +535,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         bash.nounset = nounset
         bash.xtrace = xtrace
         bash.verbose = verbose
+        bash.noglob = noglob
+        bash.noclobber = noclobber
         bash.shoptOptions = shoptOptions
         bash.traps = traps
         bash.currentSource = currentSource

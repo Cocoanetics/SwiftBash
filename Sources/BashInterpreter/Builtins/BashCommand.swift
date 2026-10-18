@@ -169,7 +169,7 @@ public struct BashCommand: Command {
         if parseOnly { return try parseCheck(source: source) }
         return try await runScript(
             source: source, scriptName: path, args: scriptArgs,
-            mode: modeFlags)
+            mode: modeFlags, scriptFile: path)
     }
 
     /// Mode flags parsed from `bash`'s argv that need to be applied
@@ -190,7 +190,9 @@ public struct BashCommand: Command {
     private func parseCheck(source: String) throws -> ExitStatus {
         var src = source
         if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
-            src = String(src[src.index(after: newline)...])
+            // Keep the newline, so `$LINENO` and diagnostics count the
+            // shebang's line.
+            src = String(src[newline...])
         }
         do {
             _ = try BashSyntax.parse(src)
@@ -212,13 +214,17 @@ public struct BashCommand: Command {
     private func runScript(source: String,
                            scriptName: String,
                            args: [String],
-                           mode: SubshellModeFlags) async throws -> ExitStatus {
+                           mode: SubshellModeFlags,
+                           scriptFile: String? = nil) async throws -> ExitStatus {
         var src = source
         if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
-            src = String(src[src.index(after: newline)...])
+            // Keep the newline, so `$LINENO` and diagnostics count the
+            // shebang's line.
+            src = String(src[newline...])
         }
         let sub = Shell.bashCurrent.childProcess()
         sub.scriptName = scriptName
+        sub.scriptFile = scriptFile
         sub.positionalParameters = args
         if mode.errexit { sub.errexit = true }
         if mode.nounset { sub.nounset = true }

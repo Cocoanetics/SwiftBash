@@ -86,8 +86,14 @@ extension Shell {
                 let outgoingSink = isLast ? nil : channels[index]
                 let mergeStderr = !isLast && pipeOps[index] == "|&"
 
+                // A compound stage counts toward `$BASH_SUBSHELL`; a
+                // simple command only if it turns out to run shell code
+                // (see `deferredNesting`).
+                var simple = false
+                if case .command = stage.kind { simple = true }
                 group.addTask {
-                    let sub = template.subshell()
+                    let sub = template.subshell(nested: !simple)
+                    sub.dynamicVariables.deferredNesting = simple
                     sub.stdout = outgoingSink ?? outerStdout
                     sub.stderr = mergeStderr
                         ? (outgoingSink ?? outerStderr)

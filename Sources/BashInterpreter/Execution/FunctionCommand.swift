@@ -16,15 +16,26 @@ struct FunctionCommand: Command {
     /// where `currentSource` has changed, so we hold our own copy
     /// for word expansion of the body.
     let definitionSource: String
+    /// The file it was defined in — its `BASH_SOURCE` entry.
+    let definitionFile: String
+    /// `$LINENO`'s offset where it was defined (non-zero in `eval`).
+    let definitionLineOffset: Int
 
     func run(_ argv: [String]) async throws -> ExitStatus {
+        // `FUNCNAME` / `BASH_SOURCE` / `BASH_LINENO` frame, with the
+        // caller's line.
+        let frame = CallFrame(name: name, file: definitionFile,
+                              callLine: Shell.bashCurrent.currentLineNumber)
+
         // Save call-frame state.
         let savedParams = Shell.bashCurrent.positionalParameters
         let savedSource = Shell.bashCurrent.currentSource
         let savedLoopDepth = Shell.bashCurrent.loopDepth
+        let savedLineOffset = Shell.bashCurrent.dynamicVariables.lineOffset
 
         Shell.bashCurrent.positionalParameters = Array(argv.dropFirst())
         Shell.bashCurrent.currentSource = definitionSource
+        Shell.bashCurrent.dynamicVariables.lineOffset = definitionLineOffset
         Shell.bashCurrent.functionCallDepth += 1
         Shell.bashCurrent.localVarStack.append([])
         // The body doesn't see the caller's loops: `break` there warns
@@ -42,15 +53,18 @@ struct FunctionCommand: Command {
             Shell.bashCurrent.positionalParameters = savedParams
             Shell.bashCurrent.currentSource = savedSource
             Shell.bashCurrent.loopDepth = savedLoopDepth
+            Shell.bashCurrent.dynamicVariables.lineOffset = savedLineOffset
         }
 
-        do {
-            let result = try await Shell.bashCurrent.execute(body)
-            Shell.bashCurrent.lastExitStatus = result
-            return result
-        } catch let ret as ReturnSignal {
-            Shell.bashCurrent.lastExitStatus = ret.status
-            return ret.status
+        return try await Shell.bashCurrent.withCallFrame(frame) {
+            do {
+                let result = try await Shell.bashCurrent.execute(body)
+                Shell.bashCurrent.lastExitStatus = result
+                return result
+            } catch let ret as ReturnSignal {
+                Shell.bashCurrent.lastExitStatus = ret.status
+                return ret.status
+            }
         }
     }
 }

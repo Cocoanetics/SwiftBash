@@ -148,10 +148,10 @@ extension Shell {
 
     // MARK: AST dispatch
 
-    // The 11-arm dispatcher's per-case helpers are already extracted;
-    // splitting further would scatter the routing table.
-    // swiftlint:disable:next cyclomatic_complexity
     func execute(_ node: Node) async throws -> ExitStatus {
+        let savedCommandRange = enterCommand(node)
+        defer { currentCommandRange = savedCommandRange }
+
         switch node.kind {
         case .command(let parts):
             return try await executeSimpleCommand(parts: parts)
@@ -163,26 +163,16 @@ extension Shell {
             return try await executePipeline(parts: parts)
 
         case .compound(let list, let redirects):
-            let procSubFrame = pendingProcessSubs.count
-            let restore = try await applyRedirects(redirects)
-            let result: ExitStatus
-            do {
-                result = try await runCompoundBody(list: list)
-            } catch {
-                restore()
-                await drainProcessSubs(from: procSubFrame)
-                throw error
-            }
-            restore()
-            await drainProcessSubs(from: procSubFrame)
-            return result
+            return try await executeCompound(list: list, redirects: redirects)
 
         case .function(let nameNode, let body, _):
             let name = try await expand(word: nameNode)
             commands[name] = FunctionCommand(
                 name: name,
                 body: body,
-                definitionSource: currentSource)
+                definitionSource: currentSource,
+                definitionFile: currentSourceFile,
+                definitionLineOffset: dynamicVariables.lineOffset)
             return .success
 
         case .arithmeticCommand(let expr):
@@ -401,6 +391,72 @@ extension Shell {
         return String(chars[low..<high]).trimmingCharacters(in: .whitespaces)
     }
 
+    /// A compound command with its redirections. A redirection that
+    /// can't be set up (`set -C`, a missing directory) fails the command
+    /// with status 1, as in bash, rather than ending the script.
+    private func executeCompound(list: [Node], redirects: [Node]) async throws -> ExitStatus {
+        let procSubFrame = pendingProcessSubs.count
+        let restore: @Sendable () -> Void
+        do {
+            restore = try await applyRedirects(redirects)
+        } catch let fsError as FileSystemError {
+            await drainProcessSubs(from: procSubFrame)
+            return reportRedirectFailure(fsError)
+        }
+        let result: ExitStatus
+        do {
+            result = try await runCompoundBody(list: list)
+        } catch {
+            restore()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
+        }
+        restore()
+        await drainProcessSubs(from: procSubFrame)
+        return result
+    }
+
+    /// Print bash's diagnostic for a redirection that couldn't be set up
+    /// and return the failing status, 1.
+    func reportRedirectFailure(_ fsError: FileSystemError) -> ExitStatus {
+        let message: String
+        switch fsError {
+        case .notFound(let path), .notADirectory(let path),
+             .isADirectory(let path), .alreadyExists(let path),
+             .permissionDenied(let path):
+            message = "\(path): \(fsError.shellMessage())"
+        case .io(let detail):
+            message = detail
+        }
+        stderr("\(errorLocationPrefix())\(message)\n")
+        return ExitStatus(1)
+    }
+
+    /// How `set -x` shows an argument: as is, or single-quoted when the
+    /// shell would read any of it specially, the way bash quotes it
+    /// (`'x y'`, `'it'\''s'`).
+    static func xtraceWord(_ word: String) -> String {
+        if word.isEmpty { return "''" }
+        let special = word.contains { " \t\n'\"\\|&;()<>!{}*[?]^$`".contains($0) }
+            || word.first == "~" || word.first == "#"
+        guard special else { return word }
+        return "'" + word.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    }
+
+    /// Make a compound command, `[[ … ]]` or `(( … ))` the command
+    /// running now — for `$LINENO` and `line N:` diagnostics — until a
+    /// simple command inside takes over. Returns the range to restore.
+    private func enterCommand(_ node: Node) -> Range<Int>? {
+        let saved = currentCommandRange
+        switch node.kind {
+        case .compound, .conditional, .arithmeticCommand:
+            currentCommandRange = node.range
+        default:
+            break
+        }
+        return saved
+    }
+
     // MARK: Trap firing
 
     /// Fire the `ERR` trap if registered. Re-entrancy is guarded so a
@@ -414,7 +470,9 @@ extension Shell {
         errexitGuard += 1
         defer { errexitGuard -= 1 }
         // `exit` inside the trap exits the shell.
-        _ = try await self.run(body)
+        _ = try await withFrozenLineNumber(lastCommandLineNumber) {
+            try await self.run(body)
+        }
     }
 
     /// Fire the `DEBUG` trap if registered. Called before each simple
@@ -426,7 +484,9 @@ extension Shell {
         errexitGuard += 1
         defer { errexitGuard -= 1 }
         // `exit` inside the trap exits the shell.
-        _ = try await self.run(body)
+        _ = try await withFrozenLineNumber(currentLineNumber) {
+            try await self.run(body)
+        }
     }
 
     // MARK: Simple commands
@@ -440,15 +500,20 @@ extension Shell {
     // cancellation handling. Each phase already calls into a helper.
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
-        try await fireDebugTrap()
-        commandSubstitutionStatus = nil
         // Track which command we're dispatching so error messages can
         // include `script.sh: line N:` like bash does.
         let savedCommandRange = currentCommandRange
         if let first = parts.first {
             currentCommandRange = first.range
         }
-        defer { currentCommandRange = savedCommandRange }
+        defer {
+            // An ERR trap after this command reports its line.
+            dynamicVariables.lastCommandStart = currentCommandRange?.lowerBound
+            currentCommandRange = savedCommandRange
+        }
+        // The DEBUG trap sees `$LINENO` of the command about to run.
+        try await fireDebugTrap()
+        commandSubstitutionStatus = nil
         // Full source span of the simple command (first-part start →
         // last-part end). The error-prefix range is intentionally
         // narrower (line of `parts.first`), but `set -v` needs the
@@ -619,43 +684,11 @@ extension Shell {
             savedScope.removeAll()
         }
 
-        let restoreRedirects: @Sendable () -> Void
-        do {
-            restoreRedirects = try await applyRedirects(redirects)
-        } catch let fsError as FileSystemError {
-            // A failed `>file` / `<file` / `>>file` redirect (target
-            // unreadable, parent missing, mount read-only) is a
-            // per-command failure in real bash, NOT a fatal script
-            // error. Print a bash-style diagnostic, restore the
-            // partial scope, and return non-zero so the enclosing
-            // list keeps running. Without this, `cd /tmp; echo x >
-            // /examples/foo; echo done` would never print `done` —
-            // the entire tool call aborted on the first redirect
-            // failure.
-            let target: String
-            switch fsError {
-            case .notFound(let path), .notADirectory(let path),
-                 .isADirectory(let path), .alreadyExists(let path),
-                 .permissionDenied(let path):
-                target = path
-            case .io(let msg):
-                target = msg
-            }
-            stderr(
-                "\(errorLocationPrefix())\(target): \(fsError.shellMessage())\n")
-            restoreScope()
-            await drainProcessSubs(from: procSubFrame)
-            return ExitStatus(1)
-        } catch {
-            restoreScope()
-            await drainProcessSubs(from: procSubFrame)
-            throw error
-        }
-
         // Step 3 + 4: field splitting (uses scoped $IFS), brace
         // expansion, then globbing. Brace expansion is gated on the
         // word's source so quoted braces (`'{a,b}'`, JSON literals)
-        // pass through untouched.
+        // pass through untouched. This comes before the redirections,
+        // as in bash, so `echo * > out` doesn't list `out`.
         var argv: [String] = []
         do {
             for (node, frags) in wordFragments {
@@ -668,7 +701,56 @@ extension Shell {
                 }
             }
         } catch {
-            restoreRedirects()
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
+        }
+
+        if !argv.isEmpty {
+            // `set -v` / `set -o verbose` — echo the raw source slice
+            // of the simple command to stderr before execution. Only
+            // for a real command word, so empty statements like a bare
+            // assignment block don't fire a phantom blank trace line.
+            // Uses the full first-part → last-part span so multi-word
+            // commands echo intact (`echo hi`, not just `echo`).
+            if verbose, let range = simpleCommandRange {
+                let chars = Array(currentSource)
+                let upper = min(range.upperBound, chars.count)
+                if range.lowerBound < upper {
+                    stderr.write(
+                        String(chars[range.lowerBound..<upper]) + "\n")
+                }
+            }
+            // `set -x` / `set -o xtrace` — echo the resolved argv with
+            // the `$PS4` prefix (default `"+ "`), quoted as bash quotes
+            // it. Like bash, the trace goes to the shell's stderr before
+            // the command's own redirections apply; pipelines and
+            // subshells inherit `xtrace` through ``copy()``.
+            if xtrace {
+                let ps4 = environment["PS4"] ?? "+ "
+                stderr.write(
+                    ps4 + argv.map(Self.xtraceWord).joined(separator: " ") + "\n")
+            }
+        }
+
+        let restoreRedirects: @Sendable () -> Void
+        do {
+            restoreRedirects = try await applyRedirects(redirects)
+        } catch let fsError as FileSystemError {
+            // A failed `>file` / `<file` / `>>file` redirect (target
+            // unreadable, parent missing, mount read-only, `set -C`) is
+            // a per-command failure in real bash, NOT a fatal script
+            // error. Print a bash-style diagnostic, restore the
+            // partial scope, and return non-zero so the enclosing
+            // list keeps running. Without this, `cd /tmp; echo x >
+            // /examples/foo; echo done` would never print `done` —
+            // the entire tool call aborted on the first redirect
+            // failure.
+            let status = reportRedirectFailure(fsError)
+            restoreScope()
+            await drainProcessSubs(from: procSubFrame)
+            return status
+        } catch {
             restoreScope()
             await drainProcessSubs(from: procSubFrame)
             throw error
@@ -681,33 +763,14 @@ extension Shell {
             savedScope.removeAll()
             restoreRedirects()
             await drainProcessSubs(from: procSubFrame)
+            // Bash clears `$_` after an assignment-only command.
+            environment.variables["_"] = ""
             return commandSubstitutionStatus ?? .success
         }
-
-        // `set -v` / `set -o verbose` — echo the raw source slice of
-        // the simple command to stderr before execution. Runs *here*
-        // (after we know we have a real command word) so empty
-        // statements like a bare assignment block don't fire a
-        // phantom blank trace line. Uses the full first-part →
-        // last-part span so multi-word commands echo intact
-        // (`echo hi`, not just `echo`).
-        if verbose, let range = simpleCommandRange {
-            let chars = Array(currentSource)
-            let upper = min(range.upperBound, chars.count)
-            if range.lowerBound < upper {
-                stderr.write(
-                    String(chars[range.lowerBound..<upper]) + "\n")
-            }
-        }
-        // `set -x` / `set -o xtrace` — echo the resolved argv with
-        // the `$PS4` prefix (default `"+ "`). Matches real bash's
-        // post-expansion trace; pipelines and subshells inherit
-        // `xtrace` through ``copy()`` so a `set -x` inside a script
-        // traces every nested simple command.
-        if xtrace {
-            let ps4 = environment["PS4"] ?? "+ "
-            stderr.write(ps4 + argv.joined(separator: " ") + "\n")
-        }
+        // `$_` becomes this command's last argument once it finishes
+        // (`mkdir -p dir && cd "$_"`); while it runs, `$_` is still the
+        // previous command's.
+        defer { environment.variables["_"] = argv[argv.count - 1] }
 
         let result: ExitStatus
         do {
@@ -723,11 +786,19 @@ extension Shell {
             // The previous basename-keyed `commands[argv[0]]` route
             // is gone — it ignored $PATH and made shadowing
             // impossible.
+            // A simple pipeline stage that runs shell code counts as a
+            // subshell level (see `deferredNesting`).
+            let nestsHere = dynamicVariables.deferredNesting
+            dynamicVariables.deferredNesting = false
             if !looksLikePath(argv[0]),
                let function = commands[argv[0]] as? FunctionCommand {
+                if nestsHere { dynamicVariables.subshellLevel += 1 }
                 result = try await function.run(argv)
             } else if !looksLikePath(argv[0]),
                       let builtin = shellBuiltins[argv[0]] {
+                if nestsHere, ["eval", "source", "."].contains(argv[0]) {
+                    dynamicVariables.subshellLevel += 1
+                }
                 result = try await builtin.run(argv)
             } else {
                 let resolution = await PathResolver(self).resolve(argv[0])
@@ -737,14 +808,18 @@ extension Shell {
                     // sees its canonical invocation regardless of
                     // whether the user typed `ls`, `/bin/ls`, or
                     // `./ls`. The resolved path is recorded as
-                    // `_` for scripts that introspect.
+                    // `_` for scripts that introspect, the way bash
+                    // exports it to a command it runs.
+                    environment.variables["_"] = path
                     var rewritten = argv
                     rewritten[0] = (path as NSString).lastPathComponent
                     result = try await command.run(rewritten)
-                case .externalScript:
+                case .externalScript(let path):
                     // Hand off to the external-script flow. It needs
                     // the original argv so its diagnostics use the
-                    // user's literal token.
+                    // user's literal token. Bash exports `_` as the
+                    // path used to run it: as typed, or as found.
+                    environment.variables["_"] = looksLikePath(argv[0]) ? argv[0] : path
                     if let scriptResult =
                         try await dispatchAsExternalScriptIfApplicable(argv: argv) {
                         result = scriptResult
@@ -762,6 +837,7 @@ extension Shell {
                     // "No such file or directory" (path) from
                     // "command not found" (bare name), and that
                     // path's diagnostic logic lives there.
+                    if looksLikePath(argv[0]) { environment.variables["_"] = argv[0] }
                     if looksLikePath(argv[0]),
                        let scriptResult =
                         try await dispatchAsExternalScriptIfApplicable(argv: argv) {

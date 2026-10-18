@@ -18,7 +18,7 @@ extension Shell {
     /// expand the first component and is returned literally.
     func globExpand(_ expanded: String,
                     originalWord: Node) async throws -> [String] {
-        guard shouldGlob(originalWord) else { return [expanded] }
+        guard !noglob, shouldGlob(originalWord) else { return [expanded] }
         let matches = await glob(expanded)
         if !matches.isEmpty { return matches }
         // `nullglob`: drop the unmatched pattern entirely (yielding zero
