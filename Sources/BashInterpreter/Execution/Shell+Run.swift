@@ -633,9 +633,6 @@ extension Shell {
                         // and the command runs.
                         if refuseReadonlyAssignment(lhs) {
                             if commandWordIndex != nil { continue }
-                            // Bash assigns left to right: `x=1 UID=2`
-                            // keeps `x`.
-                            for (name, value) in assignments { environment[name] = value }
                             throw DiscardCommand()
                         }
                         // Element form: `arr[N]=value` updates the
@@ -655,7 +652,6 @@ extension Shell {
                     // is skipped and the command runs.
                     if !routeAsArg, refuseReadonlyAssignment(name) {
                         if commandWordIndex != nil { continue }
-                        for (name, value) in assignments { environment[name] = value }
                         throw DiscardCommand()
                     }
                     var values: [String] = []
@@ -719,6 +715,15 @@ extension Shell {
                     break
                 }
             }
+        } catch let discard as DiscardCommand {
+            // Bash assigns left to right: in `x=1 UID=2` or
+            // `x=1 y=$((UID=2))`, `x` keeps its value. (A prefix
+            // assignment would have been scoped to the command.)
+            if commandWordIndex == nil {
+                for (name, value) in assignments { environment[name] = value }
+            }
+            await drainProcessSubs(from: procSubFrame)
+            throw discard
         } catch {
             await drainProcessSubs(from: procSubFrame)
             throw error

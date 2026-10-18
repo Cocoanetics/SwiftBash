@@ -135,8 +135,12 @@ import Foundation
             echo "[$a] [$b]"
             c=1 UID=(1) d=2
             echo "[$c] [$d]"
+            e=1 f=$((UID=2)) g=3
+            echo "[$e] [$f] [$g]"
+            h=1 echo $((UID=2))
+            echo "[$h]"
             """#)
-        #expect(cap.stdout == "[1] []\n[] []\n[1] []\n")
+        #expect(cap.stdout == "[1] []\n[] []\n[1] []\n[1] [] []\n[]\n")
     }
 
     /// A discard skips the ERR trap; a failing command still fires it,
