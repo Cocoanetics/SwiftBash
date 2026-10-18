@@ -98,6 +98,17 @@ import Testing
         #expect(cap.stdout == "done\nafter\n")
     }
 
+    @Test func getoptsInASubshellContinuesFromOurPosition() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"""
+            set -- -abc
+            getopts abc o; echo "first $o"
+            x=$(getopts abc o; echo "$o"); echo "sub $x"
+            getopts abc o; echo "next $o"
+            """#)
+        #expect(cap.stdout == "first a\nsub b\nnext b\n")
+    }
+
     // MARK: exit and $?
 
     @Test func exitEndsOnlyTheSubstitution() async throws {

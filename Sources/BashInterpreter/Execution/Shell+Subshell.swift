@@ -15,6 +15,9 @@ extension Shell {
         // A trap that's running stays running: `$(…)` in a DEBUG or ERR
         // trap's body mustn't fire that trap again, recursively.
         sub.runningTraps = runningTraps
+        // Mid-way through `-abc`, a subshell's `getopts` reads on from
+        // where ours stopped.
+        sub.getoptsCharIndex = getoptsCharIndex
         if functionCallDepth > 0 {
             sub.functionCallDepth = functionCallDepth
             sub.localVarStack = [[]]
