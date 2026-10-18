@@ -6,10 +6,14 @@ import Testing
 /// moved the script and `v=$(exit 1)` ended it.
 @Suite(.timeLimit(.minutes(1))) struct CommandSubstitutionSubshellTests {
 
-    /// A shell with `capture`, which copies stdin to stdout (the
-    /// interpreter tests have no `cat`).
-    private func makeShell() -> CapturingShell {
+    /// A shell on an in-memory filesystem with a `/sub` directory (so
+    /// `cd` behaves the same on every platform), and `capture`, which
+    /// copies stdin to stdout (the interpreter tests have no `cat`).
+    private func makeShell() async throws -> CapturingShell {
         let cap = CapturingShell()
+        cap.shell.fileSystem = InMemoryFileSystem()
+        try await cap.shell.fileSystem.createDirectory("/sub", intermediates: true)
+        cap.shell.environment.workingDirectory = "/"
         cap.shell.installShellBuiltin(name: "capture") { _ in
             let input = await Shell.bashCurrent.stdin.readAllString()
             Shell.bashCurrent.stdout(input)
@@ -27,10 +31,9 @@ import Testing
     }
 
     @Test func cdInsideDoesNotLeak() async throws {
-        let cap = CapturingShell()
-        cap.shell.environment.workingDirectory = "/"
-        try await cap.shell.run("z=$(cd /tmp; pwd); pwd; echo $z")
-        #expect(cap.stdout == "/\n/tmp\n")
+        let cap = try await makeShell()
+        try await cap.shell.run("z=$(cd /sub; pwd); pwd; echo $z")
+        #expect(cap.stdout == "/\n/sub\n")
     }
 
     @Test func functionDefinitionsDoNotLeak() async throws {
@@ -49,11 +52,10 @@ import Testing
     }
 
     @Test func heredocSubstitutionIsASubshell() async throws {
-        let cap = makeShell()
-        cap.shell.environment.workingDirectory = "/"
+        let cap = try await makeShell()
         try await cap.shell.run("""
             capture <<EOF
-            $(x=3; cd /tmp; echo in; exit 2)
+            $(x=3; cd /sub; echo in; exit 2)
             EOF
             echo "x=$x"; pwd
             """)
@@ -61,10 +63,9 @@ import Testing
     }
 
     @Test func inputProcessSubstitutionIsASubshell() async throws {
-        let cap = makeShell()
-        cap.shell.environment.workingDirectory = "/"
+        let cap = try await makeShell()
         try await cap.shell.run(
-            #"capture < <(x=9; cd /tmp; echo in); echo "x=$x"; pwd"#)
+            #"capture < <(x=9; cd /sub; echo in); echo "x=$x"; pwd"#)
         #expect(cap.stdout == "in\nx=\n/\n")
     }
 
@@ -141,8 +142,20 @@ import Testing
         #expect(status == .failure)
     }
 
+    @Test func subshellsInAnIgnoredErrexitContextIgnoreItToo() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"""
+            set -e
+            shopt -s inherit_errexit
+            x=$(false; echo kept) || :; echo "x=$x"
+            ( false; echo "group kept" ) || :
+            echo end
+            """#)
+        #expect(cap.stdout == "x=kept\ngroup kept\nend\n")
+    }
+
     @Test func processSubstitutionsKeepErrexit() async throws {
-        let cap = makeShell()
+        let cap = try await makeShell()
         try await cap.shell.run("set -e; capture < <(false; echo dropped); echo after")
         #expect(cap.stdout == "after\n")
     }
@@ -205,7 +218,7 @@ import Testing
     }
 
     @Test func exitInAPipelineStageEndsOnlyTheStage() async throws {
-        let cap = makeShell()
+        let cap = try await makeShell()
         try await cap.shell.run(#"exit 3 | capture; echo "st=$? survived""#)
         #expect(cap.stdout == "st=0 survived\n")
     }
@@ -222,9 +235,8 @@ import Testing
     }
 
     @Test func negatedAndTimedCdMoveTheShell() async throws {
-        let cap = CapturingShell()
-        cap.shell.environment.workingDirectory = "/"
-        try await cap.shell.run("! cd /tmp; pwd; cd /; time cd /tmp 2>/dev/null; pwd")
-        #expect(cap.stdout == "/tmp\n/tmp\n")
+        let cap = try await makeShell()
+        try await cap.shell.run("! cd /sub; pwd; cd /; time cd /sub 2>/dev/null; pwd")
+        #expect(cap.stdout == "/sub\n/sub\n")
     }
 }

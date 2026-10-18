@@ -9,6 +9,9 @@ extension Shell {
     /// runs it catches the ``ReturnSignal``).
     func subshell() -> Self {
         let sub = copy()
+        // Where `set -e` is ignored (an `if` test, `&&` / `||`, `!`),
+        // it stays ignored inside: `( false; echo kept ) || :` prints.
+        sub.errexitGuard = errexitGuard
         if functionCallDepth > 0 {
             sub.functionCallDepth = functionCallDepth
             sub.localVarStack = [[]]
