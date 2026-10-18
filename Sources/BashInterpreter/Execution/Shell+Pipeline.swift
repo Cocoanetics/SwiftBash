@@ -49,6 +49,15 @@ extension Shell {
 
         guard !stages.isEmpty else { return .success }
 
+        // A one-command pipeline (`! cmd`, `time cmd`) runs in this
+        // shell, as in bash: `! out=$(cmd)` keeps `out`, and
+        // `time cd dir` moves.
+        if stages.count == 1 {
+            let timingStart = timed ? Date() : nil
+            let status = try await execute(stages[0])
+            return finishPipeline(status, timingStart: timingStart, invert: invert)
+        }
+
         // N-1 inter-stage sinks: stage i's stdout → stage i+1's stdin.
         let channels: [OutputSink] = (0..<max(0, stages.count - 1)).map { _ in
             OutputSink()
@@ -78,7 +87,7 @@ extension Shell {
                 let mergeStderr = !isLast && pipeOps[index] == "|&"
 
                 group.addTask {
-                    let sub = template.copy()
+                    let sub = template.subshell()
                     sub.stdout = outgoingSink ?? outerStdout
                     sub.stderr = mergeStderr
                         ? (outgoingSink ?? outerStderr)
@@ -111,6 +120,14 @@ extension Shell {
                     } catch is CancellationError {
                         outgoingSink?.finish()
                         return (index, .success)
+                    } catch let exit as ShellExit {
+                        // Each stage is a subshell: `exit` / `return`
+                        // end the stage, not the shell or function.
+                        outgoingSink?.finish()
+                        return (index, exit.status)
+                    } catch let ret as ReturnSignal {
+                        outgoingSink?.finish()
+                        return (index, ret.status)
                     } catch {
                         outgoingSink?.finish()
                         throw error
@@ -155,7 +172,12 @@ extension Shell {
             }
             return stageStatuses.last ?? .success
         }
+        return finishPipeline(status, timingStart: timingStart, invert: invert)
+    }
 
+    /// Report `time` and apply `!` to a finished pipeline's status.
+    private func finishPipeline(_ status: ExitStatus, timingStart: Date?,
+                                invert: Bool) -> ExitStatus {
         // `time` reports to the shell's stderr after the pipeline ends.
         if let timingStart {
             stderr(bashTimeReport(elapsed: Date().timeIntervalSince(timingStart)))

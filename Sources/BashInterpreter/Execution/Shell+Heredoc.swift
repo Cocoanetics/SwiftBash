@@ -288,22 +288,22 @@ extension Shell {
     }
 
     /// Run a synthetic command substitution: parse `source` as bash,
-    /// run it with stdout captured, return the captured string with
-    /// trailing newlines trimmed (matching `$(…)` semantics).
+    /// run it in a subshell with stdout captured, return the captured
+    /// string with trailing newlines trimmed (matching `$(…)`
+    /// semantics).
     private func runCommandSubstitution(source: String) async throws -> String {
         let parts = try BashSyntax.parse(source)
         let sink = OutputSink()
-        let savedStdout = stdout
-        let savedSource = currentSource
-        stdout = sink
-        currentSource = source
-        defer {
-            stdout = savedStdout
-            currentSource = savedSource
+        let status = try await runSubshell(stdout: sink) { sub in
+            sub.currentSource = source
+            var last = ExitStatus.success
+            for node in parts {
+                last = try await sub.execute(node)
+                sub.lastExitStatus = last
+            }
+            return last
         }
-        for node in parts {
-            _ = try await execute(node)
-        }
+        recordCommandSubstitution(status)
         sink.finish()
         var text = await sink.readAllString()
         while text.hasSuffix("\n") { text.removeLast() }

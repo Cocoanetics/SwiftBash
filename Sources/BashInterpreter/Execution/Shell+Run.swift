@@ -344,7 +344,7 @@ extension Shell {
     /// inside the Task and recorded as the entry's exit state — they
     /// never propagate back to the parent here.
     private func spawnBackground(node: Node) async -> Int32 {
-        let sub = copy()
+        let sub = subshell()
         let label = nodeCommandLabel(node)
         return await processTable.spawn(command: label) {
             do {
@@ -355,6 +355,9 @@ extension Shell {
                         // `exit N` inside a background job ends the
                         // JOB, not the parent shell.
                         return sub.lastExitStatus
+                    } catch let ret as ReturnSignal {
+                        // So does `return N` in a function's job.
+                        return ret.status
                     }
                 }
             } catch is CancellationError {
@@ -414,6 +417,7 @@ extension Shell {
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
         try await fireDebugTrap()
+        commandSubstitutionStatus = nil
         // Track which command we're dispatching so error messages can
         // include `script.sh: line N:` like bash does.
         let savedCommandRange = currentCommandRange
@@ -646,12 +650,14 @@ extension Shell {
             throw error
         }
 
-        // No command word → keep assignments permanent.
+        // No command word → keep assignments permanent. The status is
+        // that of the last command substitution, if any (`out=$(false)`
+        // fails).
         if argv.isEmpty {
             savedScope.removeAll()
             restoreRedirects()
             await drainProcessSubs(from: procSubFrame)
-            return .success
+            return commandSubstitutionStatus ?? .success
         }
 
         // `set -v` / `set -o verbose` — echo the raw source slice of
@@ -808,10 +814,10 @@ extension Shell {
                 if let consumer = sub.consumer {
                     let captured =
                         (try? await fileSystem.readData(sub.path)) ?? Data()
-                    let savedStdin = stdin
-                    stdin = .data(captured)
-                    _ = try? await execute(consumer)
-                    stdin = savedStdin
+                    _ = try? await runSubshell(stdout: stdout,
+                                               stdin: .data(captured)) {
+                        try await $0.execute(consumer)
+                    }
                 }
                 try? await fileSystem.remove(sub.path, recursive: false)
             }

@@ -178,6 +178,12 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// run the consumer with the captured bytes as stdin).
     var pendingProcessSubs: [ProcessSub] = []
 
+    /// Status of the last `$(…)` expanded for the simple command now
+    /// being dispatched, `nil` when it had none. An assignment-only
+    /// command (`out=$(cmd)`) returns it, as bash does, so
+    /// `out=$(cmd) || …` and `set -e` see the failure.
+    var commandSubstitutionStatus: ExitStatus?
+
     // MARK: - Interactive UI
 
     /// Embedder hook for builtins that want to drive a host-side
@@ -452,80 +458,6 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         }
     }
 
-    // MARK: - Default registry
-
-    /// Install SwiftBash's built-in command surface on this shell.
-    /// Pure shell built-ins (`cd`, `export`, `eval`, …) go through
-    /// ``installShellBuiltin(_:)``; hybrid commands (`echo`, `printf`,
-    /// `pwd`, `test`, `[`, `true`, `false`, `wait`) install BOTH as a
-    /// shell built-in (wins for bare invocation) AND as a file at
-    /// their `BinCatalog` path (reachable via absolute path and
-    /// surfaced by `which`); pure file-backed commands (`bash`, `sh`,
-    /// `dash`) only install at their catalog path.
-    ///
-    /// Called automatically from the designated initializer when the
-    /// caller-supplied `commands` dict is empty; tests / embedders
-    /// that want a clean slate can clear the install storage after
-    /// construction or pass a non-empty `commands` dict to opt out.
-    public func installDefaultBuiltins() {
-        // Pure shell built-ins: no file on disk, not PATH-searchable.
-        let pureBuiltins: [Command] = [
-            ColonCommand(),
-            CdCommand(),
-            ExportCommand(),
-            UnsetCommand(),
-            ExitCommand(),
-            EvalCommand(),
-            LetCommand(),
-            ShoptCommand(),
-            MapfileCommand(name: "mapfile"),
-            MapfileCommand(name: "readarray"),
-            BreakCommand(),
-            ContinueCommand(),
-            SetCommand(),
-            ShiftCommand(),
-            ReturnCommand(),
-            LocalCommand(),
-            SourceCommand(name: "source"),
-            SourceCommand(name: "."),
-            DeclareCommand(name: "declare"),
-            DeclareCommand(name: "typeset"),
-            ReadCommand(),
-            TrapCommand(),
-            GetoptsCommand(),
-            CompgenCommand()
-        ]
-        for builtin in pureBuiltins {
-            installShellBuiltin(builtin)
-        }
-
-        // Hybrid commands: a built-in wins for the bare name, and a
-        // file form at the catalog path is reachable via absolute
-        // invocation and via `which`. Both forms share the same Swift
-        // implementation — real bash's file form is a separate binary,
-        // but inside a virtualised shell the behaviour overlaps
-        // closely enough that a single instance covers both.
-        let hybrids: [Command] = [
-            EchoCommand(),
-            TrueCommand(),
-            FalseCommand(),
-            PwdCommand(),
-            WaitCommand(),
-            TestCommand(name: "test"),
-            TestCommand(name: "["),
-            PrintfCommand()
-        ]
-        for hybrid in hybrids {
-            installShellBuiltin(hybrid)
-            install(hybrid)
-        }
-
-        // File-only commands at their catalog paths.
-        install(BashCommand(name: "bash"))
-        install(BashCommand(name: "sh"))
-        install(BashCommand(name: "dash"))
-    }
-
     // MARK: - Subshell factory
 
     /// A fresh `Shell` suitable for running as a pipeline stage or a
@@ -541,9 +473,11 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// real bash. In particular, `loopDepth` MUST reset so that
     /// `(break)` inside a loop body raises bash's "only meaningful
     /// in a loop" diagnostic instead of unwinding the parent's loop
-    /// (Codex review on PR #11). Same logic applies to
-    /// `functionCallDepth` / `localVarStack`: a subshell isn't
-    /// inside any function frame.
+    /// (Codex review on PR #11). `functionCallDepth` /
+    /// `localVarStack` reset too, which is right for a new `bash`
+    /// process; a subshell of this one (`( … )`, `$(…)`, a pipeline
+    /// stage) comes from ``subshell()``, which keeps the function
+    /// frame.
     public override func copy() -> Self {
         // ShellKit's base `copy()` returns `Self`, implemented via
         // `type(of: self).init(...)` — so the runtime type already

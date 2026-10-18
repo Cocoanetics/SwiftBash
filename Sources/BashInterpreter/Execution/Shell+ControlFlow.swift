@@ -427,8 +427,9 @@ extension Shell {
     private func executeSubshellGroup(list: [Node]) async throws -> ExitStatus {
         // `copy()` is the single source of truth for what propagates
         // into a subshell — adding a new shell-scoped option means
-        // updating that one method, never this code.
-        let sub = copy()
+        // updating that one method, never this code. `subshell()`
+        // adds the enclosing function frame.
+        let sub = subshell()
         var last = ExitStatus.success
         do {
             try await sub.withCurrent {
@@ -442,6 +443,10 @@ extension Shell {
             // Subshell-scoped exit: capture the status and let the
             // parent see it as `$?` without terminating its own run.
             last = exit.status
+        } catch let ret as ReturnSignal {
+            // `(return N)` inside a function ends the subshell, not
+            // the function.
+            last = ret.status
         } catch let signal as LoopControlSignal {
             // `(break)` / `(continue)` inside a subshell must NOT
             // unwind the parent's enclosing loop — bash treats loop
