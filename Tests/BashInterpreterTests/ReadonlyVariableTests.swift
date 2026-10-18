@@ -176,12 +176,17 @@ import Foundation
         let cap = makeShell()
         // A stale value in the environment gives way to the identity.
         cap.shell.environment.variables["EUID"] = "12345"
+        // At the top of a sourced file, `declare UID` is not a local.
+        try await cap.shell.fileSystem.writeData(
+            Data(#"declare UID PPID; echo "sourced $?""#.utf8 + [0x0A]),
+            to: "/lib2.sh", append: false)
         try await cap.shell.run(#"""
             declare -A UID
             [ "${UID[0]}" = "$UID" ] && [ "${#UID[@]}" = 1 ] && echo kept
             f() { declare UID; echo "f $?"; }; f
             g() { declare -A EUID; echo "g $?"; }; g
             h() { declare -g UID; echo "h $?"; }; h
+            source /lib2.sh
             x=abcdef; echo "${x:UID=2}"; echo dropped
             echo "next $?"
             echo "${PPID[1]:=$(echo expanded >&2)}"; echo dropped
@@ -190,12 +195,12 @@ import Foundation
             echo "unset $?"
             export EUID
             """#)
-        #expect(cap.stdout == "kept\nf 1\ng 1\nh 0\nnext 1\nnext 2\nunset 1\n")
+        #expect(cap.stdout == "kept\nf 1\ng 1\nh 0\nsourced 0\nnext 1\nnext 2\nunset 1\n")
         #expect(cap.stderr.hasSuffix("""
             expanded
-            swift-bash: line 8: PPID: readonly variable
-            swift-bash: line 10: unset: UID: cannot unset: readonly variable
-            swift-bash: line 10: unset: EUID: cannot unset: readonly variable
+            swift-bash: line 9: PPID: readonly variable
+            swift-bash: line 11: unset: UID: cannot unset: readonly variable
+            swift-bash: line 11: unset: EUID: cannot unset: readonly variable
 
             """))
         #expect(cap.shell.environment.variables["EUID"] == String(cap.shell.hostInfo.uid))

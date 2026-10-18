@@ -39,7 +39,7 @@ public struct DeclareCommand: Command {
         // `NAME=VALUE` fails without stopping the others, as in bash.
         // In a function, even `declare UID` would make a local: also
         // refused, unless `-g`.
-        let makesLocal = Shell.bashCurrent.functionCallDepth > 0 && !global
+        let makesLocal = Shell.bashCurrent.inFunction && !global
         var status = ExitStatus.success
         for raw in argv[index...]
         where !applyAssignment(raw, associative: associative, makesLocal: makesLocal) {

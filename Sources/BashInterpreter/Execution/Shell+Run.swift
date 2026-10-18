@@ -675,7 +675,7 @@ extension Shell {
                     // the bare name and fails.
                     if routeAsArg, refuseReadonlyAssignment(name) {
                         if ["export", "readonly"].contains(assignmentBuiltin)
-                            || functionCallDepth == 0
+                            || !inFunction
                             || (assignmentBuiltin != "local" && hasDeclareFlag("g")) {
                             throw DiscardCommand()
                         }

@@ -213,6 +213,12 @@ extension Shell {
         return scriptFile ?? (interactive ? "main" : "environment")
     }
 
+    /// Whether a function is running — not just a sourced file, which
+    /// ``functionCallDepth`` also counts. A `declare` here makes a local.
+    var inFunction: Bool {
+        dynamicVariables.callStack.contains { $0.name != "source" }
+    }
+
     /// Run `body` with `frame` on the call stack.
     func withCallFrame<T>(
         _ frame: CallFrame, _ body: () async throws -> T
@@ -239,7 +245,6 @@ extension Shell {
             files.append(scriptFile)
             lines.append("0")
         }
-        let inFunction = frames.contains { $0.name != "source" }
         setCallStackArray("FUNCNAME", inFunction ? names : [])
         setCallStackArray("BASH_SOURCE", files)
         setCallStackArray("BASH_LINENO", lines)
