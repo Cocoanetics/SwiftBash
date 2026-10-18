@@ -625,7 +625,10 @@ extension Shell {
                     // `name=(item …)` and `name+=(item …)`. Evaluate
                     // items now, store permanently. Prefix-form
                     // `arr=(a b) cmd` is rare; we don't scope it.
+                    // Read-only: as for a scalar, a prefix assignment
+                    // is skipped and the command runs.
                     if !routeAsArg, refuseReadonlyAssignment(name) {
+                        if commandWordIndex != nil { continue }
                         throw ShellExit(status: .failure)
                     }
                     var values: [String] = []

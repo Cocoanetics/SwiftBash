@@ -34,8 +34,8 @@ public struct LocalCommand: Command {
                 name = spec
                 value = nil
             }
-            if value != nil,
-               Shell.bashCurrent.refuseReadonlyAssignment(name, builtin: "local") {
+            // Even `local UID` modifies a read-only variable.
+            if Shell.bashCurrent.refuseReadonlyAssignment(name, builtin: "local") {
                 status = .failure
                 continue
             }

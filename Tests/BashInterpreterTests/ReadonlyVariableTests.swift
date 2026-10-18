@@ -62,6 +62,25 @@ import Foundation
         #expect(cap.shell.lastExitStatus == .failure)
     }
 
+    /// `read` fills the names before a read-only one; `local UID`
+    /// fails even without a value; `UID=(1) cmd` still runs `cmd`.
+    @Test func readOnlyTargetsAmongOthers() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            read first UID last <<< "1 2 3"; echo "st=$? [$first] [$last]"
+            f() { local UID; echo "local st=$?"; local EUID x=1; echo "st=$? x=$x"; }; f
+            UID=(1) echo ok; echo "st=$?"
+            """#)
+        #expect(cap.stdout == "st=1 [1] []\nlocal st=1\nst=1 x=1\nok\nst=0\n")
+        #expect(cap.stderr == """
+            swift-bash: line 1: UID: readonly variable
+            swift-bash: line 2: local: UID: readonly variable
+            swift-bash: line 2: local: EUID: readonly variable
+            swift-bash: line 3: UID: readonly variable
+
+            """)
+    }
+
     @Test func readOnlyAssignmentsEndTheScript() async throws {
         for script in ["UID=(1 2)", "PPID[1]=2", "EUID+=1", "x=1 UID=2", "echo $((UID=3))"] {
             let cap = makeShell()
