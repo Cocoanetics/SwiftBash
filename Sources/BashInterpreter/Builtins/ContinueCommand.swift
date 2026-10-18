@@ -10,6 +10,13 @@ public struct ContinueCommand: Command {
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let levels = try parseLevels(argv, builtin: name)
-        throw LoopControlSignal(kind: .continueLoop, remainingLevels: levels)
+        let signal = LoopControlSignal(kind: .continueLoop, remainingLevels: levels)
+        // Outside any loop (a function body doesn't see its caller's
+        // loops), bash warns and carries on with status 0.
+        guard Shell.bashCurrent.loopDepth > 0 else {
+            Shell.bashCurrent.warnStrayLoopControl(signal)
+            return .success
+        }
+        throw signal
     }
 }

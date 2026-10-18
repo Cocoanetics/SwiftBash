@@ -115,19 +115,27 @@ extension Shell {
                         let result = try await sub.withCurrent {
                             try await sub.execute(stage)
                         }
+                        let final = await sub.exitSubshell(result)
                         outgoingSink?.finish()
-                        return (index, result)
+                        return (index, final)
                     } catch is CancellationError {
+                        // A stage cut short because a later one finished
+                        // still runs its EXIT trap, as bash's does when
+                        // the pipe closes. The trap runs in its own task,
+                        // since this one is cancelled.
+                        _ = await Task { await sub.exitSubshell(.success) }.value
                         outgoingSink?.finish()
                         return (index, .success)
                     } catch let exit as ShellExit {
                         // Each stage is a subshell: `exit` / `return`
                         // end the stage, not the shell or function.
+                        let final = await sub.exitSubshell(exit.status)
                         outgoingSink?.finish()
-                        return (index, exit.status)
+                        return (index, final)
                     } catch let ret as ReturnSignal {
+                        let final = await sub.exitSubshell(ret.status)
                         outgoingSink?.finish()
-                        return (index, ret.status)
+                        return (index, final)
                     } catch {
                         outgoingSink?.finish()
                         throw error

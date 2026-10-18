@@ -22,9 +22,14 @@ public struct TrapCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let args = Array(argv.dropFirst())
 
+        // A subshell lists its parent's traps too, though it doesn't
+        // run them.
+        let listed = Shell.bashCurrent.traps.merging(
+            Shell.bashCurrent.inheritedTraps) { own, _ in own }
+
         if args.isEmpty {
-            for sig in Shell.bashCurrent.traps.keys.sorted() {
-                Shell.bashCurrent.stdout(formatTrap(sig: sig, body: Shell.bashCurrent.traps[sig]!))
+            for sig in listed.keys.sorted() {
+                Shell.bashCurrent.stdout(formatTrap(sig: sig, body: listed[sig]!))
             }
             return .success
         }
@@ -37,10 +42,10 @@ public struct TrapCommand: Command {
         if args[0] == "-p" {
             let names = Array(args.dropFirst())
             let toShow: [String] = names.isEmpty
-                ? Array(Shell.bashCurrent.traps.keys.sorted())
+                ? Array(listed.keys.sorted())
                 : names.map(canonicalize)
             for sig in toShow {
-                if let body = Shell.bashCurrent.traps[sig] {
+                if let body = listed[sig] {
                     Shell.bashCurrent.stdout(formatTrap(sig: sig, body: body))
                 }
             }
@@ -64,6 +69,7 @@ public struct TrapCommand: Command {
                 Shell.bashCurrent.stderr("trap: \(raw): invalid signal specification\n")
                 return ExitStatus(1)
             }
+            Shell.bashCurrent.inheritedTraps.removeValue(forKey: sig)
             if command == "-" {
                 Shell.bashCurrent.traps.removeValue(forKey: sig)
             } else {

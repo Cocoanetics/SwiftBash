@@ -109,7 +109,7 @@ extension Shell {
                 source: rewritten,
                 shebang: shebangLine,
                 argv: [resolved] + Array(argv.dropFirst()))
-            let sub = copy()
+            let sub = childProcess()
             sub.scriptName = resolved
             sub.positionalParameters = Array(argv.dropFirst())
             return try await sub.withCurrent {
@@ -130,7 +130,7 @@ extension Shell {
         // behaviour and return `nil`. Falling back to bash there
         // would mangle the user's actual interpreter intent.
         if shebangLine == nil, looksLikeTextScript(data) {
-            let sub = copy()
+            let sub = childProcess()
             sub.scriptName = resolved
             sub.positionalParameters = Array(argv.dropFirst())
             return try await sub.withCurrent {

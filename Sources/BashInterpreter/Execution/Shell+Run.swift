@@ -81,11 +81,20 @@ extension Shell {
         // Make the shell itself visible to `ps` / `pgrep` (seeded once).
         await ensureSelfProcessRegistered()
 
+        // `source`, `eval` and trap bodies run nested inside another
+        // run. Only the outermost run is the shell itself: it alone
+        // catches `exit` and fires the EXIT trap, so `eval 'exit 3'`
+        // ends the script, as in bash.
+        runDepth += 1
+        defer { runDepth -= 1 }
+        let isOutermost = runDepth == 1
+
         let saved = currentSource
         currentSource = source
         defer { currentSource = saved }
 
-        let result: ExitStatus
+        var result: ExitStatus
+        var exited = false
         do {
             var last = ExitStatus.success
             for node in parts {
@@ -93,6 +102,9 @@ extension Shell {
                     last = try await execute(node)
                     lastExitStatus = last
                 } catch let signal as LoopControlSignal {
+                    // `eval break` and a sourced `break` belong to the
+                    // caller's loop.
+                    if loopDepth > 0 { throw signal }
                     // Stray break/continue at top level — warn and
                     // continue with the next part.
                     warnStrayLoopControl(signal)
@@ -110,15 +122,24 @@ extension Shell {
                 }
             }
             result = last
-        } catch let exit as ShellExit {
+        } catch let exit as ShellExit where isOutermost {
             lastExitStatus = exit.status
             result = exit.status
+            exited = true
         }
-        // EXIT trap fires once when the run finishes — whether through
-        // normal completion, exit, or errexit.
-        if let body = traps["EXIT"], !runningTraps.contains("EXIT") {
+        // The EXIT trap fires once, when the shell exits: on `exit` or
+        // errexit, or when a script (a non-interactive outermost run)
+        // ends. Not after each `source` / `eval`, nor after each line
+        // an interactive embedder runs.
+        if isOutermost, exited || !interactive,
+           let body = traps["EXIT"], !runningTraps.contains("EXIT") {
             runningTraps.insert("EXIT")
-            do { _ = try await self.run(body) } catch {}
+            do {
+                _ = try await self.run(body)
+            } catch let exit as ShellExit {
+                // `exit N` inside the trap sets the final status.
+                result = exit.status
+            } catch {}
             runningTraps.remove("EXIT")
         }
         lastExitStatus = result
@@ -348,18 +369,19 @@ extension Shell {
         let label = nodeCommandLabel(node)
         return await processTable.spawn(command: label) {
             do {
-                return try await sub.withCurrent {
+                let status = try await sub.withCurrent {
                     do {
                         return try await sub.execute(node)
-                    } catch is ShellExit {
+                    } catch let exit as ShellExit {
                         // `exit N` inside a background job ends the
                         // JOB, not the parent shell.
-                        return sub.lastExitStatus
+                        return exit.status
                     } catch let ret as ReturnSignal {
                         // So does `return N` in a function's job.
                         return ret.status
                     }
                 }
+                return await sub.exitSubshell(status)
             } catch is CancellationError {
                 // The Task got `kill`'d. Return cleanly with the
                 // bash-style 128 + SIGTERM exit code so `wait $!`
@@ -391,7 +413,8 @@ extension Shell {
         // inside doesn't trigger an immediate exit.
         errexitGuard += 1
         defer { errexitGuard -= 1 }
-        do { _ = try await self.run(body) } catch is ShellExit { /* let it through */ }
+        // `exit` inside the trap exits the shell.
+        _ = try await self.run(body)
     }
 
     /// Fire the `DEBUG` trap if registered. Called before each simple
@@ -402,7 +425,8 @@ extension Shell {
         defer { runningTraps.remove("DEBUG") }
         errexitGuard += 1
         defer { errexitGuard -= 1 }
-        do { _ = try await self.run(body) } catch is ShellExit { /* swallow */ }
+        // `exit` inside the trap exits the shell.
+        _ = try await self.run(body)
     }
 
     // MARK: Simple commands
