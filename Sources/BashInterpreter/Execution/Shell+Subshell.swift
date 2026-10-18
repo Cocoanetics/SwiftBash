@@ -13,6 +13,13 @@ extension Shell {
         // in it isn't the outermost run, so its `exit` reaches whoever
         // runs the subshell, and the parent's EXIT trap doesn't fire.
         sub.runDepth = 1
+        // Where `set -e` is ignored (an `if` test, `&&` / `||`, `!`),
+        // it stays ignored inside: `( false; echo kept ) || :` prints.
+        sub.errexitGuard = errexitGuard
+        // A trap that's running stays running: `$(…)` in a DEBUG or ERR
+        // trap's body mustn't fire that trap again, recursively. The
+        // subshell's own EXIT trap is separate (see `exitSubshell`).
+        sub.runningTraps = runningTraps.subtracting(["EXIT"])
         if functionCallDepth > 0 {
             sub.functionCallDepth = functionCallDepth
             sub.localVarStack = [[]]
@@ -81,9 +88,11 @@ extension Shell {
         // Unlike `( … )`, bash's substitutions keep the loop context:
         // `v=$(break)` in a loop ends just the substitution.
         sub.loopDepth = loopDepth
-        sub.stdout = sink
         // A capture isn't a terminal: `$(ls)` lists one name per line.
-        sub.stdoutIsTTY = false
+        // A `>(cmd)` consumer writes to our own stdout and keeps its
+        // terminal flag.
+        if sink !== stdout { sub.stdoutIsTTY = false }
+        sub.stdout = sink
         if let input {
             sub.stdin = input
             sub.stdinIsTTY = false
