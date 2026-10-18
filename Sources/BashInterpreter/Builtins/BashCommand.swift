@@ -121,6 +121,7 @@ public struct BashCommand: Command {
                     "\(name): -c: option requires an argument\n")
                 return ExitStatus(2)
             }
+            if parseOnly { return try parseCheck(source: source) }
             return try await runScript(
                 source: source,
                 scriptName: positional.count > 1 ? positional[1] : name,

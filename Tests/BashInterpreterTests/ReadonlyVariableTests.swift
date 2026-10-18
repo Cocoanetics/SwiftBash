@@ -139,8 +139,9 @@ import Foundation
             echo "[$e] [$f] [$g]"
             h=1 echo $((UID=2))
             echo "[$h]"
+            i=0; UID=$((i=1)) true; echo "[$i]"
             """#)
-        #expect(cap.stdout == "[1] []\n[] []\n[1] []\n[1] [] []\n[]\n")
+        #expect(cap.stdout == "[1] []\n[] []\n[1] []\n[1] [] []\n[]\n[0]\n")
     }
 
     /// A discard skips the ERR trap; a failing command still fires it,
@@ -186,6 +187,7 @@ import Foundation
             while true; do UID=1; echo loop; break; done; echo loop-same
             g() { declare -a UID=(x); echo in-g; }; g; echo g-same
             h() { declare -g -a UID=(x); echo in-h; }; h; echo h-same
+            k() { readonly UID=(x); echo in-k; }; k; echo k-same
             source /lib.sh; echo source-same
             eval 'UID=1; echo eval-same
             echo eval-l2'; echo eval-after

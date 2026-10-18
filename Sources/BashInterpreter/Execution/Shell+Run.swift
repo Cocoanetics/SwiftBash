@@ -616,6 +616,15 @@ extension Shell {
                 let routeAsArg = isAssignmentBuiltin && pastCommandWord
                 switch part.kind {
                 case .assignment:
+                    // A read-only prefix (`UID=$(cmd) echo ok`) is
+                    // refused before its value expands, as in bash; the
+                    // command still runs.
+                    let raw = part.source(from: currentSource)
+                    if !routeAsArg, commandWordIndex != nil,
+                       let equals = raw.firstIndex(of: "="),
+                       refuseReadonlyAssignment(String(raw[..<equals])) {
+                        continue
+                    }
                     let expanded = try await expand(word: part)
                     if routeAsArg {
                         // Hand the literal `name=value` string to the
@@ -660,12 +669,13 @@ extension Shell {
                     }
                     // Given to `declare` / `local` / `export`, the items
                     // expand first (as in bash); then the array is left
-                    // alone. `export`, `declare -g`, or `declare` outside
+                    // alone. `export`, `readonly`, `declare -g`, or `declare` outside
                     // a function, drops the rest of the top-level
                     // command, as bash does; otherwise the builtin sees
                     // the bare name and fails.
                     if routeAsArg, refuseReadonlyAssignment(name) {
-                        if assignmentBuiltin == "export" || functionCallDepth == 0
+                        if ["export", "readonly"].contains(assignmentBuiltin)
+                            || functionCallDepth == 0
                             || (assignmentBuiltin != "local" && hasDeclareFlag("g")) {
                             throw DiscardCommand()
                         }

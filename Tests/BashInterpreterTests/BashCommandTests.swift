@@ -59,6 +59,7 @@ import Foundation
             bash -cC 'echo "$-"'
             bash -c -e 'echo "$-"'
             bash -c -- 'echo "$0 $1"' a b
+            bash -nc 'echo not-run'; bash -c -n 'echo not-run'
             """#)
         #expect(cap.stdout == "fhBc\nhBCc\nehBc\na b\n")
     }
