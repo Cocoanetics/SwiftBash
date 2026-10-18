@@ -29,6 +29,9 @@ extension Shell {
         // trap's body mustn't fire that trap again, recursively. The
         // subshell's own EXIT trap is separate (see `exitSubshell`).
         sub.runningTraps = runningTraps.subtracting(["EXIT"])
+        // Mid-way through `-abc`, a subshell's `getopts` reads on from
+        // where ours stopped.
+        sub.getoptsCharIndex = getoptsCharIndex
         if functionCallDepth > 0 {
             sub.functionCallDepth = functionCallDepth
             sub.localVarStack = [[]]
