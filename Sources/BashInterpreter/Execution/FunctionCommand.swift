@@ -21,11 +21,15 @@ struct FunctionCommand: Command {
         // Save call-frame state.
         let savedParams = Shell.bashCurrent.positionalParameters
         let savedSource = Shell.bashCurrent.currentSource
+        let savedLoopDepth = Shell.bashCurrent.loopDepth
 
         Shell.bashCurrent.positionalParameters = Array(argv.dropFirst())
         Shell.bashCurrent.currentSource = definitionSource
         Shell.bashCurrent.functionCallDepth += 1
         Shell.bashCurrent.localVarStack.append([])
+        // The body doesn't see the caller's loops: `break` there warns
+        // instead of ending the caller's loop (bash 4.4+).
+        Shell.bashCurrent.loopDepth = 0
 
         defer {
             // Pop locals — restore shadowed values in reverse order.
@@ -37,6 +41,7 @@ struct FunctionCommand: Command {
             Shell.bashCurrent.functionCallDepth -= 1
             Shell.bashCurrent.positionalParameters = savedParams
             Shell.bashCurrent.currentSource = savedSource
+            Shell.bashCurrent.loopDepth = savedLoopDepth
         }
 
         do {

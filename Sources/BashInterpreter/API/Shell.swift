@@ -154,14 +154,25 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// own type while running.
     var runningTraps: Set<String> = []
 
+    /// The parent's EXIT / ERR / DEBUG / RETURN traps, which a subshell
+    /// doesn't run but still lists with `trap -p`, as bash does
+    /// (`saved=$(trap -p EXIT)` relies on it).
+    var inheritedTraps: [String: String] = [:]
+
     /// Cursor-within-current-argument used by ``getopts`` to track
     /// `-abc`-style bundled short options between calls. Reset to 1
     /// (just past the leading `-`) whenever `getopts` advances OPTIND.
     var getoptsCharIndex: Int = 1
 
     /// Depth of enclosing `while`/`until`/`for` loops on the call stack.
-    /// See `LoopControlSignal` for why this matters.
+    /// See `LoopControlSignal` for why this matters. A function body
+    /// starts at 0: it doesn't see its caller's loops.
     var loopDepth: Int = 0
+
+    /// How many ``run(_:)`` calls are active on this shell. `source`,
+    /// `eval` and trap bodies nest inside another run; only the
+    /// outermost one catches `exit` and fires the EXIT trap.
+    var runDepth: Int = 0
 
     /// Depth of nested function calls on the call stack. Used by
     /// `local` (only valid `> 0`) and `return` (only meaningful `> 0`).

@@ -217,7 +217,7 @@ public struct BashCommand: Command {
         if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
             src = String(src[src.index(after: newline)...])
         }
-        let sub = Shell.bashCurrent.copy()
+        let sub = Shell.bashCurrent.childProcess()
         sub.scriptName = scriptName
         sub.positionalParameters = args
         if mode.errexit { sub.errexit = true }

@@ -458,6 +458,7 @@ extension Shell {
             sub.warnStrayLoopControl(signal)
             last = .success
         }
+        last = await sub.exitSubshell(last)
         lastExitStatus = last
         return last
     }

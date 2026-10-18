@@ -6,17 +6,24 @@ import Foundation
 /// value exceeds the number of enclosing loops, all of them are exited
 /// (matching bash).
 ///
-/// Implementation note: the built-in itself doesn't know how many loops
-/// are currently running — it throws a ``LoopControlSignal`` that the
-/// nearest loop handler catches. Outside any loop, the top-level
-/// ``Shell/run(_:)`` catches it and prints a bash-style warning.
+/// Implementation note: the built-in throws a ``LoopControlSignal``
+/// that the nearest loop handler catches, through `eval` and `source`.
+/// Outside any loop — ``Shell/loopDepth`` is 0, as it is in a function
+/// body — it prints bash's warning instead and returns 0.
 public struct BreakCommand: Command {
     public let name = "break"
     public init() {}
 
     public func run(_ argv: [String]) async throws -> ExitStatus {
         let levels = try parseLevels(argv, builtin: name)
-        throw LoopControlSignal(kind: .breakLoop, remainingLevels: levels)
+        let signal = LoopControlSignal(kind: .breakLoop, remainingLevels: levels)
+        // Outside any loop (a function body doesn't see its caller's
+        // loops), bash warns and carries on with status 0.
+        guard Shell.bashCurrent.loopDepth > 0 else {
+            Shell.bashCurrent.warnStrayLoopControl(signal)
+            return .success
+        }
+        throw signal
     }
 }
 

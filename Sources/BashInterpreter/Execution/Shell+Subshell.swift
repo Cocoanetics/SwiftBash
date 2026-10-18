@@ -9,11 +9,54 @@ extension Shell {
     /// runs it catches the ``ReturnSignal``).
     func subshell() -> Self {
         let sub = copy()
+        // It runs inside this shell's run: an `eval` / `source` / trap
+        // in it isn't the outermost run, so its `exit` reaches whoever
+        // runs the subshell, and the parent's EXIT trap doesn't fire.
+        sub.runDepth = 1
         if functionCallDepth > 0 {
             sub.functionCallDepth = functionCallDepth
             sub.localVarStack = [[]]
         }
+        // Bash resets these traps in a subshell: the parent's EXIT trap
+        // doesn't fire when the subshell ends, nor its ERR trap on a
+        // failure inside. `trap -p` still lists them.
+        sub.inheritedTraps = inheritedTraps
+        for name in Self.subshellResetTraps {
+            if let body = sub.traps.removeValue(forKey: name) {
+                sub.inheritedTraps[name] = body
+            }
+        }
         return sub
+    }
+
+    private static let subshellResetTraps = ["EXIT", "ERR", "DEBUG", "RETURN"]
+
+    /// A ``copy()`` for a new process — `bash script`, `./script` — that
+    /// keeps the environment and options but no traps, which `exec`
+    /// resets.
+    func childProcess() -> Self {
+        let child = copy()
+        child.traps = [:]
+        child.inheritedTraps = [:]
+        return child
+    }
+
+    /// End this subshell the way bash does: run the EXIT trap it set,
+    /// if any. Returns the subshell's final status — an `exit N` in
+    /// the trap overrides `status`.
+    func exitSubshell(_ status: ExitStatus) async -> ExitStatus {
+        guard let body = traps["EXIT"], !runningTraps.contains("EXIT") else {
+            return status
+        }
+        runningTraps.insert("EXIT")
+        defer { runningTraps.remove("EXIT") }
+        lastExitStatus = status
+        do {
+            _ = try await run(body)
+        } catch let exit as ShellExit {
+            return exit.status
+        } catch {}
+        return status
     }
 
     /// Run `body` in a subshell — a ``subshell()`` of this shell, the way
@@ -45,17 +88,18 @@ extension Shell {
             sub.stdin = input
             sub.stdinIsTTY = false
         }
+        let status: ExitStatus
         do {
-            return try await sub.withCurrent { try await body(sub) }
+            status = try await sub.withCurrent { try await body(sub) }
         } catch let exit as ShellExit {
-            return exit.status
+            status = exit.status
         } catch let ret as ReturnSignal {
-            return ret.status
-        } catch let signal as LoopControlSignal {
-            // `v=$(break)` inside a loop quietly ends just the subshell;
-            // outside any loop bash warns, as for a bare `break`.
-            if loopDepth == 0 { sub.warnStrayLoopControl(signal) }
-            return .success
+            status = ret.status
+        } catch is LoopControlSignal {
+            // `v=$(break)` inside a loop quietly ends just the
+            // substitution. (Outside any loop, `break` itself warns.)
+            status = .success
         }
+        return await sub.exitSubshell(status)
     }
 }
