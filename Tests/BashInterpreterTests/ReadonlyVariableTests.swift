@@ -184,9 +184,19 @@ import Foundation
             h() { declare -g UID; echo "h $?"; }; h
             x=abcdef; echo "${x:UID=2}"; echo dropped
             echo "next $?"
+            echo "${PPID[1]:=5}"; echo dropped
+            echo "next $?"
+            unset 'UID[1]' 'EUID[@]'
+            echo "unset $?"
             export EUID
             """#)
-        #expect(cap.stdout == "kept\nf 1\ng 1\nh 0\nnext 1\n")
+        #expect(cap.stdout == "kept\nf 1\ng 1\nh 0\nnext 1\nnext 2\nunset 1\n")
+        #expect(cap.stderr.hasSuffix("""
+            swift-bash: line 8: PPID: readonly variable
+            swift-bash: line 10: unset: UID: cannot unset: readonly variable
+            swift-bash: line 10: unset: EUID: cannot unset: readonly variable
+
+            """))
         #expect(cap.shell.environment.variables["EUID"] == String(cap.shell.hostInfo.uid))
     }
 

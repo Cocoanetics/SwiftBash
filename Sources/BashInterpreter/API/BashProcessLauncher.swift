@@ -130,8 +130,8 @@ public struct BashProcessLauncher: ProcessLauncher {
             }
         } catch let exit as ShellExit {
             status = exit.status
-        } catch is DiscardCommand {
-            status = .failure
+        } catch let discard as DiscardCommand {
+            status = discard.status
         }
 
         return ExecutionRecord(

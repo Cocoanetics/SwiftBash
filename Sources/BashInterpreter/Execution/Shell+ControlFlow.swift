@@ -453,9 +453,9 @@ extension Shell {
             // `(return N)` inside a function ends the subshell, not
             // the function.
             last = ret.status
-        } catch is DiscardCommand {
+        } catch let discard as DiscardCommand {
             // `( UID=1; … )` ends the subshell with status 1.
-            last = .failure
+            last = discard.status
         } catch let signal as LoopControlSignal {
             // `(break)` / `(continue)` inside a subshell must NOT
             // unwind the parent's enclosing loop — bash treats loop

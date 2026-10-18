@@ -142,8 +142,8 @@ extension Shell {
                         let final = await sub.exitSubshell(ret.status)
                         outgoingSink?.finish()
                         return (index, final)
-                    } catch is DiscardCommand {
-                        let final = await sub.exitSubshell(.failure)
+                    } catch let discard as DiscardCommand {
+                        let final = await sub.exitSubshell(discard.status)
                         outgoingSink?.finish()
                         return (index, final)
                     } catch {

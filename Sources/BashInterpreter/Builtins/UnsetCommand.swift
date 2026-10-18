@@ -41,7 +41,9 @@ public struct UnsetCommand: Command {
 
             let shell = Shell.bashCurrent
             if shell.isReadonlyVariable(raw) {
-                shell.stderr("\(shell.errorLocationPrefix())unset: \(raw): "
+                // `unset 'UID[1]'` names the variable, `UID`.
+                let name = raw.prefix { $0 != "[" }
+                shell.stderr("\(shell.errorLocationPrefix())unset: \(name): "
                              + "cannot unset: readonly variable\n")
                 status = .failure
                 continue

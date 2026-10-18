@@ -149,10 +149,10 @@ extension Shell {
             // continue with the next part.
             warnStrayLoopControl(signal)
             return (.success, false)
-        } catch is DiscardCommand {
+        } catch let discard as DiscardCommand {
             // `UID=5`: the rest of this command is dropped, without
             // an ERR trap (`set -e` still exits).
-            return (.failure, true)
+            return (discard.status, true)
         }
     }
 
@@ -376,8 +376,8 @@ extension Shell {
                         // `exit N` inside a background job ends the
                         // JOB, not the parent shell.
                         return exit.status
-                    } catch is DiscardCommand {
-                        return .failure
+                    } catch let discard as DiscardCommand {
+                        return discard.status
                     } catch let ret as ReturnSignal {
                         // So does `return N` in a function's job.
                         return ret.status
