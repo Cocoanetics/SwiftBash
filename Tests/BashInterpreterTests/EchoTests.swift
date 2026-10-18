@@ -27,10 +27,11 @@ import Testing
         #expect(cap.stdout == "hello")
     }
 
-    @Test func doubleDashEndsOptions() async throws {
+    @Test func doubleDashIsPrintedLikeBash() async throws {
+        // bash's echo has no end-of-options marker.
         let cap = CapturingShell()
-        try await cap.shell.run("echo -- -n literal")
-        #expect(cap.stdout == "-n literal\n")
+        try await cap.shell.run("echo --; echo -- -n literal; echo -n -- x; echo")
+        #expect(cap.stdout == "--\n-- -n literal\n-- x\n")
     }
 
     @Test func quotesAreStripped() async throws {
