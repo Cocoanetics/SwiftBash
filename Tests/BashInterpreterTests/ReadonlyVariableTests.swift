@@ -70,13 +70,27 @@ import Foundation
             read first UID last <<< "1 2 3"; echo "st=$? [$first] [$last]"
             f() { local UID; echo "local st=$?"; local EUID x=1; echo "st=$? x=$x"; }; f
             UID=(1) echo ok; echo "st=$?"
+            declare -a y=(1) UID=(x)
+            echo "declare st=$? ${y[0]} ${UID[1]}"
+            export UID=(x); echo "export st=$?"
             """#)
-        #expect(cap.stdout == "st=1 [1] []\nlocal st=1\nst=1 x=1\nok\nst=0\n")
+        #expect(cap.stdout == """
+            st=1 [1] []
+            local st=1
+            st=1 x=1
+            ok
+            st=0
+            declare st=1 1\u{20}
+            export st=1
+
+            """)
         #expect(cap.stderr == """
             swift-bash: line 1: UID: readonly variable
             swift-bash: line 2: local: UID: readonly variable
             swift-bash: line 2: local: EUID: readonly variable
             swift-bash: line 3: UID: readonly variable
+            swift-bash: line 4: UID: readonly variable
+            swift-bash: line 6: UID: readonly variable
 
             """)
     }

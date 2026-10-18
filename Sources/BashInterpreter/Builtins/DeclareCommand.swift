@@ -53,7 +53,8 @@ public struct DeclareCommand: Command {
             nameOnly = raw
             value = nil
         }
-        if value != nil,
+        // `declare -A UID` would turn it into an array: refused too.
+        if value != nil || associative,
            Shell.bashCurrent.refuseReadonlyAssignment(nameOnly, builtin: name) {
             return false
         }

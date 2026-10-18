@@ -527,6 +527,8 @@ extension Shell {
 
         let procSubFrame = pendingProcessSubs.count
         var assignments: [(String, String)] = []
+        // `declare -a UID=(x)`: a read-only array argument was refused.
+        var refusedReadonlyArgument = false
         var wordFragments: [(node: Node, fragments: [WordFragment])] = []
         var redirects: [Node] = []
 
@@ -626,8 +628,15 @@ extension Shell {
                     // items now, store permanently. Prefix-form
                     // `arr=(a b) cmd` is rare; we don't scope it.
                     // Read-only: as for a scalar, a prefix assignment
-                    // is skipped and the command runs.
-                    if !routeAsArg, refuseReadonlyAssignment(name) {
+                    // is skipped and the command runs. Given to
+                    // `declare` / `local` / `export`, the array is left
+                    // alone, the builtin sees the bare name, and fails.
+                    if refuseReadonlyAssignment(name) {
+                        if routeAsArg {
+                            refusedReadonlyArgument = true
+                            wordFragments.append((part, [.literal(name)]))
+                            break
+                        }
                         if commandWordIndex != nil { continue }
                         throw ShellExit(status: .failure)
                     }
@@ -877,8 +886,9 @@ extension Shell {
         }
         // Report a write to a closed stdout while the command's own
         // redirections still apply: `echo hi 2>&- >&-` says nothing.
-        let status = closedStdout?.takeWrite() == true
+        var status = closedStdout?.takeWrite() == true
             ? reportClosedStdoutWrite(argv[0]) : result
+        if refusedReadonlyArgument { status = .failure }
         restoreScope()
         restoreRedirects()
         await drainProcessSubs(from: procSubFrame)
