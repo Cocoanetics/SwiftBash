@@ -757,11 +757,19 @@ extension Shell {
             // The previous basename-keyed `commands[argv[0]]` route
             // is gone — it ignored $PATH and made shadowing
             // impossible.
+            // A simple pipeline stage that runs shell code counts as a
+            // subshell level (see `deferredNesting`).
+            let nestsHere = dynamicVariables.deferredNesting
+            dynamicVariables.deferredNesting = false
             if !looksLikePath(argv[0]),
                let function = commands[argv[0]] as? FunctionCommand {
+                if nestsHere { dynamicVariables.subshellLevel += 1 }
                 result = try await function.run(argv)
             } else if !looksLikePath(argv[0]),
                       let builtin = shellBuiltins[argv[0]] {
+                if nestsHere, ["eval", "source", "."].contains(argv[0]) {
+                    dynamicVariables.subshellLevel += 1
+                }
                 result = try await builtin.run(argv)
             } else {
                 let resolution = await PathResolver(self).resolve(argv[0])
@@ -777,10 +785,12 @@ extension Shell {
                     var rewritten = argv
                     rewritten[0] = (path as NSString).lastPathComponent
                     result = try await command.run(rewritten)
-                case .externalScript:
+                case .externalScript(let path):
                     // Hand off to the external-script flow. It needs
                     // the original argv so its diagnostics use the
-                    // user's literal token.
+                    // user's literal token. Bash exports `_` as the
+                    // path used to run it: as typed, or as found.
+                    environment.variables["_"] = looksLikePath(argv[0]) ? argv[0] : path
                     if let scriptResult =
                         try await dispatchAsExternalScriptIfApplicable(argv: argv) {
                         result = scriptResult
@@ -798,6 +808,7 @@ extension Shell {
                     // "No such file or directory" (path) from
                     // "command not found" (bare name), and that
                     // path's diagnostic logic lives there.
+                    if looksLikePath(argv[0]) { environment.variables["_"] = argv[0] }
                     if looksLikePath(argv[0]),
                        let scriptResult =
                         try await dispatchAsExternalScriptIfApplicable(argv: argv) {

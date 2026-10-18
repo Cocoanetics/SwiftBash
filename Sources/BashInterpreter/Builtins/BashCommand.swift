@@ -190,7 +190,9 @@ public struct BashCommand: Command {
     private func parseCheck(source: String) throws -> ExitStatus {
         var src = source
         if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
-            src = String(src[src.index(after: newline)...])
+            // Keep the newline, so `$LINENO` and diagnostics count the
+            // shebang's line.
+            src = String(src[newline...])
         }
         do {
             _ = try BashSyntax.parse(src)
@@ -216,7 +218,9 @@ public struct BashCommand: Command {
                            scriptFile: String? = nil) async throws -> ExitStatus {
         var src = source
         if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
-            src = String(src[src.index(after: newline)...])
+            // Keep the newline, so `$LINENO` and diagnostics count the
+            // shebang's line.
+            src = String(src[newline...])
         }
         let sub = Shell.bashCurrent.childProcess()
         sub.scriptName = scriptName

@@ -171,6 +171,38 @@ import Foundation
         #expect(cap.stdout == "0\n1\n2\n1\n1\n0\n1\n1\n")
     }
 
+    @Test func pipelineStagesThatRunShellCodeCountAsSubshells() async throws {
+        let cap = try await makeShell(files: [
+            "/lib.sh": #"echo "source $BASH_SUBSHELL""# + "\n"
+        ])
+        try await cap.shell.run(#"""
+            f() { echo "fn $BASH_SUBSHELL"; }
+            x=f; $x | capture
+            eval f | capture
+            source /lib.sh | capture
+            echo "plain $BASH_SUBSHELL" | capture
+            """#)
+        #expect(cap.stdout == "fn 1\nfn 1\nsource 1\nplain 0\n")
+    }
+
+    @Test func linenoCountsTheShebangLine() async throws {
+        let cap = try await makeShell(files: [
+            "/script.sh": "#!/bin/bash\necho \"line $LINENO\"\n"
+        ])
+        try await cap.shell.run("bash /script.sh")
+        #expect(cap.stdout == "line 2\n")
+    }
+
+    @Test func underscoreIsTheScriptsPathInsideIt() async throws {
+        let cap = try await makeShell(files: ["/us.sh": #"echo "[$_]""# + "\n"])
+        try await cap.shell.fileSystem.chmod("/us.sh", mode: 0o755)
+        // Scripts dispatch only once some interpreter is registered; a
+        // shebang-less script then runs as bash.
+        cap.shell.registerScriptInterpreter(name: "unused") { _ in .success }
+        try await cap.shell.run(": old; ./us.sh")
+        #expect(cap.stdout == "[./us.sh]\n", "stderr: \(cap.stderr)")
+    }
+
     @Test func bashpidDiffersInSubshells() async throws {
         let cap = try await makeShell()
         try await cap.shell.run(#"""
