@@ -111,6 +111,7 @@ extension Shell {
                 argv: [resolved] + Array(argv.dropFirst()))
             let sub = childProcess()
             sub.scriptName = resolved
+            sub.scriptFile = resolved
             sub.positionalParameters = Array(argv.dropFirst())
             return try await sub.withCurrent {
                 try await interpreter.run(context)
@@ -132,6 +133,7 @@ extension Shell {
         if shebangLine == nil, looksLikeTextScript(data) {
             let sub = childProcess()
             sub.scriptName = resolved
+            sub.scriptFile = resolved
             sub.positionalParameters = Array(argv.dropFirst())
             return try await sub.withCurrent {
                 try await sub.run(raw)

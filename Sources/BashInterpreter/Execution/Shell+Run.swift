@@ -152,6 +152,9 @@ extension Shell {
     // splitting further would scatter the routing table.
     // swiftlint:disable:next cyclomatic_complexity
     func execute(_ node: Node) async throws -> ExitStatus {
+        let savedCommandRange = enterCommand(node)
+        defer { currentCommandRange = savedCommandRange }
+
         switch node.kind {
         case .command(let parts):
             return try await executeSimpleCommand(parts: parts)
@@ -182,7 +185,9 @@ extension Shell {
             commands[name] = FunctionCommand(
                 name: name,
                 body: body,
-                definitionSource: currentSource)
+                definitionSource: currentSource,
+                definitionFile: currentSourceFile,
+                definitionLineOffset: dynamicVariables.lineOffset)
             return .success
 
         case .arithmeticCommand(let expr):
@@ -401,6 +406,20 @@ extension Shell {
         return String(chars[low..<high]).trimmingCharacters(in: .whitespaces)
     }
 
+    /// Make a compound command, `[[ … ]]` or `(( … ))` the command
+    /// running now — for `$LINENO` and `line N:` diagnostics — until a
+    /// simple command inside takes over. Returns the range to restore.
+    private func enterCommand(_ node: Node) -> Range<Int>? {
+        let saved = currentCommandRange
+        switch node.kind {
+        case .compound, .conditional, .arithmeticCommand:
+            currentCommandRange = node.range
+        default:
+            break
+        }
+        return saved
+    }
+
     // MARK: Trap firing
 
     /// Fire the `ERR` trap if registered. Re-entrancy is guarded so a
@@ -414,7 +433,9 @@ extension Shell {
         errexitGuard += 1
         defer { errexitGuard -= 1 }
         // `exit` inside the trap exits the shell.
-        _ = try await self.run(body)
+        _ = try await withFrozenLineNumber(lastCommandLineNumber) {
+            try await self.run(body)
+        }
     }
 
     /// Fire the `DEBUG` trap if registered. Called before each simple
@@ -426,7 +447,9 @@ extension Shell {
         errexitGuard += 1
         defer { errexitGuard -= 1 }
         // `exit` inside the trap exits the shell.
-        _ = try await self.run(body)
+        _ = try await withFrozenLineNumber(currentLineNumber) {
+            try await self.run(body)
+        }
     }
 
     // MARK: Simple commands
@@ -440,15 +463,20 @@ extension Shell {
     // cancellation handling. Each phase already calls into a helper.
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private func executeSimpleCommand(parts: [Node]) async throws -> ExitStatus {
-        try await fireDebugTrap()
-        commandSubstitutionStatus = nil
         // Track which command we're dispatching so error messages can
         // include `script.sh: line N:` like bash does.
         let savedCommandRange = currentCommandRange
         if let first = parts.first {
             currentCommandRange = first.range
         }
-        defer { currentCommandRange = savedCommandRange }
+        defer {
+            // An ERR trap after this command reports its line.
+            dynamicVariables.lastCommandStart = currentCommandRange?.lowerBound
+            currentCommandRange = savedCommandRange
+        }
+        // The DEBUG trap sees `$LINENO` of the command about to run.
+        try await fireDebugTrap()
+        commandSubstitutionStatus = nil
         // Full source span of the simple command (first-part start →
         // last-part end). The error-prefix range is intentionally
         // narrower (line of `parts.first`), but `set -v` needs the
@@ -681,8 +709,14 @@ extension Shell {
             savedScope.removeAll()
             restoreRedirects()
             await drainProcessSubs(from: procSubFrame)
+            // Bash clears `$_` after an assignment-only command.
+            environment.variables["_"] = ""
             return commandSubstitutionStatus ?? .success
         }
+        // `$_` becomes this command's last argument once it finishes
+        // (`mkdir -p dir && cd "$_"`); while it runs, `$_` is still the
+        // previous command's.
+        defer { environment.variables["_"] = argv[argv.count - 1] }
 
         // `set -v` / `set -o verbose` — echo the raw source slice of
         // the simple command to stderr before execution. Runs *here*
@@ -737,7 +771,9 @@ extension Shell {
                     // sees its canonical invocation regardless of
                     // whether the user typed `ls`, `/bin/ls`, or
                     // `./ls`. The resolved path is recorded as
-                    // `_` for scripts that introspect.
+                    // `_` for scripts that introspect, the way bash
+                    // exports it to a command it runs.
+                    environment.variables["_"] = path
                     var rewritten = argv
                     rewritten[0] = (path as NSString).lastPathComponent
                     result = try await command.run(rewritten)

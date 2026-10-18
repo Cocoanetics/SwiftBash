@@ -7,8 +7,17 @@ extension Shell {
     /// Inside a function it stays inside that function, like bash's
     /// fork: `local` works, and `return` ends the subshell (whoever
     /// runs it catches the ``ReturnSignal``).
-    func subshell() -> Self {
+    ///
+    /// - parameter nested: whether it counts toward `$BASH_SUBSHELL`.
+    ///   Bash doesn't count a pipeline stage that's a simple command.
+    func subshell(nested: Bool = true) -> Self {
         let sub = copy()
+        if nested { sub.dynamicVariables.subshellLevel += 1 }
+        sub.dynamicVariables.subshellPID = SubshellPIDs.shared.allocate()
+        // Bash reseeds `$RANDOM` in a subshell, so it neither replays
+        // nor consumes the parent's sequence (a pending seed included).
+        sub.dynamicVariables.random = RandomGenerator()
+        sub.environment.variables.removeValue(forKey: "RANDOM")
         // It runs inside this shell's run: an `eval` / `source` / trap
         // in it isn't the outermost run, so its `exit` reaches whoever
         // runs the subshell, and the parent's EXIT trap doesn't fire.
@@ -33,11 +42,15 @@ extension Shell {
 
     /// A ``copy()`` for a new process — `bash script`, `./script` — that
     /// keeps the environment and options but no traps, which `exec`
-    /// resets.
+    /// resets, and starts the dynamic variables afresh.
     func childProcess() -> Self {
         let child = copy()
         child.traps = [:]
         child.inheritedTraps = [:]
+        // A new shell: `$SECONDS` from 0, no call stack, no script
+        // file until the caller sets one.
+        child.dynamicVariables = DynamicVariables()
+        child.scriptFile = nil
         return child
     }
 

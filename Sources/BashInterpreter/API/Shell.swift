@@ -256,6 +256,19 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// ``registerScriptInterpreter(name:_:)``.
     public var scriptInterpreters: [String: ScriptInterpreter] = [:]
 
+    /// State behind `$RANDOM`, `$SECONDS`, `$LINENO`, `$BASHPID`,
+    /// `$BASH_SUBSHELL` and the `FUNCNAME` / `BASH_SOURCE` /
+    /// `BASH_LINENO` call stack (see `Shell+DynamicVariables.swift`).
+    var dynamicVariables = DynamicVariables()
+
+    /// The script file this shell runs — `BASH_SOURCE`'s bottom entry,
+    /// beside `FUNCNAME`'s `main` — or `nil` for `bash -c` strings and
+    /// interactive input. Embedders that run a file set it along with
+    /// ``scriptName``.
+    public var scriptFile: String? {
+        didSet { syncCallStackArrays() }
+    }
+
     // MARK: - Filesystem
 
     /// The filesystem the shell reads and writes through. Defaults
@@ -501,6 +514,8 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
         // copy() exactly — anything not listed here resets to its
         // initializer default in the new subshell instance.
         bash.fileSystem = fileSystem
+        bash.dynamicVariables = dynamicVariables
+        bash.scriptFile = scriptFile
         // Install paths and shell built-ins propagate exactly so a
         // subshell sees the same command surface as its parent (incl.
         // PATH-aware shadowing). ShellKit's `super.copy()` already

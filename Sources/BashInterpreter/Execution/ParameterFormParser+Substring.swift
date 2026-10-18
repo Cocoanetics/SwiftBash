@@ -211,7 +211,7 @@ extension ParameterFormParser {
         let first = chars[index]
 
         // Single-character special parameters.
-        if "?$#!*@".contains(first) {
+        if "?$#!*@-".contains(first) {
             index += 1
             return String(first)
         }

@@ -19,7 +19,7 @@ extension Shell {
         let preExpanded = try await expandHeredocBody(expression)
         return try Arithmetic.evaluate(
             preExpanded,
-            get: { [environment, positionalParameters] name in
+            get: { [weak self, environment, positionalParameters] name in
                 // Digit-only names are positional parameters: `$1`,
                 // `$2`, … The lexer emits these from `$<digits>`.
                 if let number = Int(name), number >= 1, !name.isEmpty,
@@ -28,6 +28,10 @@ extension Shell {
                     return idx < positionalParameters.count
                         ? positionalParameters[idx]
                         : nil
+                }
+                // `((RANDOM % 6))` reads a fresh value, as in bash.
+                if let dynamic = self?.dynamicVariable(name) {
+                    return dynamic
                 }
                 return environment.variables[name]
             },

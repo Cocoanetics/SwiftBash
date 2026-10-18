@@ -309,7 +309,7 @@ import Foundation
             "PATH": "/usr/bin:/bin", "B": "two", "A": "one"
         ]
         try await cap.shell.run("printenv")
-        #expect(cap.stdout == "A=one\nB=two\nPATH=/usr/bin:/bin\n")
+        #expect(cap.stdout == "A=one\nB=two\nPATH=/usr/bin:/bin\n_=/usr/bin/printenv\n")
     }
 
     @Test func printenvNamedVariablePrintsValue() async throws {

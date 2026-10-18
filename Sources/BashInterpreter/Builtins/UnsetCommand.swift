@@ -69,6 +69,9 @@ public struct UnsetCommand: Command {
             Shell.bashCurrent.environment.variables.removeValue(forKey: raw)
             Shell.bashCurrent.environment.arrays.removeValue(forKey: raw)
             Shell.bashCurrent.environment.associativeArrays.removeValue(forKey: raw)
+            // `unset RANDOM` (or `SECONDS`, `LINENO`, `FUNCNAME`, …)
+            // leaves an ordinary variable, as in bash.
+            Shell.bashCurrent.stripDynamicMeaning(raw)
         }
         return .success
     }

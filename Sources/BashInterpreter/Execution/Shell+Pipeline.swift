@@ -86,8 +86,12 @@ extension Shell {
                 let outgoingSink = isLast ? nil : channels[index]
                 let mergeStderr = !isLast && pipeOps[index] == "|&"
 
+                // A simple command doesn't count toward
+                // `$BASH_SUBSHELL`; a compound stage or a function
+                // call does.
+                let nested = !isSimpleNonFunctionCommand(stage)
                 group.addTask {
-                    let sub = template.subshell()
+                    let sub = template.subshell(nested: nested)
                     sub.stdout = outgoingSink ?? outerStdout
                     sub.stderr = mergeStderr
                         ? (outgoingSink ?? outerStderr)
@@ -176,6 +180,19 @@ extension Shell {
             return stageStatuses.last ?? .success
         }
         return finishPipeline(status, timingStart: timingStart, invert: invert)
+    }
+
+    /// Whether a pipeline stage is a simple command that doesn't call a
+    /// shell function — the kind bash runs without counting a subshell
+    /// level.
+    private func isSimpleNonFunctionCommand(_ stage: Node) -> Bool {
+        guard case .command(let parts) = stage.kind else { return false }
+        for part in parts {
+            guard case .word = part.kind else { continue }
+            let name = String(part.source(from: currentSource))
+            return !(commands[name] is FunctionCommand)
+        }
+        return true
     }
 
     /// Report `time` and apply `!` to a finished pipeline's status.

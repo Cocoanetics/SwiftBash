@@ -18,7 +18,14 @@ public struct EvalCommand: Command {
         let source = args.joined(separator: " ")
 
         let savedSource = Shell.bashCurrent.currentSource
-        defer { Shell.bashCurrent.currentSource = savedSource }
+        // The eval'd text continues the caller's line count (`$LINENO`).
+        let savedLineOffset = Shell.bashCurrent.dynamicVariables.lineOffset
+        Shell.bashCurrent.dynamicVariables.lineOffset =
+            Shell.bashCurrent.currentLineNumber - 1
+        defer {
+            Shell.bashCurrent.currentSource = savedSource
+            Shell.bashCurrent.dynamicVariables.lineOffset = savedLineOffset
+        }
         return try await Shell.bashCurrent.run(source)
     }
 }

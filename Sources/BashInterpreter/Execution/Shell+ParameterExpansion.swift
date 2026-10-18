@@ -208,6 +208,7 @@ extension Shell {
         case "$": return "\(virtualPID)"
         case "#": return "\(positionalParameters.count)"
         case "0": return scriptName
+        case "-": return optionFlags
         case "@", "*":
             // Same join behaviour as `lookup` — we don't have IFS here
             // because the caller (parameter expansion) handles word-
@@ -224,6 +225,9 @@ extension Shell {
                 ? positionalParameters[idx]
                 : nil
         }
+        if let dynamic = dynamicVariable(name) {
+            return dynamic
+        }
         // Indexed-array reference falls through to lookup() — arrays
         // never appear as `${arr[0]:-…}` against unset vs. empty in a
         // way the regular environment subscript can't already answer
@@ -239,6 +243,7 @@ extension Shell {
         case "$": return "\(virtualPID)"
         case "#": return "\(positionalParameters.count)"
         case "0": return scriptName
+        case "-": return optionFlags
         case "@", "*":
             return positionalParameters.joined(separator: " ")
         default:
@@ -256,6 +261,9 @@ extension Shell {
         // Indexed-array reference: `arr[0]`, `arr[1]`, `arr[@]`, `arr[*]`.
         if let (arrName, sub) = parseSubscriptedName(name) {
             return arrayElementLookup(arrName, subscript: sub)
+        }
+        if let dynamic = dynamicVariable(name) {
+            return dynamic
         }
         return environment[name] ?? ""
     }
