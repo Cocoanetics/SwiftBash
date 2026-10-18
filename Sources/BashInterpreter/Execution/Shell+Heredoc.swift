@@ -294,7 +294,9 @@ extension Shell {
     private func runCommandSubstitution(source: String) async throws -> String {
         let parts = try BashSyntax.parse(source)
         let sink = OutputSink()
-        let status = try await runSubshell(stdout: sink) { sub in
+        let status = try await runSubshell(
+            stdout: sink, commandSubstitution: true
+        ) { sub in
             sub.currentSource = source
             var last = ExitStatus.success
             for node in parts {

@@ -231,7 +231,7 @@ extension Shell {
     /// Trailing newlines are trimmed — matching bash's `$(…)` semantics.
     func captureOutput(of node: Node) async throws -> String {
         let sink = OutputSink()
-        let status = try await runSubshell(stdout: sink) {
+        let status = try await runSubshell(stdout: sink, commandSubstitution: true) {
             try await $0.execute(node)
         }
         recordCommandSubstitution(status)

@@ -123,6 +123,45 @@ import Testing
         #expect(status == .failure)
     }
 
+    @Test func commandSubstitutionsRunWithoutErrexit() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"""
+            set -e
+            x=$(false; echo kept); echo "x=$x"
+            y=`false; echo kept`; echo "y=$y"
+            """#)
+        #expect(cap.stdout == "x=kept\ny=kept\n")
+    }
+
+    @Test func inheritErrexitKeepsItInCommandSubstitutions() async throws {
+        let cap = CapturingShell()
+        let status = try await cap.shell.run(
+            "set -e; shopt -s inherit_errexit; x=$(false; echo kept); echo unreachable")
+        #expect(cap.stdout == "")
+        #expect(status == .failure)
+    }
+
+    @Test func processSubstitutionsKeepErrexit() async throws {
+        let cap = makeShell()
+        try await cap.shell.run("set -e; capture < <(false; echo dropped); echo after")
+        #expect(cap.stdout == "after\n")
+    }
+
+    @Test func strayBreakInASubstitutionWarns() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"x=$(break); echo "st=$?""#)
+        #expect(cap.stdout == "st=0\n")
+        #expect(cap.stderr.contains("break: only meaningful"))
+    }
+
+    @Test func breakInASubstitutionInsideALoopIsQuiet() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(
+            #"for i in 1 2; do v=$(break; echo in); echo "loop $i v=$v"; done"#)
+        #expect(cap.stdout == "loop 1 v=\nloop 2 v=\n")
+        #expect(cap.stderr == "")
+    }
+
     // MARK: Subshells keep the function frame
 
     @Test func returnInsideAFunctionEndsOnlyTheSubstitution() async throws {
