@@ -85,6 +85,19 @@ import Testing
         #expect(cap.stdout == "got hi\nx=\n")
     }
 
+    @Test func aTrapsSubstitutionDoesNotRefireTheTrap() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"""
+            trap 'x=$(echo hi)' DEBUG
+            echo done
+            trap - DEBUG
+            trap 'y=$(false)' ERR
+            false
+            echo after
+            """#)
+        #expect(cap.stdout == "done\nafter\n")
+    }
+
     // MARK: exit and $?
 
     @Test func exitEndsOnlyTheSubstitution() async throws {

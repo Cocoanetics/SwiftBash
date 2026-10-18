@@ -12,6 +12,9 @@ extension Shell {
         // Where `set -e` is ignored (an `if` test, `&&` / `||`, `!`),
         // it stays ignored inside: `( false; echo kept ) || :` prints.
         sub.errexitGuard = errexitGuard
+        // A trap that's running stays running: `$(…)` in a DEBUG or ERR
+        // trap's body mustn't fire that trap again, recursively.
+        sub.runningTraps = runningTraps
         if functionCallDepth > 0 {
             sub.functionCallDepth = functionCallDepth
             sub.localVarStack = [[]]
