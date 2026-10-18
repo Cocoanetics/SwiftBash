@@ -22,14 +22,14 @@ extension Shell {
     /// Unset variables evaluate as 0. Assignments inside the expression
     /// are written back to `environment.variables` as decimal strings.
     ///
-    /// Assigning a read-only variable prints bash's diagnostic and ends
-    /// the script, as `$((UID=3))` does in bash.
+    /// Assigning a read-only variable prints bash's diagnostic and drops
+    /// the rest of the top-level command, as `$((UID=3))` does in bash.
     func evaluateArithmetic(_ expression: String) async throws -> Int64 {
         do {
             return try await evaluateArithmeticExpression(expression)
         } catch let error as ReadonlyArithmeticAssignment {
             _ = refuseReadonlyAssignment(error.name)
-            throw ShellExit(status: .failure)
+            throw DiscardCommand()
         }
     }
 

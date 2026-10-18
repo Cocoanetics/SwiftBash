@@ -121,6 +121,8 @@ extension Shell {
             status = exit.status
         } catch let ret as ReturnSignal {
             status = ret.status
+        } catch is DiscardCommand {
+            status = .failure
         } catch is LoopControlSignal {
             // `v=$(break)` inside a loop quietly ends just the
             // substitution. (Outside any loop, `break` itself warns.)

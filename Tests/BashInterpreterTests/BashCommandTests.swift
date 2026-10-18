@@ -63,6 +63,13 @@ import Foundation
         #expect(cap.stdout == "fhBc\nhBCc\nehBc\na b\n")
     }
 
+    @Test func dashCThenLongOptionIsError() async throws {
+        let cap = CapturingShell()
+        try await cap.shell.run(#"bash -c --help; echo "st=$?"; bash -c --version; echo "st=$?""#)
+        #expect(cap.stdout == "st=2\nst=2\n")
+        #expect(cap.stderr == "bash: --: invalid option\nbash: --: invalid option\n")
+    }
+
     /// `-l` (login shell), `-i` (force interactive), `-s` (read from
     /// stdin) are all accepted as no-ops so common combos like
     /// `bash -lc 'cmd'` work. We always source `.profile`, we're

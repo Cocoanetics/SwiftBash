@@ -4,13 +4,18 @@ import Foundation
 
 /// `UID`, `EUID` and `PPID` are read-only, as in bash: assigning one
 /// fails with `NAME: readonly variable`, and an assignment-only command
-/// ends the script. SwiftBash used to accept the assignment silently.
+/// drops the rest of the top-level command. SwiftBash used to accept
+/// the assignment silently.
 @Suite(.timeLimit(.minutes(1))) struct ReadonlyVariableTests {
 
     private func makeShell() -> CapturingShell {
         let cap = CapturingShell()
         cap.shell.fileSystem = InMemoryFileSystem()
         cap.shell.environment.workingDirectory = "/"
+        cap.shell.installShellBuiltin(name: "capture") { _ in
+            Shell.bashCurrent.stdout(await Shell.bashCurrent.stdin.readAllString())
+            return .success
+        }
         return cap
     }
 
@@ -107,12 +112,61 @@ import Foundation
             """)
     }
 
-    @Test func readOnlyAssignmentsEndTheScript() async throws {
-        for script in ["UID=(1 2)", "PPID[1]=2", "EUID+=1", "x=1 UID=2", "echo $((UID=3))"] {
+    /// As in bash, a read-only assignment drops the rest of the
+    /// top-level command; the next line runs with `$?` = 1.
+    @Test func readOnlyAssignmentsDropTheRestOfTheCommand() async throws {
+        for script in ["UID=(1 2)", "PPID[1]=2", "EUID+=1", "x=1 UID=2", "echo $((UID=3))",
+                       "declare -a UID=(x)", "export UID=(x)"] {
             let cap = makeShell()
-            try await cap.shell.run(script + "; echo not-reached")
-            #expect(cap.stdout == "", "\(script)")
+            try await cap.shell.run(script + "; echo dropped\necho \"next $?\"")
+            #expect(cap.stdout == "next 1\n", "\(script)")
             #expect(cap.stderr.hasSuffix("readonly variable\n"), "\(script)")
         }
+    }
+
+    /// What "the rest of the command" is, checked against bash 5.2:
+    /// a function call or group is dropped whole; `source`, `eval` and
+    /// a trap go on with their own next line; a subshell, `$(…)` or
+    /// pipeline stage ends with status 1; `((…))`-style loops only
+    /// fail; `set -e` exits.
+    @Test func whatADiscardDrops() async throws {
+        let cap = makeShell()
+        try await cap.shell.fileSystem.writeData(
+            Data("echo lib1; UID=1; echo lib1-same\necho lib2\n".utf8),
+            to: "/lib.sh", append: false)
+        try await cap.shell.run(#"""
+            f() { UID=1; echo in-f; }
+            f; echo f-same
+            { UID=2; echo in-group; }; echo group-same
+            while true; do UID=1; echo loop; break; done; echo loop-same
+            g() { declare -a UID=(x); echo in-g; }; g; echo g-same
+            source /lib.sh; echo source-same
+            eval 'UID=1; echo eval-same
+            echo eval-l2'; echo eval-after
+            ( UID=1; echo sub-same
+            echo sub-l2 ); echo "sub st=$?"
+            x=$(UID=1; echo cs); echo "cs=[$x] st=$?"
+            echo pipe | { UID=1; capture; }; echo "pipe st=$?"
+            for ((PPID=0;;)); do echo body; done; echo "for st=$?"
+            trap 'UID=1; echo trap-same' EXIT
+            set -e
+            UID=1
+            echo not-under-e
+            """#)
+        #expect(cap.stdout == """
+            in-g
+            g-same
+            lib1
+            lib2
+            source-same
+            eval-l2
+            eval-after
+            sub st=1
+            cs=[] st=1
+            pipe st=1
+            for st=1
+
+            """)
+        #expect(cap.shell.lastExitStatus == .failure)
     }
 }

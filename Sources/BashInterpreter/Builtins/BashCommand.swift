@@ -55,6 +55,12 @@ public struct BashCommand: Command {
             let arg = args[index]
             if sawDoubleDash { break }
             if arg == "--" { sawDoubleDash = true; index += 1; break }
+            // Long options come before the short ones: bash rejects
+            // `bash -c --help`.
+            if commandString, arg.hasPrefix("--") {
+                Shell.bashCurrent.stderr("\(name): --: invalid option\n")
+                return ExitStatus(2)
+            }
             if arg == "--version" {
                 Shell.bashCurrent.stdout(SwiftBashVersion.banner + "\n")
                 return .success

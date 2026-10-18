@@ -29,3 +29,10 @@ public struct ExitCommand: Command {
 struct ShellExit: Error {
     let status: ExitStatus
 }
+
+/// Bash's "discard": an assignment error such as `UID=5` abandons the
+/// rest of the top-level command — the rest of the line, an enclosing
+/// group, loop or function call — and the shell goes on with the next
+/// one, `$?` being 1. Each run (a script, `source`, `eval`, a trap)
+/// catches it per command; a subshell that sees it ends with status 1.
+struct DiscardCommand: Error {}

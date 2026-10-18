@@ -110,6 +110,10 @@ extension Shell {
                     warnStrayLoopControl(signal)
                     last = .success
                     lastExitStatus = last
+                } catch is DiscardCommand {
+                    // `UID=5`: the rest of this command is dropped.
+                    last = .failure
+                    lastExitStatus = last
                 }
                 // Top-level errexit: each statement is its own
                 // node, so executeList's per-list check doesn't see
@@ -366,6 +370,8 @@ extension Shell {
                         // `exit N` inside a background job ends the
                         // JOB, not the parent shell.
                         return exit.status
+                    } catch is DiscardCommand {
+                        return .failure
                     } catch let ret as ReturnSignal {
                         // So does `return N` in a function's job.
                         return ret.status
@@ -545,17 +551,18 @@ extension Shell {
             }
             return nil
         }()
-        let isAssignmentBuiltin: Bool = {
+        let assignmentBuiltin: String? = {
             guard let idx = commandWordIndex,
                   case .word = parts[idx].kind
-            else { return false }
+            else { return nil }
             // Look at the literal source text of the command word —
             // assignment built-ins are never reached via expansion in
             // realistic scripts, and we need this decision before any
             // expansion runs.
             let raw = String(parts[idx].source(from: currentSource))
-            return Self.assignmentBuiltinNames.contains(raw)
+            return Self.assignmentBuiltinNames.contains(raw) ? raw : nil
         }()
+        let isAssignmentBuiltin = assignmentBuiltin != nil
         // For `declare -A name=(…)` the items inside `(…)` are
         // `[key]=value` pairs, not dense values. Detect the `-A` flag
         // by scanning the .word parts that follow the command word
@@ -608,11 +615,12 @@ extension Shell {
                         let value = String(
                             expanded[expanded.index(after: eqIdx)...])
                         // `UID=5` fails like bash: an assignment-only
-                        // command ends the script, while a prefix
-                        // assignment is skipped and the command runs.
+                        // command drops the rest of the top-level
+                        // command, while a prefix assignment is skipped
+                        // and the command runs.
                         if refuseReadonlyAssignment(lhs) {
                             if commandWordIndex != nil { continue }
-                            throw ShellExit(status: .failure)
+                            throw DiscardCommand()
                         }
                         // Element form: `arr[N]=value` updates the
                         // array in place rather than introducing a
@@ -631,7 +639,7 @@ extension Shell {
                     // is skipped and the command runs.
                     if !routeAsArg, refuseReadonlyAssignment(name) {
                         if commandWordIndex != nil { continue }
-                        throw ShellExit(status: .failure)
+                        throw DiscardCommand()
                     }
                     var values: [String] = []
                     for item in items {
@@ -639,8 +647,14 @@ extension Shell {
                     }
                     // Given to `declare` / `local` / `export`, the items
                     // expand first (as in bash); then the array is left
-                    // alone, the builtin sees the bare name, and fails.
+                    // alone. `export`, or `declare` outside a function,
+                    // drops the rest of the top-level command, as bash
+                    // does; otherwise the builtin sees the bare name
+                    // and fails.
                     if routeAsArg, refuseReadonlyAssignment(name) {
+                        if assignmentBuiltin == "export" || functionCallDepth == 0 {
+                            throw DiscardCommand()
+                        }
                         refusedReadonlyArgument = true
                         wordFragments.append((part, [.literal(name)]))
                         break
