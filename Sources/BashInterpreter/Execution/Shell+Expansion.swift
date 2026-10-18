@@ -172,14 +172,11 @@ extension Shell {
         }
     }
 
-    /// Run `node` in a scope that captures stdout as raw bytes
+    /// Run `node` in a subshell that captures stdout as raw bytes
     /// (binary-safe — used by `<(cmd)`).
     private func captureBytes(of node: Node) async throws -> Data {
         let sink = OutputSink()
-        let savedStdout = stdout
-        stdout = sink
-        defer { stdout = savedStdout }
-        _ = try await execute(node)
+        _ = try await runSubshell(stdout: sink) { try await $0.execute(node) }
         sink.finish()
         return await sink.readAllData()
     }
@@ -230,18 +227,25 @@ extension Shell {
         return try await applyParameterForm(form)
     }
 
-    /// Run `node` in a scope that captures stdout into a string.
+    /// Run `node` in a subshell that captures stdout into a string.
     /// Trailing newlines are trimmed — matching bash's `$(…)` semantics.
     func captureOutput(of node: Node) async throws -> String {
         let sink = OutputSink()
-        let savedStdout = stdout
-        stdout = sink
-        defer { stdout = savedStdout }
-
-        _ = try await execute(node)
+        let status = try await runSubshell(stdout: sink, commandSubstitution: true) {
+            try await $0.execute(node)
+        }
+        recordCommandSubstitution(status)
         sink.finish()
         var text = await sink.readAllString()
         while text.hasSuffix("\n") { text.removeLast() }
         return text
+    }
+
+    /// Make a finished `$(…)`'s status visible the way bash does: as
+    /// `$?` for the rest of the expansion, and as the status of an
+    /// assignment-only command.
+    func recordCommandSubstitution(_ status: ExitStatus) {
+        lastExitStatus = status
+        commandSubstitutionStatus = status
     }
 }
