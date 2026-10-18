@@ -51,6 +51,15 @@ import Testing
         #expect(cap.stdout == "notty\ntty\n")
     }
 
+    @Test func outputProcessSubstitutionKeepsTheTerminal() async throws {
+        // `>(cmd)` writes to the shell's own stdout, terminal and all.
+        let cap = CapturingShell()
+        cap.shell.stdoutIsTTY = true
+        try await cap.shell.run(
+            "echo hi > >(read v; [ -t 1 ] && echo \"tty $v\" || echo \"notty $v\")")
+        #expect(cap.stdout == "tty hi\n")
+    }
+
     @Test func heredocSubstitutionIsASubshell() async throws {
         let cap = try await makeShell()
         try await cap.shell.run("""

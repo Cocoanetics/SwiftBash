@@ -41,9 +41,11 @@ extension Shell {
         // Unlike `( … )`, bash's substitutions keep the loop context:
         // `v=$(break)` in a loop ends just the substitution.
         sub.loopDepth = loopDepth
-        sub.stdout = sink
         // A capture isn't a terminal: `$(ls)` lists one name per line.
-        sub.stdoutIsTTY = false
+        // A `>(cmd)` consumer writes to our own stdout and keeps its
+        // terminal flag.
+        if sink !== stdout { sub.stdoutIsTTY = false }
+        sub.stdout = sink
         if let input {
             sub.stdin = input
             sub.stdinIsTTY = false
