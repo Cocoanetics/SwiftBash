@@ -174,12 +174,19 @@ import Foundation
     /// exports its value.
     @Test func identityVariablesDeclaredAndExported() async throws {
         let cap = makeShell()
+        // A stale value in the environment gives way to the identity.
+        cap.shell.environment.variables["EUID"] = "12345"
         try await cap.shell.run(#"""
             declare -A UID
             [ "${UID[0]}" = "$UID" ] && [ "${#UID[@]}" = 1 ] && echo kept
+            f() { declare UID; echo "f $?"; }; f
+            g() { declare -A EUID; echo "g $?"; }; g
+            h() { declare -g UID; echo "h $?"; }; h
+            x=abcdef; echo "${x:UID=2}"; echo dropped
+            echo "next $?"
             export EUID
             """#)
-        #expect(cap.stdout == "kept\n")
+        #expect(cap.stdout == "kept\nf 1\ng 1\nh 0\nnext 1\n")
         #expect(cap.shell.environment.variables["EUID"] == String(cap.shell.hostInfo.uid))
     }
 

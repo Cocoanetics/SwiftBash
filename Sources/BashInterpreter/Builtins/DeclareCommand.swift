@@ -18,13 +18,15 @@ public struct DeclareCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var index = 1
         var associative = false
+        var global = false
 
         // Option pass — accept multiple flags, e.g. `declare -Ar map`.
         while index < argv.count, argv[index].hasPrefix("-"), argv[index] != "-" {
             for char in argv[index].dropFirst() {
                 switch char {
                 case "A": associative = true
-                case "r", "x", "i", "a", "g": break
+                case "g": global = true
+                case "r", "x", "i", "a": break
                 default:
                     Shell.bashCurrent.stderr("declare: -\(char): invalid option\n")
                     return ExitStatus(2)
@@ -35,15 +37,20 @@ public struct DeclareCommand: Command {
 
         // Each remaining arg is `NAME` or `NAME=VALUE`. A read-only
         // `NAME=VALUE` fails without stopping the others, as in bash.
+        // In a function, even `declare UID` would make a local: also
+        // refused, unless `-g`.
+        let makesLocal = Shell.bashCurrent.functionCallDepth > 0 && !global
         var status = ExitStatus.success
-        for raw in argv[index...] where !applyAssignment(raw, associative: associative) {
+        for raw in argv[index...]
+        where !applyAssignment(raw, associative: associative, makesLocal: makesLocal) {
             status = .failure
         }
         return status
     }
 
     /// Apply one `NAME[=VALUE]`; `false` when `NAME` is read-only.
-    private func applyAssignment(_ raw: String, associative: Bool) -> Bool {
+    private func applyAssignment(_ raw: String, associative: Bool,
+                                 makesLocal: Bool) -> Bool {
         let nameOnly: String
         let value: String?
         if let eqIdx = raw.firstIndex(of: "=") {
@@ -53,7 +60,7 @@ public struct DeclareCommand: Command {
             nameOnly = raw
             value = nil
         }
-        if value != nil,
+        if value != nil || makesLocal,
            Shell.bashCurrent.refuseReadonlyAssignment(nameOnly, builtin: name) {
             return false
         }

@@ -134,6 +134,9 @@ extension Shell {
                 } else {
                     length = nil
                 }
+            } catch let discard as DiscardCommand {
+                // `${x:UID=2}`: the read-only error, not a syntax one.
+                throw discard
             } catch {
                 let failed = lengthExpr.flatMap { _ in
                     // Best-effort: report the offset by default;
