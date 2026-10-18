@@ -169,6 +169,11 @@ extension Shell {
 
     /// `set -C`: refuse to truncate an existing file with `>`, `&>` or
     /// `>&file`, as bash does. Devices such as `/dev/null` aren't files.
+    ///
+    /// The check and the open that follows aren't one atomic step, as
+    /// bash's `O_EXCL` open is: ``FileSystem`` has no exclusive create.
+    /// A file created by a concurrent job in between can still be
+    /// truncated.
     private func refuseClobbering(_ target: String) async throws {
         guard noclobber,
               let existing = try? await fileSystem.metadata(resolvePath(target)),

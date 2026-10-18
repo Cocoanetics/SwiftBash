@@ -53,6 +53,19 @@ import Foundation
         #expect(cap.stderr.components(separatedBy: "keep: cannot overwrite existing file").count == 3)
     }
 
+    @Test func aCompoundCommandsFailedRedirectFailsJustThatCommand() async throws {
+        let cap = try await makeShell()
+        try await cap.shell.run(#"""
+            echo one > keep
+            set -C
+            { echo new; } > keep; echo "after group st=$?"
+            ( echo x ) > /missing/dir/file; echo "after subshell st=$?"
+            for i in 1; do echo loop; done > keep; echo "after loop st=$?"
+            """#)
+        #expect(cap.stdout == "after group st=1\nafter subshell st=1\nafter loop st=1\n")
+        #expect(cap.stderr.contains("keep: cannot overwrite existing file"))
+    }
+
     // MARK: &> and >&file
 
     @Test func bothStreamsToAFile() async throws {

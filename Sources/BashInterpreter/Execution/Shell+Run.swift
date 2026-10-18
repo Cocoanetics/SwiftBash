@@ -148,9 +148,6 @@ extension Shell {
 
     // MARK: AST dispatch
 
-    // The 11-arm dispatcher's per-case helpers are already extracted;
-    // splitting further would scatter the routing table.
-    // swiftlint:disable:next cyclomatic_complexity
     func execute(_ node: Node) async throws -> ExitStatus {
         let savedCommandRange = enterCommand(node)
         defer { currentCommandRange = savedCommandRange }
@@ -166,19 +163,7 @@ extension Shell {
             return try await executePipeline(parts: parts)
 
         case .compound(let list, let redirects):
-            let procSubFrame = pendingProcessSubs.count
-            let restore = try await applyRedirects(redirects)
-            let result: ExitStatus
-            do {
-                result = try await runCompoundBody(list: list)
-            } catch {
-                restore()
-                await drainProcessSubs(from: procSubFrame)
-                throw error
-            }
-            restore()
-            await drainProcessSubs(from: procSubFrame)
-            return result
+            return try await executeCompound(list: list, redirects: redirects)
 
         case .function(let nameNode, let body, _):
             let name = try await expand(word: nameNode)
@@ -404,6 +389,47 @@ extension Shell {
         let high = min(chars.count, node.range.upperBound)
         guard low < high else { return "?" }
         return String(chars[low..<high]).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// A compound command with its redirections. A redirection that
+    /// can't be set up (`set -C`, a missing directory) fails the command
+    /// with status 1, as in bash, rather than ending the script.
+    private func executeCompound(list: [Node], redirects: [Node]) async throws -> ExitStatus {
+        let procSubFrame = pendingProcessSubs.count
+        let restore: @Sendable () -> Void
+        do {
+            restore = try await applyRedirects(redirects)
+        } catch let fsError as FileSystemError {
+            await drainProcessSubs(from: procSubFrame)
+            return reportRedirectFailure(fsError)
+        }
+        let result: ExitStatus
+        do {
+            result = try await runCompoundBody(list: list)
+        } catch {
+            restore()
+            await drainProcessSubs(from: procSubFrame)
+            throw error
+        }
+        restore()
+        await drainProcessSubs(from: procSubFrame)
+        return result
+    }
+
+    /// Print bash's diagnostic for a redirection that couldn't be set up
+    /// and return the failing status, 1.
+    func reportRedirectFailure(_ fsError: FileSystemError) -> ExitStatus {
+        let message: String
+        switch fsError {
+        case .notFound(let path), .notADirectory(let path),
+             .isADirectory(let path), .alreadyExists(let path),
+             .permissionDenied(let path):
+            message = "\(path): \(fsError.shellMessage())"
+        case .io(let detail):
+            message = detail
+        }
+        stderr("\(errorLocationPrefix())\(message)\n")
+        return ExitStatus(1)
     }
 
     /// How `set -x` shows an argument: as is, or single-quoted when the
@@ -720,19 +746,10 @@ extension Shell {
             // /examples/foo; echo done` would never print `done` —
             // the entire tool call aborted on the first redirect
             // failure.
-            let message: String
-            switch fsError {
-            case .notFound(let path), .notADirectory(let path),
-                 .isADirectory(let path), .alreadyExists(let path),
-                 .permissionDenied(let path):
-                message = "\(path): \(fsError.shellMessage())"
-            case .io(let detail):
-                message = detail
-            }
-            stderr("\(errorLocationPrefix())\(message)\n")
+            let status = reportRedirectFailure(fsError)
             restoreScope()
             await drainProcessSubs(from: procSubFrame)
-            return ExitStatus(1)
+            return status
         } catch {
             restoreScope()
             await drainProcessSubs(from: procSubFrame)
