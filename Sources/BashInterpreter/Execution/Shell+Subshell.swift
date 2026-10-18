@@ -13,6 +13,7 @@ extension Shell {
     func subshell(nested: Bool = true) -> Self {
         let sub = copy()
         if nested { sub.dynamicVariables.subshellLevel += 1 }
+        sub.dynamicVariables.deferredNesting = false
         sub.dynamicVariables.subshellPID = SubshellPIDs.shared.allocate()
         // Bash reseeds `$RANDOM` in a subshell, so it neither replays
         // nor consumes the parent's sequence (a pending seed included).

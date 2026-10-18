@@ -16,6 +16,10 @@ struct DynamicVariables {
     var subshellLevel = 0
     /// `$BASHPID` in a subshell; `nil` for the shell itself (`$$`).
     var subshellPID: Int32?
+    /// A pipeline stage that's a simple command counts toward
+    /// `$BASH_SUBSHELL` only if it runs shell code — a function, `eval`
+    /// or `source` — which its first dispatch decides.
+    var deferredNesting = false
     /// Names `unset` has stripped of their special meaning: after
     /// `unset RANDOM`, `RANDOM` is an ordinary variable, as in bash.
     var disabled: Set<String> = []
