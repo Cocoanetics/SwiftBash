@@ -28,9 +28,11 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
 
     // MARK: - Bash-specific runtime state
 
-    /// Source range of the simple command currently being dispatched —
-    /// used to render `script.sh: line N:` prefixes on errors so they
-    /// match bash's formatting. Set/cleared by ``executeSimpleCommand``.
+    /// Where in the source the command currently being dispatched
+    /// sits — for a simple command, the spot bash takes its line from.
+    /// Used to render `script.sh: line N:` prefixes on errors so they
+    /// match bash's formatting, and for `$LINENO`. Set/cleared by
+    /// ``executeSimpleCommand``.
     public internal(set) var currentCommandRange: Range<Int>?
 
     /// Compute the 1-indexed line number containing `position` in
@@ -59,7 +61,9 @@ public final class Shell: ShellKit.Shell, @unchecked Sendable {
     /// input is its own implicit line 1.
     public func errorLocationPrefix() -> String {
         if let range = currentCommandRange, !interactive {
-            return "\(scriptName): line \(lineNumber(for: range.lowerBound)): "
+            // Inside `eval` and `$(…)` the count continues the caller's.
+            let line = dynamicVariables.lineOffset + lineNumber(for: range.lowerBound)
+            return "\(scriptName): line \(line): "
         }
         return "\(scriptName): "
     }

@@ -69,6 +69,13 @@ public struct ReadCommand: Command {
             return .failure
         }
 
+        let names = Array(argv[idx...])
+        // A read-only target (`read UID`) fails, as in bash.
+        let targets = arrayName.map { [$0] } ?? names
+        if targets.contains(where: { Shell.bashCurrent.refuseReadonlyAssignment($0) }) {
+            return .failure
+        }
+
         // `read -a NAME` overrides the variable list; bash splits the
         // line on $IFS into the array NAME and ignores extra positional
         // var names.
@@ -77,7 +84,6 @@ public struct ReadCommand: Command {
             return .success
         }
 
-        let names = Array(argv[idx...])
         if names.isEmpty {
             Shell.bashCurrent.environment["REPLY"] = line
             return .success

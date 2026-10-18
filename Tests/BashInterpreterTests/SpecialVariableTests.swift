@@ -35,6 +35,26 @@ import Foundation
         #expect(cap.stdout == "hB\nehuB\nscript\n")
     }
 
+    @Test func dashShowsACommandString() async throws {
+        let cap = try await makeShell(files: ["/s.sh": #"echo "script $-""# + "\n"])
+        try await cap.shell.run(#"""
+            bash -c 'echo "$-"; (echo "sub $-"); echo "$(echo "cs $-")"'
+            bash -Cc 'echo "$-"'
+            bash -c 'bash /s.sh; source /s.sh'
+            echo "$-"
+            """#)
+        #expect(cap.stdout == """
+            hBc
+            sub hBc
+            cs hBc
+            hBCc
+            script hB
+            script hBc
+            hB
+
+            """)
+    }
+
     @Test func dashShowsAnInteractiveShell() async throws {
         let cap = try await makeShell()
         cap.shell.interactive = true
@@ -74,6 +94,53 @@ import Foundation
             false
             """#)
         #expect(cap.stdout == "a 1\nf 3\neval 6\nloop 8\ncond ok\nerr 12\n")
+    }
+
+    /// Bash takes a simple command's line from where its second token
+    /// ends (its first, for an assignment), so words that span lines
+    /// move it; diagnostics use the same line.
+    @Test func linenoOfACommandSpanningLines() async throws {
+        let cap = try await makeShell()
+        try await cap.shell.run(#"""
+            echo "a
+            $LINENO"
+            echo \
+              "b $LINENO"
+            x="1
+            2" echo "c $LINENO"
+            a=$LINENO b="
+            " c=$LINENO; echo "d $a $c"
+            nosuch "
+            "
+            echo "e $((
+            LINENO))"
+            """#)
+        #expect(cap.stdout == "a\n2\nb 4\nc 6\nd 7 7\ne 12\n")
+        #expect(cap.stderr == "swift-bash: line 10: nosuch: command not found\n")
+    }
+
+    /// A command substitution's lines count on from the line of the
+    /// command that runs it, in a word or in a heredoc body.
+    @Test func linenoInCommandSubstitutionsAndHeredocs() async throws {
+        let cap = try await makeShell()
+        try await cap.shell.run(#"""
+            true
+            y=$(echo "a $LINENO"
+            echo "b $LINENO")
+            echo "$y"
+            capture <<EOF
+            c $LINENO
+            d $(echo $LINENO)
+            $(nosuch)
+            EOF
+            eval 'nosuch2'
+            """#)
+        #expect(cap.stdout == "a 3\nb 4\nc 5\nd 5\n\n")
+        #expect(cap.stderr == """
+            swift-bash: line 5: nosuch: command not found
+            swift-bash: line 10: nosuch2: command not found
+
+            """)
     }
 
     // MARK: FUNCNAME, BASH_SOURCE, BASH_LINENO

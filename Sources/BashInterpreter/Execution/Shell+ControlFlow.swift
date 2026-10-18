@@ -282,6 +282,7 @@ extension Shell {
                 await Task.yield()
             }
             iterations += 1
+            if refuseReadonlyAssignment(varName) { return .failure }
             environment[varName] = value
             do {
                 last = try await execute(body)

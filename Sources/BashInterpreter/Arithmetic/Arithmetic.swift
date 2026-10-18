@@ -31,6 +31,7 @@ public enum Arithmetic {
     ///                 `nil` if unset. Unset variables evaluate as 0.
     ///   - set:        Writes back the new integer value of a variable
     ///                 (called once per `=`, `++`, `--`, compound assign).
+    ///                 An error it throws ends the evaluation.
     ///   - getIndexed: Reads `arr[index]` from an array variable. `nil`
     ///                 → use the bare-name fallback (which yields 0 for
     ///                 every index, matching bash for unset arrays).
@@ -40,9 +41,9 @@ public enum Arithmetic {
     public static func evaluate(
         _ source: String,
         get: @escaping (String) -> String?,
-        set: @escaping (String, Int64) -> Void,
+        set: @escaping (String, Int64) throws -> Void,
         getIndexed: ((String, Int64) -> String?)? = nil,
-        setIndexed: ((String, Int64, Int64) -> Void)? = nil
+        setIndexed: ((String, Int64, Int64) throws -> Void)? = nil
     ) throws -> Int64 {
         let expr = try ArithParser().parse(source)
         let evaluator = Evaluator(
@@ -60,9 +61,9 @@ public enum Arithmetic {
 
     struct Evaluator {
         let get: (String) -> String?
-        let set: (String, Int64) -> Void
+        let set: (String, Int64) throws -> Void
         let getIndexed: ((String, Int64) -> String?)?
-        let setIndexed: ((String, Int64, Int64) -> Void)?
+        let setIndexed: ((String, Int64, Int64) throws -> Void)?
 
         // swiftlint:disable:next cyclomatic_complexity function_body_length
         func eval(_ expr: ArithExpr, depth: Int) throws -> Int64 {
@@ -89,13 +90,13 @@ public enum Arithmetic {
             case .prefix(let incOp, let name):
                 let old = try resolveVariable(name, depth: depth)
                 let new = (incOp == .inc) ? old &+ 1 : old &- 1
-                set(name, new)
+                try set(name, new)
                 return new
 
             case .postfix(let incOp, let name):
                 let old = try resolveVariable(name, depth: depth)
                 let new = (incOp == .inc) ? old &+ 1 : old &- 1
-                set(name, new)
+                try set(name, new)
                 return old
 
             case .prefixIndexed(let incOp, let name, let indexExpr):
@@ -105,7 +106,7 @@ public enum Arithmetic {
                 guard let setIndexed = setIndexed else {
                     throw ArithError.invalidAssignmentTarget
                 }
-                setIndexed(name, idx, new)
+                try setIndexed(name, idx, new)
                 return new
 
             case .postfixIndexed(let incOp, let name, let indexExpr):
@@ -115,7 +116,7 @@ public enum Arithmetic {
                 guard let setIndexed = setIndexed else {
                     throw ArithError.invalidAssignmentTarget
                 }
-                setIndexed(name, idx, new)
+                try setIndexed(name, idx, new)
                 return old
 
             case .binary(let binOp, let lhs, let rhs):
@@ -136,7 +137,7 @@ public enum Arithmetic {
                 } else {
                     newValue = rhsVal
                 }
-                set(name, newValue)
+                try set(name, newValue)
                 return newValue
 
             case .assignIndex(let name, let indexExpr, let assignOp, let rhs):
@@ -158,7 +159,7 @@ public enum Arithmetic {
                 } else {
                     newValue = rhsVal
                 }
-                setIndexed(name, idx, newValue)
+                try setIndexed(name, idx, newValue)
                 return newValue
 
             case .sequence(let parts):

@@ -13,7 +13,6 @@ public struct UnsetCommand: Command {
     public let name = "unset"
     public init() {}
 
-    // swiftlint:disable:next cyclomatic_complexity
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var index = 1
         var operateOnFunctions = false
@@ -29,6 +28,7 @@ public struct UnsetCommand: Command {
         }
         if index < argv.count, argv[index] == "--" { index += 1 }
 
+        var status = ExitStatus.success
         for raw in argv[index...] {
             if operateOnFunctions {
                 // Functions live in the command registry alongside
@@ -39,30 +39,17 @@ public struct UnsetCommand: Command {
                 continue
             }
 
+            let shell = Shell.bashCurrent
+            if shell.isReadonlyVariable(raw) {
+                shell.stderr("\(shell.errorLocationPrefix())unset: \(raw): "
+                             + "cannot unset: readonly variable\n")
+                status = .failure
+                continue
+            }
+
             // `arr[N]` — element-level unset.
             if let lbracket = raw.firstIndex(of: "["), raw.last == "]" {
-                let head = String(raw[..<lbracket])
-                let after = raw.index(after: lbracket)
-                let last = raw.index(before: raw.endIndex)
-                let sub = String(raw[after..<last])
-
-                if var assoc = Shell.bashCurrent.environment.associativeArrays[head] {
-                    assoc.removeValue(forKey: sub)
-                    Shell.bashCurrent.environment.associativeArrays[head] = assoc
-                    continue
-                }
-                if var array = Shell.bashCurrent.environment.arrays[head] {
-                    if sub == "@" || sub == "*" {
-                        // `unset arr[@]` removes the whole array.
-                        Shell.bashCurrent.environment.arrays.removeValue(forKey: head)
-                    } else if let idxValue = Int(sub) {
-                        let resolved = idxValue >= 0 ? idxValue
-                            : ((array.entries.keys.max() ?? -1) + 1 + idxValue)
-                        array[resolved] = nil
-                        Shell.bashCurrent.environment.arrays[head] = array
-                    }
-                    continue
-                }
+                unsetElement(raw, bracket: lbracket)
                 continue
             }
 
@@ -73,6 +60,32 @@ public struct UnsetCommand: Command {
             // leaves an ordinary variable, as in bash.
             Shell.bashCurrent.stripDynamicMeaning(raw)
         }
-        return .success
+        return status
+    }
+
+    /// `unset 'arr[N]'` / `unset 'map[key]'`; `arr[@]` removes the
+    /// whole array.
+    private func unsetElement(_ raw: String, bracket lbracket: String.Index) {
+        let head = String(raw[..<lbracket])
+        let after = raw.index(after: lbracket)
+        let last = raw.index(before: raw.endIndex)
+        let sub = String(raw[after..<last])
+
+        if var assoc = Shell.bashCurrent.environment.associativeArrays[head] {
+            assoc.removeValue(forKey: sub)
+            Shell.bashCurrent.environment.associativeArrays[head] = assoc
+            return
+        }
+        if var array = Shell.bashCurrent.environment.arrays[head] {
+            if sub == "@" || sub == "*" {
+                // `unset arr[@]` removes the whole array.
+                Shell.bashCurrent.environment.arrays.removeValue(forKey: head)
+            } else if let idxValue = Int(sub) {
+                let resolved = idxValue >= 0 ? idxValue
+                    : ((array.entries.keys.max() ?? -1) + 1 + idxValue)
+                array[resolved] = nil
+                Shell.bashCurrent.environment.arrays[head] = array
+            }
+        }
     }
 }

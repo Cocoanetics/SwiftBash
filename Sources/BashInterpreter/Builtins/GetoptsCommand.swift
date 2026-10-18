@@ -33,6 +33,9 @@ public struct GetoptsCommand: Command {
         }
         let rawOptstring = argv[1]
         let varName = argv[2]
+        if Shell.bashCurrent.refuseReadonlyAssignment(varName) {
+            return ExitStatus(2)
+        }
         let providedArgs = Array(argv.dropFirst(3))
         let args = providedArgs.isEmpty
             ? Shell.bashCurrent.positionalParameters

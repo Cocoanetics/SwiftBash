@@ -23,6 +23,7 @@ public struct LocalCommand: Command {
         var frame = Shell.bashCurrent.localVarStack.removeLast()
         defer { Shell.bashCurrent.localVarStack.append(frame) }
 
+        var status = ExitStatus.success
         for spec in argv.dropFirst() {
             let name: String
             let value: String?
@@ -32,6 +33,11 @@ public struct LocalCommand: Command {
             } else {
                 name = spec
                 value = nil
+            }
+            if value != nil,
+               Shell.bashCurrent.refuseReadonlyAssignment(name, builtin: "local") {
+                status = .failure
+                continue
             }
             // Snapshot the prior value once per name (so multiple
             // `local x` calls stack to the *outermost* prior).
@@ -47,6 +53,6 @@ public struct LocalCommand: Command {
                 Shell.bashCurrent.environment[name] = nil
             }
         }
-        return .success
+        return status
     }
 }

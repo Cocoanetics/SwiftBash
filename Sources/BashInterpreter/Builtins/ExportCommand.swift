@@ -19,10 +19,16 @@ public struct ExportCommand: Command {
             }
             return .success
         }
+        var status = ExitStatus.success
         for arg in args {
             if let eqIdx = arg.firstIndex(of: "=") {
                 let name = String(arg[..<eqIdx])
                 let value = String(arg[arg.index(after: eqIdx)...])
+                // Bash names no builtin here: `UID: readonly variable`.
+                if Shell.bashCurrent.refuseReadonlyAssignment(name) {
+                    status = .failure
+                    continue
+                }
                 Shell.bashCurrent.environment[name] = value
             } else {
                 // `export NAME` without `=` ensures the variable exists
@@ -32,6 +38,6 @@ public struct ExportCommand: Command {
                 }
             }
         }
-        return .success
+        return status
     }
 }

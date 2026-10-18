@@ -272,4 +272,28 @@ import Testing
         try await cap.shell.run("! cd /sub; pwd; cd /; time cd /sub 2>/dev/null; pwd")
         #expect(cap.stdout == "/sub\n/sub\n")
     }
+
+    // MARK: Body
+
+    /// A body of several lines runs every one of them; only the first
+    /// used to run. An empty body expands to nothing.
+    @Test func multiLineBodyRunsEveryLine() async throws {
+        let cap = try await makeShell()
+        try await cap.shell.run(#"""
+            x=$(echo a
+            echo b)
+            echo "[$x]"
+            echo "[$(
+              echo c
+
+              echo d
+            )]"
+            echo `echo e
+            echo f`
+            capture < <(echo g
+            echo h)
+            echo "[$( )]"
+            """#)
+        #expect(cap.stdout == "[a\nb]\n[c\nd]\ne f\ng\nh\n[]\n")
+    }
 }

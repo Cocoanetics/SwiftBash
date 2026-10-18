@@ -59,6 +59,9 @@ public struct MapfileCommand: Command {
             arrayName = arg; index += 1
         }
         if index < argv.count { arrayName = argv[index] }
+        if Shell.bashCurrent.refuseReadonlyAssignment(arrayName) {
+            return .failure
+        }
 
         // Drain the entire stream into one buffer first so we can split
         // it by newline. mapfile is a "consume all of stdin" operation.

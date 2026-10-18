@@ -33,14 +33,17 @@ public struct DeclareCommand: Command {
             index += 1
         }
 
-        // Each remaining arg is `NAME` or `NAME=VALUE`.
-        for raw in argv[index...] {
-            applyAssignment(raw, associative: associative)
+        // Each remaining arg is `NAME` or `NAME=VALUE`. A read-only
+        // `NAME=VALUE` fails without stopping the others, as in bash.
+        var status = ExitStatus.success
+        for raw in argv[index...] where !applyAssignment(raw, associative: associative) {
+            status = .failure
         }
-        return .success
+        return status
     }
 
-    private func applyAssignment(_ raw: String, associative: Bool) {
+    /// Apply one `NAME[=VALUE]`; `false` when `NAME` is read-only.
+    private func applyAssignment(_ raw: String, associative: Bool) -> Bool {
         let nameOnly: String
         let value: String?
         if let eqIdx = raw.firstIndex(of: "=") {
@@ -49,6 +52,10 @@ public struct DeclareCommand: Command {
         } else {
             nameOnly = raw
             value = nil
+        }
+        if value != nil,
+           Shell.bashCurrent.refuseReadonlyAssignment(nameOnly, builtin: name) {
+            return false
         }
 
         if associative {
@@ -66,5 +73,6 @@ public struct DeclareCommand: Command {
         } else if let value {
             Shell.bashCurrent.environment[nameOnly] = value
         }
+        return true
     }
 }

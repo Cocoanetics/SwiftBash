@@ -67,6 +67,9 @@ public struct PrintfCommand: Command {
         } while argIdx < args.count
 
         if let assignTo {
+            if Shell.bashCurrent.refuseReadonlyAssignment(assignTo) {
+                return .failure
+            }
             Shell.bashCurrent.environment[assignTo] = output
         } else {
             Shell.bashCurrent.stdout(output)

@@ -42,7 +42,7 @@ public struct BashCommand: Command {
         // Parse options. Real bash accepts `--version` / `--help`
         // anywhere in argv (not just position 0), `-c CMD …` to run
         // a literal command string, and a small set of mode flags
-        // (`-n -e -u -x -v`) that apply to the subshell before its
+        // (`-n -e -u -x -v -f -C`) that apply to the subshell before its
         // run loop starts. Anything else is the positional script
         // path. The single loop here keeps `bash -e -c 'echo hi'` /
         // `bash -ex script.sh` working uniformly.
@@ -81,6 +81,8 @@ public struct BashCommand: Command {
                 case "u": modeFlags.nounset = true
                 case "x": modeFlags.xtrace = true
                 case "v": modeFlags.verbose = true
+                case "f": modeFlags.noglob = true
+                case "C": modeFlags.noclobber = true
                 case "l", "i", "s":
                     // -l (login shell): we always source `.profile` on
                     // interpreter init, so the login-shell side effect
@@ -134,7 +136,8 @@ public struct BashCommand: Command {
                 source: source,
                 scriptName: dashCName ?? name,
                 args: dashCExtra,
-                mode: modeFlags)
+                mode: modeFlags,
+                commandString: true)
         }
         let positional = Array(args[index...])
         guard let path = positional.first else {
@@ -181,6 +184,8 @@ public struct BashCommand: Command {
         var nounset: Bool = false
         var xtrace: Bool = false
         var verbose: Bool = false
+        var noglob: Bool = false
+        var noclobber: Bool = false
     }
 
     /// `bash -n` — parse `source` and report any syntax error to
@@ -211,11 +216,13 @@ public struct BashCommand: Command {
     /// `bash -euxv` flags parsed from argv — they layer onto the
     /// copied shell BEFORE the run loop starts so they affect every
     /// command in the script, including the first one.
+    /// `commandString` marks a `bash -c` string, which `$-` shows.
     private func runScript(source: String,
                            scriptName: String,
                            args: [String],
                            mode: SubshellModeFlags,
-                           scriptFile: String? = nil) async throws -> ExitStatus {
+                           scriptFile: String? = nil,
+                           commandString: Bool = false) async throws -> ExitStatus {
         var src = source
         if src.hasPrefix("#!"), let newline = src.firstIndex(of: "\n") {
             // Keep the newline, so `$LINENO` and diagnostics count the
@@ -225,11 +232,14 @@ public struct BashCommand: Command {
         let sub = Shell.bashCurrent.childProcess()
         sub.scriptName = scriptName
         sub.scriptFile = scriptFile
+        sub.dynamicVariables.commandString = commandString
         sub.positionalParameters = args
         if mode.errexit { sub.errexit = true }
         if mode.nounset { sub.nounset = true }
         if mode.xtrace { sub.xtrace = true }
         if mode.verbose { sub.verbose = true }
+        if mode.noglob { sub.noglob = true }
+        if mode.noclobber { sub.noclobber = true }
         // Once we hand control to the sub-shell, its stdin is
         // whatever the parent had; we already inherited that
         // through `copy()`. `exit N` inside the script unwinds at

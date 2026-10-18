@@ -503,8 +503,8 @@ extension Shell {
         // Track which command we're dispatching so error messages can
         // include `script.sh: line N:` like bash does.
         let savedCommandRange = currentCommandRange
-        if let first = parts.first {
-            currentCommandRange = first.range
+        if let position = Self.linePosition(of: parts) {
+            currentCommandRange = position..<(position + 1)
         }
         defer {
             // An ERR trap after this command reports its line.
@@ -605,6 +605,13 @@ extension Shell {
                         let lhs = String(expanded[..<eqIdx])
                         let value = String(
                             expanded[expanded.index(after: eqIdx)...])
+                        // `UID=5` fails like bash: an assignment-only
+                        // command ends the script, while a prefix
+                        // assignment is skipped and the command runs.
+                        if refuseReadonlyAssignment(lhs) {
+                            if commandWordIndex != nil { continue }
+                            throw ShellExit(status: .failure)
+                        }
                         // Element form: `arr[N]=value` updates the
                         // array in place rather than introducing a
                         // scalar named `arr[N]`.
@@ -618,6 +625,9 @@ extension Shell {
                     // `name=(item …)` and `name+=(item …)`. Evaluate
                     // items now, store permanently. Prefix-form
                     // `arr=(a b) cmd` is rare; we don't scope it.
+                    if !routeAsArg, refuseReadonlyAssignment(name) {
+                        throw ShellExit(status: .failure)
+                    }
                     var values: [String] = []
                     for item in items {
                         values.append(try await expand(word: item))
@@ -772,6 +782,10 @@ extension Shell {
         // previous command's.
         defer { environment.variables["_"] = argv[argv.count - 1] }
 
+        // A closed stdout (`>&-`) notes writes; start this command's
+        // count from zero.
+        let closedStdout = ClosedDescriptor.of(stdout)
+        _ = closedStdout?.takeWrite()
         let result: ExitStatus
         do {
             // POSIX dispatch order:
@@ -858,10 +872,48 @@ extension Shell {
             await drainProcessSubs(from: procSubFrame)
             throw error
         }
+        // Report a write to a closed stdout while the command's own
+        // redirections still apply: `echo hi 2>&- >&-` says nothing.
+        let status = closedStdout?.takeWrite() == true
+            ? reportClosedStdoutWrite(argv[0]) : result
         restoreScope()
         restoreRedirects()
         await drainProcessSubs(from: procSubFrame)
-        return result
+        return status
+    }
+
+    /// A command wrote to a closed stdout (`echo hi >&-`): bash prints
+    /// `echo: write error: Bad file descriptor` and the command fails.
+    /// A builtin's message carries the shell's location prefix; another
+    /// command's is its own, as `cat: write error: …` is.
+    private func reportClosedStdoutWrite(_ name: String) -> ExitStatus {
+        let isBuiltin = !looksLikePath(name) && shellBuiltins[name] != nil
+            || commands[name] is FunctionCommand
+        let prefix = isBuiltin ? errorLocationPrefix() : ""
+        stderr("\(prefix)\(name): write error: Bad file descriptor\n")
+        return .failure
+    }
+
+    /// Where bash takes a simple command's line from — for `$LINENO`
+    /// and `line N:` diagnostics: the end of its second token, or of
+    /// its first when that's an assignment or the only one. (Bash's
+    /// parser records the line once it has read that far.) So a
+    /// command whose words span lines can report a later line than
+    /// the one it starts on: `echo "a<newline>b" $LINENO` says 2.
+    static func linePosition(of parts: [Node]) -> Int? {
+        guard let first = parts.first else { return nil }
+        var anchor = first
+        switch first.kind {
+        case .assignment, .arrayAssignment: break
+        default: if parts.count > 1 { anchor = parts[1] }
+        }
+        var range = anchor.range
+        // A heredoc redirect's range runs to the end of its body; the
+        // token is the operator and its word.
+        if case .redirect(_, _, let output, _) = anchor.kind {
+            range = range.lowerBound..<output.range.upperBound
+        }
+        return max(range.lowerBound, range.upperBound - 1)
     }
 
     /// Handle `arr[N]=value` element assignment if `lhs` looks like

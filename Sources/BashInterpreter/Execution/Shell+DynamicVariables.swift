@@ -34,6 +34,9 @@ struct DynamicVariables {
     /// Added to line numbers within ``Shell/currentSource``: inside
     /// `eval`, the text continues the caller's line count.
     var lineOffset = 0
+    /// The shell runs a `bash -c` string, so `$-` shows `c`. Subshells
+    /// keep it; a script the shell starts doesn't.
+    var commandString = false
 }
 
 /// One function call or `source` on bash's call stack.
@@ -116,6 +119,39 @@ extension Shell {
         }
     }
 
+    /// The variables bash makes read-only: `UID=5` fails with
+    /// `UID: readonly variable`, and `unset` refuses them.
+    static let readonlyVariables: Set<String> = ["UID", "EUID", "PPID"]
+
+    /// Whether assigning to `target` would write a read-only variable.
+    /// `target` is a name, or an assignment's left side such as
+    /// `NAME+` or `NAME[1]`.
+    func isReadonlyVariable(_ target: String) -> Bool {
+        Self.readonlyVariables.contains(Self.assignedName(target))
+    }
+
+    /// The variable an assignment's left side names: `NAME` for
+    /// `NAME`, `NAME+` and `NAME[sub]`.
+    private static func assignedName(_ target: String) -> String {
+        var name = Substring(target)
+        if let bracket = name.firstIndex(of: "[") { name = name[..<bracket] }
+        if name.hasSuffix("+") { name = name.dropLast() }
+        return String(name)
+    }
+
+    /// When `target` is read-only, print bash's `NAME: readonly
+    /// variable` (after `builtin: `, for the builtins that name
+    /// themselves) and return `true`: the caller skips the assignment
+    /// and fails.
+    func refuseReadonlyAssignment(_ target: String,
+                                  builtin: String? = nil) -> Bool {
+        guard isReadonlyVariable(target) else { return false }
+        let name = Self.assignedName(target)
+        let label = builtin.map { "\($0): " } ?? ""
+        stderr("\(errorLocationPrefix())\(label)\(name): readonly variable\n")
+        return true
+    }
+
     /// `unset NAME`: a dynamic variable becomes an ordinary one, as in
     /// bash.
     func stripDynamicMeaning(_ name: String) {
@@ -157,6 +193,7 @@ extension Shell {
         if xtrace { flags += "x" }
         flags += "B"
         if noclobber { flags += "C" }
+        if dynamicVariables.commandString { flags += "c" }
         return flags
     }
 
