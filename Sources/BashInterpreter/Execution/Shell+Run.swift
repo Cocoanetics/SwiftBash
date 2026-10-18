@@ -632,6 +632,9 @@ extension Shell {
                         // and the command runs.
                         if refuseReadonlyAssignment(lhs) {
                             if commandWordIndex != nil { continue }
+                            // Bash assigns left to right: `x=1 UID=2`
+                            // keeps `x`.
+                            for (name, value) in assignments { environment[name] = value }
                             throw DiscardCommand()
                         }
                         // Element form: `arr[N]=value` updates the
@@ -651,6 +654,7 @@ extension Shell {
                     // is skipped and the command runs.
                     if !routeAsArg, refuseReadonlyAssignment(name) {
                         if commandWordIndex != nil { continue }
+                        for (name, value) in assignments { environment[name] = value }
                         throw DiscardCommand()
                     }
                     var values: [String] = []

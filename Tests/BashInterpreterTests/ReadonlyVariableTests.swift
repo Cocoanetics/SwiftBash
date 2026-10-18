@@ -124,6 +124,21 @@ import Foundation
         }
     }
 
+    /// Bash assigns left to right, so names before the read-only one
+    /// keep their values; a prefix assignment is scoped as usual.
+    @Test func assignmentsBeforeAReadOnlyOneStay() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            x=1 UID=2 y=3
+            echo "[$x] [$y]"
+            a=1 UID=2 b=3 true
+            echo "[$a] [$b]"
+            c=1 UID=(1) d=2
+            echo "[$c] [$d]"
+            """#)
+        #expect(cap.stdout == "[1] []\n[] []\n[1] []\n")
+    }
+
     /// A discard skips the ERR trap; a failing command still fires it,
     /// and the trap leaves `$?` as that command set it.
     @Test func aDiscardSkipsTheErrTrap() async throws {
