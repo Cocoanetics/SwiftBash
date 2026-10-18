@@ -64,7 +64,8 @@ extension Shell {
             } else if let array = environment.arrays[arrName] {
                 keys = array.sortedIndices.map(String.init)
             } else {
-                keys = []
+                // A set scalar is element 0.
+                keys = scalarValue(arrName) == nil ? [] : ["0"]
             }
             emitArrayElements(keys, marker: sub,
                               inDoubleQuote: inDoubleQuote, builder: &builder)
@@ -75,8 +76,11 @@ extension Shell {
             let values: [String]
             if let assoc = environment.associativeArrays[arrName] {
                 values = Array(assoc.values)
+            } else if let array = environment.arrays[arrName] {
+                values = array.elementsInOrder
             } else {
-                values = environment.arrays[arrName]?.elementsInOrder ?? []
+                // A set scalar (`$UID` too) is a one-element array.
+                values = scalarValue(arrName).map { [$0] } ?? []
             }
             emitArrayElements(values, marker: sub,
                               inDoubleQuote: inDoubleQuote, builder: &builder)

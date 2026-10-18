@@ -98,30 +98,16 @@ extension Shell {
         do {
             var last = ExitStatus.success
             for node in parts {
-                do {
-                    last = try await execute(node)
-                    lastExitStatus = last
-                } catch let signal as LoopControlSignal {
-                    // `eval break` and a sourced `break` belong to the
-                    // caller's loop.
-                    if loopDepth > 0 { throw signal }
-                    // Stray break/continue at top level — warn and
-                    // continue with the next part.
-                    warnStrayLoopControl(signal)
-                    last = .success
-                    lastExitStatus = last
-                } catch is DiscardCommand {
-                    // `UID=5`: the rest of this command is dropped.
-                    last = .failure
-                    lastExitStatus = last
-                }
+                let discarded: Bool
+                (last, discarded) = try await executeTopLevel(node)
+                lastExitStatus = last
                 // Top-level errexit: each statement is its own
                 // node, so executeList's per-list check doesn't see
                 // a sequence that crosses statement boundaries.
                 let suppressed = skipNextErrexitCheck
                 skipNextErrexitCheck = false
                 if !last.isSuccess, errexitGuard == 0, !suppressed {
-                    try await fireErrTrap()
+                    if !discarded { try await fireErrTrap() }
                     if errexit { throw ShellExit(status: last) }
                 }
             }
@@ -148,6 +134,26 @@ extension Shell {
         }
         lastExitStatus = result
         return result
+    }
+
+    /// Run one top-level command of a run. Returns its status, and
+    /// whether bash's discard dropped the rest of it.
+    private func executeTopLevel(_ node: Node) async throws -> (ExitStatus, Bool) {
+        do {
+            return (try await execute(node), false)
+        } catch let signal as LoopControlSignal {
+            // `eval break` and a sourced `break` belong to the
+            // caller's loop.
+            if loopDepth > 0 { throw signal }
+            // Stray break/continue at top level — warn and
+            // continue with the next part.
+            warnStrayLoopControl(signal)
+            return (.success, false)
+        } catch is DiscardCommand {
+            // `UID=5`: the rest of this command is dropped, without
+            // an ERR trap (`set -e` still exits).
+            return (.failure, true)
+        }
     }
 
     // MARK: AST dispatch
@@ -475,6 +481,9 @@ extension Shell {
         // inside doesn't trigger an immediate exit.
         errexitGuard += 1
         defer { errexitGuard -= 1 }
+        // The trap leaves `$?` as the failed command set it.
+        let status = lastExitStatus
+        defer { lastExitStatus = status }
         // `exit` inside the trap exits the shell.
         _ = try await withFrozenLineNumber(lastCommandLineNumber) {
             try await self.run(body)
@@ -489,6 +498,9 @@ extension Shell {
         defer { runningTraps.remove("DEBUG") }
         errexitGuard += 1
         defer { errexitGuard -= 1 }
+        // The trap leaves `$?` alone.
+        let status = lastExitStatus
+        defer { lastExitStatus = status }
         // `exit` inside the trap exits the shell.
         _ = try await withFrozenLineNumber(currentLineNumber) {
             try await self.run(body)

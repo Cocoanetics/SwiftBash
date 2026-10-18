@@ -124,6 +124,32 @@ import Foundation
         }
     }
 
+    /// A discard skips the ERR trap; a failing command still fires it,
+    /// and the trap leaves `$?` as that command set it.
+    @Test func aDiscardSkipsTheErrTrap() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            trap 'echo "ERR $?"' ERR
+            UID=1
+            echo "a $?"
+            (exit 3)
+            echo "b $?"
+            """#)
+        #expect(cap.stdout == "a 1\nERR 3\nb 3\n")
+    }
+
+    /// Like any scalar, `UID` reads as a one-element array.
+    @Test func identityVariablesAsArrays() async throws {
+        let cap = makeShell()
+        try await cap.shell.run(#"""
+            x=a
+            echo "${#x[@]} ${x[0]} [${x[@]}] [${!x[@]}] [${x[@]:+set}]"
+            [ "${UID[0]}" = "$UID" ] && [ "${UID[*]}" = "$UID" ] && echo same
+            echo "${#EUID[@]} [${!PPID[@]}] [${RANDOM[@]:+set}] [${PPID[@]:0:1}]"
+            """#)
+        #expect(cap.stdout == "1 a [a] [0] [set]\nsame\n1 [0] [set] [0]\n")
+    }
+
     /// What "the rest of the command" is, checked against bash 5.2:
     /// a function call or group is dropped whole; `source`, `eval` and
     /// a trap go on with their own next line; a subshell, `$(…)` or
