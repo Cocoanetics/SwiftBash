@@ -72,7 +72,12 @@ import Foundation
             UID=(1) echo ok; echo "st=$?"
             declare -a y=(1) UID=(x)
             echo "declare st=$? ${y[0]} ${UID[1]}"
-            export UID=(x); echo "export st=$?"
+            export UID=(x)
+            echo "export st=$?"
+            declare -a PPID=($(echo expanded >&2))
+            declare -A EUID; echo "declare -A st=$?"
+            OPTIND=1; getopts a UID -a; echo "getopts st=$? OPTIND=$OPTIND"
+            OPTIND=1; getopts a UID; echo "getopts st=$? OPTIND=$OPTIND"
             """#)
         #expect(cap.stdout == """
             st=1 [1] []
@@ -82,6 +87,9 @@ import Foundation
             st=0
             declare st=1 1\u{20}
             export st=1
+            declare -A st=0
+            getopts st=2 OPTIND=2
+            getopts st=1 OPTIND=1
 
             """)
         #expect(cap.stderr == """
@@ -91,6 +99,10 @@ import Foundation
             swift-bash: line 3: UID: readonly variable
             swift-bash: line 4: UID: readonly variable
             swift-bash: line 6: UID: readonly variable
+            expanded
+            swift-bash: line 8: PPID: readonly variable
+            swift-bash: line 10: UID: readonly variable
+            swift-bash: line 11: UID: readonly variable
 
             """)
     }

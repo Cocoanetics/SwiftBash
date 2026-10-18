@@ -628,21 +628,22 @@ extension Shell {
                     // items now, store permanently. Prefix-form
                     // `arr=(a b) cmd` is rare; we don't scope it.
                     // Read-only: as for a scalar, a prefix assignment
-                    // is skipped and the command runs. Given to
-                    // `declare` / `local` / `export`, the array is left
-                    // alone, the builtin sees the bare name, and fails.
-                    if refuseReadonlyAssignment(name) {
-                        if routeAsArg {
-                            refusedReadonlyArgument = true
-                            wordFragments.append((part, [.literal(name)]))
-                            break
-                        }
+                    // is skipped and the command runs.
+                    if !routeAsArg, refuseReadonlyAssignment(name) {
                         if commandWordIndex != nil { continue }
                         throw ShellExit(status: .failure)
                     }
                     var values: [String] = []
                     for item in items {
                         values.append(try await expand(word: item))
+                    }
+                    // Given to `declare` / `local` / `export`, the items
+                    // expand first (as in bash); then the array is left
+                    // alone, the builtin sees the bare name, and fails.
+                    if routeAsArg, refuseReadonlyAssignment(name) {
+                        refusedReadonlyArgument = true
+                        wordFragments.append((part, [.literal(name)]))
+                        break
                     }
                     if routeAsArg && declareAssociativeMode {
                         // `declare -A m=([k1]=v1 [k2]=v2)` — items are
