@@ -1,6 +1,6 @@
 import Foundation
 
-/// `echo [-n] [-e] [-E] [--] ARGS...`
+/// `echo [-n] [-e] [-E] ARGS...`
 ///
 /// Prints its arguments separated by a single space.
 ///
@@ -10,27 +10,23 @@ import Foundation
 ///   Disabled by default.
 /// - `-E` — explicitly disable escape interpretation (overrides `-e`,
 ///   matches GNU `echo`).
-/// - `--` — ends option parsing.
 ///
-/// Only options that appear contiguously at the start (before `--` or
-/// any data argument) are recognised; later flag-shaped tokens pass
-/// through as data. Combined short flags like `-ne` / `-en` are
-/// supported.
+/// Only options that appear contiguously at the start (before any data
+/// argument) are recognised; later flag-shaped tokens pass through as
+/// data. Combined short flags like `-ne` / `-en` are supported. Like
+/// bash's builtin (and GNU / BSD `echo`), `--` is not an end-of-options
+/// marker: `echo -- -n` prints `-- -n`.
 public struct EchoCommand: Command {
     public let name = "echo"
 
     public init() {}
 
-    // Option parse + per-arg escape expansion + joined output assembly;
-    // splitting into helpers would scatter the bundled-short-flag rule.
-    // swiftlint:disable:next cyclomatic_complexity
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var args = Array(argv.dropFirst())
         var newline = true
         var interpret = false
 
         optionLoop: while let first = args.first {
-            if first == "--" { args.removeFirst(); break optionLoop }
             // Combined short flags like -ne / -en / -nE.
             if first.hasPrefix("-") && first.count > 1
                 && first.dropFirst().allSatisfy({ "neE".contains($0) }) {
