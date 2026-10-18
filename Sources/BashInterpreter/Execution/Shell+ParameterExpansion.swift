@@ -63,12 +63,12 @@ extension Shell {
         case .assignDefault(let name, let checkEmpty, let value):
             let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
-                // `${PPID[1]:=5}`: bash refuses it and drops the rest of
-                // the command, with status 2.
+                let expanded = try await recursivelyExpandParameterWord(value)
+                // `${PPID[1]:=5}`: bash expands the default, then refuses
+                // it and drops the rest of the command, with status 2.
                 if refuseReadonlyAssignment(name) {
                     throw DiscardCommand(status: ExitStatus(2))
                 }
-                let expanded = try await recursivelyExpandParameterWord(value)
                 environment[name] = expanded
                 return expanded
             }
