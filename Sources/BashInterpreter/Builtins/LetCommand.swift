@@ -19,7 +19,9 @@ public struct LetCommand: Command {
         }
         var lastValue: Int64 = 0
         for expr in exprs {
-            lastValue = try await Shell.bashCurrent.evaluateArithmetic(expr)
+            guard let value = try await Shell.bashCurrent
+                .evaluateArithmeticCommand(expr) else { return .failure }
+            lastValue = value
         }
         return lastValue != 0 ? .success : .failure
     }

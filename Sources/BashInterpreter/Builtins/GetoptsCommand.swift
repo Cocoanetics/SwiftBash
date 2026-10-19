@@ -21,12 +21,27 @@ public struct GetoptsCommand: Command {
     public let name = "getopts"
     public init() {}
 
+    public func run(_ argv: [String]) async throws -> ExitStatus {
+        let shell = Shell.bashCurrent
+        guard argv.count >= 3, shell.isReadonlyVariable(argv[2]) else {
+            return try await parse(argv)
+        }
+        // A read-only NAME (`getopts a UID`): bash still parses the
+        // option, so OPTIND moves on, then fails to store it — status 2,
+        // or 1 at the end of the options.
+        let saved = shell.environment.variables[argv[2]]
+        let status = try await parse(argv)
+        shell.environment.variables[argv[2]] = saved
+        _ = shell.refuseReadonlyAssignment(argv[2])
+        return status == .failure ? status : ExitStatus(2)
+    }
+
     // POSIX getopts is a state machine with many short-circuit exits
     // (out-of-args, --, unknown letter, missing arg, glued vs separate
     // operand, silent mode, etc.). Splitting per-branch would lose the
     // shared OPTIND/charIdx update points at the end of each path.
     // swiftlint:disable:next cyclomatic_complexity function_body_length
-    public func run(_ argv: [String]) async throws -> ExitStatus {
+    private func parse(_ argv: [String]) async throws -> ExitStatus {
         guard argv.count >= 3 else {
             Shell.bashCurrent.stderr("getopts: usage: getopts optstring name [arg ...]\n")
             return ExitStatus(2)
@@ -73,7 +88,7 @@ public struct GetoptsCommand: Command {
             charIdx = 1
             Shell.bashCurrent.getoptsCharIndex = 1
             Shell.bashCurrent.environment["OPTIND"] = "\(optind)"
-            return try await run(argv)
+            return try await parse(argv)
         }
 
         let letter = chars[charIdx]

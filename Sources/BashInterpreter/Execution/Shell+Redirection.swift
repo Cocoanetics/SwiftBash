@@ -125,8 +125,12 @@ extension Shell {
             // fd duplication: `N>&M` points N at whatever M currently is.
             let rhs = try await expand(word: output)
             if rhs == "-" {
-                // `N>&-` closes fd N: what's written to it goes nowhere.
-                bind(outputSink: .discard, toFd: input ?? 1)
+                // `N>&-` closes fd N: what's written to it goes nowhere,
+                // and a command that writes there fails (see
+                // ``ClosedDescriptor``).
+                let sink = ClosedDescriptor.makeSink()
+                openedSinks.append(sink)
+                bind(outputSink: sink, toFd: input ?? 1)
                 return
             }
             guard let targetFd = Int(rhs) else {

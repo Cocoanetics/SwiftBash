@@ -71,8 +71,11 @@ public struct ReadCommand: Command {
 
         // `read -a NAME` overrides the variable list; bash splits the
         // line on $IFS into the array NAME and ignores extra positional
-        // var names.
+        // var names. A read-only target (`read UID`) fails, as in bash.
         if let arrayName {
+            if Shell.bashCurrent.refuseReadonlyAssignment(arrayName) {
+                return .failure
+            }
             assignToArray(line, name: arrayName)
             return .success
         }
@@ -82,7 +85,13 @@ public struct ReadCommand: Command {
             Shell.bashCurrent.environment["REPLY"] = line
             return .success
         }
-        assignSplitFields(line, into: names)
+        // Names are assigned in order until a read-only one, which
+        // fails the read and leaves the rest alone, as in bash.
+        let fields = splitFields(line, count: names.count)
+        for (fieldIdx, name) in names.enumerated() {
+            if Shell.bashCurrent.refuseReadonlyAssignment(name) { return .failure }
+            Shell.bashCurrent.environment[name] = fieldIdx < fields.count ? fields[fieldIdx] : ""
+        }
         return .success
     }
 
@@ -164,11 +173,10 @@ public struct ReadCommand: Command {
         }
     }
 
-    /// Assign IFS-split fields of `line` into `names`. The last name
-    /// soaks up the rest, including any embedded IFS chars — bash's
-    /// "n-1 splits, last variable gets remainder" rule.
-    private func assignSplitFields(_ line: String,
-                                   into names: [String]) {
+    /// Split `line` on $IFS into the fields for `count` names. The
+    /// last field soaks up the rest, including any embedded IFS chars —
+    /// bash's "n-1 splits, last variable gets remainder" rule.
+    private func splitFields(_ line: String, count: Int) -> [String] {
         let ifsChars: [Character] = {
             if let ifs = Shell.bashCurrent.environment["IFS"] {
                 return Array(ifs)
@@ -192,9 +200,9 @@ public struct ReadCommand: Command {
         var idx = work.startIndex
         let ifsSet = Set(ifsChars)
 
-        // Stop after producing names.count - 1 split-fields; the last
+        // Stop after producing count - 1 split-fields; the last
         // field gets everything remaining.
-        let maxSplits = names.count - 1
+        let maxSplits = count - 1
         while idx < work.endIndex, fields.count < maxSplits {
             let char = work[idx]
             if ifsSet.contains(char) {
@@ -222,9 +230,6 @@ public struct ReadCommand: Command {
             }
         }
         fields.append(remainder)
-
-        for (fieldIdx, name) in names.enumerated() {
-            Shell.bashCurrent.environment[name] = fieldIdx < fields.count ? fields[fieldIdx] : ""
-        }
+        return fields
     }
 }

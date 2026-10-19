@@ -294,10 +294,13 @@ extension Shell {
     private func runCommandSubstitution(source: String) async throws -> String {
         let parts = try BashSyntax.parse(source)
         let sink = OutputSink()
+        // Its lines count on from the line of the command that runs it.
+        let lineOffset = currentLineNumber - 1
         let status = try await runSubshell(
             stdout: sink, commandSubstitution: true
         ) { sub in
             sub.currentSource = source
+            sub.dynamicVariables.lineOffset = lineOffset
             var last = ExitStatus.success
             for node in parts {
                 last = try await sub.execute(node)

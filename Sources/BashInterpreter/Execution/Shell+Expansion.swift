@@ -231,8 +231,12 @@ extension Shell {
     /// Trailing newlines are trimmed — matching bash's `$(…)` semantics.
     func captureOutput(of node: Node) async throws -> String {
         let sink = OutputSink()
+        // As in bash, the substitution's lines count on from the line
+        // of the command that runs it.
+        let lineOffset = currentLineNumber - lineNumber(for: node.range.lowerBound)
         let status = try await runSubshell(stdout: sink, commandSubstitution: true) {
-            try await $0.execute(node)
+            $0.dynamicVariables.lineOffset = lineOffset
+            return try await $0.execute(node)
         }
         recordCommandSubstitution(status)
         sink.finish()

@@ -147,7 +147,17 @@ public final class Parser {
         let sub = Parser(source: body, tokenizer: Tokenizer(body),
                          expansionLimit: expansionLimit,
                          proceedOnError: proceedOnError, depth: depth + 1)
-        let node = try sub.parseFirst()
+        // The body may hold several newline-separated commands, as in
+        // `$(echo a<newline>echo b)`: parse them all, the way a
+        // compound command's body lists its lines.
+        let nodes = try sub.parseAll()
+        guard nodes.count != 1 else { return nodes[0].shifted(by: baseOffset) }
+        // An empty body (`$( )`) runs nothing and expands to nothing.
+        guard !nodes.isEmpty else {
+            return Node(kind: .command(parts: []),
+                        range: baseOffset..<(baseOffset + body.count))
+        }
+        let node = Node(kind: .list(parts: nodes), range: spanOf(nodes))
         return node.shifted(by: baseOffset)
     }
 

@@ -94,13 +94,33 @@ import Foundation
     @Test func closingADescriptorDropsWhatsWrittenToIt() async throws {
         let cap = try await makeShell()
         try await cap.shell.run(#"""
-            echo hidden >&-
             echo gone 2>&- >&2
             read x <&-; echo "read st=$?"
+            echo -n >&-; echo "empty st=$?"
             echo shown
             """#)
-        #expect(cap.stdout == "read st=1\nshown\n")
+        #expect(cap.stdout == "read st=1\nempty st=0\nshown\n")
         #expect(cap.stderr == "")
+    }
+
+    /// Bash reports a write to a closed stdout and fails the command.
+    @Test func writingToAClosedStdoutFails() async throws {
+        let cap = try await makeShell()
+        try await cap.shell.run(#"""
+            echo hidden >&-; echo "st=$?"
+            { printf a; pwd; } >&-; echo "st=$?"
+            f() { echo in f; }; f >&-; echo "st=$?"
+            x=$(echo sub >&-); echo "st=$? [$x]"
+            """#)
+        #expect(cap.stdout == "st=1\nst=1\nst=1\nst=1 []\n")
+        #expect(cap.stderr == """
+            swift-bash: line 1: echo: write error: Bad file descriptor
+            swift-bash: line 2: printf: write error: Bad file descriptor
+            swift-bash: line 2: pwd: write error: Bad file descriptor
+            swift-bash: line 3: echo: write error: Bad file descriptor
+            swift-bash: line 4: echo: write error: Bad file descriptor
+
+            """)
     }
 
     // MARK: Order

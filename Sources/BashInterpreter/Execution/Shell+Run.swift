@@ -98,26 +98,16 @@ extension Shell {
         do {
             var last = ExitStatus.success
             for node in parts {
-                do {
-                    last = try await execute(node)
-                    lastExitStatus = last
-                } catch let signal as LoopControlSignal {
-                    // `eval break` and a sourced `break` belong to the
-                    // caller's loop.
-                    if loopDepth > 0 { throw signal }
-                    // Stray break/continue at top level — warn and
-                    // continue with the next part.
-                    warnStrayLoopControl(signal)
-                    last = .success
-                    lastExitStatus = last
-                }
+                let discarded: Bool
+                (last, discarded) = try await executeTopLevel(node)
+                lastExitStatus = last
                 // Top-level errexit: each statement is its own
                 // node, so executeList's per-list check doesn't see
                 // a sequence that crosses statement boundaries.
                 let suppressed = skipNextErrexitCheck
                 skipNextErrexitCheck = false
                 if !last.isSuccess, errexitGuard == 0, !suppressed {
-                    try await fireErrTrap()
+                    if !discarded { try await fireErrTrap() }
                     if errexit { throw ShellExit(status: last) }
                 }
             }
@@ -144,6 +134,26 @@ extension Shell {
         }
         lastExitStatus = result
         return result
+    }
+
+    /// Run one top-level command of a run. Returns its status, and
+    /// whether bash's discard dropped the rest of it.
+    private func executeTopLevel(_ node: Node) async throws -> (ExitStatus, Bool) {
+        do {
+            return (try await execute(node), false)
+        } catch let signal as LoopControlSignal {
+            // `eval break` and a sourced `break` belong to the
+            // caller's loop.
+            if loopDepth > 0 { throw signal }
+            // Stray break/continue at top level — warn and
+            // continue with the next part.
+            warnStrayLoopControl(signal)
+            return (.success, false)
+        } catch let discard as DiscardCommand {
+            // `UID=5`: the rest of this command is dropped, without
+            // an ERR trap (`set -e` still exits).
+            return (discard.status, true)
+        }
     }
 
     // MARK: AST dispatch
@@ -366,6 +376,8 @@ extension Shell {
                         // `exit N` inside a background job ends the
                         // JOB, not the parent shell.
                         return exit.status
+                    } catch let discard as DiscardCommand {
+                        return discard.status
                     } catch let ret as ReturnSignal {
                         // So does `return N` in a function's job.
                         return ret.status
@@ -469,6 +481,9 @@ extension Shell {
         // inside doesn't trigger an immediate exit.
         errexitGuard += 1
         defer { errexitGuard -= 1 }
+        // The trap leaves `$?` as the failed command set it.
+        let status = lastExitStatus
+        defer { lastExitStatus = status }
         // `exit` inside the trap exits the shell.
         _ = try await withFrozenLineNumber(lastCommandLineNumber) {
             try await self.run(body)
@@ -483,6 +498,9 @@ extension Shell {
         defer { runningTraps.remove("DEBUG") }
         errexitGuard += 1
         defer { errexitGuard -= 1 }
+        // The trap leaves `$?` alone.
+        let status = lastExitStatus
+        defer { lastExitStatus = status }
         // `exit` inside the trap exits the shell.
         _ = try await withFrozenLineNumber(currentLineNumber) {
             try await self.run(body)
@@ -503,8 +521,8 @@ extension Shell {
         // Track which command we're dispatching so error messages can
         // include `script.sh: line N:` like bash does.
         let savedCommandRange = currentCommandRange
-        if let first = parts.first {
-            currentCommandRange = first.range
+        if let position = Self.linePosition(of: parts) {
+            currentCommandRange = position..<(position + 1)
         }
         defer {
             // An ERR trap after this command reports its line.
@@ -527,6 +545,8 @@ extension Shell {
 
         let procSubFrame = pendingProcessSubs.count
         var assignments: [(String, String)] = []
+        // `declare -a UID=(x)`: a read-only array argument was refused.
+        var refusedReadonlyArgument = false
         var wordFragments: [(node: Node, fragments: [WordFragment])] = []
         var redirects: [Node] = []
 
@@ -543,22 +563,23 @@ extension Shell {
             }
             return nil
         }()
-        let isAssignmentBuiltin: Bool = {
+        let assignmentBuiltin: String? = {
             guard let idx = commandWordIndex,
                   case .word = parts[idx].kind
-            else { return false }
+            else { return nil }
             // Look at the literal source text of the command word —
             // assignment built-ins are never reached via expansion in
             // realistic scripts, and we need this decision before any
             // expansion runs.
             let raw = String(parts[idx].source(from: currentSource))
-            return Self.assignmentBuiltinNames.contains(raw)
+            return Self.assignmentBuiltinNames.contains(raw) ? raw : nil
         }()
+        let isAssignmentBuiltin = assignmentBuiltin != nil
         // For `declare -A name=(…)` the items inside `(…)` are
         // `[key]=value` pairs, not dense values. Detect the `-A` flag
         // by scanning the .word parts that follow the command word
-        // and precede any arrayAssignment.
-        let declareAssociativeMode: Bool = {
+        // and precede any arrayAssignment. `-g` (global) likewise.
+        func hasDeclareFlag(_ flag: Character) -> Bool {
             guard isAssignmentBuiltin, let cmdIdx = commandWordIndex
             else { return false }
             for part in parts[(cmdIdx + 1)...] {
@@ -567,13 +588,14 @@ extension Shell {
                     let raw = String(part.source(from: currentSource))
                     // Handle merged flags (`-Ar`, `-rA`).
                     if raw.hasPrefix("-"), !raw.hasPrefix("--"),
-                       raw.contains("A") {
+                       raw.contains(flag) {
                         return true
                     }
                 }
             }
             return false
-        }()
+        }
+        let declareAssociativeMode = hasDeclareFlag("A")
 
         // Bash word expansion order:
         // 1. Substitution (parameter / command / arithmetic) on
@@ -594,6 +616,15 @@ extension Shell {
                 let routeAsArg = isAssignmentBuiltin && pastCommandWord
                 switch part.kind {
                 case .assignment:
+                    // A read-only prefix (`UID=$(cmd) echo ok`) is
+                    // refused before its value expands, as in bash; the
+                    // command still runs.
+                    let raw = part.source(from: currentSource)
+                    if !routeAsArg, commandWordIndex != nil,
+                       let equals = raw.firstIndex(of: "="),
+                       refuseReadonlyAssignment(String(raw[..<equals])) {
+                        continue
+                    }
                     let expanded = try await expand(word: part)
                     if routeAsArg {
                         // Hand the literal `name=value` string to the
@@ -605,6 +636,14 @@ extension Shell {
                         let lhs = String(expanded[..<eqIdx])
                         let value = String(
                             expanded[expanded.index(after: eqIdx)...])
+                        // `UID=5` fails like bash: an assignment-only
+                        // command drops the rest of the top-level
+                        // command, while a prefix assignment is skipped
+                        // and the command runs.
+                        if refuseReadonlyAssignment(lhs) {
+                            if commandWordIndex != nil { continue }
+                            throw DiscardCommand()
+                        }
                         // Element form: `arr[N]=value` updates the
                         // array in place rather than introducing a
                         // scalar named `arr[N]`.
@@ -618,9 +657,31 @@ extension Shell {
                     // `name=(item …)` and `name+=(item …)`. Evaluate
                     // items now, store permanently. Prefix-form
                     // `arr=(a b) cmd` is rare; we don't scope it.
+                    // Read-only: as for a scalar, a prefix assignment
+                    // is skipped and the command runs.
+                    if !routeAsArg, refuseReadonlyAssignment(name) {
+                        if commandWordIndex != nil { continue }
+                        throw DiscardCommand()
+                    }
                     var values: [String] = []
                     for item in items {
                         values.append(try await expand(word: item))
+                    }
+                    // Given to `declare` / `local` / `export`, the items
+                    // expand first (as in bash); then the array is left
+                    // alone. `export`, `readonly`, `declare -g`, or `declare` outside
+                    // a function, drops the rest of the top-level
+                    // command, as bash does; otherwise the builtin sees
+                    // the bare name and fails.
+                    if routeAsArg, refuseReadonlyAssignment(name) {
+                        if ["export", "readonly"].contains(assignmentBuiltin)
+                            || !inFunction
+                            || (assignmentBuiltin != "local" && hasDeclareFlag("g")) {
+                            throw DiscardCommand()
+                        }
+                        refusedReadonlyArgument = true
+                        wordFragments.append((part, [.literal(name)]))
+                        break
                     }
                     if routeAsArg && declareAssociativeMode {
                         // `declare -A m=([k1]=v1 [k2]=v2)` — items are
@@ -664,6 +725,15 @@ extension Shell {
                     break
                 }
             }
+        } catch let discard as DiscardCommand {
+            // Bash assigns left to right: in `x=1 UID=2` or
+            // `x=1 y=$((UID=2))`, `x` keeps its value. (A prefix
+            // assignment would have been scoped to the command.)
+            if commandWordIndex == nil {
+                for (name, value) in assignments { environment[name] = value }
+            }
+            await drainProcessSubs(from: procSubFrame)
+            throw discard
         } catch {
             await drainProcessSubs(from: procSubFrame)
             throw error
@@ -772,6 +842,10 @@ extension Shell {
         // previous command's.
         defer { environment.variables["_"] = argv[argv.count - 1] }
 
+        // A closed stdout (`>&-`) notes writes; start this command's
+        // count from zero.
+        let closedStdout = ClosedDescriptor.of(stdout)
+        _ = closedStdout?.takeWrite()
         let result: ExitStatus
         do {
             // POSIX dispatch order:
@@ -858,10 +932,50 @@ extension Shell {
             await drainProcessSubs(from: procSubFrame)
             throw error
         }
+        // Report a write to a closed stdout while the command's own
+        // redirections still apply: `echo hi 2>&- >&-` says nothing.
+        var status = closedStdout?.takeWrite() == true
+            ? reportClosedStdoutWrite(argv[0]) : result
+        if refusedReadonlyArgument { status = .failure }
         restoreScope()
         restoreRedirects()
         await drainProcessSubs(from: procSubFrame)
-        return result
+        return status
+    }
+
+    /// A command wrote to a closed stdout (`echo hi >&-`): bash prints
+    /// `echo: write error: Bad file descriptor` and the command fails.
+    /// A builtin's message carries the shell's location prefix; another
+    /// command's is its own, as `cat: write error: …` is.
+    private func reportClosedStdoutWrite(_ name: String) -> ExitStatus {
+        let isBuiltin = !looksLikePath(name) && shellBuiltins[name] != nil
+            || commands[name] is FunctionCommand
+        let prefix = isBuiltin ? errorLocationPrefix() : ""
+        stderr("\(prefix)\(name): write error: Bad file descriptor\n")
+        return .failure
+    }
+
+    /// Where bash takes a simple command's line from — for `$LINENO`
+    /// and `line N:` diagnostics: the end of its second token, or of
+    /// its first when that's an assignment, a redirect (whose operand
+    /// is the second token) or the only one. (Bash's
+    /// parser records the line once it has read that far.) So a
+    /// command whose words span lines can report a later line than
+    /// the one it starts on: `echo "a<newline>b" $LINENO` says 2.
+    static func linePosition(of parts: [Node]) -> Int? {
+        guard let first = parts.first else { return nil }
+        var anchor = first
+        switch first.kind {
+        case .assignment, .arrayAssignment, .redirect: break
+        default: if parts.count > 1 { anchor = parts[1] }
+        }
+        var range = anchor.range
+        // A heredoc redirect's range runs to the end of its body; the
+        // token is the operator and its word.
+        if case .redirect(_, _, let output, _) = anchor.kind {
+            range = range.lowerBound..<output.range.upperBound
+        }
+        return max(range.lowerBound, range.upperBound - 1)
     }
 
     /// Handle `arr[N]=value` element assignment if `lhs` looks like

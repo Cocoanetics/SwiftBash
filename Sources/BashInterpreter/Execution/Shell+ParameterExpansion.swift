@@ -45,7 +45,11 @@ extension Shell {
                 if let assoc = environment.associativeArrays[arrName] {
                     return String(assoc.count)
                 }
-                return String(environment.arrays[arrName]?.count ?? 0)
+                if let array = environment.arrays[arrName] {
+                    return String(array.count)
+                }
+                // A set scalar (`$UID` too) is a one-element array.
+                return scalarValue(arrName) == nil ? "0" : "1"
             }
             return String(lookup(name).count)
 
@@ -60,6 +64,11 @@ extension Shell {
             let raw = lookupOptional(name)
             if isMissing(raw, checkEmpty: checkEmpty) {
                 let expanded = try await recursivelyExpandParameterWord(value)
+                // `${PPID[1]:=5}`: bash expands the default, then refuses
+                // it and drops the rest of the command, with status 2.
+                if refuseReadonlyAssignment(name) {
+                    throw DiscardCommand(status: ExitStatus(2))
+                }
                 environment[name] = expanded
                 return expanded
             }
@@ -130,6 +139,9 @@ extension Shell {
                 } else {
                     length = nil
                 }
+            } catch let discard as DiscardCommand {
+                // `${x:UID=2}`: the read-only error, not a syntax one.
+                throw discard
             } catch {
                 let failed = lengthExpr.flatMap { _ in
                     // Best-effort: report the offset by default;
@@ -145,7 +157,8 @@ extension Shell {
             }
             if let (arrName, sub) = parseSubscriptedName(name),
                sub == "@" || sub == "*" {
-                let elements = environment.arrays[arrName]?.elementsInOrder ?? []
+                let elements = environment.arrays[arrName]?.elementsInOrder
+                    ?? scalarValue(arrName).map { [$0] } ?? []
                 let sliced = sliceArray(elements, offset: offset, length: length)
                 let sep = sub == "*"
                     ? String(environment["IFS"]?.first ?? " ")
@@ -232,7 +245,13 @@ extension Shell {
         // never appear as `${arr[0]:-…}` against unset vs. empty in a
         // way the regular environment subscript can't already answer
         // (`environment[name]` for `arr[0]` is the element value or
-        // nil if unset).
+        // nil if unset). A scalar, dynamic ones included, is element 0
+        // of a one-element array: `${x[@]:+set}`, `${UID[0]:-d}`.
+        if let (arrName, sub) = parseSubscriptedName(name),
+           environment.arrays[arrName] == nil,
+           environment.associativeArrays[arrName] == nil {
+            return ["0", "@", "*"].contains(sub) ? scalarValue(arrName) : nil
+        }
         return environment[name]
     }
 
@@ -341,47 +360,6 @@ extension Shell {
         else { return name }
         let expanded = try await expandHeredocBody(sub)
         return "\(head)[\(expanded)]"
-    }
-
-    /// Resolve a subscripted array reference.
-    ///
-    /// - Associative array (`declare -A`): subscript is a string key.
-    /// - Indexed array: `${arr[N]}` returns the Nth element (empty
-    ///   for unset slots), `${arr[@]}` / `${arr[*]}` join set elements
-    ///   in index order.
-    private func arrayElementLookup(_ name: String,
-                                    `subscript` sub: String) -> String {
-        if let assoc = environment.associativeArrays[name] {
-            switch sub {
-            case "@", "*":
-                return assoc.values.joined(separator: " ")
-            default:
-                return assoc[sub] ?? ""
-            }
-        }
-        if let array = environment.arrays[name] {
-            switch sub {
-            case "@", "*":
-                return array.elementsInOrder.joined(separator: " ")
-            default:
-                if let index = Int(sub) {
-                    // Bash 4.3+: negative indices count from the end of
-                    // the *highest* set slot, not from `count`. So for
-                    // `arr[0]=a; arr[5]=b`, `${arr[-1]}` is `b` (the
-                    // value at index 5, not index 4).
-                    let resolved = index >= 0 ? index
-                        : ((array.entries.keys.max() ?? -1) + 1 + index)
-                    return array[resolved] ?? ""
-                }
-                return ""
-            }
-        }
-        // Scalar fallback: `${name[0]}` reads the scalar value at
-        // index 0; everything else is empty.
-        if sub == "0" || sub == "@" || sub == "*" {
-            return environment.variables[name] ?? ""
-        }
-        return ""
     }
 
     private func isMissing(_ raw: String?, checkEmpty: Bool) -> Bool {

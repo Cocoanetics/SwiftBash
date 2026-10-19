@@ -18,13 +18,15 @@ public struct DeclareCommand: Command {
     public func run(_ argv: [String]) async throws -> ExitStatus {
         var index = 1
         var associative = false
+        var global = false
 
         // Option pass — accept multiple flags, e.g. `declare -Ar map`.
         while index < argv.count, argv[index].hasPrefix("-"), argv[index] != "-" {
             for char in argv[index].dropFirst() {
                 switch char {
                 case "A": associative = true
-                case "r", "x", "i", "a", "g": break
+                case "g": global = true
+                case "r", "x", "i", "a": break
                 default:
                     Shell.bashCurrent.stderr("declare: -\(char): invalid option\n")
                     return ExitStatus(2)
@@ -33,14 +35,22 @@ public struct DeclareCommand: Command {
             index += 1
         }
 
-        // Each remaining arg is `NAME` or `NAME=VALUE`.
-        for raw in argv[index...] {
-            applyAssignment(raw, associative: associative)
+        // Each remaining arg is `NAME` or `NAME=VALUE`. A read-only
+        // `NAME=VALUE` fails without stopping the others, as in bash.
+        // In a function, even `declare UID` would make a local: also
+        // refused, unless `-g`.
+        let makesLocal = Shell.bashCurrent.inFunction && !global
+        var status = ExitStatus.success
+        for raw in argv[index...]
+        where !applyAssignment(raw, associative: associative, makesLocal: makesLocal) {
+            status = .failure
         }
-        return .success
+        return status
     }
 
-    private func applyAssignment(_ raw: String, associative: Bool) {
+    /// Apply one `NAME[=VALUE]`; `false` when `NAME` is read-only.
+    private func applyAssignment(_ raw: String, associative: Bool,
+                                 makesLocal: Bool) -> Bool {
         let nameOnly: String
         let value: String?
         if let eqIdx = raw.firstIndex(of: "=") {
@@ -50,10 +60,18 @@ public struct DeclareCommand: Command {
             nameOnly = raw
             value = nil
         }
+        if value != nil || makesLocal,
+           Shell.bashCurrent.refuseReadonlyAssignment(nameOnly, builtin: name) {
+            return false
+        }
 
         if associative {
             if Shell.bashCurrent.environment.associativeArrays[nameOnly] == nil {
-                Shell.bashCurrent.environment.associativeArrays[nameOnly] = [:]
+                // `declare -A UID` keeps the identity as element `0`.
+                let identity = Shell.bashCurrent.isReadonlyVariable(nameOnly)
+                    ? Shell.bashCurrent.dynamicVariable(nameOnly) : nil
+                Shell.bashCurrent.environment.associativeArrays[nameOnly] =
+                    identity.map { ["0": $0] } ?? [:]
             }
             Shell.bashCurrent.environment.arrays.removeValue(forKey: nameOnly)
             Shell.bashCurrent.environment.variables.removeValue(forKey: nameOnly)
@@ -66,5 +84,6 @@ public struct DeclareCommand: Command {
         } else if let value {
             Shell.bashCurrent.environment[nameOnly] = value
         }
+        return true
     }
 }

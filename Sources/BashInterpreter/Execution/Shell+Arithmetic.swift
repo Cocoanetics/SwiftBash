@@ -1,6 +1,12 @@
 import Foundation
 import BashSyntax
 
+/// An arithmetic expression assigned a read-only variable
+/// (`$((UID=3))`).
+struct ReadonlyArithmeticAssignment: Error {
+    let name: String
+}
+
 extension Shell {
 
     /// Evaluate an arithmetic expression body against this shell's
@@ -15,7 +21,32 @@ extension Shell {
     ///
     /// Unset variables evaluate as 0. Assignments inside the expression
     /// are written back to `environment.variables` as decimal strings.
+    ///
+    /// Assigning a read-only variable prints bash's diagnostic and drops
+    /// the rest of the top-level command, as `$((UID=3))` does in bash.
     func evaluateArithmetic(_ expression: String) async throws -> Int64 {
+        do {
+            return try await evaluateArithmeticExpression(expression)
+        } catch let error as ReadonlyArithmeticAssignment {
+            _ = refuseReadonlyAssignment(error.name)
+            throw DiscardCommand()
+        }
+    }
+
+    /// `((…))` and `let`: like ``evaluateArithmetic(_:)``, but assigning
+    /// a read-only variable only fails the command. `nil` then.
+    func evaluateArithmeticCommand(_ expression: String) async throws -> Int64? {
+        do {
+            return try await evaluateArithmeticExpression(expression)
+        } catch let error as ReadonlyArithmeticAssignment {
+            _ = refuseReadonlyAssignment(error.name)
+            return nil
+        }
+    }
+
+    private func evaluateArithmeticExpression(
+        _ expression: String
+    ) async throws -> Int64 {
         let preExpanded = try await expandHeredocBody(expression)
         return try Arithmetic.evaluate(
             preExpanded,
@@ -36,6 +67,9 @@ extension Shell {
                 return environment.variables[name]
             },
             set: { [weak self] name, value in
+                if self?.isReadonlyVariable(name) == true {
+                    throw ReadonlyArithmeticAssignment(name: name)
+                }
                 self?.environment.variables[name] = String(value)
             },
             getIndexed: { [environment] name, index in
@@ -58,29 +92,37 @@ extension Shell {
                 return nil
             },
             setIndexed: { [weak self] name, index, value in
-                guard let self = self else { return }
-                let stringValue = String(value)
-                if self.environment.associativeArrays[name] != nil {
-                    self.environment.associativeArrays[name]?[
-                        String(index)] = stringValue
-                    return
-                }
-                // Promote a scalar to an array if needed — bash does
-                // the same when you assign `a[2]=x` to a name that
-                // was previously a scalar `a=foo`.
-                var arr = self.environment.arrays[name] ?? BashArray()
-                arr[Int(index)] = stringValue
-                self.environment.arrays[name] = arr
-                self.environment.variables.removeValue(forKey: name)
+                try self?.setArithmeticElement(name, index: index, to: value)
             }
         )
+    }
+
+    /// `arr[index] = value` from an arithmetic expression.
+    private func setArithmeticElement(_ name: String, index: Int64,
+                                      to value: Int64) throws {
+        if isReadonlyVariable(name) {
+            throw ReadonlyArithmeticAssignment(name: name)
+        }
+        let stringValue = String(value)
+        if environment.associativeArrays[name] != nil {
+            environment.associativeArrays[name]?[String(index)] = stringValue
+            return
+        }
+        // Promote a scalar to an array if needed — bash does the same
+        // when you assign `a[2]=x` to a name that was previously a
+        // scalar `a=foo`.
+        var arr = environment.arrays[name] ?? BashArray()
+        arr[Int(index)] = stringValue
+        environment.arrays[name] = arr
+        environment.variables.removeValue(forKey: name)
     }
 
     /// Run a standalone `((expression))` command. Exit status follows
     /// bash's inverted convention: non-zero result → `.success`,
     /// zero result → `.failure`.
     func runArithmeticCommand(_ expression: String) async throws -> ExitStatus {
-        let value = try await evaluateArithmetic(expression)
+        guard let value = try await evaluateArithmeticCommand(expression)
+        else { return .failure }
         return value != 0 ? .success : .failure
     }
 }

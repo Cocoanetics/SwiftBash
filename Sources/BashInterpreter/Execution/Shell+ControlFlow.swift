@@ -219,8 +219,11 @@ extension Shell {
         loopDepth += 1
         defer { loopDepth -= 1 }
 
-        if !initExpr.isEmpty {
-            _ = try await evaluateArithmetic(initExpr)
+        // Like `((…))`, assigning a read-only variable in any of the
+        // three expressions fails the loop (status 1), not the line.
+        if !initExpr.isEmpty,
+           try await evaluateArithmeticCommand(initExpr) == nil {
+            return .failure
         }
 
         var last = ExitStatus.success
@@ -234,14 +237,15 @@ extension Shell {
             iterations += 1
             if !condExpr.isEmpty {
                 errexitGuard += 1
-                let value: Int64
+                let value: Int64?
                 do {
-                    value = try await evaluateArithmetic(condExpr)
+                    value = try await evaluateArithmeticCommand(condExpr)
                 } catch {
                     errexitGuard -= 1
                     throw error
                 }
                 errexitGuard -= 1
+                guard let value else { return .failure }
                 if value == 0 { break }
             }
             do {
@@ -255,8 +259,9 @@ extension Shell {
                 case .continueLoop: break // fall through to update
                 }
             }
-            if !updateExpr.isEmpty {
-                _ = try await evaluateArithmetic(updateExpr)
+            if !updateExpr.isEmpty,
+               try await evaluateArithmeticCommand(updateExpr) == nil {
+                return .failure
             }
         }
         return last
@@ -282,6 +287,7 @@ extension Shell {
                 await Task.yield()
             }
             iterations += 1
+            if refuseReadonlyAssignment(varName) { return .failure }
             environment[varName] = value
             do {
                 last = try await execute(body)
@@ -447,6 +453,9 @@ extension Shell {
             // `(return N)` inside a function ends the subshell, not
             // the function.
             last = ret.status
+        } catch let discard as DiscardCommand {
+            // `( UID=1; … )` ends the subshell with status 1.
+            last = discard.status
         } catch let signal as LoopControlSignal {
             // `(break)` / `(continue)` inside a subshell must NOT
             // unwind the parent's enclosing loop — bash treats loop
