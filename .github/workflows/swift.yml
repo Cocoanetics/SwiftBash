@@ -254,7 +254,11 @@ jobs:
   # (see action.yml), so a split "build first / test second" pair makes
   # the second call a no-op. Keep build + test in one step.
   build-android:
-    runs-on: ubuntu-latest
+    # Pinned: `ubuntu-latest` now resolves to Ubuntu 26.04, and
+    # swift-android-action downloads a swift.org host toolchain for
+    # `ubuntu2604`, which swift.org doesn't publish (curl 404). Move back
+    # to `ubuntu-latest` once swift.org ships 26.04 toolchains.
+    runs-on: ubuntu-24.04
     # First cold run = ~25 min (SDK + NDK + emulator boot dominates);
     # cached subsequent runs are ~5 min. The original 30 min ceiling
     # was a near-miss for cold runs and we kept clipping it on hosted
