@@ -25,6 +25,14 @@ for how the pieces fit together.
   dependency to its newest patch release within the pinned minor.
   See [Dependencies](#dependencies).
 
+## Toolchain
+
+CI and development build with **Swift 6.4** (Xcode 27.1 on macOS and
+iOS; Swift 6.4.2 on Linux, Windows and the Android SDK). This is the
+verification baseline only — `Package.swift` keeps
+`swift-tools-version: 6.2` as the consumer minimum. Don't raise it
+without compiler evidence.
+
 ## Where things live
 
 ```

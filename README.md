@@ -170,6 +170,13 @@ get a consistent graph. Then depend on the products you want:
 ]),
 ```
 
+## Toolchain
+
+CI and development use **Swift 6.4** (Xcode 27.1 on macOS/iOS; Swift
+6.4.2 on Linux, Windows and Android). That is the baseline the suite
+is verified against, not a requirement for consumers: `Package.swift`
+keeps `swift-tools-version: 6.2` as the minimum.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
