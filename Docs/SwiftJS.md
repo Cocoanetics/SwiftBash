@@ -823,7 +823,8 @@ with `USE_EXTERNAL_MIMALLOC` (oven-sh/WebKit#283): bmalloc calls
 mimalloc but the archive doesn't contain it, and since May 2026 the
 Linux archives' ICU data is repacked with a zstd frame per display-name
 item (oven-sh/WebKit#237). Bun's own binary supplies both. So does
-SwiftBash, with three things on Linux; Android needs only the first:
+SwiftBash, with three things on Linux; Android needs the first and
+third:
 
 1. **mimalloc** — the `CMimalloc` target compiles Bun's fork,
    `oven-sh/mimalloc`, at the commit Bun pairs with the WebKit pin.
@@ -841,18 +842,18 @@ SwiftBash, with three things on Linux; Android needs only the first:
    `timeZoneName` throw. Linux only; Bun's Android image doesn't
    compress its ICU data.
 3. **`--exclude-libs ALL`** — keeps the archives' symbols out of the
-   dynamic symbol table of whatever links them (Linux only).
+   dynamic symbol table of whatever links them (Linux and Android).
 
 The third is what lets the archives go into a shared object, which
 matters because SwiftPM's `swiftbuild` engine — the default since
-Swift 6.4 — links a Linux test product as a `.so` loaded by a thin
-`<name>-test-runner` executable (#91). Bun's x86-64 archives are PIE
-code, not PIC: in a `.so`, ld rejects their PC-relative references to
-symbols the object would export ("requires dynamic R_X86_64_PC32
-reloc … recompile with -fPIC") unless those symbols stay local. The
-arm64 archives link either way. Archives from before July 2026 can't
-go into a shared object at all: their libpas thread-local cache uses
-local-exec TLS, which no linker flag fixes.
+Swift 6.4 — links Linux and Android test products as `.so` files loaded
+by thin `<name>-test-runner` executables (#91). Bun's x86-64 archives
+are PIE code, not PIC: in a `.so`, ld rejects their PC-relative
+references to symbols the object would export ("requires dynamic
+R_X86_64_PC32 reloc … recompile with -fPIC") unless those symbols stay
+local. The arm64 archives link either way. Archives from before July
+2026 can't go into a shared object at all: their libpas thread-local
+cache uses local-exec TLS, which no linker flag fixes.
 
 When bumping `WEBKIT_VERSION`, bump `MIMALLOC_COMMIT` with it: find
 the oven-sh/bun commit whose `scripts/build/deps/webkit.ts` sets that

@@ -476,14 +476,15 @@ let package = Package(
                 // Keeps the archives' symbols out of the dynamic symbol
                 // table of whatever links them. That's what lets the
                 // x86-64 archives, which are PIE code rather than PIC,
-                // go into a shared object: `swiftbuild` links Linux test
-                // products as `.so` files, and ld rejects the archives'
+                // go into a shared object: `swiftbuild` links Linux and
+                // Android test products as `.so` files, and ld rejects
+                // the archives'
                 // PC-relative references to symbols such an object would
                 // otherwise export (#91). It also keeps references into
                 // the archives from binding to another copy of those
                 // libraries in the process, such as a system ICU.
                 .unsafeFlags(["-Xlinker", "--exclude-libs", "-Xlinker", "ALL"],
-                             .when(platforms: [.linux])),
+                             .when(platforms: [.linux, .android])),
 
                 // Windows MSVC. `linkedLibrary("Foo")` becomes
                 // `Foo.lib`; Bun's Windows tarball ships static ICU
