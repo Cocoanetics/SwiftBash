@@ -55,12 +55,5 @@ jobs:
       - name: Build (macOS)
         run: swift build --build-tests -v
       - name: Test (macOS)
-        # Same `libswiftCompatibilitySpan.dylib` workaround as swift.yml.
-        run: |
-          COMPAT_DIR="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx"
-          if [ -d "$COMPAT_DIR" ]; then
-            export DYLD_LIBRARY_PATH="$COMPAT_DIR:${DYLD_LIBRARY_PATH:-}"
-          else
-            echo "Swift 6.2 Span compatibility directory absent; testing without the workaround"
-          fi
-          swift test -v --skip-build --no-parallel
+        # Unassisted, same as swift.yml (#116).
+        run: swift test -v --skip-build --no-parallel
