@@ -286,6 +286,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+      # ubuntu-latest includes Ruby and PowerShell, so this exercises
+      # both the Bash and pwsh snippets exactly as stored in the YAML.
+      - name: Test Swift version checks
+        run: ruby .github/tests/swift-version-checks.rb
       # Bun's Android-targeted JSC archive. Cross-build from the
       # ubuntu-latest x86_64 host into the Android emulator's
       # arch — the action's default emulator is x86_64 / amd64,
