@@ -1,5 +1,5 @@
 {
-  "originHash" : "b295c442fd49568dc3e5eba93cbeb81faea3f51c87de9f91ad3e37f903cff7a1",
+  "originHash" : "1d08fec904b722ec4bb1f54f7018c8c15b5689da6fbc5e037c5c90bd864517cf",
   "pins" : [
     {
       "identity" : "csqlite",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/GitKit",
       "state" : {
-        "revision" : "6b1e7cd2146d9b5e92cccad4387ec62eaa427bfe",
-        "version" : "2.1.0"
+        "revision" : "8b857d4bef2f9819b886995c7824e9b39d4b4224",
+        "version" : "2.10.0"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/ShellKit",
       "state" : {
-        "revision" : "40c1b417e6c6318d2ca644d9a3062dc6befd0e31",
-        "version" : "0.1.0"
+        "revision" : "f4f904b6998fb7034ab24d373973121a40965c3a",
+        "version" : "0.1.2"
       }
     },
     {
@@ -71,6 +71,15 @@
       "state" : {
         "revision" : "13713a4ffdee8abd929f92568ee9462a46ae26e0",
         "version" : "1.1.7"
+      }
+    },
+    {
+      "identity" : "swift-atomics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-atomics.git",
+      "state" : {
+        "revision" : "0442cb5a3f98ab802acb777929fdb446bda11a34",
+        "version" : "1.3.1"
       }
     },
     {
@@ -137,6 +146,24 @@
       }
     },
     {
+      "identity" : "swift-nio",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-nio",
+      "state" : {
+        "revision" : "2f58d8ef84438d6517fc78bcea2f8527e3c72936",
+        "version" : "2.105.0"
+      }
+    },
+    {
+      "identity" : "swift-nio-ssh",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-nio-ssh",
+      "state" : {
+        "revision" : "d1985926494b624e751b379009dc83f3395fd88a",
+        "version" : "0.15.1"
+      }
+    },
+    {
       "identity" : "swift-service-lifecycle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swift-server/swift-service-lifecycle",
@@ -177,8 +204,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/SwiftPorts",
       "state" : {
-        "revision" : "0748f5e5baa41818563cc55585c8246e89fa5a12",
-        "version" : "0.1.0"
+        "revision" : "6465d1f3350778ee3b3d6e77c8a9cb34fd089e07",
+        "version" : "0.2.0"
       }
     },
     {

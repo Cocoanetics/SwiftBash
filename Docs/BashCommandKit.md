@@ -198,3 +198,43 @@ Every kit command is mapped to a canonical `/bin/<name>` or
 `/usr/bin/<name>` path via `BinCatalog`. A wrapper `FileSystem`
 synthesises those directories so `ls /bin` reflects what the script
 can actually invoke. See [VirtualBin.md](VirtualBin.md).
+
+## Signing commits
+
+On platforms with SwiftPorts commands (all except Android),
+`registerStandardCommands()` installs in-process `git` and `ssh-keygen`.
+SSH signing and verification run through the shell's process launcher;
+keys and temporary files use the sandbox's home and temporary directory.
+No system git or ssh-keygen is needed.
+
+Run this inside a writable sandbox workspace:
+
+```bash
+mkdir -p ~/.ssh
+ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_sign
+git init repo && cd repo
+git config user.name Test
+git config user.email t@e.com
+git config gpg.format ssh
+git config user.signingkey '~/.ssh/id_sign.pub'
+git config commit.gpgsign true
+echo "t@e.com $(cat ~/.ssh/id_sign.pub)" > ../allowed
+git config gpg.ssh.allowedSignersFile ../allowed
+echo hi > f && git add f && git commit -m one
+git verify-commit HEAD
+git tag -s v1 -m v1 && git verify-tag v1
+git log --show-signature -1
+```
+
+The quoted `~` is expanded by git against the shell's `HOME`. A private
+key path also works; a `.pub` path loads the sibling private key.
+`commit.gpgsign` signs by default; `git commit -S` requests signing for
+one commit. The allowed-signers file associates a trusted public key
+with a principal (here `t@e.com`) for verification.
+
+`-N ""` creates an unencrypted key. Encrypted keys require a passphrase
+prompt: the port defaults to a controlling terminal, and embedders can
+install `SSHKeygenExecutable.run` with a custom `passphrasePrompt`.
+OpenPGP signing is unavailable in the standard sandbox because `gpg`
+is not registered. A missing signing command fails the commit without
+writing it; there is no external-program fallback.
