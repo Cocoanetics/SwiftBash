@@ -47,6 +47,10 @@ truth for *where* a command would appear; the live registry is the
 source of truth for *whether* it appears at all. The wrapper FS shows
 exactly the intersection.
 
+SwiftPorts registration includes `ssh-keygen` at `/usr/bin/ssh-keygen`.
+Both the bare name and that absolute path invoke the in-process port,
+including when git requests an SSH signing or verification command.
+
 If a script `unregister`s a command, its entry disappears from `ls`
 and `which` immediately:
 

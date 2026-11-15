@@ -21,5 +21,9 @@ import SwiftPortsCommands
     @Test func sshLivesInUsrBin() {
         #expect(BinCatalog.knownPaths["ssh"] == "/usr/bin/ssh")
     }
+
+    @Test func sshKeygenLivesInUsrBin() {
+        #expect(BinCatalog.knownPaths["ssh-keygen"] == "/usr/bin/ssh-keygen")
+    }
 }
 #endif

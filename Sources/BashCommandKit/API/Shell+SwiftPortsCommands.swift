@@ -28,7 +28,8 @@ extension Shell {
     /// participate fully in pipes / `<` `>` redirection / `$(...)` capture /
     /// background jobs — no `Process()` fork, no OS pipe per pipeline stage.
     ///
-    /// Registered surface: `jq`, `gh`, `glab`, `git`, `rg`, `fd`, the archive
+    /// Registered surface: `jq`, `gh`, `glab`, `git`, `ssh`, `ssh-keygen`,
+    /// `rg`, `fd`, the archive
     /// family (`tar` / `zip` / `unzip`), and the gzip / bzip2 / xz / zstd / lz4
     /// compression families — each gated, in SwiftPorts, to the platforms whose
     /// underlying C library is available. `sqlite3` is installed separately by

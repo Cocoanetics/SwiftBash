@@ -143,7 +143,7 @@ let package = Package(
         // Each command reads/writes through `Shell.current`, so
         // they participate fully in pipes / redirection / capture.
         .package(url: "https://github.com/Cocoanetics/SwiftPorts",
-                 .upToNextMinor(from: "0.1.0")),
+                 .upToNextMinor(from: "0.2.0")),
         // SwiftScript — Swift tree-walking interpreter that reads
         // its IO / FS / network / identity / exit through
         // `ShellKit.Shell.current`. The `BashSwiftScript` target
@@ -234,7 +234,9 @@ let package = Package(
         ),
         .testTarget(
             name: "BashCommandKitTests",
-            dependencies: ["BashCommandKit"],
+            dependencies: ["BashCommandKit"] + (buildingForAndroid ? [] : [
+                .product(name: "SSHKeygenCommand", package: "SwiftPorts"),
+            ]),
             path: "Tests/BashCommandKitTests"
         ),
         .testTarget(
@@ -599,6 +601,6 @@ let package = Package(
                      "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
                     .when(platforms: [.linux, .windows, .android])),
             ]
-        ),
+        )
     ] : [])
 )
