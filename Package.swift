@@ -601,6 +601,6 @@ let package = Package(
                      "-Xcc", "-DSTATICALLY_LINKED_WITH_WTF"],
                     .when(platforms: [.linux, .windows, .android])),
             ]
-        ),
+        )
     ] : [])
 )

@@ -107,7 +107,11 @@ import BashCommandKit
                 #expect(try await fileSystem.readData("/batch/\(name)-verification") == verification)
             }
             #expect(try await fileSystem.readData("/batch/log-verification") == Data((line + "G t@e.com\n").utf8))
-            #expect(try await fileSystem.metadata("/batch/home/.ssh/id_sign")?.mode == 0o600)
+            let privateKey = try #require(await fileSystem.metadata("/batch/home/.ssh/id_sign"))
+            #expect(privateKey.kind == .file)
+            #if !os(Windows)
+            #expect(privateKey.mode == 0o600)
+            #endif
             #expect(try await fileSystem.metadata("/batch/home/.ssh/id_sign.pub") != nil)
         }
     }
