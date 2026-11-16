@@ -143,7 +143,7 @@ let package = Package(
         // Each command reads/writes through `Shell.current`, so
         // they participate fully in pipes / redirection / capture.
         .package(url: "https://github.com/Cocoanetics/SwiftPorts",
-                 .upToNextMinor(from: "0.2.0")),
+                 .upToNextMinor(from: "0.2.1")),
         // SwiftScript — Swift tree-walking interpreter that reads
         // its IO / FS / network / identity / exit through
         // `ShellKit.Shell.current`. The `BashSwiftScript` target

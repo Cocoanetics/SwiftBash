@@ -1,5 +1,5 @@
 {
-  "originHash" : "1d08fec904b722ec4bb1f54f7018c8c15b5689da6fbc5e037c5c90bd864517cf",
+  "originHash" : "4a52b21d9474c1ddda56bd4ec90dcf1610d3e7254161d7d7d1a4a436f251b379",
   "pins" : [
     {
       "identity" : "csqlite",
@@ -204,8 +204,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Cocoanetics/SwiftPorts",
       "state" : {
-        "revision" : "6465d1f3350778ee3b3d6e77c8a9cb34fd089e07",
-        "version" : "0.2.0"
+        "revision" : "885539e20e842974bb443995021f16b52b4a47d2",
+        "version" : "0.2.1"
       }
     },
     {
