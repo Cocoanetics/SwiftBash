@@ -134,13 +134,7 @@ import BashCommandKit
                 ? "error: cannot run ssh-keygen: No such file or directory\nerror: \n"
                 : "error: cannot run gpg: No such file or directory\n"
                     + "error: gpg failed to sign the data:\n(no gpg output)\n"
-            if cap.stderr.contains("ProcessLaunchUnresolved") {
-                withKnownIssue("https://github.com/Cocoanetics/SwiftPorts/issues/175") {
-                    #expect(cap.stderr == expected + "fatal: failed to write commit object\n")
-                }
-            } else {
-                #expect(cap.stderr == expected + "fatal: failed to write commit object\n")
-            }
+            #expect(cap.stderr == expected + "fatal: failed to write commit object\n")
             #expect(cap.stdout == "")
             #expect(try await cap.shell.fileSystem.metadata("/batch/repo/.git/refs/heads/main") == nil)
         }
